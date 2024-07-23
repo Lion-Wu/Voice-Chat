@@ -8,17 +8,33 @@
 
 /* Begin PBXBuildFile section */
 		B329D65B2B394979000A17C9 /* Voice_ChatApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = B329D65A2B394979000A17C9 /* Voice_ChatApp.swift */; };
-		B329D65D2B394979000A17C9 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B329D65C2B394979000A17C9 /* ContentView.swift */; };
+		B329D65D2B394979000A17C9 /* HomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B329D65C2B394979000A17C9 /* HomeView.swift */; };
 		B329D65F2B39497A000A17C9 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = B329D65E2B39497A000A17C9 /* Assets.xcassets */; };
 		B329D6622B39497A000A17C9 /* Preview Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = B329D6612B39497A000A17C9 /* Preview Assets.xcassets */; };
+		B4A629592B59617A006125B5 /* ChatViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B4A629582B59617A006125B5 /* ChatViewModel.swift */; };
+		B4DE322C2B48175000054D17 /* VoiceView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B4DE322B2B48175000054D17 /* VoiceView.swift */; };
+		B4E916D32B4BD83D00E49A6B /* ChatView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B4E916D22B4BD83D00E49A6B /* ChatView.swift */; };
+		B4E916D52B4BDBD900E49A6B /* ChatModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B4E916D42B4BDBD900E49A6B /* ChatModel.swift */; };
+		B4E916DB2B4BF02B00E49A6B /* VoiceModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B4E916DA2B4BF02B00E49A6B /* VoiceModel.swift */; };
+		B4E916DF2B4BF0E500E49A6B /* VoiceViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B4E916DE2B4BF0E500E49A6B /* VoiceViewModel.swift */; };
+		FD0C3AB22C9F38F2009095A1 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD0C3AB12C9F38F2009095A1 /* SettingsView.swift */; };
+		FD0C3AC72C9F54A9009095A1 /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD0C3AC62C9F54A9009095A1 /* Models.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
 		B329D6572B394979000A17C9 /* Voice Chat.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Voice Chat.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		B329D65A2B394979000A17C9 /* Voice_ChatApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Voice_ChatApp.swift; sourceTree = "<group>"; };
-		B329D65C2B394979000A17C9 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+		B329D65C2B394979000A17C9 /* HomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeView.swift; sourceTree = "<group>"; };
 		B329D65E2B39497A000A17C9 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		B329D6612B39497A000A17C9 /* Preview Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = "Preview Assets.xcassets"; sourceTree = "<group>"; };
+		B4A629582B59617A006125B5 /* ChatViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatViewModel.swift; sourceTree = "<group>"; };
+		B4DE322B2B48175000054D17 /* VoiceView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceView.swift; sourceTree = "<group>"; };
+		B4E916D22B4BD83D00E49A6B /* ChatView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatView.swift; sourceTree = "<group>"; };
+		B4E916D42B4BDBD900E49A6B /* ChatModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatModel.swift; sourceTree = "<group>"; };
+		B4E916DA2B4BF02B00E49A6B /* VoiceModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceModel.swift; sourceTree = "<group>"; };
+		B4E916DE2B4BF0E500E49A6B /* VoiceViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceViewModel.swift; sourceTree = "<group>"; };
+		FD0C3AB12C9F38F2009095A1 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
+		FD0C3AC62C9F54A9009095A1 /* Models.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Models.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -52,7 +68,10 @@
 			isa = PBXGroup;
 			children = (
 				B329D65A2B394979000A17C9 /* Voice_ChatApp.swift */,
-				B329D65C2B394979000A17C9 /* ContentView.swift */,
+				B329D65C2B394979000A17C9 /* HomeView.swift */,
+				B4E916D62B4BE0BD00E49A6B /* Views */,
+				B4E916DD2B4BF04400E49A6B /* ViewModel */,
+				B4E916D72B4BE1C300E49A6B /* Model */,
 				B329D65E2B39497A000A17C9 /* Assets.xcassets */,
 				B329D6602B39497A000A17C9 /* Preview Content */,
 			);
@@ -65,6 +84,35 @@
 				B329D6612B39497A000A17C9 /* Preview Assets.xcassets */,
 			);
 			path = "Preview Content";
+			sourceTree = "<group>";
+		};
+		B4E916D62B4BE0BD00E49A6B /* Views */ = {
+			isa = PBXGroup;
+			children = (
+				B4DE322B2B48175000054D17 /* VoiceView.swift */,
+				FD0C3AB12C9F38F2009095A1 /* SettingsView.swift */,
+				B4E916D22B4BD83D00E49A6B /* ChatView.swift */,
+			);
+			path = Views;
+			sourceTree = "<group>";
+		};
+		B4E916D72B4BE1C300E49A6B /* Model */ = {
+			isa = PBXGroup;
+			children = (
+				B4E916D42B4BDBD900E49A6B /* ChatModel.swift */,
+				B4E916DA2B4BF02B00E49A6B /* VoiceModel.swift */,
+				FD0C3AC62C9F54A9009095A1 /* Models.swift */,
+			);
+			path = Model;
+			sourceTree = "<group>";
+		};
+		B4E916DD2B4BF04400E49A6B /* ViewModel */ = {
+			isa = PBXGroup;
+			children = (
+				B4A629582B59617A006125B5 /* ChatViewModel.swift */,
+				B4E916DE2B4BF0E500E49A6B /* VoiceViewModel.swift */,
+			);
+			path = ViewModel;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -104,11 +152,12 @@
 			};
 			buildConfigurationList = B329D6522B394979000A17C9 /* Build configuration list for PBXProject "Voice Chat" */;
 			compatibilityVersion = "Xcode 14.0";
-			developmentRegion = en;
+			developmentRegion = "zh-Hans";
 			hasScannedForEncodings = 0;
 			knownRegions = (
 				en,
 				Base,
+				"zh-Hans",
 			);
 			mainGroup = B329D64E2B394979000A17C9;
 			productRefGroup = B329D6582B394979000A17C9 /* Products */;
@@ -137,8 +186,16 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				B329D65D2B394979000A17C9 /* ContentView.swift in Sources */,
+				B329D65D2B394979000A17C9 /* HomeView.swift in Sources */,
+				B4E916DB2B4BF02B00E49A6B /* VoiceModel.swift in Sources */,
+				B4E916D52B4BDBD900E49A6B /* ChatModel.swift in Sources */,
+				FD0C3AB22C9F38F2009095A1 /* SettingsView.swift in Sources */,
+				B4E916D32B4BD83D00E49A6B /* ChatView.swift in Sources */,
+				B4A629592B59617A006125B5 /* ChatViewModel.swift in Sources */,
 				B329D65B2B394979000A17C9 /* Voice_ChatApp.swift in Sources */,
+				B4E916DF2B4BF0E500E49A6B /* VoiceViewModel.swift in Sources */,
+				B4DE322C2B48175000054D17 /* VoiceView.swift in Sources */,
+				FD0C3AC72C9F54A9009095A1 /* Models.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -275,18 +332,25 @@
 				DEVELOPMENT_TEAM = XTXQFBJ88M;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				IPHONEOS_DEPLOYMENT_TARGET = 17.6;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = "com.Wu-Zichen.Voice-Chat";
+				PRODUCT_BUNDLE_IDENTIFIER = "com.Lion-Wu.Voice-Chat";
 				PRODUCT_NAME = "$(TARGET_NAME)";
+				REGISTER_APP_GROUPS = NO;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SUPPORTS_MACCATALYST = NO;
+				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = YES;
+				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = YES;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
@@ -304,18 +368,25 @@
 				DEVELOPMENT_TEAM = XTXQFBJ88M;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				IPHONEOS_DEPLOYMENT_TARGET = 17.6;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = "com.Wu-Zichen.Voice-Chat";
+				PRODUCT_BUNDLE_IDENTIFIER = "com.Lion-Wu.Voice-Chat";
 				PRODUCT_NAME = "$(TARGET_NAME)";
+				REGISTER_APP_GROUPS = NO;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SUPPORTS_MACCATALYST = NO;
+				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = YES;
+				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = YES;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
