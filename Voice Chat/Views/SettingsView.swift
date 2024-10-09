@@ -96,7 +96,6 @@ struct SettingsView: View {
                     self.errorMessage = AlertError(message: "请求失败: \(error.localizedDescription)")
                 } else if let data = data, let modelList = try? JSONDecoder().decode(ModelListResponse.self, from: data) {
                     self.availableModels = modelList.data.map { $0.id }
-                    // 如果当前选择的模型不在新的列表中，重置为第一个模型
                     if !self.availableModels.contains(self.settingsManager.chatSettings.selectedModel) {
                         self.settingsManager.chatSettings.selectedModel = self.availableModels.first ?? ""
                         self.settingsManager.saveChatSettings()
@@ -110,5 +109,5 @@ struct SettingsView: View {
 }
 
 #Preview {
-    VoiceView()
+    SettingsView(isPresented: .constant(true))
 }

@@ -188,6 +188,12 @@ class GlobalAudioManager: NSObject, ObservableObject {
         guard isFastForwardRewindEnabled else { return }
         guard let player = audioPlayer else { return }
         let maxTime = player.duration - 0.1  // Subtract a small value to avoid exceeding duration
+
+        if player.currentTime >= maxTime {
+            // Already at or near the end, do nothing
+            return
+        }
+
         let newTime = min(player.currentTime + 15, maxTime)
         player.currentTime = newTime
         currentTime = newTime
@@ -236,13 +242,14 @@ class GlobalAudioManager: NSObject, ObservableObject {
         audioTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true, block: { [weak self] timer in
             guard let self = self else { return }
             if let player = self.audioPlayer {
-                self.currentTime = min(player.currentTime, player.duration - 0.1)
+                let maxTime = player.duration - 0.1
+                self.currentTime = min(player.currentTime, maxTime)
                 if player.duration > 0 {
                     self.duration = player.duration
                 }
 
                 // Automatically pause if playback reaches the end
-                if player.currentTime >= player.duration - 0.1 {
+                if player.currentTime >= maxTime {
                     player.pause()
                     self.isAudioPlaying = false
                 }
@@ -264,7 +271,8 @@ extension GlobalAudioManager: AVAudioPlayerDelegate {
             // Playback finished naturally
             isAudioPlaying = false
             stopAudioTimer()
-            currentTime = player.duration - 0.1  // Ensure currentTime shows the end
+            player.currentTime = 0  // Reset currentTime after playback finishes
+            currentTime = 0
 
             // Enable fast-forward/rewind after first playback completes
             isFastForwardRewindEnabled = true

@@ -9,9 +9,12 @@ import SwiftUI
 
 @main
 struct Voice_ChatApp: App {
+    @StateObject private var audioManager = GlobalAudioManager.shared
+
     var body: some Scene {
         WindowGroup {
             HomeView()
+                .environmentObject(audioManager)  // 注入 GlobalAudioManager
         }
     }
 }

@@ -9,17 +9,36 @@ import SwiftUI
 
 struct VoiceView: View {
     @StateObject private var viewModel = VoiceViewModel()
+    @EnvironmentObject var audioManager: GlobalAudioManager
 
     var body: some View {
-        VStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 20) {
-                    TextContentEditor(text: $viewModel.text)
-                    VoiceActionButton(action: viewModel.getVoice)
-                    AudioControlPanel(isAudioPlaying: $viewModel.isAudioPlaying, action: viewModel.togglePlayback)
-                    StatusSection(loading: viewModel.isLoading, errorMessage: viewModel.errorMessage, connectionStatus: viewModel.connectionStatus)
+        ZStack(alignment: .top) {
+            VStack {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 20) {
+                        TextContentEditor(text: $viewModel.text)
+                        VoiceActionButton(action: {
+                            audioManager.getVoice(for: viewModel.text)
+                        })
+                        StatusSection(
+                            loading: audioManager.isLoading,
+                            errorMessage: viewModel.errorMessage,
+                            connectionStatus: viewModel.connectionStatus
+                        )
+                    }
+                    .padding(.top, audioManager.isShowingAudioPlayer ? 150 : 20)
+                    .animation(.easeInOut, value: audioManager.isShowingAudioPlayer)
                 }
-                .padding()
+            }
+            .padding()
+            if audioManager.isShowingAudioPlayer {
+                VStack {
+                    AudioPlayerView()
+                        .environmentObject(audioManager)
+                    Spacer()
+                }
+                .transition(.move(edge: .top))
+                .animation(.easeInOut, value: audioManager.isShowingAudioPlayer)
             }
         }
         .navigationBarTitle("语音生成器", displayMode: .inline)
@@ -27,77 +46,68 @@ struct VoiceView: View {
             viewModel.setupAudioSession()
         }
     }
-}
 
-// MARK: - UI Components
+    // MARK: - UI Components
 
-struct TextContentEditor: View {
-    @Binding var text: String
+    struct TextContentEditor: View {
+        @Binding var text: String
 
-    var body: some View {
-        VStack(alignment: .leading) {
-            Text("内容设置").font(.headline)
-            TextEditor(text: $text)
-                .frame(minHeight: 100)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 5)
-                        .stroke(Color.gray, lineWidth: 1)
-                )
-                .padding(.bottom)
+        var body: some View {
+            VStack(alignment: .leading) {
+                Text("内容设置")
+                    .font(.headline)
+                TextEditor(text: $text)
+                    .frame(minHeight: 100)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 5)
+                            .stroke(Color.gray, lineWidth: 1)
+                    )
+                    .padding(.bottom)
+            }
         }
     }
-}
 
-struct VoiceActionButton: View {
-    var action: () -> Void
+    struct VoiceActionButton: View {
+        var action: () -> Void
 
-    var body: some View {
-        Button("获取语音", action: action)
-            .padding()
-            .frame(maxWidth: .infinity)
-            .background(Color.orange)
-            .foregroundColor(.white)
-            .cornerRadius(10)
-    }
-}
-
-struct AudioControlPanel: View {
-    @Binding var isAudioPlaying: Bool
-    var action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            HStack {
-                Image(systemName: isAudioPlaying ? "pause.circle.fill" : "play.circle.fill")
-                Text(isAudioPlaying ? "暂停" : "播放")
+        var body: some View {
+            Button(action: action) {
+                Text("获取语音")
+                    .font(.headline)
+                    .foregroundColor(.white)
+                    .padding()
+                    .frame(maxWidth: .infinity)
+                    .background(Color.orange)
+                    .cornerRadius(10)
             }
-            .frame(maxWidth: .infinity)
         }
-        .padding()
-        .background(Color.blue)
-        .foregroundColor(.white)
-        .cornerRadius(10)
     }
-}
 
-struct StatusSection: View {
-    let loading: Bool
-    let errorMessage: String?
-    let connectionStatus: String
+    struct StatusSection: View {
+        let loading: Bool
+        let errorMessage: String?
+        let connectionStatus: String
 
-    var body: some View {
-        VStack {
-            if loading {
-                ProgressView("加载中...")
+        var body: some View {
+            VStack(alignment: .leading, spacing: 10) {
+                if loading {
+                    HStack {
+                        ProgressView()
+                        Text("正在加载...")
+                    }
+                }
+                if let errorMessage = errorMessage {
+                    Text("错误: \(errorMessage)")
+                        .foregroundColor(.red)
+                }
+                Text(connectionStatus)
+                    .foregroundColor(.blue)
             }
-            if let errorMessage = errorMessage {
-                Text("错误: \(errorMessage)").foregroundColor(.red)
-            }
-            Text(connectionStatus).foregroundColor(.blue)
         }
     }
 }
 
 #Preview {
     VoiceView()
+        .environmentObject(GlobalAudioManager.shared)
 }

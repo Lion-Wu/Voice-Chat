@@ -15,10 +15,13 @@
 		B4DE322C2B48175000054D17 /* VoiceView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B4DE322B2B48175000054D17 /* VoiceView.swift */; };
 		B4E916D32B4BD83D00E49A6B /* ChatView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B4E916D22B4BD83D00E49A6B /* ChatView.swift */; };
 		B4E916D52B4BDBD900E49A6B /* ChatModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B4E916D42B4BDBD900E49A6B /* ChatModel.swift */; };
-		B4E916DB2B4BF02B00E49A6B /* VoiceModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B4E916DA2B4BF02B00E49A6B /* VoiceModel.swift */; };
 		B4E916DF2B4BF0E500E49A6B /* VoiceViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B4E916DE2B4BF0E500E49A6B /* VoiceViewModel.swift */; };
 		FD0C3AB22C9F38F2009095A1 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD0C3AB12C9F38F2009095A1 /* SettingsView.swift */; };
 		FD0C3AC72C9F54A9009095A1 /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD0C3AC62C9F54A9009095A1 /* Models.swift */; };
+		FD40D5722CA871120064E732 /* AudioPlayerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD40D5712CA871120064E732 /* AudioPlayerView.swift */; };
+		FD40D5742CA875CC0064E732 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD40D5732CA875CC0064E732 /* ContentView.swift */; };
+		FD40D5762CA876010064E732 /* GlobalAudioManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD40D5752CA876010064E732 /* GlobalAudioManager.swift */; };
+		FD6E97252CA92C840086C234 /* SettingsModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD6E97242CA92C840086C234 /* SettingsModel.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -31,10 +34,13 @@
 		B4DE322B2B48175000054D17 /* VoiceView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceView.swift; sourceTree = "<group>"; };
 		B4E916D22B4BD83D00E49A6B /* ChatView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatView.swift; sourceTree = "<group>"; };
 		B4E916D42B4BDBD900E49A6B /* ChatModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatModel.swift; sourceTree = "<group>"; };
-		B4E916DA2B4BF02B00E49A6B /* VoiceModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceModel.swift; sourceTree = "<group>"; };
 		B4E916DE2B4BF0E500E49A6B /* VoiceViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceViewModel.swift; sourceTree = "<group>"; };
 		FD0C3AB12C9F38F2009095A1 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		FD0C3AC62C9F54A9009095A1 /* Models.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Models.swift; sourceTree = "<group>"; };
+		FD40D5712CA871120064E732 /* AudioPlayerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioPlayerView.swift; sourceTree = "<group>"; };
+		FD40D5732CA875CC0064E732 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+		FD40D5752CA876010064E732 /* GlobalAudioManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GlobalAudioManager.swift; sourceTree = "<group>"; };
+		FD6E97242CA92C840086C234 /* SettingsModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsModel.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -68,6 +74,7 @@
 			isa = PBXGroup;
 			children = (
 				B329D65A2B394979000A17C9 /* Voice_ChatApp.swift */,
+				FD40D5732CA875CC0064E732 /* ContentView.swift */,
 				B329D65C2B394979000A17C9 /* HomeView.swift */,
 				B4E916D62B4BE0BD00E49A6B /* Views */,
 				B4E916DD2B4BF04400E49A6B /* ViewModel */,
@@ -92,6 +99,7 @@
 				B4DE322B2B48175000054D17 /* VoiceView.swift */,
 				FD0C3AB12C9F38F2009095A1 /* SettingsView.swift */,
 				B4E916D22B4BD83D00E49A6B /* ChatView.swift */,
+				FD40D5712CA871120064E732 /* AudioPlayerView.swift */,
 			);
 			path = Views;
 			sourceTree = "<group>";
@@ -100,7 +108,8 @@
 			isa = PBXGroup;
 			children = (
 				B4E916D42B4BDBD900E49A6B /* ChatModel.swift */,
-				B4E916DA2B4BF02B00E49A6B /* VoiceModel.swift */,
+				FD6E97242CA92C840086C234 /* SettingsModel.swift */,
+				FD40D5752CA876010064E732 /* GlobalAudioManager.swift */,
 				FD0C3AC62C9F54A9009095A1 /* Models.swift */,
 			);
 			path = Model;
@@ -160,6 +169,8 @@
 				"zh-Hans",
 			);
 			mainGroup = B329D64E2B394979000A17C9;
+			packageReferences = (
+			);
 			productRefGroup = B329D6582B394979000A17C9 /* Products */;
 			projectDirPath = "";
 			projectRoot = "";
@@ -187,13 +198,16 @@
 			buildActionMask = 2147483647;
 			files = (
 				B329D65D2B394979000A17C9 /* HomeView.swift in Sources */,
-				B4E916DB2B4BF02B00E49A6B /* VoiceModel.swift in Sources */,
+				FD40D5722CA871120064E732 /* AudioPlayerView.swift in Sources */,
+				FD40D5762CA876010064E732 /* GlobalAudioManager.swift in Sources */,
 				B4E916D52B4BDBD900E49A6B /* ChatModel.swift in Sources */,
 				FD0C3AB22C9F38F2009095A1 /* SettingsView.swift in Sources */,
+				FD6E97252CA92C840086C234 /* SettingsModel.swift in Sources */,
 				B4E916D32B4BD83D00E49A6B /* ChatView.swift in Sources */,
 				B4A629592B59617A006125B5 /* ChatViewModel.swift in Sources */,
 				B329D65B2B394979000A17C9 /* Voice_ChatApp.swift in Sources */,
 				B4E916DF2B4BF0E500E49A6B /* VoiceViewModel.swift in Sources */,
+				FD40D5742CA875CC0064E732 /* ContentView.swift in Sources */,
 				B4DE322C2B48175000054D17 /* VoiceView.swift in Sources */,
 				FD0C3AC72C9F54A9009095A1 /* Models.swift in Sources */,
 			);
