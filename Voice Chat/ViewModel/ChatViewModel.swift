@@ -30,7 +30,7 @@ class ChatViewModel: ObservableObject {
         chatService.onError = { [weak self] error in
             DispatchQueue.main.async {
                 self?.isLoading = false
-                // 处理错误信息
+                // Handle error
             }
         }
     }

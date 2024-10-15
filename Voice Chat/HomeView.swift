@@ -39,12 +39,16 @@ struct HomeView: View {
             }
             .padding()
             .navigationTitle("主页")
-            .navigationBarItems(trailing: Button(action: {
-                showingSettings.toggle()
-            }) {
-                Image(systemName: "gear")
-                    .imageScale(.large)
-            })
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button(action: {
+                        showingSettings.toggle()
+                    }) {
+                        Image(systemName: "gear")
+                            .imageScale(.large)
+                    }
+                }
+            }
             .sheet(isPresented: $showingSettings) {
                 SettingsView(isPresented: $showingSettings)
             }

@@ -22,7 +22,6 @@ class GlobalAudioManager: NSObject, ObservableObject {
 
     private var audioPlayer: AVAudioPlayer?
     private var audioTimer: Timer?
-    private var settingsManager = SettingsManager.shared
     private var session: URLSession?
     private var task: URLSessionDataTask?
 
@@ -57,23 +56,27 @@ class GlobalAudioManager: NSObject, ObservableObject {
 
     // Construct TTS URL
     private func constructTTSURL() -> URL? {
-        let serverSettings = settingsManager.serverSettings
-        let urlString = "http://\(serverSettings.serverIP):\(serverSettings.port)/tts"
+        // Fetch the latest server settings
+        let serverSettings = SettingsManager.shared.serverSettings
+        let urlString = "\(serverSettings.serverAddress)/tts"
         return URL(string: urlString)
     }
 
     // Fetch audio streaming via URLSession
     private func fetchAudioStreaming(from url: URL, text: String) {
+        // Fetch the latest settings
+        let settingsManager = SettingsManager.shared
         let modelSettings = settingsManager.modelSettings
+        let serverSettings = settingsManager.serverSettings
 
         // Prepare parameters
         let parameters: [String: Any] = [
             "text": text,
-            "text_lang": modelSettings.language,
-            "ref_audio_path": "Reference Audio/这种药水的易容效果确实很厉害，即便是美露莘也无法辨别出来。.wav",
-            "prompt_text": "这种药水的易容效果确实很厉害，即便是美露莘也无法辨别出来。",
-            "prompt_lang": "zh",
-            "text_split_method": "cut1",
+            "text_lang": serverSettings.textLang,
+            "ref_audio_path": serverSettings.refAudioPath,
+            "prompt_text": serverSettings.promptText,
+            "prompt_lang": serverSettings.promptLang,
+            "text_split_method": modelSettings.autoSplit,
             "batch_size": 4,
             "streaming_mode": true,
             "media_type": mediaType
@@ -82,6 +85,8 @@ class GlobalAudioManager: NSObject, ObservableObject {
         // Convert parameters to JSON data
         guard let jsonData = try? JSONSerialization.data(withJSONObject: parameters, options: []) else {
             print("Unable to serialize JSON")
+            isLoading = false
+            isShowingAudioPlayer = false
             return
         }
 
@@ -159,7 +164,9 @@ class GlobalAudioManager: NSObject, ObservableObject {
 
         // Start playback when enough data is available
         if !isFirstPlayStarted && ((try? audioFileHandle?.seekToEnd()) ?? 0) > 1 {
-            startPlayback()  // Start playback without delay
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                self.startPlayback()
+            }
         }
     }
 

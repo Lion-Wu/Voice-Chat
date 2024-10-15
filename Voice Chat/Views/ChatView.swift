@@ -7,16 +7,81 @@
 
 import SwiftUI
 
+struct ScrollOffsetPreferenceKey: PreferenceKey {
+    typealias Value = CGFloat
+    static var defaultValue: CGFloat = 0
+
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value += nextValue()
+    }
+}
+
+struct DetectableScrollView<Content: View>: View {
+    let axes: Axis.Set
+    let showsIndicators: Bool
+    let content: Content
+    let onScroll: () -> Void
+    
+    // State variable to track user scrolling
+    @State private var isUserScrolling: Bool = false
+
+    init(axes: Axis.Set = .vertical,
+         showsIndicators: Bool = true,
+         onScroll: @escaping () -> Void,
+         @ViewBuilder content: () -> Content) {
+        self.axes = axes
+        self.showsIndicators = showsIndicators
+        self.content = content()
+        self.onScroll = onScroll
+    }
+
+    var body: some View {
+        ScrollView(axes, showsIndicators: showsIndicators) {
+            GeometryReader { geometry in
+                Color.clear
+                    .preference(key: ScrollOffsetPreferenceKey.self, value: geometry.frame(in: .global).minY)
+            }
+            .frame(height: 0)
+            content
+        }
+        // Use simultaneousGesture to allow both ScrollView and DragGesture to recognize gestures
+        .simultaneousGesture(
+            DragGesture()
+                .onChanged { _ in
+                    // User started scrolling
+                    if !isUserScrolling {
+                        isUserScrolling = true
+                        onScroll()
+                    }
+                }
+                .onEnded { _ in
+                    // User ended scrolling after a short delay
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                        isUserScrolling = false
+                    }
+                }
+        )
+        .onPreferenceChange(ScrollOffsetPreferenceKey.self) { _ in
+            // No longer need to check isUserScrolling here
+            // The onScroll is now called directly from the DragGesture
+        }
+    }
+}
+
 struct ChatView: View {
     @StateObject private var viewModel = ChatViewModel()
     @EnvironmentObject var audioManager: GlobalAudioManager
     @State private var isScrolling = false
     @State private var isNearBottom = true
 
+    @FocusState private var isInputFocused: Bool
+
     var body: some View {
         ZStack(alignment: .top) {
             VStack {
-                ScrollView {
+                DetectableScrollView(onScroll: {
+                    isInputFocused = false
+                }) {
                     ScrollViewReader { scrollView in
                         LazyVStack(spacing: 10) {
                             ForEach(viewModel.messages) { message in
@@ -34,9 +99,9 @@ struct ChatView: View {
                             }
                         }
                         .padding()
-                        .onChange(of: viewModel.messages) { _ in
+                        .onChange(of: viewModel.messages) { newValue, _ in
                             if isNearBottom && !isScrolling {
-                                scrollToBottom(scrollView: scrollView, newMessages: viewModel.messages)
+                                scrollToBottom(scrollView: scrollView, newMessages: newValue)
                             }
                         }
                     }
@@ -49,6 +114,7 @@ struct ChatView: View {
 
                 HStack {
                     TextEditor(text: $viewModel.userMessage)
+                        .focused($isInputFocused)
                         .frame(height: 40)
                         .padding(.horizontal, 10)
                         .overlay(
@@ -56,15 +122,10 @@ struct ChatView: View {
                                 .stroke(Color.gray, lineWidth: 1)
                         )
                         .cornerRadius(8)
-                        .onChange(of: viewModel.userMessage) { newValue in
-                            if newValue.last == "\n" {
-                                viewModel.userMessage.removeLast()
-                                viewModel.sendMessage()
-                            }
-                        }
 
                     Button(action: {
                         viewModel.sendMessage()
+                        // Removed: isInputFocused = false to keep the keyboard visible
                     }) {
                         Image(systemName: "arrow.up.circle.fill")
                             .imageScale(.large)

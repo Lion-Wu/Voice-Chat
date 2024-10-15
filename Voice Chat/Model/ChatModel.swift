@@ -7,7 +7,7 @@
 
 import Foundation
 
-// 数据模型
+// Data models
 struct ChatCompletionChunk: Codable {
     var id: String?
     var object: String?
@@ -27,7 +27,7 @@ struct Delta: Codable {
     var content: String?
 }
 
-// 表示聊天消息
+// Chat message representation
 struct ChatMessage: Identifiable, Equatable {
     var id = UUID()
     var content: String
@@ -35,11 +35,10 @@ struct ChatMessage: Identifiable, Equatable {
     var isActive: Bool = true
 }
 
-// ChatService用于处理聊天相关的API调用
+// ChatService handles chat-related API calls
 class ChatService: NSObject, URLSessionDataDelegate {
     private var session: URLSession?
     private var dataTask: URLSessionDataTask?
-    private var settingsManager = SettingsManager.shared
 
     var onMessageReceived: ((ChatMessage) -> Void)?
     var onError: ((Error) -> Void)?
@@ -53,7 +52,10 @@ class ChatService: NSObject, URLSessionDataDelegate {
     func fetchStreamedData(messages: [ChatMessage]) {
         dataTask?.cancel()
 
-        guard let apiURL = URL(string: "\(settingsManager.chatSettings.apiURL)/chat/completions") else {
+        // Fetch the latest settings
+        let settingsManager = SettingsManager.shared
+        let apiURLString = "\(settingsManager.chatSettings.apiURL)/v1/chat/completions"
+        guard let apiURL = URL(string: apiURLString) else {
             onError?(ChatNetworkError.invalidURL)
             return
         }
@@ -83,10 +85,14 @@ class ChatService: NSObject, URLSessionDataDelegate {
 
     private func transformedMessagesForRequest(messages: [ChatMessage]) -> [[String: String]] {
         return messages.map { message in
-            ["role": message.isUser ? "user" : "assistant", "content": message.content]
+            [
+                "role": message.isUser ? "user" : "assistant",
+                "content": message.content
+            ]
         }
     }
 
+    // URLSessionDataDelegate method
     func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
         let text = String(decoding: data, as: UTF8.self)
         text.enumerateLines { (line, _) in

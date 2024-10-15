@@ -49,7 +49,6 @@ struct AudioPlayerView: View {
                                 .font(.title)
                         }
                     }
-                    // Display current playback time to the right of buttons
                     withAnimation {
                         Text(formatTime(audioManager.currentTime))
                             .font(.system(.body, design: .rounded))

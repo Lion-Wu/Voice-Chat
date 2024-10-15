@@ -8,18 +8,21 @@
 import Foundation
 
 struct ServerSettings: Codable {
-    var serverIP = "192.168.1.4"
-    var port = "5000"
+    var serverAddress = "http://127.0.0.1:9880"
+    var textLang = "auto"
+    var refAudioPath = "Reference Audio/这种药水的易容效果确实很厉害，即便是美露莘也无法辨别出来。.wav"
+    var promptText = "这种药水的易容效果确实很厉害，即便是美露莘也无法辨别出来。"
+    var promptLang = "zh"
 }
 
 struct ModelSettings: Codable {
     var modelId = "1"
     var language = "auto"
-    var autoSplit = "凑四句一切"
+    var autoSplit = "cut1"
 }
 
 struct ChatSettings: Codable {
-    var apiURL = "http://localhost:11434/v1"
+    var apiURL = "http://localhost:11434"
     var selectedModel = ""
 }
 
@@ -36,9 +39,12 @@ class SettingsManager: ObservableObject {
         self.chatSettings = Self.loadChatSettings()
     }
 
-    func updateServerSettings(serverIP: String, port: String) {
-        serverSettings.serverIP = serverIP
-        serverSettings.port = port
+    func updateServerSettings(serverAddress: String, textLang: String, refAudioPath: String, promptText: String, promptLang: String) {
+        serverSettings.serverAddress = serverAddress
+        serverSettings.textLang = textLang
+        serverSettings.refAudioPath = refAudioPath
+        serverSettings.promptText = promptText
+        serverSettings.promptLang = promptLang
         saveServerSettings()
     }
 
@@ -49,8 +55,9 @@ class SettingsManager: ObservableObject {
         saveModelSettings()
     }
 
-    func updateChatSettings(apiURL: String) {
+    func updateChatSettings(apiURL: String, selectedModel: String) {
         chatSettings.apiURL = apiURL
+        chatSettings.selectedModel = selectedModel
         saveChatSettings()
     }
 
@@ -67,7 +74,9 @@ class SettingsManager: ObservableObject {
     }
 
     private static func save<T: Codable>(settings: T, forKey key: String) {
-        UserDefaults.standard.set(try? PropertyListEncoder().encode(settings), forKey: key)
+        if let data = try? PropertyListEncoder().encode(settings) {
+            UserDefaults.standard.set(data, forKey: key)
+        }
     }
 
     private static func loadServerSettings() -> ServerSettings {
@@ -83,7 +92,7 @@ class SettingsManager: ObservableObject {
     }
 
     private static func load<T: Codable>(forKey key: String) -> T? {
-        if let data = UserDefaults.standard.value(forKey: key) as? Data,
+        if let data = UserDefaults.standard.data(forKey: key),
            let settings = try? PropertyListDecoder().decode(T.self, from: data) {
             return settings
         }

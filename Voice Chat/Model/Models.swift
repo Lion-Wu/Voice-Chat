@@ -7,7 +7,7 @@
 
 import Foundation
 
-// 用于解析模型列表的响应
+// For parsing the model list response
 struct ModelListResponse: Codable {
     let object: String
     let data: [ModelInfo]

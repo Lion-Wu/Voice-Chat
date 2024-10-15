@@ -18,8 +18,8 @@ struct ContentView: View {
                     AudioPlayerView()
                     Spacer()
                 }
-                .transition(.move(edge: .top)) // 添加过渡动画
-                .animation(.easeInOut, value: audioManager.isShowingAudioPlayer) // 添加动画
+                .transition(.move(edge: .top)) // Add transition animation
+                .animation(.easeInOut, value: audioManager.isShowingAudioPlayer)
                 .zIndex(1)
             }
         }

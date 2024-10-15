@@ -14,7 +14,7 @@ struct Voice_ChatApp: App {
     var body: some Scene {
         WindowGroup {
             HomeView()
-                .environmentObject(audioManager)  // 注入 GlobalAudioManager
+                .environmentObject(audioManager)  // Inject GlobalAudioManager
         }
     }
 }
