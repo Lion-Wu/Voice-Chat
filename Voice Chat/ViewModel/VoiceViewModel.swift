@@ -9,7 +9,7 @@ import Foundation
 import AVFoundation
 
 class VoiceViewModel: ObservableObject {
-    @Published var text = "你好啊"
+    @Published var text = "先帝创业未半而中道崩殂，今天下三分，益州疲弊，此诚危急存亡之秋也。"
     @Published var connectionStatus = "等待连接"
     @Published var errorMessage: String?
     @Published var isLoading = false

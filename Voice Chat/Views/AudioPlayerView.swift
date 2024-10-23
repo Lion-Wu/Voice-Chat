@@ -27,28 +27,31 @@ struct AudioPlayerView: View {
                 .padding()
             } else {
                 HStack {
-                    if audioManager.isFastForwardRewindEnabled {
-                        Button(action: {
-                            audioManager.backward15Seconds()
-                        }) {
-                            Image(systemName: "gobackward.15")
-                                .font(.title)
-                        }
+                    // Always show Rewind Button
+                    Button(action: {
+                        audioManager.backward15Seconds()
+                    }) {
+                        Image(systemName: "gobackward.15")
+                            .font(.title)
                     }
+
+                    // Play/Pause Button
                     Button(action: {
                         audioManager.togglePlayback()
                     }) {
                         Image(systemName: audioManager.isAudioPlaying ? "pause.circle.fill" : "play.circle.fill")
                             .font(.largeTitle)
                     }
-                    if audioManager.isFastForwardRewindEnabled {
-                        Button(action: {
-                            audioManager.forward15Seconds()
-                        }) {
-                            Image(systemName: "goforward.15")
-                                .font(.title)
-                        }
+
+                    // Always show Fast-Forward Button
+                    Button(action: {
+                        audioManager.forward15Seconds()
+                    }) {
+                        Image(systemName: "goforward.15")
+                            .font(.title)
                     }
+
+                    // Current Time Display
                     withAnimation {
                         Text(formatTime(audioManager.currentTime))
                             .font(.system(.body, design: .rounded))
@@ -59,7 +62,10 @@ struct AudioPlayerView: View {
                                 t.animation = .default
                             }
                     }
+
                     Spacer()
+
+                    // Close Button
                     Button(action: {
                         audioManager.closeAudioPlayer()
                     }) {

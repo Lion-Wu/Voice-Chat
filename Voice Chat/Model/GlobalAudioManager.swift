@@ -9,6 +9,7 @@
 import Foundation
 import AVFoundation
 import UIKit
+import Combine
 
 class GlobalAudioManager: NSObject, ObservableObject {
     static let shared = GlobalAudioManager()
@@ -18,17 +19,9 @@ class GlobalAudioManager: NSObject, ObservableObject {
     @Published var currentTime: TimeInterval = 0
     @Published var duration: TimeInterval = 0
     @Published var isLoading = false
-    @Published var isFastForwardRewindEnabled = false  // Controls visibility of fast-forward/rewind buttons
 
     private var audioPlayer: AVAudioPlayer?
     private var audioTimer: Timer?
-    private var session: URLSession?
-    private var task: URLSessionDataTask?
-
-    private var tempAudioURL: URL?
-    private var audioFileHandle: FileHandle?
-    private var isRequestCompleted = false
-    private var isFirstPlayStarted = false
 
     var mediaType: String = "aac" // Default to AAC format
 
@@ -38,9 +31,6 @@ class GlobalAudioManager: NSObject, ObservableObject {
 
         isLoading = true
         isShowingAudioPlayer = true
-        isRequestCompleted = false
-        isFastForwardRewindEnabled = false
-        isFirstPlayStarted = false
 
         // Build TTS request URL
         guard let url = constructTTSURL() else {
@@ -50,8 +40,8 @@ class GlobalAudioManager: NSObject, ObservableObject {
             return
         }
 
-        // Fetch audio data via streaming
-        fetchAudioStreaming(from: url, text: text)
+        // Fetch audio data via standard POST request
+        fetchAudio(from: url, text: text)
     }
 
     // Construct TTS URL
@@ -62,14 +52,14 @@ class GlobalAudioManager: NSObject, ObservableObject {
         return URL(string: urlString)
     }
 
-    // Fetch audio streaming via URLSession
-    private func fetchAudioStreaming(from url: URL, text: String) {
+    // Fetch audio via standard POST request
+    private func fetchAudio(from url: URL, text: String) {
         // Fetch the latest settings
         let settingsManager = SettingsManager.shared
         let modelSettings = settingsManager.modelSettings
         let serverSettings = settingsManager.serverSettings
 
-        // Prepare parameters
+        // Prepare parameters with streaming_mode set to false
         let parameters: [String: Any] = [
             "text": text,
             "text_lang": serverSettings.textLang,
@@ -78,7 +68,7 @@ class GlobalAudioManager: NSObject, ObservableObject {
             "prompt_lang": serverSettings.promptLang,
             "text_split_method": modelSettings.autoSplit,
             "batch_size": 4,
-            "streaming_mode": true,
+            "streaming_mode": false,  // Disable streaming
             "media_type": mediaType
         ]
 
@@ -95,78 +85,65 @@ class GlobalAudioManager: NSObject, ObservableObject {
         request.addValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = jsonData
 
-        // Create URLSession with delegate
+        // Create URLSession without delegate
         let config = URLSessionConfiguration.default
-        session = URLSession(configuration: config, delegate: self, delegateQueue: .main)
+        let session = URLSession(configuration: config)
 
-        // Create dataTask
-        task = session?.dataTask(with: request)
-        task?.resume()
+        // Create dataTask with completion handler
+        let task = session.dataTask(with: request) { [weak self] data, response, error in
+            DispatchQueue.main.async {
+                guard let self = self else { return }
+                self.isLoading = false
+
+                if let error = error {
+                    print("Audio request failed: \(error.localizedDescription)")
+                    self.isShowingAudioPlayer = false
+                    return
+                }
+
+                guard let data = data else {
+                    print("No data received")
+                    self.isShowingAudioPlayer = false
+                    return
+                }
+
+                // Save data to a temporary file
+                self.saveAudioData(data)
+            }
+        }
+
+        task.resume()
     }
 
-    // Reset player
-    private func resetPlayer() {
-        audioPlayer?.stop()
-        audioPlayer = nil
-        task?.cancel()
-        session = nil
+    // Save received audio data to a temporary file and start playback
+    private func saveAudioData(_ data: Data) {
+        // Create a temporary file URL
+        let tempAudioURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+            .appendingPathExtension(mediaType)
 
-        // Close file handle and delete temp file
-        if let audioFileHandle = audioFileHandle {
-            try? audioFileHandle.close()
-            self.audioFileHandle = nil
-        }
-        if let tempAudioURL = tempAudioURL {
-            try? FileManager.default.removeItem(at: tempAudioURL)
-            self.tempAudioURL = nil
-        }
-        isRequestCompleted = false
-        isFastForwardRewindEnabled = false
-        isFirstPlayStarted = false
-        duration = 0
-        currentTime = 0
-        stopAudioTimer()
-    }
-
-    // Start playback
-    private func startPlayback() {
-        // Initialize AVAudioPlayer with temp file
-        guard let tempAudioURL = tempAudioURL else { return }
         do {
-            audioPlayer = try AVAudioPlayer(contentsOf: tempAudioURL)
+            try data.write(to: tempAudioURL)
+            self.startPlayback(from: tempAudioURL)
+        } catch {
+            print("Failed to write audio data to file: \(error)")
+            self.isShowingAudioPlayer = false
+        }
+    }
+
+    // Start playback from the given file URL
+    private func startPlayback(from url: URL) {
+        do {
+            audioPlayer = try AVAudioPlayer(contentsOf: url)
             audioPlayer?.delegate = self
             audioPlayer?.prepareToPlay()
             audioPlayer?.play()
             isAudioPlaying = true
-            isLoading = false
-            isFirstPlayStarted = true
+            duration = audioPlayer?.duration ?? 0
             startAudioTimer()
         } catch {
             print("Failed to initialize AVAudioPlayer: \(error)")
-        }
-    }
-
-    // Handle received data
-    private func handleReceivedData(_ data: Data) {
-        if audioFileHandle == nil {
-            // Create temp file
-            tempAudioURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString).appendingPathExtension(mediaType)
-            FileManager.default.createFile(atPath: tempAudioURL!.path, contents: nil, attributes: nil)
-            do {
-                audioFileHandle = try FileHandle(forWritingTo: tempAudioURL!)
-            } catch {
-                print("Failed to open file handle: \(error)")
-                return
-            }
-        }
-        // Write data
-        audioFileHandle?.write(data)
-
-        // Start playback when enough data is available
-        if !isFirstPlayStarted && ((try? audioFileHandle?.seekToEnd()) ?? 0) > 1 {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                self.startPlayback()
-            }
+            isShowingAudioPlayer = false
         }
     }
 
@@ -192,7 +169,6 @@ class GlobalAudioManager: NSObject, ObservableObject {
 
     // Fast forward 15 seconds
     func forward15Seconds() {
-        guard isFastForwardRewindEnabled else { return }
         guard let player = audioPlayer else { return }
         let maxTime = player.duration - 0.1  // Subtract a small value to avoid exceeding duration
 
@@ -208,12 +184,12 @@ class GlobalAudioManager: NSObject, ObservableObject {
         if newTime >= maxTime {
             player.pause()
             isAudioPlaying = false
+            stopAudioTimer()
         }
     }
 
     // Rewind 15 seconds
     func backward15Seconds() {
-        guard isFastForwardRewindEnabled else { return }
         guard let player = audioPlayer else { return }
         let newTime = max(player.currentTime - 15, 0)
         player.currentTime = newTime
@@ -222,7 +198,6 @@ class GlobalAudioManager: NSObject, ObservableObject {
 
     // Implement the seek(to:) method
     func seek(to time: TimeInterval) {
-        guard isFastForwardRewindEnabled else { return }
         guard let player = audioPlayer else { return }
         let maxTime = player.duration - 0.1  // Subtract a small value to avoid exceeding duration
         let clampedTime = min(max(time, 0), maxTime)
@@ -232,6 +207,7 @@ class GlobalAudioManager: NSObject, ObservableObject {
         if clampedTime >= maxTime {
             player.pause()
             isAudioPlaying = false
+            stopAudioTimer()
         }
     }
 
@@ -243,22 +219,29 @@ class GlobalAudioManager: NSObject, ObservableObject {
         isLoading = false
     }
 
+    // Reset player
+    private func resetPlayer() {
+        audioPlayer?.stop()
+        audioPlayer = nil
+        duration = 0
+        currentTime = 0
+        stopAudioTimer()
+    }
+
     // Start audio timer
     private func startAudioTimer() {
         stopAudioTimer()
         audioTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true, block: { [weak self] timer in
             guard let self = self else { return }
             if let player = self.audioPlayer {
-                let maxTime = player.duration - 0.1
-                self.currentTime = min(player.currentTime, maxTime)
-                if player.duration > 0 {
-                    self.duration = player.duration
-                }
+                self.currentTime = min(player.currentTime, player.duration)
+                self.duration = player.duration
 
                 // Automatically pause if playback reaches the end
-                if player.currentTime >= maxTime {
+                if player.currentTime >= player.duration - 0.1 {
                     player.pause()
                     self.isAudioPlaying = false
+                    self.stopAudioTimer()
                 }
             }
         })
@@ -274,49 +257,11 @@ class GlobalAudioManager: NSObject, ObservableObject {
 // MARK: - AVAudioPlayerDelegate
 extension GlobalAudioManager: AVAudioPlayerDelegate {
     func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
-        if isRequestCompleted {
-            // Playback finished naturally
-            isAudioPlaying = false
-            stopAudioTimer()
-            player.currentTime = 0  // Reset currentTime after playback finishes
-            currentTime = 0
+        isAudioPlaying = false
+        stopAudioTimer()
+        currentTime = 0
 
-            // Enable fast-forward/rewind after first playback completes
-            isFastForwardRewindEnabled = true
-        }
-    }
-}
-
-// MARK: - URLSessionDataDelegate
-extension GlobalAudioManager: URLSessionDataDelegate {
-    // Handle streaming data
-    func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
-        handleReceivedData(data)
-    }
-
-    // Request completed
-    func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
-        // Close file handle
-        try? audioFileHandle?.close()
-        audioFileHandle = nil
-
-        if let error = error {
-            print("Audio stream request failed: \(error.localizedDescription)")
-            DispatchQueue.main.async {
-                self.isShowingAudioPlayer = false
-                self.isLoading = false
-            }
-        } else {
-            print("Audio stream request completed")
-        }
-
-        isRequestCompleted = true
-
-        DispatchQueue.main.async {
-            if let player = self.audioPlayer {
-                self.duration = player.duration
-            }
-            // Do not enable fast-forward/rewind here
-        }
+        // Optionally reset player to allow replay
+        player.currentTime = 0
     }
 }
