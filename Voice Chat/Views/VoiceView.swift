@@ -18,10 +18,10 @@ struct VoiceView: View {
                     VStack(alignment: .leading, spacing: 20) {
                         TextContentEditor(text: $viewModel.text)
                         VoiceActionButton(action: {
-                            audioManager.getVoice(for: viewModel.text)
+                            audioManager.startProcessing(text: viewModel.text)
                         })
                         StatusSection(
-                            loading: audioManager.isLoading,
+                            loading: audioManager.isLoading || audioManager.isBuffering,
                             errorMessage: viewModel.errorMessage,
                             connectionStatus: viewModel.connectionStatus
                         )

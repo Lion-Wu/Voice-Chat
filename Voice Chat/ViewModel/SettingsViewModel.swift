@@ -18,6 +18,9 @@ class SettingsViewModel: ObservableObject {
     @Published var apiURL: String
     @Published var selectedModel: String
 
+    @Published var enableStreaming: Bool
+    @Published var autoSplit: String // New property
+
     private var cancellables = Set<AnyCancellable>()
     private let settingsManager = SettingsManager.shared
 
@@ -32,6 +35,12 @@ class SettingsViewModel: ObservableObject {
         let chatSettings = settingsManager.chatSettings
         self.apiURL = chatSettings.apiURL
         self.selectedModel = chatSettings.selectedModel
+
+        let voiceSettings = settingsManager.voiceSettings
+        self.enableStreaming = voiceSettings.enableStreaming
+
+        let modelSettings = settingsManager.modelSettings
+        self.autoSplit = modelSettings.autoSplit
 
         setupBindings()
     }
@@ -64,6 +73,14 @@ class SettingsViewModel: ObservableObject {
         $selectedModel
             .sink { [weak self] _ in self?.saveChatSettings() }
             .store(in: &cancellables)
+
+        $enableStreaming
+            .sink { [weak self] _ in self?.saveVoiceSettings() }
+            .store(in: &cancellables)
+
+        $autoSplit
+            .sink { [weak self] _ in self?.saveModelSettings() }
+            .store(in: &cancellables)
     }
 
     func saveServerSettings() {
@@ -80,6 +97,20 @@ class SettingsViewModel: ObservableObject {
         settingsManager.updateChatSettings(
             apiURL: apiURL,
             selectedModel: selectedModel
+        )
+    }
+
+    func saveVoiceSettings() {
+        settingsManager.updateVoiceSettings(
+            enableStreaming: enableStreaming
+        )
+    }
+
+    func saveModelSettings() {
+        settingsManager.updateModelSettings(
+            modelId: settingsManager.modelSettings.modelId,
+            language: settingsManager.modelSettings.language,
+            autoSplit: autoSplit
         )
     }
 }

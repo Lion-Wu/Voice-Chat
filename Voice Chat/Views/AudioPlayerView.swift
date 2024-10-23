@@ -15,7 +15,7 @@ struct AudioPlayerView: View {
             if audioManager.isLoading {
                 HStack {
                     ProgressView()
-                    Text("Loading audio...")
+                    Text("正在加载...")
                     Spacer()
                     Button(action: {
                         audioManager.closeAudioPlayer()
@@ -27,7 +27,7 @@ struct AudioPlayerView: View {
                 .padding()
             } else {
                 HStack {
-                    // Always show Rewind Button
+                    // Rewind Button
                     Button(action: {
                         audioManager.backward15Seconds()
                     }) {
@@ -43,7 +43,7 @@ struct AudioPlayerView: View {
                             .font(.largeTitle)
                     }
 
-                    // Always show Fast-Forward Button
+                    // Fast-Forward Button
                     Button(action: {
                         audioManager.forward15Seconds()
                     }) {
@@ -63,6 +63,17 @@ struct AudioPlayerView: View {
                             }
                     }
 
+                    // Buffering Indicator
+                    if audioManager.isBuffering {
+                        HStack(spacing: 5) {
+                            ProgressView()
+                                .scaleEffect(0.7)
+                            Text("缓冲中")
+                                .font(.footnote)
+                        }
+                        .padding(.leading, 8)
+                    }
+
                     Spacer()
 
                     // Close Button
@@ -74,6 +85,13 @@ struct AudioPlayerView: View {
                     }
                 }
                 .padding()
+
+                // Error Message Display
+                if let errorMessage = audioManager.errorMessage {
+                    Text(errorMessage)
+                        .foregroundColor(.red)
+                        .padding()
+                }
             }
         }
         .background(Color(UIColor.systemBackground).opacity(0.95))
@@ -84,10 +102,11 @@ struct AudioPlayerView: View {
         .animation(.easeInOut, value: audioManager.isShowingAudioPlayer)
     }
 
-    private func formatTime(_ time: TimeInterval) -> String {
-        guard !time.isNaN, !time.isInfinite else { return "00:00" }
-        let minutes = Int(time) / 60
-        let seconds = Int(time) % 60
-        return String(format: "%02d:%02d", minutes, seconds)
+    private func formatTime(_ currentTime: TimeInterval) -> String {
+        guard !currentTime.isNaN, !currentTime.isInfinite else { return "00:00" }
+        let currentMinutes = Int(currentTime) / 60
+        let currentSeconds = Int(currentTime) % 60
+
+        return String(format: "%02d:%02d", currentMinutes, currentSeconds)
     }
 }

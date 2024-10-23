@@ -180,7 +180,7 @@ struct VoiceMessageView: View {
                         .alignmentGuide(.top) { d in d[.top] }
 
                     Button(action: {
-                        audioManager.getVoice(for: message.content)
+                        audioManager.startProcessing(text: message.content)
                     }) {
                         Image(systemName: "speaker.wave.2.fill")
                             .imageScale(.large)

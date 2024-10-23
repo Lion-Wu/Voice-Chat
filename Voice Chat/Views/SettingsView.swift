@@ -33,6 +33,27 @@ struct SettingsView: View {
                     LabeledTextField(label: "参考音频路径", placeholder: "ref_audio_path", text: $viewModel.refAudioPath)
                     LabeledTextField(label: "参考音频提示词", placeholder: "prompt_text", text: $viewModel.promptText)
                     LabeledTextField(label: "参考音频语言", placeholder: "prompt_lang", text: $viewModel.promptLang)
+                    Toggle("启用流式请求", isOn: $viewModel.enableStreaming)
+                        .onChange(of: viewModel.enableStreaming) { _, _ in
+                            viewModel.saveVoiceSettings()
+                            if viewModel.enableStreaming {
+                                // When streaming is enabled, set autoSplit to "cut0" and disable picker
+                                viewModel.autoSplit = "cut0"
+                                viewModel.saveModelSettings()
+                            }
+                        }
+                    Picker("切分方式", selection: $viewModel.autoSplit) {
+                        Text("cut0：不切割").tag("cut0")
+                        Text("cut1：每四句切割").tag("cut1")
+                        Text("cut2：每50字切割").tag("cut2")
+                        Text("cut3：按中文句号切割").tag("cut3")
+                        Text("cut4：按英文句号切割").tag("cut4")
+                        Text("cut5：按标点符号切割").tag("cut5")
+                    }
+                    .disabled(viewModel.enableStreaming)
+                    .onChange(of: viewModel.autoSplit) { _, _ in
+                        viewModel.saveModelSettings()
+                    }
                 }
 
                 Section(header: Text("聊天服务器设置")) {

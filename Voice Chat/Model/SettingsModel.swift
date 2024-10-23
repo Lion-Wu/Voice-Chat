@@ -18,12 +18,16 @@ struct ServerSettings: Codable {
 struct ModelSettings: Codable {
     var modelId = "1"
     var language = "auto"
-    var autoSplit = "cut1"
+    var autoSplit = "cut0"
 }
 
 struct ChatSettings: Codable {
     var apiURL = "http://localhost:11434"
     var selectedModel = ""
+}
+
+struct VoiceSettings: Codable {
+    var enableStreaming = true // New setting for enabling/disabling streaming
 }
 
 class SettingsManager: ObservableObject {
@@ -32,11 +36,13 @@ class SettingsManager: ObservableObject {
     @Published var serverSettings: ServerSettings
     @Published var modelSettings: ModelSettings
     @Published var chatSettings: ChatSettings
+    @Published var voiceSettings: VoiceSettings // Added voiceSettings
 
     private init() {
         self.serverSettings = Self.loadServerSettings()
         self.modelSettings = Self.loadModelSettings()
         self.chatSettings = Self.loadChatSettings()
+        self.voiceSettings = Self.loadVoiceSettings() // Load voiceSettings
     }
 
     func updateServerSettings(serverAddress: String, textLang: String, refAudioPath: String, promptText: String, promptLang: String) {
@@ -61,6 +67,11 @@ class SettingsManager: ObservableObject {
         saveChatSettings()
     }
 
+    func updateVoiceSettings(enableStreaming: Bool) {
+        voiceSettings.enableStreaming = enableStreaming
+        saveVoiceSettings()
+    }
+
     func saveServerSettings() {
         Self.save(settings: serverSettings, forKey: "ServerSettings")
     }
@@ -71,6 +82,10 @@ class SettingsManager: ObservableObject {
 
     func saveChatSettings() {
         Self.save(settings: chatSettings, forKey: "ChatSettings")
+    }
+
+    func saveVoiceSettings() {
+        Self.save(settings: voiceSettings, forKey: "VoiceSettings")
     }
 
     private static func save<T: Codable>(settings: T, forKey key: String) {
@@ -89,6 +104,10 @@ class SettingsManager: ObservableObject {
 
     private static func loadChatSettings() -> ChatSettings {
         return load(forKey: "ChatSettings") ?? ChatSettings()
+    }
+
+    private static func loadVoiceSettings() -> VoiceSettings {
+        return load(forKey: "VoiceSettings") ?? VoiceSettings()
     }
 
     private static func load<T: Codable>(forKey key: String) -> T? {
