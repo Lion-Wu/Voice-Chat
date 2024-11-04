@@ -2,7 +2,7 @@
 //  VoiceViewModel.swift
 //  Voice Chat
 //
-//  Created by 小吴苹果机器人 on 2024/1/8.
+//  Created by Lion Wu on 2024/1/8.
 //
 
 import Foundation
@@ -14,9 +14,8 @@ class VoiceViewModel: ObservableObject {
     @Published var errorMessage: String?
     @Published var isLoading = false
 
-    private var settingsManager = SettingsManager.shared
-
     func setupAudioSession() {
+        #if !os(macOS)
         do {
             let session = AVAudioSession.sharedInstance()
             try session.setCategory(.playback, mode: .default)
@@ -24,5 +23,6 @@ class VoiceViewModel: ObservableObject {
         } catch {
             errorMessage = "无法设置音频会话: \(error)"
         }
+        #endif
     }
 }

@@ -13,87 +13,220 @@ struct AlertError: Identifiable {
 }
 
 struct SettingsView: View {
-    @ObservedObject var viewModel = SettingsViewModel()
-    @Binding var isPresented: Bool
+    @ObservedObject var viewModel: SettingsViewModel
 
     @State private var availableModels: [String] = []
     @State private var isLoadingModels = false
     @State private var errorMessage: AlertError?
 
-    init(isPresented: Binding<Bool>) {
-        self._isPresented = isPresented
+    init() {
+        _viewModel = ObservedObject(wrappedValue: SettingsViewModel())
     }
 
     var body: some View {
+        #if os(macOS)
+        VStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 20) {
+                    FormContent()
+                }
+                .padding()
+            }
+        }
+        .frame(width: 500, height: 600)
+        .onAppear {
+            fetchAvailableModels()
+        }
+        .alert(item: $errorMessage) { error in
+            Alert(
+                title: Text("Error"),
+                message: Text(error.message),
+                dismissButton: .default(Text("OK"))
+            )
+        }
+        #else
         NavigationView {
-            Form {
-                Section(header: Text("语音生成设置")) {
-                    LabeledTextField(label: "服务器地址", placeholder: "请输入服务器地址", text: $viewModel.serverAddress)
-                    LabeledTextField(label: "文本语言", placeholder: "text_lang", text: $viewModel.textLang)
-                    LabeledTextField(label: "参考音频路径", placeholder: "ref_audio_path", text: $viewModel.refAudioPath)
-                    LabeledTextField(label: "参考音频提示词", placeholder: "prompt_text", text: $viewModel.promptText)
-                    LabeledTextField(label: "参考音频语言", placeholder: "prompt_lang", text: $viewModel.promptLang)
-                    Toggle("启用流式请求", isOn: $viewModel.enableStreaming)
-                        .onChange(of: viewModel.enableStreaming) { _, _ in
-                            viewModel.saveVoiceSettings()
-                            if viewModel.enableStreaming {
-                                // When streaming is enabled, set autoSplit to "cut0" and disable picker
-                                viewModel.autoSplit = "cut0"
-                                viewModel.saveModelSettings()
-                            }
+            FormContent()
+                .navigationBarTitle("Settings")
+                .toolbar {
+                    ToolbarItem(placement: .navigationBarTrailing) {
+                        Button("Close") {
+                            dismiss()
                         }
-                    Picker("切分方式", selection: $viewModel.autoSplit) {
-                        Text("cut0：不切割").tag("cut0")
-                        Text("cut1：每四句切割").tag("cut1")
-                        Text("cut2：每50字切割").tag("cut2")
-                        Text("cut3：按中文句号切割").tag("cut3")
-                        Text("cut4：按英文句号切割").tag("cut4")
-                        Text("cut5：按标点符号切割").tag("cut5")
-                    }
-                    .disabled(viewModel.enableStreaming)
-                    .onChange(of: viewModel.autoSplit) { _, _ in
-                        viewModel.saveModelSettings()
                     }
                 }
+                .onAppear {
+                    fetchAvailableModels()
+                }
+                .alert(item: $errorMessage) { error in
+                    Alert(
+                        title: Text("Error"),
+                        message: Text(error.message),
+                        dismissButton: .default(Text("OK"))
+                    )
+                }
+        }
+        #endif
+    }
 
-                Section(header: Text("聊天服务器设置")) {
-                    LabeledTextField(label: "聊天API URL", placeholder: "请输入聊天API URL", text: $viewModel.apiURL)
+    @Environment(\.dismiss) private var dismiss
 
-                    if isLoadingModels {
-                        ProgressView("加载模型列表...")
-                    } else {
-                        Picker("选择模型", selection: $viewModel.selectedModel) {
+    @ViewBuilder
+    private func FormContent() -> some View {
+        #if os(macOS)
+        VStack(alignment: .leading, spacing: 20) {
+            Text("Voice Generation Settings")
+                .font(.headline)
+
+            VStack(alignment: .leading, spacing: 10) {
+                LabeledTextField(
+                    label: "Server Address",
+                    placeholder: "Enter server address",
+                    text: $viewModel.serverAddress
+                )
+                LabeledTextField(
+                    label: "Text Language",
+                    placeholder: "text_lang",
+                    text: $viewModel.textLang
+                )
+                LabeledTextField(
+                    label: "Reference Audio Path",
+                    placeholder: "ref_audio_path",
+                    text: $viewModel.refAudioPath
+                )
+                LabeledTextField(
+                    label: "Prompt Text",
+                    placeholder: "prompt_text",
+                    text: $viewModel.promptText
+                )
+                LabeledTextField(
+                    label: "Prompt Language",
+                    placeholder: "prompt_lang",
+                    text: $viewModel.promptLang
+                )
+                HStack {
+                    Text("Enable Streaming")
+                        .frame(width: 150, alignment: .trailing)
+                    Toggle("", isOn: $viewModel.enableStreaming)
+                }
+                HStack {
+                    Text("Split Method")
+                        .frame(width: 150, alignment: .trailing)
+                    Picker("", selection: $viewModel.autoSplit) {
+                        Text("cut0: No Split").tag("cut0")
+                        Text("cut1: Split every 4 sentences").tag("cut1")
+                        Text("cut2: Split every 50 characters").tag("cut2")
+                        Text("cut3: Split by Chinese period").tag("cut3")
+                        Text("cut4: Split by English period").tag("cut4")
+                        Text("cut5: Split by punctuation").tag("cut5")
+                    }
+                    .disabled(viewModel.enableStreaming)
+                }
+            }
+            .padding(.leading, 10)
+
+            Text("Chat Server Settings")
+                .font(.headline)
+                .padding(.top, 20)
+
+            VStack(alignment: .leading, spacing: 10) {
+                LabeledTextField(
+                    label: "Chat API URL",
+                    placeholder: "Enter chat API URL",
+                    text: $viewModel.apiURL
+                )
+
+                if isLoadingModels {
+                    HStack {
+                        ProgressView("Loading model list...")
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                } else {
+                    HStack {
+                        Text("Select Model")
+                            .frame(width: 150, alignment: .trailing)
+                        Picker("", selection: $viewModel.selectedModel) {
                             ForEach(availableModels, id: \.self) { model in
                                 Text(model).tag(model)
                             }
                         }
-                        .onChange(of: viewModel.selectedModel) { _, _ in
-                            viewModel.saveChatSettings()
+                    }
+                }
+
+                Button(action: {
+                    fetchAvailableModels()
+                }) {
+                    Text("Refresh Model List")
+                }
+                .padding(.top, 10)
+            }
+            .padding(.leading, 10)
+        }
+        #else
+        Form {
+            Section(header: Text("Voice Generation Settings").font(.headline)) {
+                LabeledTextField(
+                    label: "Server Address",
+                    placeholder: "Enter server address",
+                    text: $viewModel.serverAddress
+                )
+                LabeledTextField(
+                    label: "Text Language",
+                    placeholder: "text_lang",
+                    text: $viewModel.textLang
+                )
+                LabeledTextField(
+                    label: "Reference Audio Path",
+                    placeholder: "ref_audio_path",
+                    text: $viewModel.refAudioPath
+                )
+                LabeledTextField(
+                    label: "Prompt Text",
+                    placeholder: "prompt_text",
+                    text: $viewModel.promptText
+                )
+                LabeledTextField(
+                    label: "Prompt Language",
+                    placeholder: "prompt_lang",
+                    text: $viewModel.promptLang
+                )
+                Toggle("Enable Streaming", isOn: $viewModel.enableStreaming)
+                Picker("Split Method", selection: $viewModel.autoSplit) {
+                    Text("cut0: No Split").tag("cut0")
+                    Text("cut1: Split every 4 sentences").tag("cut1")
+                    Text("cut2: Split every 50 characters").tag("cut2")
+                    Text("cut3: Split by Chinese period").tag("cut3")
+                    Text("cut4: Split by English period").tag("cut4")
+                    Text("cut5: Split by punctuation").tag("cut5")
+                }
+                .disabled(viewModel.enableStreaming)
+            }
+
+            Section(header: Text("Chat Server Settings").font(.headline)) {
+                LabeledTextField(
+                    label: "Chat API URL",
+                    placeholder: "Enter chat API URL",
+                    text: $viewModel.apiURL
+                )
+
+                if isLoadingModels {
+                    ProgressView("Loading model list...")
+                } else {
+                    Picker("Select Model", selection: $viewModel.selectedModel) {
+                        ForEach(availableModels, id: \.self) { model in
+                            Text(model).tag(model)
                         }
                     }
+                }
 
-                    Button(action: {
-                        fetchAvailableModels()
-                    }) {
-                        Text("刷新模型列表")
-                    }
+                Button(action: {
+                    fetchAvailableModels()
+                }) {
+                    Text("Refresh Model List")
                 }
-            }
-            .navigationBarTitle("设置")
-            .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button("关闭") {
-                        self.isPresented = false
-                    }
-                }
-            }
-            .onAppear {
-                fetchAvailableModels()
-            }
-            .alert(item: $errorMessage) { error in
-                Alert(title: Text("错误"), message: Text(error.message), dismissButton: .default(Text("确定")))
             }
         }
+        #endif
     }
 
     private func fetchAvailableModels() {
@@ -101,7 +234,7 @@ struct SettingsView: View {
         errorMessage = nil
         let urlString = "\(viewModel.apiURL)/v1/models"
         guard let url = URL(string: urlString) else {
-            errorMessage = AlertError(message: "无效的API URL")
+            errorMessage = AlertError(message: "Invalid API URL")
             isLoadingModels = false
             return
         }
@@ -110,18 +243,19 @@ struct SettingsView: View {
             DispatchQueue.main.async {
                 self.isLoadingModels = false
                 if let error = error {
-                    self.errorMessage = AlertError(message: "请求失败: \(error.localizedDescription)")
-                } else if let data = data, let modelList = try? JSONDecoder().decode(ModelListResponse.self, from: data) {
+                    self.errorMessage = AlertError(
+                        message: "Request failed: \(error.localizedDescription)"
+                    )
+                } else if let data = data,
+                          let modelList = try? JSONDecoder().decode(ModelListResponse.self, from: data) {
                     self.availableModels = modelList.data.map { $0.id }
-                    // Only reset selectedModel if it's empty or not in the new list
                     if !self.availableModels.contains(self.viewModel.selectedModel) {
                         if let firstModel = self.availableModels.first {
                             self.viewModel.selectedModel = firstModel
-                            self.viewModel.saveChatSettings()
                         }
                     }
                 } else {
-                    self.errorMessage = AlertError(message: "无法解析模型列表")
+                    self.errorMessage = AlertError(message: "Unable to parse model list")
                 }
             }
         }.resume()
@@ -134,15 +268,27 @@ struct LabeledTextField: View {
     @Binding var text: String
 
     var body: some View {
+        #if os(macOS)
+        HStack(alignment: .center) {
+            Text(label)
+                .frame(width: 150, alignment: .trailing)
+            TextField(placeholder, text: $text)
+                .textFieldStyle(.roundedBorder)
+                .frame(maxWidth: .infinity)
+        }
+        #else
         HStack {
             Text(label)
-                .frame(width: 120, alignment: .leading)
+            Spacer()
             TextField(placeholder, text: $text)
-                .textFieldStyle(DefaultTextFieldStyle())
+                .multilineTextAlignment(.trailing)
         }
+        #endif
     }
 }
 
-#Preview {
-    SettingsView(isPresented: .constant(true))
+struct SettingsView_Previews: PreviewProvider {
+    static var previews: some View {
+        SettingsView()
+    }
 }

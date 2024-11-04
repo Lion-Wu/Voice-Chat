@@ -26,18 +26,18 @@ class GlobalAudioManager: NSObject, ObservableObject, AVAudioPlayerDelegate {
     var mediaType: String = "wav"
 
     // Properties for handling segments and requests
-    var textSegments: [String] = []
-    var audioChunks: [Data?] = []
-    var chunkDurations: [TimeInterval] = [] // Durations of each audio chunk
-    var chunkStartTimes: [TimeInterval] = [] // Start times of each chunk
-    var totalDuration: TimeInterval = 0 // Total duration of the audio
-    var currentChunkIndex: Int = 0
-    var currentPlayingIndex: Int = 0
-    var requestsInFlight: Int = 0
-    let maxRequestsInFlight = 2
+    private var textSegments: [String] = []
+    private var audioChunks: [Data?] = []
+    private var chunkDurations: [TimeInterval] = []
+    private var chunkStartTimes: [TimeInterval] = []
+    private var totalDuration: TimeInterval = 0
+    private var currentChunkIndex: Int = 0
+    private var currentPlayingIndex: Int = 0
+    private var requestsInFlight: Int = 0
+    private let maxRequestsInFlight = 2
 
     // For canceling in-flight requests
-    var dataTasks: [URLSessionDataTask] = []
+    private var dataTasks: [URLSessionDataTask] = []
 
     // New properties for playback optimization
     private var nextAudioPlayer: AVAudioPlayer?
@@ -45,6 +45,8 @@ class GlobalAudioManager: NSObject, ObservableObject, AVAudioPlayerDelegate {
     // Seeking properties
     private var seekTime: TimeInterval?
     private var isSeeking: Bool = false
+
+    private let settingsManager = SettingsManager.shared
 
     func startProcessing(text: String) {
         // Reset before starting a new request
@@ -58,7 +60,6 @@ class GlobalAudioManager: NSObject, ObservableObject, AVAudioPlayerDelegate {
         errorMessage = nil
 
         // Fetch the latest settings
-        let settingsManager = SettingsManager.shared
         let voiceSettings = settingsManager.voiceSettings
 
         if voiceSettings.enableStreaming {
@@ -115,9 +116,8 @@ class GlobalAudioManager: NSObject, ObservableObject, AVAudioPlayerDelegate {
         }
 
         // Fetch the latest settings
-        let settingsManager = SettingsManager.shared
-        let modelSettings = settingsManager.modelSettings
         let serverSettings = settingsManager.serverSettings
+        let modelSettings = settingsManager.modelSettings
         let voiceSettings = settingsManager.voiceSettings
 
         // Prepare parameters
@@ -204,7 +204,7 @@ class GlobalAudioManager: NSObject, ObservableObject, AVAudioPlayerDelegate {
                     // First segment is ready
                     self.isLoading = false
                     self.isBuffering = false
-                    // **Automatically start playback for the first chunk**
+                    // Automatically start playback for the first chunk
                     self.playAudioChunk(at: index, fromTime: self.seekTime, shouldPlay: true)
                     self.seekTime = nil
                 } else if self.isBuffering && self.isSeeking {
@@ -458,7 +458,7 @@ class GlobalAudioManager: NSObject, ObservableObject, AVAudioPlayerDelegate {
     // Construct TTS URL
     private func constructTTSURL() -> URL? {
         // Fetch the latest server settings
-        let serverSettings = SettingsManager.shared.serverSettings
+        let serverSettings = settingsManager.serverSettings
         let urlString = "\(serverSettings.serverAddress)/tts"
         return URL(string: urlString)
     }
@@ -509,8 +509,9 @@ class GlobalAudioManager: NSObject, ObservableObject, AVAudioPlayerDelegate {
         }
     }
 
-    // Text Splitting Functions
-    func splitTextIntoMeaningfulSegments(_ text: String, minSize: Int = 10, maxSize: Int = 100) -> [String] {
+    // MARK: - Text Splitting Functions
+
+    private func splitTextIntoMeaningfulSegments(_ text: String, minSize: Int = 10, maxSize: Int = 100) -> [String] {
         let modifiedText = text.replacingOccurrences(of: #"\.\n"#, with: ". ")
             .replacingOccurrences(of: #"。\n"#, with: "")
             .replacingOccurrences(of: "\n", with: " ")
@@ -556,7 +557,7 @@ class GlobalAudioManager: NSObject, ObservableObject, AVAudioPlayerDelegate {
         return segments
     }
 
-    func detectLanguage(for text: String) -> String {
+    private func detectLanguage(for text: String) -> String {
         let recognizer = NLLanguageRecognizer()
         recognizer.processString(text)
         if let language = recognizer.dominantLanguage {
@@ -565,12 +566,12 @@ class GlobalAudioManager: NSObject, ObservableObject, AVAudioPlayerDelegate {
         return "unknown"
     }
 
-    func languageIsWordBased(_ language: String) -> Bool {
+    private func languageIsWordBased(_ language: String) -> Bool {
         let wordBasedLanguages = ["en", "fr", "de", "es", "it", "pt", "ru", "ja", "ko"]
         return wordBasedLanguages.contains(language)
     }
 
-    func wordCount(in text: String) -> Int {
+    private func wordCount(in text: String) -> Int {
         let tokenizer = NLTokenizer(unit: .word)
         tokenizer.string = text
         var count = 0
@@ -581,11 +582,11 @@ class GlobalAudioManager: NSObject, ObservableObject, AVAudioPlayerDelegate {
         return count
     }
 
-    func characterCount(in text: String) -> Int {
+    private func characterCount(in text: String) -> Int {
         return text.count
     }
 
-    func getCount(for text: String, language: String) -> Int {
+    private func getCount(for text: String, language: String) -> Int {
         if languageIsWordBased(language) {
             return wordCount(in: text)
         } else {
@@ -593,7 +594,7 @@ class GlobalAudioManager: NSObject, ObservableObject, AVAudioPlayerDelegate {
         }
     }
 
-    func splitSentenceAtConjunctions(_ sentence: String, language: String, minSize: Int, maxSize: Int) -> [String]? {
+    private func splitSentenceAtConjunctions(_ sentence: String, language: String, minSize: Int, maxSize: Int) -> [String]? {
         var splitSegments: [String] = []
         if languageIsWordBased(language) {
             let nsSentence = sentence as NSString
@@ -673,7 +674,7 @@ class GlobalAudioManager: NSObject, ObservableObject, AVAudioPlayerDelegate {
         return nil
     }
 
-    func splitSentence(_ sentence: String, language: String, minSize: Int, maxSize: Int) -> [String] {
+    private func splitSentence(_ sentence: String, language: String, minSize: Int, maxSize: Int) -> [String] {
         var splitSegments: [String] = []
         if languageIsWordBased(language) {
             let words = sentence.split { $0.isWhitespace }

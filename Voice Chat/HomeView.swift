@@ -1,8 +1,8 @@
 //
-//  ContentView.swift
+//  HomeView.swift
 //  Voice Chat
 //
-//  Created by 吴子宸 on 2023/12/25.
+//  Created by Lion Wu on 2023/12/25.
 //
 
 import SwiftUI
@@ -11,51 +11,74 @@ struct HomeView: View {
     @State private var showingSettings = false
 
     var body: some View {
-        NavigationView {
-            VStack(spacing: 40) {
-                Spacer()
-                NavigationLink(destination: ChatView()) {
-                    Text("进入聊天界面")
-                        .font(.headline)
-                        .foregroundColor(.white)
-                        .padding()
-                        .frame(maxWidth: .infinity)
-                        .background(Color.blue)
-                        .cornerRadius(10)
-                }
-                NavigationLink(destination: VoiceView()) {
-                    Text("进入语音生成器")
-                        .font(.headline)
-                        .foregroundColor(.white)
-                        .padding()
-                        .frame(maxWidth: .infinity)
-                        .background(Color.green)
-                        .cornerRadius(10)
-                }
-                Spacer()
-                Text("Voice Chat By Lion in 2024")
-                    .foregroundColor(.gray)
+        VStack(spacing: 40) {
+            Spacer()
+            #if os(iOS)
+            NavigationLink(destination: ChatView()) {
+                Text("Enter Chat Interface")
+                    .font(.headline)
+                    .foregroundColor(.white)
                     .padding()
+                    .frame(maxWidth: .infinity)
+                    .background(
+                        LinearGradient(
+                            gradient: Gradient(colors: [Color.blue, Color.purple]),
+                            startPoint: .leading,
+                            endPoint: .trailing
+                        )
+                    )
+                    .cornerRadius(15)
             }
-            .padding()
-            .navigationTitle("主页")
-            .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button(action: {
-                        showingSettings.toggle()
-                    }) {
-                        Image(systemName: "gear")
-                            .imageScale(.large)
-                    }
+            .padding(.horizontal)
+
+            NavigationLink(destination: VoiceView()) {
+                Text("Enter Voice Generator")
+                    .font(.headline)
+                    .foregroundColor(.white)
+                    .padding()
+                    .frame(maxWidth: .infinity)
+                    .background(
+                        LinearGradient(
+                            gradient: Gradient(colors: [Color.green, Color.teal]),
+                            startPoint: .leading,
+                            endPoint: .trailing
+                        )
+                    )
+                    .cornerRadius(15)
+            }
+            .padding(.horizontal)
+            #else
+            Text("Welcome to Voice Chat")
+                .font(.largeTitle)
+                .padding()
+            #endif
+            Spacer()
+            Text("Voice Chat By Lion in 2024")
+                .foregroundColor(.gray)
+                .padding()
+        }
+        .padding()
+        .navigationTitle("Home")
+        #if os(iOS)
+        .toolbar {
+            ToolbarItem(placement: .navigationBarTrailing) {
+                Button(action: {
+                    showingSettings.toggle()
+                }) {
+                    Image(systemName: "gearshape")
                 }
-            }
-            .sheet(isPresented: $showingSettings) {
-                SettingsView(isPresented: $showingSettings)
             }
         }
+        .sheet(isPresented: $showingSettings) {
+            SettingsView()
+                .environmentObject(SettingsManager.shared)
+        }
+        #endif
     }
 }
 
-#Preview {
-    HomeView()
+struct HomeView_Previews: PreviewProvider {
+    static var previews: some View {
+        HomeView()
+    }
 }

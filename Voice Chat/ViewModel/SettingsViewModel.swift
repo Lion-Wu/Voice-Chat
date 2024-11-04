@@ -9,19 +9,57 @@ import Foundation
 import Combine
 
 class SettingsViewModel: ObservableObject {
-    @Published var serverAddress: String
-    @Published var textLang: String
-    @Published var refAudioPath: String
-    @Published var promptText: String
-    @Published var promptLang: String
+    @Published var serverAddress: String {
+        didSet {
+            saveServerSettings()
+        }
+    }
+    @Published var textLang: String {
+        didSet {
+            saveServerSettings()
+        }
+    }
+    @Published var refAudioPath: String {
+        didSet {
+            saveServerSettings()
+        }
+    }
+    @Published var promptText: String {
+        didSet {
+            saveServerSettings()
+        }
+    }
+    @Published var promptLang: String {
+        didSet {
+            saveServerSettings()
+        }
+    }
 
-    @Published var apiURL: String
-    @Published var selectedModel: String
+    @Published var apiURL: String {
+        didSet {
+            saveChatSettings()
+        }
+    }
+    @Published var selectedModel: String {
+        didSet {
+            saveChatSettings()
+        }
+    }
 
-    @Published var enableStreaming: Bool
-    @Published var autoSplit: String // New property
+    @Published var enableStreaming: Bool {
+        didSet {
+            saveVoiceSettings()
+            if enableStreaming {
+                autoSplit = "cut0" // This will trigger saveModelSettings()
+            }
+        }
+    }
+    @Published var autoSplit: String {
+        didSet {
+            saveModelSettings()
+        }
+    }
 
-    private var cancellables = Set<AnyCancellable>()
     private let settingsManager = SettingsManager.shared
 
     init() {
@@ -41,46 +79,6 @@ class SettingsViewModel: ObservableObject {
 
         let modelSettings = settingsManager.modelSettings
         self.autoSplit = modelSettings.autoSplit
-
-        setupBindings()
-    }
-
-    private func setupBindings() {
-        $serverAddress
-            .sink { [weak self] _ in self?.saveServerSettings() }
-            .store(in: &cancellables)
-
-        $textLang
-            .sink { [weak self] _ in self?.saveServerSettings() }
-            .store(in: &cancellables)
-
-        $refAudioPath
-            .sink { [weak self] _ in self?.saveServerSettings() }
-            .store(in: &cancellables)
-
-        $promptText
-            .sink { [weak self] _ in self?.saveServerSettings() }
-            .store(in: &cancellables)
-
-        $promptLang
-            .sink { [weak self] _ in self?.saveServerSettings() }
-            .store(in: &cancellables)
-
-        $apiURL
-            .sink { [weak self] _ in self?.saveChatSettings() }
-            .store(in: &cancellables)
-
-        $selectedModel
-            .sink { [weak self] _ in self?.saveChatSettings() }
-            .store(in: &cancellables)
-
-        $enableStreaming
-            .sink { [weak self] _ in self?.saveVoiceSettings() }
-            .store(in: &cancellables)
-
-        $autoSplit
-            .sink { [weak self] _ in self?.saveModelSettings() }
-            .store(in: &cancellables)
     }
 
     func saveServerSettings() {

@@ -1,8 +1,8 @@
 //
-//  chatStructure.swift
+//  ChatModel.swift
 //  Voice Chat
 //
-//  Created by 小吴苹果机器人 on 2024/1/8.
+//  Created by Lion Wu on 2024/1/8.
 //
 
 import Foundation
@@ -52,7 +52,6 @@ class ChatService: NSObject, URLSessionDataDelegate {
     func fetchStreamedData(messages: [ChatMessage]) {
         dataTask?.cancel()
 
-        // Fetch the latest settings
         let settingsManager = SettingsManager.shared
         let apiURLString = "\(settingsManager.chatSettings.apiURL)/v1/chat/completions"
         guard let apiURL = URL(string: apiURLString) else {

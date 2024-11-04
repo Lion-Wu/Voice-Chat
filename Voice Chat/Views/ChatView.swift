@@ -1,77 +1,15 @@
 //
-//  chatWithVoiceView.swift
+//  ChatView.swift
 //  Voice Chat
 //
-//  Created by 小吴苹果机器人 on 2024/1/8.
+//  Created by Lion Wu on 2024/1/8.
 //
 
 import SwiftUI
 
-struct ScrollOffsetPreferenceKey: PreferenceKey {
-    typealias Value = CGFloat
-    static var defaultValue: CGFloat = 0
-
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
-        value += nextValue()
-    }
-}
-
-struct DetectableScrollView<Content: View>: View {
-    let axes: Axis.Set
-    let showsIndicators: Bool
-    let content: Content
-    let onScroll: () -> Void
-    
-    // State variable to track user scrolling
-    @State private var isUserScrolling: Bool = false
-
-    init(axes: Axis.Set = .vertical,
-         showsIndicators: Bool = true,
-         onScroll: @escaping () -> Void,
-         @ViewBuilder content: () -> Content) {
-        self.axes = axes
-        self.showsIndicators = showsIndicators
-        self.content = content()
-        self.onScroll = onScroll
-    }
-
-    var body: some View {
-        ScrollView(axes, showsIndicators: showsIndicators) {
-            GeometryReader { geometry in
-                Color.clear
-                    .preference(key: ScrollOffsetPreferenceKey.self, value: geometry.frame(in: .global).minY)
-            }
-            .frame(height: 0)
-            content
-        }
-        // Use simultaneousGesture to allow both ScrollView and DragGesture to recognize gestures
-        .simultaneousGesture(
-            DragGesture()
-                .onChanged { _ in
-                    // User started scrolling
-                    if !isUserScrolling {
-                        isUserScrolling = true
-                        onScroll()
-                    }
-                }
-                .onEnded { _ in
-                    // User ended scrolling after a short delay
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                        isUserScrolling = false
-                    }
-                }
-        )
-        .onPreferenceChange(ScrollOffsetPreferenceKey.self) { _ in
-            // No longer need to check isUserScrolling here
-            // The onScroll is now called directly from the DragGesture
-        }
-    }
-}
-
 struct ChatView: View {
     @StateObject private var viewModel = ChatViewModel()
     @EnvironmentObject var audioManager: GlobalAudioManager
-    @State private var isScrolling = false
     @State private var isNearBottom = true
 
     @FocusState private var isInputFocused: Bool
@@ -79,10 +17,8 @@ struct ChatView: View {
     var body: some View {
         ZStack(alignment: .top) {
             VStack {
-                DetectableScrollView(onScroll: {
-                    isInputFocused = false
-                }) {
-                    ScrollViewReader { scrollView in
+                ScrollViewReader { scrollView in
+                    ScrollView {
                         LazyVStack(spacing: 10) {
                             ForEach(viewModel.messages) { message in
                                 VoiceMessageView(message: message)
@@ -100,10 +36,13 @@ struct ChatView: View {
                         }
                         .padding()
                         .onChange(of: viewModel.messages) { newValue, _ in
-                            if isNearBottom && !isScrolling {
+                            if isNearBottom {
                                 scrollToBottom(scrollView: scrollView, newMessages: newValue)
                             }
                         }
+                    }
+                    .onTapGesture {
+                        isInputFocused = false
                     }
                 }
 
@@ -115,24 +54,22 @@ struct ChatView: View {
                 HStack {
                     TextEditor(text: $viewModel.userMessage)
                         .focused($isInputFocused)
-                        .frame(height: 40)
-                        .padding(.horizontal, 10)
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 8)
-                                .stroke(Color.gray, lineWidth: 1)
-                        )
+                        .frame(minHeight: 40, maxHeight: 100)
+                        .padding(8)
+                        .background(RoundedRectangle(cornerRadius: 8).stroke(Color.gray.opacity(0.5)))
                         .cornerRadius(8)
 
                     Button(action: {
                         viewModel.sendMessage()
-                        // Removed: isInputFocused = false to keep the keyboard visible
                     }) {
                         Image(systemName: "arrow.up.circle.fill")
-                            .imageScale(.large)
+                            .font(.system(size: 30))
                     }
+                    .padding(.leading, 5)
                 }
                 .padding()
             }
+
             if audioManager.isShowingAudioPlayer {
                 VStack {
                     AudioPlayerView()
@@ -143,17 +80,13 @@ struct ChatView: View {
                 .animation(.easeInOut, value: audioManager.isShowingAudioPlayer)
             }
         }
-        .navigationBarTitle("聊天界面", displayMode: .inline)
+        .navigationTitle("Chat Interface")
     }
 
     private func scrollToBottom(scrollView: ScrollViewProxy, newMessages: [ChatMessage]) {
-        if !newMessages.isEmpty {
-            isScrolling = true
+        if let lastMessage = newMessages.last {
             withAnimation(.easeIn(duration: 0.1)) {
-                scrollView.scrollTo(newMessages.last!.id, anchor: .bottom)
-            }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
-                isScrolling = false
+                scrollView.scrollTo(lastMessage.id, anchor: .bottom)
             }
         }
     }
@@ -164,29 +97,24 @@ struct VoiceMessageView: View {
     @EnvironmentObject var audioManager: GlobalAudioManager
 
     var body: some View {
-        HStack(alignment: .top) {
+        HStack(alignment: .top, spacing: 10) {
             if message.isUser {
                 Spacer()
                 TextBubble(text: message.content, isUser: true)
             } else {
-                HStack(alignment: .top) {
-                    Image(systemName: "person.circle.fill")
+                Image(systemName: "person.circle.fill")
+                    .imageScale(.large)
+                    .foregroundColor(.blue)
+                    .padding(.top, 5)
+
+                TextBubble(text: message.content, isUser: false)
+
+                Button(action: {
+                    audioManager.startProcessing(text: message.content)
+                }) {
+                    Image(systemName: "speaker.wave.2.fill")
                         .imageScale(.large)
-                        .foregroundColor(.blue)
-                        .padding(.trailing, 5)
-                        .alignmentGuide(.top) { d in d[.top] }
-
-                    TextBubble(text: message.content, isUser: false)
-                        .alignmentGuide(.top) { d in d[.top] }
-
-                    Button(action: {
-                        audioManager.startProcessing(text: message.content)
-                    }) {
-                        Image(systemName: "speaker.wave.2.fill")
-                            .imageScale(.large)
-                            .padding(.leading, 5)
-                            .alignmentGuide(.top) { d in d[.top] }
-                    }
+                        .padding(.top, 5)
                 }
             }
         }
@@ -206,11 +134,23 @@ struct TextBubble: View {
             )
             .foregroundColor(.primary)
             .clipShape(RoundedRectangle(cornerRadius: 15, style: .continuous))
-            .frame(maxWidth: UIScreen.main.bounds.width * 0.7, alignment: isUser ? .trailing : .leading)
+            .frame(maxWidth: maxWidth * 0.7, alignment: isUser ? .trailing : .leading)
+    }
+
+    private var maxWidth: CGFloat {
+        #if os(iOS) || os(tvOS)
+        return UIScreen.main.bounds.width
+        #elseif os(macOS)
+        return NSScreen.main?.frame.width ?? 800
+        #else
+        return 600
+        #endif
     }
 }
 
-#Preview {
-    ChatView()
-        .environmentObject(GlobalAudioManager.shared)
+struct ChatView_Previews: PreviewProvider {
+    static var previews: some View {
+        ChatView()
+            .environmentObject(GlobalAudioManager.shared)
+    }
 }

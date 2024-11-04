@@ -15,78 +15,41 @@ struct AudioPlayerView: View {
             if audioManager.isLoading {
                 HStack {
                     ProgressView()
-                    Text("正在加载...")
+                    Text("Loading...")
+                        .font(.subheadline)
                     Spacer()
-                    Button(action: {
-                        audioManager.closeAudioPlayer()
-                    }) {
-                        Image(systemName: "xmark.circle.fill")
-                            .font(.title)
-                    }
+                    CloseButton(action: audioManager.closeAudioPlayer)
                 }
                 .padding()
             } else {
                 HStack {
-                    // Rewind Button
-                    Button(action: {
-                        audioManager.backward15Seconds()
-                    }) {
-                        Image(systemName: "gobackward.15")
-                            .font(.title)
-                    }
+                    ControlButton(icon: "gobackward.15", action: audioManager.backward15Seconds)
+                    ControlButton(icon: audioManager.isAudioPlaying ? "pause.circle.fill" : "play.circle.fill", action: audioManager.togglePlayback, isLarge: true)
+                    ControlButton(icon: "goforward.15", action: audioManager.forward15Seconds)
+                    Text(formatTime(audioManager.currentTime))
+                        .font(.system(.body, design: .rounded))
+                        .bold()
+                        .padding(.leading, 8)
+                        .contentTransition(.numericText())
+                        .transaction { t in
+                            t.animation = .default
+                        }
 
-                    // Play/Pause Button
-                    Button(action: {
-                        audioManager.togglePlayback()
-                    }) {
-                        Image(systemName: audioManager.isAudioPlaying ? "pause.circle.fill" : "play.circle.fill")
-                            .font(.largeTitle)
-                    }
-
-                    // Fast-Forward Button
-                    Button(action: {
-                        audioManager.forward15Seconds()
-                    }) {
-                        Image(systemName: "goforward.15")
-                            .font(.title)
-                    }
-
-                    // Current Time Display
-                    withAnimation {
-                        Text(formatTime(audioManager.currentTime))
-                            .font(.system(.body, design: .rounded))
-                            .bold()
-                            .padding(.leading, 8)
-                            .contentTransition(.numericText())
-                            .transaction { t in
-                                t.animation = .default
-                            }
-                    }
-
-                    // Buffering Indicator
                     if audioManager.isBuffering {
                         HStack(spacing: 5) {
                             ProgressView()
                                 .scaleEffect(0.7)
-                            Text("缓冲中")
+                            Text("Buffering")
                                 .font(.footnote)
                         }
                         .padding(.leading, 8)
                     }
 
                     Spacer()
-
-                    // Close Button
-                    Button(action: {
-                        audioManager.closeAudioPlayer()
-                    }) {
-                        Image(systemName: "xmark.circle.fill")
-                            .font(.title)
-                    }
+                    CloseButton(action: audioManager.closeAudioPlayer)
                 }
                 .padding()
 
-                // Error Message Display
                 if let errorMessage = audioManager.errorMessage {
                     Text(errorMessage)
                         .foregroundColor(.red)
@@ -94,7 +57,7 @@ struct AudioPlayerView: View {
                 }
             }
         }
-        .background(Color(UIColor.systemBackground).opacity(0.95))
+        .background(BlurView().opacity(0.95))
         .cornerRadius(10)
         .shadow(radius: 5)
         .padding()
@@ -108,5 +71,29 @@ struct AudioPlayerView: View {
         let currentSeconds = Int(currentTime) % 60
 
         return String(format: "%02d:%02d", currentMinutes, currentSeconds)
+    }
+
+    struct ControlButton: View {
+        let icon: String
+        let action: () -> Void
+        var isLarge: Bool = false
+
+        var body: some View {
+            Button(action: action) {
+                Image(systemName: icon)
+                    .font(isLarge ? .largeTitle : .title)
+            }
+        }
+    }
+
+    struct CloseButton: View {
+        let action: () -> Void
+
+        var body: some View {
+            Button(action: action) {
+                Image(systemName: "xmark.circle.fill")
+                    .font(.title)
+            }
+        }
     }
 }

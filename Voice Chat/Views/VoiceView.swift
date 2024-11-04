@@ -1,8 +1,8 @@
 //
-//  SwiftUIView.swift
+//  VoiceView.swift
 //  Voice Chat
 //
-//  Created by 小吴苹果机器人 on 2024/1/5.
+//  Created by Lion Wu on 2024/1/5.
 //
 
 import SwiftUI
@@ -16,21 +16,53 @@ struct VoiceView: View {
             VStack {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 20) {
-                        TextContentEditor(text: $viewModel.text)
-                        VoiceActionButton(action: {
+                        Text("Content Settings")
+                            .font(.title2)
+                            .bold()
+                            .padding(.top)
+
+                        TextEditor(text: $viewModel.text)
+                            .frame(minHeight: 150)
+                            .padding()
+                            .background(RoundedRectangle(cornerRadius: 10).stroke(Color.gray.opacity(0.5)))
+
+                        Button(action: {
                             audioManager.startProcessing(text: viewModel.text)
-                        })
-                        StatusSection(
-                            loading: audioManager.isLoading || audioManager.isBuffering,
-                            errorMessage: viewModel.errorMessage,
-                            connectionStatus: viewModel.connectionStatus
-                        )
+                        }) {
+                            Text("Generate Voice")
+                                .font(.headline)
+                                .foregroundColor(.white)
+                                .padding()
+                                .frame(maxWidth: .infinity)
+                                .background(LinearGradient(gradient: Gradient(colors: [Color.orange, Color.red]),
+                                                           startPoint: .leading, endPoint: .trailing))
+                                .cornerRadius(15)
+                        }
+                        .padding(.horizontal)
+
+                        if audioManager.isLoading || audioManager.isBuffering {
+                            HStack {
+                                ProgressView()
+                                Text("Loading...")
+                                    .font(.subheadline)
+                            }
+                            .padding(.top)
+                        }
+
+                        if let errorMessage = viewModel.errorMessage {
+                            Text("Error: \(errorMessage)")
+                                .foregroundColor(.red)
+                                .padding(.top)
+                        }
+
+                        Spacer()
                     }
                     .padding(.top, audioManager.isShowingAudioPlayer ? 150 : 20)
                     .animation(.easeInOut, value: audioManager.isShowingAudioPlayer)
                 }
             }
             .padding()
+
             if audioManager.isShowingAudioPlayer {
                 VStack {
                     AudioPlayerView()
@@ -41,73 +73,16 @@ struct VoiceView: View {
                 .animation(.easeInOut, value: audioManager.isShowingAudioPlayer)
             }
         }
-        .navigationBarTitle("语音生成器", displayMode: .inline)
+        .navigationTitle("Voice Generator")
         .onAppear {
             viewModel.setupAudioSession()
         }
     }
-
-    // MARK: - UI Components
-
-    struct TextContentEditor: View {
-        @Binding var text: String
-
-        var body: some View {
-            VStack(alignment: .leading) {
-                Text("内容设置")
-                    .font(.headline)
-                TextEditor(text: $text)
-                    .frame(minHeight: 100)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 5)
-                            .stroke(Color.gray, lineWidth: 1)
-                    )
-                    .padding(.bottom)
-            }
-        }
-    }
-
-    struct VoiceActionButton: View {
-        var action: () -> Void
-
-        var body: some View {
-            Button(action: action) {
-                Text("获取语音")
-                    .font(.headline)
-                    .foregroundColor(.white)
-                    .padding()
-                    .frame(maxWidth: .infinity)
-                    .background(Color.orange)
-                    .cornerRadius(10)
-            }
-        }
-    }
-
-    struct StatusSection: View {
-        let loading: Bool
-        let errorMessage: String?
-        let connectionStatus: String
-
-        var body: some View {
-            VStack(alignment: .leading, spacing: 10) {
-                if loading {
-                    HStack {
-                        ProgressView()
-                        Text("正在加载...")
-                    }
-                }
-                if let errorMessage = errorMessage {
-                    Text("错误: \(errorMessage)")
-                        .foregroundColor(.red)
-                }
-                Text(connectionStatus)
-                    .foregroundColor(.blue)
-            }
-        }
-    }
 }
 
-#Preview {
-    VoiceView()
-        .environmentObject(GlobalAudioManager.shared)
+struct VoiceView_Previews: PreviewProvider {
+    static var previews: some View {
+        VoiceView()
+            .environmentObject(GlobalAudioManager.shared)
+    }
 }

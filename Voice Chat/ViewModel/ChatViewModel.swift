@@ -1,8 +1,8 @@
 //
-//  ChatWithVoiceViewModel.swift
+//  ChatViewModel.swift
 //  Voice Chat
 //
-//  Created by 小吴苹果机器人 on 2024/1/18.
+//  Created by Lion Wu on 2024/1/18.
 //
 
 import Foundation
@@ -18,28 +18,33 @@ class ChatViewModel: ObservableObject {
     init() {
         chatService.onMessageReceived = { [weak self] message in
             DispatchQueue.main.async {
-                if let lastMessage = self?.messages.last, !lastMessage.isUser && lastMessage.isActive {
-                    self?.messages[self!.messages.count - 1].content += message.content
-                } else {
-                    self?.messages.append(message)
-                }
-                self?.isLoading = false
+                self?.handleReceivedMessage(message)
             }
         }
 
         chatService.onError = { [weak self] error in
             DispatchQueue.main.async {
                 self?.isLoading = false
-                // Handle error
+                // Handle error appropriately
             }
         }
     }
 
     func sendMessage() {
+        guard !userMessage.isEmpty else { return }
         let userMsg = ChatMessage(content: userMessage, isUser: true)
         messages.append(userMsg)
         isLoading = true
         chatService.fetchStreamedData(messages: messages)
         userMessage = ""
+    }
+
+    private func handleReceivedMessage(_ message: ChatMessage) {
+        if let lastMessage = messages.last, !lastMessage.isUser && lastMessage.isActive {
+            messages[messages.count - 1].content += message.content
+        } else {
+            messages.append(message)
+        }
+        isLoading = false
     }
 }
