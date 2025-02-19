@@ -69,7 +69,6 @@ struct AudioPlayerView: View {
         guard !currentTime.isNaN, !currentTime.isInfinite else { return "00:00" }
         let currentMinutes = Int(currentTime) / 60
         let currentSeconds = Int(currentTime) % 60
-
         return String(format: "%02d:%02d", currentMinutes, currentSeconds)
     }
 
@@ -83,6 +82,7 @@ struct AudioPlayerView: View {
                 Image(systemName: icon)
                     .font(isLarge ? .largeTitle : .title)
             }
+            .buttonStyle(PlainButtonStyle())
         }
     }
 
@@ -94,6 +94,7 @@ struct AudioPlayerView: View {
                 Image(systemName: "xmark.circle.fill")
                     .font(.title)
             }
+            .buttonStyle(PlainButtonStyle())
         }
     }
 }

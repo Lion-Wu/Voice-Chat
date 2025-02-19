@@ -7,7 +7,6 @@
 
 import Foundation
 
-// For parsing the model list response
 struct ModelListResponse: Codable {
     let object: String
     let data: [ModelInfo]

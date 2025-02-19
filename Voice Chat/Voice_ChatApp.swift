@@ -11,12 +11,14 @@ import SwiftUI
 struct Voice_ChatApp: App {
     @StateObject private var audioManager = GlobalAudioManager.shared
     @StateObject private var settingsManager = SettingsManager.shared
+    @StateObject private var chatSessionsViewModel = ChatSessionsViewModel()
 
     var body: some Scene {
         WindowGroup {
             ContentView()
                 .environmentObject(audioManager)
                 .environmentObject(settingsManager)
+                .environmentObject(chatSessionsViewModel)
         }
         #if os(macOS)
         Settings {

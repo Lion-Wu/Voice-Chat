@@ -3,11 +3,13 @@
 //  Voice Chat
 //
 //  Created by Lion Wu on 2024.10.09.
+//  Modified by [Your Name] on [Date]
 //
 
 import Foundation
 import Combine
 
+@MainActor
 class SettingsViewModel: ObservableObject {
     @Published var serverAddress: String {
         didSet {
@@ -49,12 +51,23 @@ class SettingsViewModel: ObservableObject {
     @Published var enableStreaming: Bool {
         didSet {
             saveVoiceSettings()
+            // If enabling streaming, automatically set autoSplit to "cut0"
             if enableStreaming {
-                autoSplit = "cut0" // This will trigger saveModelSettings()
+                autoSplit = "cut0"
             }
         }
     }
     @Published var autoSplit: String {
+        didSet {
+            saveModelSettings()
+        }
+    }
+    @Published var modelId: String {
+        didSet {
+            saveModelSettings()
+        }
+    }
+    @Published var language: String {
         didSet {
             saveModelSettings()
         }
@@ -79,6 +92,8 @@ class SettingsViewModel: ObservableObject {
 
         let modelSettings = settingsManager.modelSettings
         self.autoSplit = modelSettings.autoSplit
+        self.modelId = modelSettings.modelId
+        self.language = modelSettings.language
     }
 
     func saveServerSettings() {
@@ -106,8 +121,8 @@ class SettingsViewModel: ObservableObject {
 
     func saveModelSettings() {
         settingsManager.updateModelSettings(
-            modelId: settingsManager.modelSettings.modelId,
-            language: settingsManager.modelSettings.language,
+            modelId: modelId,
+            language: language,
             autoSplit: autoSplit
         )
     }

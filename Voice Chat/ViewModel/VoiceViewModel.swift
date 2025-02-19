@@ -8,21 +8,25 @@
 import Foundation
 import AVFoundation
 
+@MainActor
 class VoiceViewModel: ObservableObject {
-    @Published var text = "先帝创业未半而中道崩殂，今天下三分，益州疲弊，此诚危急存亡之秋也。"
-    @Published var connectionStatus = "等待连接"
+    @Published var text = "Sample text."
+    @Published var connectionStatus = "Waiting for connection"
     @Published var errorMessage: String?
     @Published var isLoading = false
 
     func setupAudioSession() {
-        #if !os(macOS)
+        #if os(iOS) || os(tvOS)
         do {
             let session = AVAudioSession.sharedInstance()
             try session.setCategory(.playback, mode: .default)
             try session.setActive(true)
         } catch {
-            errorMessage = "无法设置音频会话: \(error)"
+            DispatchQueue.main.async {
+                self.errorMessage = "Unable to set up audio session: \(error.localizedDescription)"
+            }
         }
         #endif
+        // On macOS, AVAudioSession is not used. It's safe to skip.
     }
 }

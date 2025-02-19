@@ -8,41 +8,55 @@
 import Foundation
 
 struct ServerSettings: Codable {
-    var serverAddress = "http://127.0.0.1:9880"
-    var textLang = "auto"
-    var refAudioPath = "Reference Audio/这种药水的易容效果确实很厉害，即便是美露莘也无法辨别出来。.wav"
-    var promptText = "这种药水的易容效果确实很厉害，即便是美露莘也无法辨别出来。"
-    var promptLang = "zh"
+    var serverAddress: String
+    var textLang: String
+    var refAudioPath: String
+    var promptText: String
+    var promptLang: String
 }
 
 struct ModelSettings: Codable {
-    var modelId = "1"
-    var language = "auto"
-    var autoSplit = "cut0"
+    var modelId: String
+    var language: String
+    var autoSplit: String
 }
 
 struct ChatSettings: Codable {
-    var apiURL = "http://localhost:11434"
-    var selectedModel = ""
+    var apiURL: String
+    var selectedModel: String
 }
 
 struct VoiceSettings: Codable {
-    var enableStreaming = true // New setting for enabling/disabling streaming
+    var enableStreaming: Bool
 }
 
+@MainActor
 class SettingsManager: ObservableObject {
     static let shared = SettingsManager()
 
     @Published var serverSettings: ServerSettings
     @Published var modelSettings: ModelSettings
     @Published var chatSettings: ChatSettings
-    @Published var voiceSettings: VoiceSettings // Added voiceSettings
+    @Published var voiceSettings: VoiceSettings
 
     private init() {
-        self.serverSettings = Self.loadServerSettings()
-        self.modelSettings = Self.loadModelSettings()
-        self.chatSettings = Self.loadChatSettings()
-        self.voiceSettings = Self.loadVoiceSettings() // Load voiceSettings
+        self.serverSettings = Self.loadSettings(forKey: "ServerSettings") ?? ServerSettings(
+            serverAddress: "http://127.0.0.1:9880",
+            textLang: "auto",
+            refAudioPath: "",
+            promptText: "",
+            promptLang: "auto"
+        )
+        self.modelSettings = Self.loadSettings(forKey: "ModelSettings") ?? ModelSettings(
+            modelId: "",
+            language: "auto",
+            autoSplit: "cut0"
+        )
+        self.chatSettings = Self.loadSettings(forKey: "ChatSettings") ?? ChatSettings(
+            apiURL: "http://localhost:11434",
+            selectedModel: ""
+        )
+        self.voiceSettings = Self.loadSettings(forKey: "VoiceSettings") ?? VoiceSettings(enableStreaming: true)
     }
 
     func updateServerSettings(serverAddress: String, textLang: String, refAudioPath: String, promptText: String, promptLang: String) {
@@ -73,44 +87,30 @@ class SettingsManager: ObservableObject {
     }
 
     func saveServerSettings() {
-        Self.save(settings: serverSettings, forKey: "ServerSettings")
+        Self.saveSettings(serverSettings, forKey: "ServerSettings")
     }
 
     func saveModelSettings() {
-        Self.save(settings: modelSettings, forKey: "ModelSettings")
+        Self.saveSettings(modelSettings, forKey: "ModelSettings")
     }
 
     func saveChatSettings() {
-        Self.save(settings: chatSettings, forKey: "ChatSettings")
+        Self.saveSettings(chatSettings, forKey: "ChatSettings")
     }
 
     func saveVoiceSettings() {
-        Self.save(settings: voiceSettings, forKey: "VoiceSettings")
+        Self.saveSettings(voiceSettings, forKey: "VoiceSettings")
     }
 
-    private static func save<T: Codable>(settings: T, forKey key: String) {
-        if let data = try? PropertyListEncoder().encode(settings) {
-            UserDefaults.standard.set(data, forKey: key)
+    private static func saveSettings<T: Codable>(_ settings: T, forKey key: String) {
+        DispatchQueue.global(qos: .background).async {
+            if let data = try? PropertyListEncoder().encode(settings) {
+                UserDefaults.standard.set(data, forKey: key)
+            }
         }
     }
 
-    private static func loadServerSettings() -> ServerSettings {
-        return load(forKey: "ServerSettings") ?? ServerSettings()
-    }
-
-    private static func loadModelSettings() -> ModelSettings {
-        return load(forKey: "ModelSettings") ?? ModelSettings()
-    }
-
-    private static func loadChatSettings() -> ChatSettings {
-        return load(forKey: "ChatSettings") ?? ChatSettings()
-    }
-
-    private static func loadVoiceSettings() -> VoiceSettings {
-        return load(forKey: "VoiceSettings") ?? VoiceSettings()
-    }
-
-    private static func load<T: Codable>(forKey key: String) -> T? {
+    private static func loadSettings<T: Codable>(forKey key: String) -> T? {
         if let data = UserDefaults.standard.data(forKey: key),
            let settings = try? PropertyListDecoder().decode(T.self, from: data) {
             return settings

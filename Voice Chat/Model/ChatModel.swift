@@ -7,7 +7,6 @@
 
 import Foundation
 
-// Data models
 struct ChatCompletionChunk: Codable {
     var id: String?
     var object: String?
@@ -27,15 +26,12 @@ struct Delta: Codable {
     var content: String?
 }
 
-// Chat message representation
-struct ChatMessage: Identifiable, Equatable {
-    var id = UUID()
-    var content: String
-    var isUser: Bool
-    var isActive: Bool = true
+enum ChatNetworkError: Error {
+    case invalidURL
+    case serverError(String)
 }
 
-// ChatService handles chat-related API calls
+@MainActor
 class ChatService: NSObject, URLSessionDataDelegate {
     private var session: URLSession?
     private var dataTask: URLSessionDataTask?
@@ -55,7 +51,9 @@ class ChatService: NSObject, URLSessionDataDelegate {
         let settingsManager = SettingsManager.shared
         let apiURLString = "\(settingsManager.chatSettings.apiURL)/v1/chat/completions"
         guard let apiURL = URL(string: apiURLString) else {
-            onError?(ChatNetworkError.invalidURL)
+            DispatchQueue.main.async {
+                self.onError?(ChatNetworkError.invalidURL)
+            }
             return
         }
 
@@ -72,7 +70,9 @@ class ChatService: NSObject, URLSessionDataDelegate {
             let jsonData = try JSONSerialization.data(withJSONObject: requestBody, options: [])
             request.httpBody = jsonData
         } catch {
-            onError?(error)
+            DispatchQueue.main.async {
+                self.onError?(error)
+            }
             return
         }
 
@@ -91,29 +91,36 @@ class ChatService: NSObject, URLSessionDataDelegate {
         }
     }
 
-    // URLSessionDataDelegate method
     func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
         let text = String(decoding: data, as: UTF8.self)
         text.enumerateLines { (line, _) in
-            if line.starts(with: "data: ") {
-                let jsonPart = line.dropFirst("data: ".count)
-                if let data = jsonPart.data(using: .utf8),
-                   let decoded = try? JSONDecoder().decode(ChatCompletionChunk.self, from: data) {
-                    decoded.choices?.forEach { choice in
-                        if let content = choice.delta?.content {
-                            DispatchQueue.main.async { [weak self] in
-                                let message = ChatMessage(content: content, isUser: false)
-                                self?.onMessageReceived?(message)
-                            }
+            guard line.starts(with: "data: ") else { return }
+            let jsonPart = line.dropFirst("data: ".count)
+            if jsonPart == "[DONE]" {
+                // The stream ended successfully
+                return
+            }
+            if let data = jsonPart.data(using: .utf8),
+               let decoded = try? JSONDecoder().decode(ChatCompletionChunk.self, from: data) {
+                decoded.choices?.forEach { choice in
+                    if let content = choice.delta?.content {
+                        let message = ChatMessage(content: content, isUser: false)
+                        DispatchQueue.main.async { [weak self] in
+                            self?.onMessageReceived?(message)
                         }
                     }
                 }
+            } else {
+                // Unable to decode this particular chunk. It's safer to ignore rather than fail.
             }
         }
     }
-}
 
-enum ChatNetworkError: Error {
-    case invalidURL
-    case serverError
+    func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
+        if let error = error {
+            DispatchQueue.main.async {
+                self.onError?(error)
+            }
+        }
+    }
 }

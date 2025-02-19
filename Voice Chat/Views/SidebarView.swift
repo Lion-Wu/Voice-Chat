@@ -6,51 +6,95 @@
 //
 
 import SwiftUI
-#if os(macOS)
-import AppKit
-#endif
 
 struct SidebarView: View {
-    var body: some View {
-        VStack(spacing: 0) {
-            #if os(macOS)
-            // Sidebar header with toggle button
-            HStack {
-                Spacer()
-                Button(action: toggleSidebar) {
-                    Image(systemName: "sidebar.left")
-                        .font(.system(size: 16, weight: .medium))
-                        .help("Hide Sidebar")
-                }
-                .buttonStyle(PlainButtonStyle())
-                .padding([.top, .trailing], 8)
-            }
-            #endif
+    @EnvironmentObject var chatSessionsViewModel: ChatSessionsViewModel
 
-            // Sidebar content
-            List {
-                NavigationLink(destination: ChatView()) {
-                    Label("Chat Interface", systemImage: "message")
+    var onConversationTap: (ChatSession) -> Void
+    var onOpenSettings: () -> Void
+
+    @State private var isRenaming: Bool = false
+    @State private var renamingSession: ChatSession? = nil
+    @State private var newTitle: String = ""
+
+    var body: some View {
+        List(selection: $chatSessionsViewModel.selectedSessionID) {
+            Section(header: Text("Chats")) {
+                ForEach(chatSessionsViewModel.chatSessions) { session in
+                    HStack {
+                        Text(session.title)
+                            .lineLimit(1)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        onConversationTap(session)
+                    }
+                    .contextMenu {
+                        Button("Rename") {
+                            renameSession(session)
+                        }
+                        Button("Delete") {
+                            if let index = chatSessionsViewModel.chatSessions.firstIndex(of: session) {
+                                chatSessionsViewModel.deleteSession(at: IndexSet(integer: index))
+                            }
+                        }
+                    }
                 }
-                NavigationLink(destination: VoiceView()) {
-                    Label("Voice Generator", systemImage: "waveform")
+                .onDelete(perform: chatSessionsViewModel.deleteSession)
+            }
+        }
+        .listStyle(.sidebar)
+        .navigationTitle("Chats")
+        .toolbar {
+            // Settings button in the toolbar for macOS
+            ToolbarItem(placement: .automatic) {
+                Button(action: onOpenSettings) {
+                    Image(systemName: "gearshape.fill")
+                }
+                .help("Settings")
+            }
+        }
+        .sheet(isPresented: $isRenaming) {
+            VStack(spacing: 20) {
+                Text("Rename Chat")
+                    .font(.headline)
+                TextField("New Title", text: $newTitle)
+                    .textFieldStyle(RoundedBorderTextFieldStyle())
+                    .padding()
+                HStack {
+                    Button("Cancel") {
+                        isRenaming = false
+                    }
+                    Spacer()
+                    Button("Save") {
+                        if let session = renamingSession {
+                            session.title = newTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+                            chatSessionsViewModel.saveChatSessions()
+                        }
+                        isRenaming = false
+                    }
                 }
             }
-            .listStyle(SidebarListStyle())
-            .navigationTitle("Menu")
+            .padding()
+            .frame(width: 300)
         }
     }
 
-    // Function to toggle the sidebar on macOS
-    #if os(macOS)
-    private func toggleSidebar() {
-        NSApp.keyWindow?.firstResponder?.tryToPerform(#selector(NSSplitViewController.toggleSidebar(_:)), with: nil)
+    private func renameSession(_ session: ChatSession) {
+        renamingSession = session
+        newTitle = session.title
+        isRenaming = true
     }
-    #endif
 }
 
 struct SidebarView_Previews: PreviewProvider {
     static var previews: some View {
-        SidebarView()
+        SidebarView(
+            onConversationTap: { _ in },
+            onOpenSettings: {}
+        )
+        .environmentObject(ChatSessionsViewModel())
     }
 }
+

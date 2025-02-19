@@ -5,14 +5,13 @@
 //  Created by Lion Wu on 2024.11.04.
 //
 
-
 import SwiftUI
 
 #if os(macOS)
 struct BlurView: NSViewRepresentable {
     func makeNSView(context: Context) -> NSVisualEffectView {
         let view = NSVisualEffectView()
-        view.material = .menu
+        view.material = .underWindowBackground
         view.blendingMode = .behindWindow
         view.state = .active
         return view
