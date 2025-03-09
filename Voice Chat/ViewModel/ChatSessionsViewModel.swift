@@ -22,12 +22,11 @@ class ChatSessionsViewModel: ObservableObject {
     }
 
     var canStartNewSession: Bool {
-        // Only allow starting a new session if the currently selected session has some content
-        // If selectedSession is nil or has no messages, return false
-        if let session = selectedSession {
-            return !session.messages.isEmpty
+        // 自行决定何时允许新会话
+        if let s = selectedSession {
+            return !s.messages.isEmpty
         }
-        return false
+        return true
     }
 
     init() {
@@ -56,42 +55,27 @@ class ChatSessionsViewModel: ObservableObject {
         saveChatSessions()
     }
 
-    private func getDocumentsDirectory() -> URL {
-        #if os(macOS)
-        let paths = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)
-        let appSupportURL = paths[0].appendingPathComponent(Bundle.main.bundleIdentifier ?? "VoiceChat")
-        try? FileManager.default.createDirectory(at: appSupportURL, withIntermediateDirectories: true, attributes: nil)
-        return appSupportURL
-        #else
-        let paths = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)
-        return paths[0]
-        #endif
-    }
-
-    private func chatSessionsFileURL() -> URL {
-        return getDocumentsDirectory().appendingPathComponent("chat_sessions.json")
-    }
-
     func saveChatSessions() {
-        let currentSessions = chatSessions
+        let path = chatSessionsFileURL()
+        let sessionsCopy = chatSessions
         DispatchQueue.global(qos: .background).async {
             do {
-                let data = try JSONEncoder().encode(currentSessions)
-                try data.write(to: self.chatSessionsFileURL(), options: .atomic)
+                let data = try JSONEncoder().encode(sessionsCopy)
+                try data.write(to: path, options: .atomic)
             } catch {
-                print("Error saving chat sessions: \(error)")
+                print("Error saving sessions: \(error)")
             }
         }
     }
 
     func loadChatSessions() {
+        let path = chatSessionsFileURL()
         DispatchQueue.global(qos: .background).async {
-            let url = self.chatSessionsFileURL()
-            if let data = try? Data(contentsOf: url) {
+            if let data = try? Data(contentsOf: path) {
                 do {
-                    let decodedSessions = try JSONDecoder().decode([ChatSession].self, from: data)
+                    let loaded = try JSONDecoder().decode([ChatSession].self, from: data)
                     DispatchQueue.main.async {
-                        self.chatSessions = decodedSessions
+                        self.chatSessions = loaded
                         if self.selectedSessionID == nil {
                             self.selectedSessionID = self.chatSessions.first?.id
                         }
@@ -100,7 +84,7 @@ class ChatSessionsViewModel: ObservableObject {
                         }
                     }
                 } catch {
-                    print("Error loading chat sessions: \(error)")
+                    print("load sessions error: \(error)")
                     DispatchQueue.main.async {
                         if self.chatSessions.isEmpty {
                             self.startNewSession()
@@ -115,5 +99,19 @@ class ChatSessionsViewModel: ObservableObject {
                 }
             }
         }
+    }
+
+    private func chatSessionsFileURL() -> URL {
+        #if os(iOS) || os(tvOS)
+        let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
+        return docs.appendingPathComponent("chat_sessions.json")
+        #elseif os(macOS)
+        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        let dir = appSupport.appendingPathComponent(Bundle.main.bundleIdentifier ?? "VoiceChat")
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true, attributes: nil)
+        return dir.appendingPathComponent("chat_sessions.json")
+        #else
+        return URL(fileURLWithPath: "/tmp/chat_sessions.json")
+        #endif
     }
 }

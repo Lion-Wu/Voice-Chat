@@ -21,6 +21,8 @@
 		FD0B94E72CD90A2500DBFA1D /* ChatMessage.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD0B94E62CD90A2500DBFA1D /* ChatMessage.swift */; };
 		FD0C3AB22C9F38F2009095A1 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD0C3AB12C9F38F2009095A1 /* SettingsView.swift */; };
 		FD0C3AC72C9F54A9009095A1 /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD0C3AC62C9F54A9009095A1 /* Models.swift */; };
+		FD2DD7D12D65A76900D124A6 /* SideMenuContainerViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD2DD7D02D65A76900D124A6 /* SideMenuContainerViewController.swift */; };
+		FD2DD7D32D65A7A200D124A6 /* MainContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD2DD7D22D65A7A200D124A6 /* MainContentView.swift */; };
 		FD40D5722CA871120064E732 /* AudioPlayerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD40D5712CA871120064E732 /* AudioPlayerView.swift */; };
 		FD40D5742CA875CC0064E732 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD40D5732CA875CC0064E732 /* ContentView.swift */; };
 		FD40D5762CA876010064E732 /* GlobalAudioManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD40D5752CA876010064E732 /* GlobalAudioManager.swift */; };
@@ -45,6 +47,8 @@
 		FD0B94E62CD90A2500DBFA1D /* ChatMessage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatMessage.swift; sourceTree = "<group>"; };
 		FD0C3AB12C9F38F2009095A1 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		FD0C3AC62C9F54A9009095A1 /* Models.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Models.swift; sourceTree = "<group>"; };
+		FD2DD7D02D65A76900D124A6 /* SideMenuContainerViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SideMenuContainerViewController.swift; sourceTree = "<group>"; };
+		FD2DD7D22D65A7A200D124A6 /* MainContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainContentView.swift; sourceTree = "<group>"; };
 		FD40D5712CA871120064E732 /* AudioPlayerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioPlayerView.swift; sourceTree = "<group>"; };
 		FD40D5732CA875CC0064E732 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		FD40D5752CA876010064E732 /* GlobalAudioManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GlobalAudioManager.swift; sourceTree = "<group>"; };
@@ -108,6 +112,8 @@
 				FD0C3AB12C9F38F2009095A1 /* SettingsView.swift */,
 				B4E916D22B4BD83D00E49A6B /* ChatView.swift */,
 				FD40D5712CA871120064E732 /* AudioPlayerView.swift */,
+				FD2DD7D02D65A76900D124A6 /* SideMenuContainerViewController.swift */,
+				FD2DD7D22D65A7A200D124A6 /* MainContentView.swift */,
 				FD7AF1B32CD896B900A5080B /* BlurView.swift */,
 				FD0B94E22CD9095C00DBFA1D /* SidebarView.swift */,
 			);
@@ -211,6 +217,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				FD2DD7D12D65A76900D124A6 /* SideMenuContainerViewController.swift in Sources */,
 				FD0B94E72CD90A2500DBFA1D /* ChatMessage.swift in Sources */,
 				FD40D5722CA871120064E732 /* AudioPlayerView.swift in Sources */,
 				FD0B94E32CD9095C00DBFA1D /* SidebarView.swift in Sources */,
@@ -226,6 +233,7 @@
 				B329D65B2B394979000A17C9 /* Voice_ChatApp.swift in Sources */,
 				B4E916DF2B4BF0E500E49A6B /* VoiceViewModel.swift in Sources */,
 				FD40D5742CA875CC0064E732 /* ContentView.swift in Sources */,
+				FD2DD7D32D65A7A200D124A6 /* MainContentView.swift in Sources */,
 				FD0C3AC72C9F54A9009095A1 /* Models.swift in Sources */,
 				FD0577A52CB626FD009FC45C /* SettingsViewModel.swift in Sources */,
 			);

@@ -1,0 +1,2687 @@
+1. 文件: Voice_ChatApp.swift
+//
+//  Voice_ChatApp.swift
+//  Voice Chat
+//
+//  Created by Lion Wu on 2023/12/25.
+//
+
+import SwiftUI
+
+@main
+struct Voice_ChatApp: App {
+    @StateObject private var audioManager = GlobalAudioManager.shared
+    @StateObject private var settingsManager = SettingsManager.shared
+    @StateObject private var chatSessionsViewModel = ChatSessionsViewModel()
+
+    var body: some Scene {
+        WindowGroup {
+            ContentView()
+                .environmentObject(audioManager)
+                .environmentObject(settingsManager)
+                .environmentObject(chatSessionsViewModel)
+        }
+        #if os(macOS)
+        Settings {
+            SettingsView()
+                .environmentObject(settingsManager)
+        }
+        #endif
+    }
+}
+
+
+2. 文件: ContentView.swift
+//
+//  ContentView.swift
+//  Voice Chat
+//
+//  Created by Lion Wu on 2024.09.29.
+//
+
+import SwiftUI
+
+struct ContentView: View {
+    @EnvironmentObject var audioManager: GlobalAudioManager
+    @EnvironmentObject var settingsManager: SettingsManager
+    @EnvironmentObject var chatSessionsViewModel: ChatSessionsViewModel
+
+    @State private var columnVisibility: NavigationSplitViewVisibility = .all
+    @State private var showingSettings = false
+
+    var body: some View {
+        #if os(macOS)
+        // macOS: 继续用原有的 NavigationSplitView
+        NavigationSplitView(columnVisibility: $columnVisibility) {
+            SidebarView(
+                onConversationTap: { conversation in
+                    selectConversation(conversation)
+                },
+                onOpenSettings: { showingSettings = true }
+            )
+        } detail: {
+            if let selectedSession = chatSessionsViewModel.selectedSession {
+                ChatView(chatSession: selectedSession)
+                    .id(selectedSession.id)
+            } else {
+                Text("No chat selected")
+                    .font(.largeTitle)
+                    .foregroundColor(.gray)
+                    .onAppear {
+                        if chatSessionsViewModel.chatSessions.isEmpty {
+                            chatSessionsViewModel.startNewSession()
+                        }
+                    }
+            }
+        }
+        .sheet(isPresented: $showingSettings) {
+            SettingsView()
+                .environmentObject(settingsManager)
+        }
+        .toolbar {
+            ToolbarItem {
+                Button(action: {
+                    startNewConversation()
+                }) {
+                    Image(systemName: "plus")
+                }
+                .help("New Chat")
+                .disabled(!chatSessionsViewModel.canStartNewSession)
+            }
+        }
+        .onAppear {
+            if chatSessionsViewModel.chatSessions.isEmpty {
+                chatSessionsViewModel.startNewSession()
+            }
+        }
+        #else
+        // iOS/iPadOS: 使用我们自定义的侧边栏容器
+        SideMenuContainerRepresentable()
+            .environmentObject(chatSessionsViewModel)
+            .environmentObject(audioManager)
+            .environmentObject(settingsManager)
+        #endif
+    }
+
+    private func selectConversation(_ session: ChatSession) {
+        chatSessionsViewModel.selectedSession = session
+    }
+
+    private func startNewConversation() {
+        chatSessionsViewModel.startNewSession()
+    }
+}
+
+struct ContentView_Previews: PreviewProvider {
+    static var previews: some View {
+        ContentView()
+            .environmentObject(GlobalAudioManager.shared)
+            .environmentObject(SettingsManager.shared)
+            .environmentObject(ChatSessionsViewModel())
+    }
+}
+
+
+3. 文件: ViewModel/ChatSessionsViewModel.swift
+//
+//  ChatSessionsViewModel.swift
+//  Voice Chat
+//
+//  Created by Lion Wu on 2024.11.04.
+//
+
+import Foundation
+
+class ChatSessionsViewModel: ObservableObject {
+    @Published var chatSessions: [ChatSession] = []
+    @Published var selectedSessionID: UUID? = nil
+
+    var selectedSession: ChatSession? {
+        get {
+            guard let id = selectedSessionID else { return nil }
+            return chatSessions.first(where: { $0.id == id })
+        }
+        set {
+            selectedSessionID = newValue?.id
+        }
+    }
+
+    var canStartNewSession: Bool {
+        // 自行决定何时允许新会话
+        if let s = selectedSession {
+            return !s.messages.isEmpty
+        }
+        return true
+    }
+
+    init() {
+        loadChatSessions()
+    }
+
+    func startNewSession() {
+        let newSession = ChatSession()
+        chatSessions.insert(newSession, at: 0)
+        selectedSessionID = newSession.id
+        saveChatSessions()
+    }
+
+    func addSession(_ session: ChatSession) {
+        if !chatSessions.contains(session) {
+            chatSessions.insert(session, at: 0)
+            saveChatSessions()
+        }
+    }
+
+    func deleteSession(at offsets: IndexSet) {
+        chatSessions.remove(atOffsets: offsets)
+        if !chatSessions.contains(where: { $0.id == selectedSessionID }) {
+            selectedSessionID = chatSessions.first?.id
+        }
+        saveChatSessions()
+    }
+
+    func saveChatSessions() {
+        let path = chatSessionsFileURL()
+        let sessionsCopy = chatSessions
+        DispatchQueue.global(qos: .background).async {
+            do {
+                let data = try JSONEncoder().encode(sessionsCopy)
+                try data.write(to: path, options: .atomic)
+            } catch {
+                print("Error saving sessions: \(error)")
+            }
+        }
+    }
+
+    func loadChatSessions() {
+        let path = chatSessionsFileURL()
+        DispatchQueue.global(qos: .background).async {
+            if let data = try? Data(contentsOf: path) {
+                do {
+                    let loaded = try JSONDecoder().decode([ChatSession].self, from: data)
+                    DispatchQueue.main.async {
+                        self.chatSessions = loaded
+                        if self.selectedSessionID == nil {
+                            self.selectedSessionID = self.chatSessions.first?.id
+                        }
+                        if self.chatSessions.isEmpty {
+                            self.startNewSession()
+                        }
+                    }
+                } catch {
+                    print("load sessions error: \(error)")
+                    DispatchQueue.main.async {
+                        if self.chatSessions.isEmpty {
+                            self.startNewSession()
+                        }
+                    }
+                }
+            } else {
+                DispatchQueue.main.async {
+                    if self.chatSessions.isEmpty {
+                        self.startNewSession()
+                    }
+                }
+            }
+        }
+    }
+
+    private func chatSessionsFileURL() -> URL {
+        #if os(iOS) || os(tvOS)
+        let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
+        return docs.appendingPathComponent("chat_sessions.json")
+        #elseif os(macOS)
+        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        let dir = appSupport.appendingPathComponent(Bundle.main.bundleIdentifier ?? "VoiceChat")
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true, attributes: nil)
+        return dir.appendingPathComponent("chat_sessions.json")
+        #else
+        return URL(fileURLWithPath: "/tmp/chat_sessions.json")
+        #endif
+    }
+}
+
+
+4. 文件: ViewModel/ChatViewModel.swift
+//
+//  ChatViewModel.swift
+//  Voice Chat
+//
+//  Created by Lion Wu on 2024/1/18.
+//
+
+import Foundation
+
+@MainActor
+class ChatViewModel: ObservableObject {
+    @Published var userMessage: String = ""
+    @Published var isLoading: Bool = false
+    @Published var chatSession: ChatSession
+
+    private var chatService = ChatService()
+    private var settingsManager = SettingsManager.shared
+    var onUpdate: (() -> Void)?
+
+    init(chatSession: ChatSession) {
+        self.chatSession = chatSession
+
+        // Since we are on the main actor, assigning these closures is allowed.
+        chatService.onMessageReceived = { [weak self] message in
+            guard let self = self else { return }
+            self.handleReceivedMessage(message)
+        }
+
+        chatService.onError = { [weak self] error in
+            guard let self = self else { return }
+            self.isLoading = false
+            print("Chat error: \(error.localizedDescription)")
+        }
+    }
+
+    func sendMessage() {
+        let trimmedMessage = userMessage.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedMessage.isEmpty else { return }
+
+        let userMsg = ChatMessage(content: trimmedMessage, isUser: true)
+        chatSession.messages.append(userMsg)
+        if chatSession.title == "New Chat" {
+            chatSession.title = trimmedMessage
+        }
+        isLoading = true
+        userMessage = ""
+        onUpdate?()
+
+        // Capture current messages on the main actor
+        let currentMessages = chatSession.messages
+        // Perform network call on a background thread
+        DispatchQueue.global(qos: .userInitiated).async {
+            self.chatService.fetchStreamedData(messages: currentMessages)
+        }
+    }
+
+    private func handleReceivedMessage(_ message: ChatMessage) {
+        if let lastMessage = chatSession.messages.last, !lastMessage.isUser && lastMessage.isActive {
+            lastMessage.content += message.content
+        } else {
+            chatSession.messages.append(message)
+        }
+        isLoading = false
+        onUpdate?()
+    }
+
+    /// 对“系统消息”执行重新生成逻辑：
+    /// 1. 从指定消息开始到会话末尾的所有消息都删除
+    /// 2. 根据删除后的会话，再次向服务器请求生成新的回复
+    func regenerateSystemMessage(_ message: ChatMessage) {
+        guard let index = chatSession.messages.firstIndex(where: { $0.id == message.id }) else {
+            return
+        }
+        // 删除从这条系统消息到末尾的所有消息
+        chatSession.messages.removeSubrange(index...)
+        onUpdate?()
+
+        // 重新请求回复
+        let currentMessages = chatSession.messages
+        isLoading = true
+        DispatchQueue.global(qos: .userInitiated).async {
+            self.chatService.fetchStreamedData(messages: currentMessages)
+        }
+    }
+
+    /// 对“用户消息”执行编辑逻辑：
+    /// 1. 从指定用户消息开始到会话末尾的所有消息都删除
+    /// 2. 把该用户消息的内容放到输入框里，允许用户修改后再次点击发送
+    func editUserMessage(_ message: ChatMessage) {
+        guard let index = chatSession.messages.firstIndex(where: { $0.id == message.id }) else {
+            return
+        }
+        // 删除从这条用户消息到末尾的所有消息
+        chatSession.messages.removeSubrange(index...)
+        // 将原内容放入输入框，等待用户编辑并发送
+        userMessage = message.content
+        onUpdate?()
+    }
+}
+
+
+5. 文件: ViewModel/SettingsViewModel.swift
+//
+//  SettingsViewModel.swift
+//  Voice Chat
+//
+//  Created by Lion Wu on 2024.10.09.
+//  Modified by [Your Name] on [Date]
+//
+
+import Foundation
+import Combine
+
+@MainActor
+class SettingsViewModel: ObservableObject {
+    @Published var serverAddress: String {
+        didSet {
+            saveServerSettings()
+        }
+    }
+    @Published var textLang: String {
+        didSet {
+            saveServerSettings()
+        }
+    }
+    @Published var refAudioPath: String {
+        didSet {
+            saveServerSettings()
+        }
+    }
+    @Published var promptText: String {
+        didSet {
+            saveServerSettings()
+        }
+    }
+    @Published var promptLang: String {
+        didSet {
+            saveServerSettings()
+        }
+    }
+
+    @Published var apiURL: String {
+        didSet {
+            saveChatSettings()
+        }
+    }
+    @Published var selectedModel: String {
+        didSet {
+            saveChatSettings()
+        }
+    }
+
+    @Published var enableStreaming: Bool {
+        didSet {
+            saveVoiceSettings()
+            // If enabling streaming, automatically set autoSplit to "cut0"
+            if enableStreaming {
+                autoSplit = "cut0"
+            }
+        }
+    }
+    @Published var autoSplit: String {
+        didSet {
+            saveModelSettings()
+        }
+    }
+    @Published var modelId: String {
+        didSet {
+            saveModelSettings()
+        }
+    }
+    @Published var language: String {
+        didSet {
+            saveModelSettings()
+        }
+    }
+
+    private let settingsManager = SettingsManager.shared
+
+    init() {
+        let serverSettings = settingsManager.serverSettings
+        self.serverAddress = serverSettings.serverAddress
+        self.textLang = serverSettings.textLang
+        self.refAudioPath = serverSettings.refAudioPath
+        self.promptText = serverSettings.promptText
+        self.promptLang = serverSettings.promptLang
+
+        let chatSettings = settingsManager.chatSettings
+        self.apiURL = chatSettings.apiURL
+        self.selectedModel = chatSettings.selectedModel
+
+        let voiceSettings = settingsManager.voiceSettings
+        self.enableStreaming = voiceSettings.enableStreaming
+
+        let modelSettings = settingsManager.modelSettings
+        self.autoSplit = modelSettings.autoSplit
+        self.modelId = modelSettings.modelId
+        self.language = modelSettings.language
+    }
+
+    func saveServerSettings() {
+        settingsManager.updateServerSettings(
+            serverAddress: serverAddress,
+            textLang: textLang,
+            refAudioPath: refAudioPath,
+            promptText: promptText,
+            promptLang: promptLang
+        )
+    }
+
+    func saveChatSettings() {
+        settingsManager.updateChatSettings(
+            apiURL: apiURL,
+            selectedModel: selectedModel
+        )
+    }
+
+    func saveVoiceSettings() {
+        settingsManager.updateVoiceSettings(
+            enableStreaming: enableStreaming
+        )
+    }
+
+    func saveModelSettings() {
+        settingsManager.updateModelSettings(
+            modelId: modelId,
+            language: language,
+            autoSplit: autoSplit
+        )
+    }
+}
+
+
+6. 文件: ViewModel/VoiceViewModel.swift
+//
+//  VoiceViewModel.swift
+//  Voice Chat
+//
+//  Created by Lion Wu on 2024/1/8.
+//
+
+import Foundation
+import AVFoundation
+
+@MainActor
+class VoiceViewModel: ObservableObject {
+    @Published var text = "Sample text."
+    @Published var connectionStatus = "Waiting for connection"
+    @Published var errorMessage: String?
+    @Published var isLoading = false
+
+    func setupAudioSession() {
+        #if os(iOS) || os(tvOS)
+        do {
+            let session = AVAudioSession.sharedInstance()
+            try session.setCategory(.playback, mode: .default)
+            try session.setActive(true)
+        } catch {
+            DispatchQueue.main.async {
+                self.errorMessage = "Unable to set up audio session: \(error.localizedDescription)"
+            }
+        }
+        #endif
+        // On macOS, AVAudioSession is not used. It's safe to skip.
+    }
+}
+
+
+7. 文件: Model/GlobalAudioManager.swift
+//
+//  GlobalAudioManager.swift
+//  Voice Chat
+//
+//  Created by Lion Wu on 2024.09.29.
+//
+
+import Foundation
+import AVFoundation
+import Combine
+import NaturalLanguage
+
+@MainActor
+class GlobalAudioManager: NSObject, ObservableObject, AVAudioPlayerDelegate {
+    static let shared = GlobalAudioManager()
+
+    @Published var isShowingAudioPlayer = false
+    @Published var isAudioPlaying = false
+    @Published var currentTime: TimeInterval = 0
+    @Published var isLoading = false
+    @Published var isBuffering = false
+    @Published var errorMessage: String? = nil
+
+    private var audioPlayer: AVAudioPlayer?
+    private var audioTimer: Timer?
+    var mediaType: String = "wav"
+
+    // Segments and audio chunk handling
+    private var textSegments: [String] = []
+    private var audioChunks: [Data?] = []
+    private var chunkDurations: [TimeInterval] = []
+    private var chunkStartTimes: [TimeInterval] = []
+    private var totalDuration: TimeInterval = 0
+    private var currentChunkIndex: Int = 0
+    private var currentPlayingIndex: Int = 0
+    private var requestsInFlight: Int = 0
+    private let maxRequestsInFlight = 2
+
+    private var dataTasks: [URLSessionDataTask] = []
+    private var nextAudioPlayer: AVAudioPlayer?
+
+    private var seekTime: TimeInterval?
+    private var isSeeking: Bool = false
+
+    private let settingsManager = SettingsManager.shared
+
+    func startProcessing(text: String) {
+        resetPlayer()
+        isLoading = true
+        isShowingAudioPlayer = true
+        currentTime = 0
+        totalDuration = 0
+        errorMessage = nil
+
+        let voiceSettings = settingsManager.voiceSettings
+        if voiceSettings.enableStreaming {
+            self.textSegments = splitTextIntoMeaningfulSegments(text)
+        } else {
+            self.textSegments = [text]
+        }
+
+        let segmentCount = textSegments.count
+        self.audioChunks = Array(repeating: nil, count: segmentCount)
+        self.chunkDurations = Array(repeating: 0, count: segmentCount)
+        self.chunkStartTimes = Array(repeating: 0, count: segmentCount)
+        self.currentChunkIndex = 0
+        self.currentPlayingIndex = 0
+        self.requestsInFlight = 0
+
+        sendNextSegment()
+        if segmentCount > 1 {
+            sendNextSegment()
+        }
+    }
+
+    private func sendNextSegment() {
+        guard currentChunkIndex < textSegments.count else { return }
+        guard requestsInFlight < maxRequestsInFlight else { return }
+
+        let index = currentChunkIndex
+        currentChunkIndex += 1
+        requestsInFlight += 1
+
+        let segmentText = textSegments[index]
+        sendTTSRequest(for: segmentText, index: index)
+    }
+
+    private func sendTTSRequest(for segmentText: String, index: Int) {
+        guard let url = constructTTSURL() else {
+            DispatchQueue.main.async {
+                self.isLoading = false
+                self.errorMessage = "Unable to construct TTS URL"
+            }
+            return
+        }
+
+        let serverSettings = settingsManager.serverSettings
+        let modelSettings = settingsManager.modelSettings
+        let voiceSettings = settingsManager.voiceSettings
+
+        var parameters: [String: Any] = [
+            "text": segmentText,
+            "text_lang": serverSettings.textLang,
+            "ref_audio_path": serverSettings.refAudioPath,
+            "prompt_text": serverSettings.promptText,
+            "prompt_lang": serverSettings.promptLang,
+            "batch_size": 1,
+            "media_type": mediaType
+        ]
+
+        if voiceSettings.enableStreaming {
+            parameters["text_split_method"] = "cut0"
+        } else {
+            parameters["text_split_method"] = modelSettings.autoSplit
+        }
+
+        guard let jsonData = try? JSONSerialization.data(withJSONObject: parameters, options: []) else {
+            DispatchQueue.main.async {
+                self.isLoading = false
+                self.errorMessage = "Unable to serialize JSON"
+            }
+            return
+        }
+
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 60
+        request.httpMethod = "POST"
+        request.addValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = jsonData
+
+        let task = URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
+            guard let self = self else { return }
+            defer {
+                DispatchQueue.main.async {
+                    self.requestsInFlight -= 1
+                    self.sendNextSegment()
+                }
+            }
+
+            if let error = error {
+                DispatchQueue.main.async {
+                    self.isLoading = false
+                    self.errorMessage = "Audio request failed: \(error.localizedDescription)"
+                }
+                return
+            }
+
+            guard let data = data else {
+                DispatchQueue.main.async {
+                    self.isLoading = false
+                    self.errorMessage = "No data received"
+                }
+                return
+            }
+
+            DispatchQueue.main.async {
+                if index >= self.audioChunks.count { return }
+                self.audioChunks[index] = data
+
+                if let player = try? AVAudioPlayer(data: data) {
+                    let segmentDuration = player.duration
+                    self.chunkDurations[index] = segmentDuration
+                    self.calculateChunkStartTimesAndTotalDuration()
+                }
+
+                if index == self.currentPlayingIndex {
+                    self.isLoading = false
+                    self.isBuffering = false
+                    self.playAudioChunk(at: index, fromTime: self.seekTime, shouldPlay: true)
+                    self.seekTime = nil
+                } else if self.isBuffering && self.isSeeking {
+                    self.playAudioChunk(at: self.currentPlayingIndex, fromTime: self.seekTime, shouldPlay: self.isAudioPlaying)
+                    self.seekTime = nil
+                } else if self.isBuffering && index == self.currentPlayingIndex + 1 {
+                    self.prepareNextAudioChunk(at: index)
+                } else if index == self.currentPlayingIndex + 1 {
+                    self.prepareNextAudioChunk(at: index)
+                }
+            }
+        }
+        task.resume()
+        dataTasks.append(task)
+    }
+
+    private func calculateChunkStartTimesAndTotalDuration() {
+        var cumulativeTime: TimeInterval = 0
+        for i in 0..<chunkDurations.count {
+            let duration = chunkDurations.indices.contains(i) ? chunkDurations[i] : 0
+            chunkStartTimes[i] = cumulativeTime
+            cumulativeTime += duration
+        }
+        totalDuration = cumulativeTime
+    }
+
+    private func prepareNextAudioChunk(at index: Int) {
+        guard audioChunks.indices.contains(index), let data = audioChunks[index] else { return }
+        do {
+            nextAudioPlayer = try AVAudioPlayer(data: data)
+            nextAudioPlayer?.delegate = self
+            nextAudioPlayer?.prepareToPlay()
+        } catch {
+            print("Failed to prepare next audio: \(error)")
+        }
+    }
+
+    private func playAudioChunk(at index: Int, fromTime time: TimeInterval? = nil, shouldPlay: Bool = true) {
+        guard audioChunks.indices.contains(index) else {
+            // No more chunks to play
+            return
+        }
+
+        guard let data = audioChunks[index] else {
+            isAudioPlaying = false
+            isBuffering = true
+            stopAudioTimer()
+            return
+        }
+
+        do {
+            audioPlayer = try AVAudioPlayer(data: data)
+            audioPlayer?.delegate = self
+            audioPlayer?.prepareToPlay()
+
+            let startTime: TimeInterval = {
+                guard let t = time else { return 0 }
+                let relativeTime = t - self.chunkStartTimes[index]
+                return max(0, min(relativeTime, audioPlayer?.duration ?? 0))
+            }()
+
+            if currentTime >= totalDuration {
+                isAudioPlaying = false
+                audioPlayer?.stop()
+                stopAudioTimer()
+                return
+            }
+
+            audioPlayer?.currentTime = startTime
+            if shouldPlay {
+                audioPlayer?.play()
+                isAudioPlaying = true
+                startAudioTimer()
+            } else {
+                isAudioPlaying = false
+            }
+
+            isBuffering = false
+            isSeeking = false
+
+            let nextIndex = index + 1
+            if nextIndex < audioChunks.count, audioChunks[nextIndex] != nil {
+                prepareNextAudioChunk(at: nextIndex)
+            }
+        } catch {
+            print("Failed to start audio playback: \(error)")
+            errorMessage = "Failed to start audio playback: \(error.localizedDescription)"
+        }
+    }
+
+    func togglePlayback() {
+        if isBuffering { return }
+
+        if isAudioPlaying {
+            audioPlayer?.pause()
+            isAudioPlaying = false
+            stopAudioTimer()
+        } else {
+            if currentTime >= totalDuration {
+                seek(to: 0, shouldPlay: true)
+            } else {
+                audioPlayer?.play()
+                isAudioPlaying = true
+                startAudioTimer()
+            }
+        }
+    }
+
+    func forward15Seconds() {
+        let newTime = currentTime + 15
+        seek(to: newTime, shouldPlay: isAudioPlaying)
+    }
+
+    func backward15Seconds() {
+        let newTime = currentTime - 15
+        seek(to: newTime, shouldPlay: isAudioPlaying)
+    }
+
+    func seek(to time: TimeInterval, shouldPlay: Bool = false) {
+        guard totalDuration > 0 else { return }
+        let newTime = max(0, min(time, totalDuration))
+        currentTime = newTime
+
+        var targetChunkIndex = 0
+        for i in 0..<chunkStartTimes.count {
+            if chunkStartTimes[i] > newTime {
+                targetChunkIndex = max(0, i - 1)
+                break
+            }
+            if i == chunkStartTimes.count - 1 {
+                targetChunkIndex = i
+            }
+        }
+
+        if targetChunkIndex != currentPlayingIndex {
+            audioPlayer?.stop()
+            audioPlayer = nil
+            currentPlayingIndex = targetChunkIndex
+        }
+
+        if let _ = audioChunks[safe: currentPlayingIndex] {
+            playAudioChunk(at: currentPlayingIndex, fromTime: currentTime, shouldPlay: shouldPlay)
+            isBuffering = false
+        } else {
+            isBuffering = true
+            seekTime = currentTime
+            stopAudioTimer()
+        }
+
+        if newTime >= totalDuration {
+            isAudioPlaying = false
+            audioPlayer?.stop()
+            stopAudioTimer()
+        }
+    }
+
+    func closeAudioPlayer() {
+        resetPlayer()
+        isAudioPlaying = false
+        isShowingAudioPlayer = false
+        isLoading = false
+    }
+
+    private func resetPlayer() {
+        dataTasks.forEach { $0.cancel() }
+        dataTasks.removeAll()
+
+        audioPlayer?.stop()
+        audioPlayer = nil
+        nextAudioPlayer?.stop()
+        nextAudioPlayer = nil
+        currentTime = 0
+        totalDuration = 0
+        stopAudioTimer()
+        textSegments.removeAll()
+        audioChunks.removeAll()
+        chunkDurations.removeAll()
+        chunkStartTimes.removeAll()
+        currentChunkIndex = 0
+        currentPlayingIndex = 0
+        requestsInFlight = 0
+        isBuffering = false
+        isSeeking = false
+        seekTime = nil
+        errorMessage = nil
+    }
+
+    private func startAudioTimer() {
+        stopAudioTimer()
+        audioTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
+            guard let self = self, !self.isBuffering else { return }
+            if let player = self.audioPlayer {
+                let chunkStartTime = self.chunkStartTimes[safe: self.currentPlayingIndex] ?? 0
+                let playerCurrentTime = player.currentTime
+                self.currentTime = chunkStartTime + playerCurrentTime
+                if self.currentTime >= self.totalDuration {
+                    self.currentTime = self.totalDuration
+                    self.isAudioPlaying = false
+                    player.stop()
+                    self.stopAudioTimer()
+                }
+            }
+        }
+        if let audioTimer = audioTimer {
+            RunLoop.current.add(audioTimer, forMode: .common)
+        }
+    }
+
+    private func stopAudioTimer() {
+        audioTimer?.invalidate()
+        audioTimer = nil
+    }
+
+    private func constructTTSURL() -> URL? {
+        let serverSettings = settingsManager.serverSettings
+        let urlString = "\(serverSettings.serverAddress)/tts"
+        return URL(string: urlString)
+    }
+
+    // MARK: AVAudioPlayerDelegate
+
+    func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
+        currentPlayingIndex += 1
+        if currentTime >= totalDuration {
+            currentTime = totalDuration
+            isAudioPlaying = false
+            stopAudioTimer()
+            return
+        }
+
+        if let nextPlayer = nextAudioPlayer {
+            audioPlayer = nextPlayer
+            nextAudioPlayer = nil
+            audioPlayer?.delegate = self
+            audioPlayer?.play()
+            isAudioPlaying = true
+            startAudioTimer()
+
+            let nextIndex = currentPlayingIndex + 1
+            if nextIndex < audioChunks.count, audioChunks[nextIndex] != nil {
+                prepareNextAudioChunk(at: nextIndex)
+            }
+        } else if currentPlayingIndex < audioChunks.count {
+            if audioChunks[currentPlayingIndex] != nil {
+                playAudioChunk(at: currentPlayingIndex, fromTime: currentTime, shouldPlay: true)
+            } else {
+                isBuffering = true
+                stopAudioTimer()
+            }
+        } else {
+            isAudioPlaying = false
+            currentTime = totalDuration
+            stopAudioTimer()
+        }
+    }
+
+    // MARK: Text Splitting Functions
+
+    private func splitTextIntoMeaningfulSegments(_ text: String, minSize: Int = 10, maxSize: Int = 100) -> [String] {
+        let modifiedText = text
+            .replacingOccurrences(of: #"\.\n"#, with: ". ")
+            .replacingOccurrences(of: #"。\n"#, with: "")
+            .replacingOccurrences(of: "\n", with: " ")
+
+        var segments: [String] = []
+        var currentSegment = ""
+        let sentenceTokenizer = NLTokenizer(unit: .sentence)
+        sentenceTokenizer.string = modifiedText
+        var sentenceFound = false
+        sentenceTokenizer.enumerateTokens(in: modifiedText.startIndex..<modifiedText.endIndex) { sentenceRange, _ in
+            sentenceFound = true
+            let sentence = String(modifiedText[sentenceRange])
+            let language = detectLanguage(for: sentence)
+            if getCount(for: currentSegment + " " + sentence, language: language) > maxSize {
+                if !currentSegment.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    segments.append(currentSegment.trimmingCharacters(in: .whitespacesAndNewlines))
+                    currentSegment = ""
+                }
+                if let splitSentences = splitSentenceAtConjunctions(sentence, language: language, minSize: minSize, maxSize: maxSize) {
+                    segments.append(contentsOf: splitSentences)
+                } else {
+                    let splitSegments = splitSentence(sentence, language: language, minSize: minSize, maxSize: maxSize)
+                    segments.append(contentsOf: splitSegments)
+                }
+            } else {
+                currentSegment += " " + sentence
+            }
+            return true
+        }
+
+        if !sentenceFound {
+            let language = detectLanguage(for: modifiedText)
+            if let splitText = splitSentenceAtConjunctions(modifiedText, language: language, minSize: minSize, maxSize: maxSize) {
+                segments.append(contentsOf: splitText)
+            } else {
+                let splitSegments = splitSentence(modifiedText, language: language, minSize: minSize, maxSize: maxSize)
+                segments.append(contentsOf: splitSegments)
+            }
+        }
+
+        if !currentSegment.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            segments.append(currentSegment.trimmingCharacters(in: .whitespacesAndNewlines))
+        }
+
+        segments.removeAll { $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+        return segments
+    }
+
+    private func detectLanguage(for text: String) -> String {
+        let recognizer = NLLanguageRecognizer()
+        recognizer.processString(text)
+        return recognizer.dominantLanguage?.rawValue ?? "unknown"
+    }
+
+    private func languageIsWordBased(_ language: String) -> Bool {
+        let wordBasedLanguages = ["en", "fr", "de", "es", "it", "pt", "ru", "ja", "ko"]
+        return wordBasedLanguages.contains(language)
+    }
+
+    private func wordCount(in text: String) -> Int {
+        let tokenizer = NLTokenizer(unit: .word)
+        tokenizer.string = text
+        var count = 0
+        tokenizer.enumerateTokens(in: text.startIndex..<text.endIndex) { _, _ in
+            count += 1
+            return true
+        }
+        return count
+    }
+
+    private func characterCount(in text: String) -> Int {
+        return text.count
+    }
+
+    private func getCount(for text: String, language: String) -> Int {
+        if languageIsWordBased(language) {
+            return wordCount(in: text)
+        } else {
+            return characterCount(in: text)
+        }
+    }
+
+    private func splitSentenceAtConjunctions(_ sentence: String, language: String, minSize: Int, maxSize: Int) -> [String]? {
+        guard languageIsWordBased(language) else { return nil }
+
+        let nsSentence = sentence as NSString
+        let tagger = NSLinguisticTagger(tagSchemes: [.lexicalClass], options: 0)
+        tagger.string = sentence
+        var conjunctionRanges: [NSRange] = []
+        tagger.enumerateTags(in: NSRange(location: 0, length: nsSentence.length), unit: .word, scheme: .lexicalClass) { tag, tokenRange, _ in
+            if tag == .conjunction {
+                conjunctionRanges.append(tokenRange)
+            }
+        }
+
+        if conjunctionRanges.isEmpty { return nil }
+
+        var splitSegments: [String] = []
+        var lastSplitIndex = 0
+        var buffer = ""
+
+        for tokenRange in conjunctionRanges {
+            let splitRange = NSRange(location: lastSplitIndex, length: tokenRange.location - lastSplitIndex)
+            if splitRange.length > 0 {
+                let segment = nsSentence.substring(with: splitRange).trimmingCharacters(in: .whitespacesAndNewlines)
+                if !segment.isEmpty {
+                    if getCount(for: buffer + " " + segment, language: language) <= maxSize {
+                        buffer += " " + segment
+                    } else {
+                        if !buffer.isEmpty {
+                            splitSegments.append(buffer.trimmingCharacters(in: .whitespacesAndNewlines))
+                            buffer = ""
+                        }
+                        if let splitSentences = splitSentenceAtConjunctions(segment, language: language, minSize: minSize, maxSize: maxSize) {
+                            splitSegments.append(contentsOf: splitSentences)
+                        } else {
+                            let furtherSplits = splitSentence(segment, language: language, minSize: minSize, maxSize: maxSize)
+                            splitSegments.append(contentsOf: furtherSplits)
+                        }
+                    }
+                }
+            }
+
+            let conjunction = nsSentence.substring(with: tokenRange).trimmingCharacters(in: .whitespacesAndNewlines)
+            buffer += " " + conjunction
+            lastSplitIndex = tokenRange.location + tokenRange.length
+        }
+
+        let remainingRange = NSRange(location: lastSplitIndex, length: nsSentence.length - lastSplitIndex)
+        if remainingRange.length > 0 {
+            let remainingSegment = nsSentence.substring(with: remainingRange).trimmingCharacters(in: .whitespacesAndNewlines)
+            if !remainingSegment.isEmpty {
+                if getCount(for: buffer + " " + remainingSegment, language: language) <= maxSize {
+                    buffer += " " + remainingSegment
+                } else {
+                    if !buffer.isEmpty {
+                        splitSegments.append(buffer.trimmingCharacters(in: .whitespacesAndNewlines))
+                    }
+                    splitSegments.append(remainingSegment)
+                }
+            }
+        }
+
+        if !buffer.isEmpty {
+            splitSegments.append(buffer.trimmingCharacters(in: .whitespacesAndNewlines))
+        }
+
+        var finalSegments: [String] = []
+        for seg in splitSegments {
+            let segCount = getCount(for: seg, language: language)
+            if segCount > maxSize {
+                let furtherSplits = splitSentence(seg, language: language, minSize: minSize, maxSize: maxSize)
+                finalSegments.append(contentsOf: furtherSplits)
+            } else if segCount >= minSize {
+                finalSegments.append(seg)
+            } else {
+                if let last = finalSegments.popLast() {
+                    finalSegments.append(last + " " + seg)
+                } else {
+                    finalSegments.append(seg)
+                }
+            }
+        }
+        return finalSegments
+    }
+
+    private func splitSentence(_ sentence: String, language: String, minSize: Int, maxSize: Int) -> [String] {
+        var splitSegments: [String] = []
+        if languageIsWordBased(language) {
+            let words = sentence.split { $0.isWhitespace }
+            var current = ""
+            for word in words {
+                let wordStr = String(word)
+                let potential = current.isEmpty ? wordStr : "\(current) \(wordStr)"
+                if wordCount(in: potential) > maxSize {
+                    if !current.isEmpty {
+                        splitSegments.append(current.trimmingCharacters(in: .whitespacesAndNewlines))
+                        current = wordStr
+                    } else {
+                        splitSegments.append(wordStr)
+                        current = ""
+                    }
+                } else {
+                    current = potential
+                }
+            }
+            if !current.isEmpty {
+                splitSegments.append(current.trimmingCharacters(in: .whitespacesAndNewlines))
+            }
+        } else {
+            var current = ""
+            for char in sentence {
+                let charStr = String(char)
+                let potential = current + charStr
+                if characterCount(in: potential) > maxSize {
+                    if !current.isEmpty {
+                        splitSegments.append(current)
+                        current = charStr
+                    } else {
+                        splitSegments.append(charStr)
+                        current = ""
+                    }
+                } else {
+                    current = potential
+                }
+            }
+            if !current.isEmpty {
+                splitSegments.append(current)
+            }
+        }
+        return splitSegments
+    }
+}
+
+// Safe array indexing
+private extension Array {
+    subscript(safe index: Int) -> Element? {
+        return indices.contains(index) ? self[index] : nil
+    }
+}
+
+
+8. 文件: Model/ChatMessage.swift
+//
+//  ChatMessage.swift
+//  Voice Chat
+//
+//  Created by Lion Wu on 2024.11.04.
+//
+
+import Foundation
+
+class ChatMessage: Identifiable, Codable, Equatable, ObservableObject {
+    var id = UUID()
+    @Published var content: String
+    var isUser: Bool
+    var isActive: Bool = true
+
+    init(content: String, isUser: Bool, isActive: Bool = true) {
+        self.content = content
+        self.isUser = isUser
+        self.isActive = isActive
+    }
+
+    static func == (lhs: ChatMessage, rhs: ChatMessage) -> Bool {
+        return lhs.id == rhs.id
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, content, isUser, isActive
+    }
+
+    required init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(UUID.self, forKey: .id)
+        content = try container.decode(String.self, forKey: .content)
+        isUser = try container.decode(Bool.self, forKey: .isUser)
+        isActive = try container.decode(Bool.self, forKey: .isActive)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(content, forKey: .content)
+        try container.encode(isUser, forKey: .isUser)
+        try container.encode(isActive, forKey: .isActive)
+    }
+}
+
+
+9. 文件: Model/ChatModel.swift
+//
+//  ChatModel.swift
+//  Voice Chat
+//
+//  Created by Lion Wu on 2024/1/8.
+//
+
+import Foundation
+
+struct ChatCompletionChunk: Codable {
+    var id: String?
+    var object: String?
+    var created: Int?
+    var model: String?
+    var choices: [Choice]?
+}
+
+struct Choice: Codable {
+    var index: Int?
+    var finish_reason: String?
+    var delta: Delta?
+}
+
+struct Delta: Codable {
+    var role: String?
+    var content: String?
+}
+
+enum ChatNetworkError: Error {
+    case invalidURL
+    case serverError(String)
+}
+
+@MainActor
+class ChatService: NSObject, URLSessionDataDelegate {
+    private var session: URLSession?
+    private var dataTask: URLSessionDataTask?
+
+    var onMessageReceived: ((ChatMessage) -> Void)?
+    var onError: ((Error) -> Void)?
+
+    override init() {
+        super.init()
+        let configuration = URLSessionConfiguration.default
+        self.session = URLSession(configuration: configuration, delegate: self, delegateQueue: nil)
+    }
+
+    func fetchStreamedData(messages: [ChatMessage]) {
+        dataTask?.cancel()
+
+        let settingsManager = SettingsManager.shared
+        let apiURLString = "\(settingsManager.chatSettings.apiURL)/v1/chat/completions"
+        guard let apiURL = URL(string: apiURLString) else {
+            DispatchQueue.main.async {
+                self.onError?(ChatNetworkError.invalidURL)
+            }
+            return
+        }
+
+        var request = URLRequest(url: apiURL)
+        request.httpMethod = "POST"
+
+        let requestBody: [String: Any] = [
+            "model": settingsManager.chatSettings.selectedModel,
+            "stream": true,
+            "messages": transformedMessagesForRequest(messages: messages)
+        ]
+
+        do {
+            let jsonData = try JSONSerialization.data(withJSONObject: requestBody, options: [])
+            request.httpBody = jsonData
+        } catch {
+            DispatchQueue.main.async {
+                self.onError?(error)
+            }
+            return
+        }
+
+        request.addValue("application/json", forHTTPHeaderField: "Content-Type")
+
+        dataTask = session?.dataTask(with: request)
+        dataTask?.resume()
+    }
+
+    private func transformedMessagesForRequest(messages: [ChatMessage]) -> [[String: String]] {
+        return messages.map { message in
+            [
+                "role": message.isUser ? "user" : "assistant",
+                "content": message.content
+            ]
+        }
+    }
+
+    func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
+        let text = String(decoding: data, as: UTF8.self)
+        text.enumerateLines { (line, _) in
+            guard line.starts(with: "data: ") else { return }
+            let jsonPart = line.dropFirst("data: ".count)
+            if jsonPart == "[DONE]" {
+                // The stream ended successfully
+                return
+            }
+            if let data = jsonPart.data(using: .utf8),
+               let decoded = try? JSONDecoder().decode(ChatCompletionChunk.self, from: data) {
+                decoded.choices?.forEach { choice in
+                    if let content = choice.delta?.content {
+                        let message = ChatMessage(content: content, isUser: false)
+                        DispatchQueue.main.async { [weak self] in
+                            self?.onMessageReceived?(message)
+                        }
+                    }
+                }
+            } else {
+                // Unable to decode this particular chunk. It's safer to ignore rather than fail.
+            }
+        }
+    }
+
+    func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
+        if let error = error {
+            DispatchQueue.main.async {
+                self.onError?(error)
+            }
+        }
+    }
+}
+
+
+10. 文件: Model/ChatSession.swift
+//
+//  ChatSession.swift
+//  Voice Chat
+//
+//  Created by Lion Wu on 2024.11.04.
+//
+
+import Foundation
+
+class ChatSession: Identifiable, Codable, ObservableObject, Equatable, Hashable {
+    let id: UUID
+    @Published var messages: [ChatMessage]
+    @Published var title: String
+
+    init() {
+        self.id = UUID()
+        self.messages = []
+        self.title = "New Chat"
+    }
+
+    // Equatable
+    static func == (lhs: ChatSession, rhs: ChatSession) -> Bool {
+        return lhs.id == rhs.id
+    }
+
+    // Hashable
+    func hash(into hasher: inout Hasher) {
+        hasher.combine(id)
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, messages, title
+    }
+
+    required init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(UUID.self, forKey: .id)
+        messages = try container.decode([ChatMessage].self, forKey: .messages)
+        title = try container.decode(String.self, forKey: .title)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(messages, forKey: .messages)
+        try container.encode(title, forKey: .title)
+    }
+}
+
+
+11. 文件: Model/SettingsModel.swift
+//
+//  SettingsModel.swift
+//  Voice Chat
+//
+//  Created by Lion Wu on 2024.09.29.
+//
+
+import Foundation
+
+struct ServerSettings: Codable {
+    var serverAddress: String
+    var textLang: String
+    var refAudioPath: String
+    var promptText: String
+    var promptLang: String
+}
+
+struct ModelSettings: Codable {
+    var modelId: String
+    var language: String
+    var autoSplit: String
+}
+
+struct ChatSettings: Codable {
+    var apiURL: String
+    var selectedModel: String
+}
+
+struct VoiceSettings: Codable {
+    var enableStreaming: Bool
+}
+
+@MainActor
+class SettingsManager: ObservableObject {
+    static let shared = SettingsManager()
+
+    @Published var serverSettings: ServerSettings
+    @Published var modelSettings: ModelSettings
+    @Published var chatSettings: ChatSettings
+    @Published var voiceSettings: VoiceSettings
+
+    private init() {
+        self.serverSettings = Self.loadSettings(forKey: "ServerSettings") ?? ServerSettings(
+            serverAddress: "http://127.0.0.1:9880",
+            textLang: "auto",
+            refAudioPath: "",
+            promptText: "",
+            promptLang: "auto"
+        )
+        self.modelSettings = Self.loadSettings(forKey: "ModelSettings") ?? ModelSettings(
+            modelId: "",
+            language: "auto",
+            autoSplit: "cut0"
+        )
+        self.chatSettings = Self.loadSettings(forKey: "ChatSettings") ?? ChatSettings(
+            apiURL: "http://localhost:11434",
+            selectedModel: ""
+        )
+        self.voiceSettings = Self.loadSettings(forKey: "VoiceSettings") ?? VoiceSettings(enableStreaming: true)
+    }
+
+    func updateServerSettings(serverAddress: String, textLang: String, refAudioPath: String, promptText: String, promptLang: String) {
+        serverSettings.serverAddress = serverAddress
+        serverSettings.textLang = textLang
+        serverSettings.refAudioPath = refAudioPath
+        serverSettings.promptText = promptText
+        serverSettings.promptLang = promptLang
+        saveServerSettings()
+    }
+
+    func updateModelSettings(modelId: String, language: String, autoSplit: String) {
+        modelSettings.modelId = modelId
+        modelSettings.language = language
+        modelSettings.autoSplit = autoSplit
+        saveModelSettings()
+    }
+
+    func updateChatSettings(apiURL: String, selectedModel: String) {
+        chatSettings.apiURL = apiURL
+        chatSettings.selectedModel = selectedModel
+        saveChatSettings()
+    }
+
+    func updateVoiceSettings(enableStreaming: Bool) {
+        voiceSettings.enableStreaming = enableStreaming
+        saveVoiceSettings()
+    }
+
+    func saveServerSettings() {
+        Self.saveSettings(serverSettings, forKey: "ServerSettings")
+    }
+
+    func saveModelSettings() {
+        Self.saveSettings(modelSettings, forKey: "ModelSettings")
+    }
+
+    func saveChatSettings() {
+        Self.saveSettings(chatSettings, forKey: "ChatSettings")
+    }
+
+    func saveVoiceSettings() {
+        Self.saveSettings(voiceSettings, forKey: "VoiceSettings")
+    }
+
+    private static func saveSettings<T: Codable>(_ settings: T, forKey key: String) {
+        DispatchQueue.global(qos: .background).async {
+            if let data = try? PropertyListEncoder().encode(settings) {
+                UserDefaults.standard.set(data, forKey: key)
+            }
+        }
+    }
+
+    private static func loadSettings<T: Codable>(forKey key: String) -> T? {
+        if let data = UserDefaults.standard.data(forKey: key),
+           let settings = try? PropertyListDecoder().decode(T.self, from: data) {
+            return settings
+        }
+        return nil
+    }
+}
+
+
+12. 文件: Model/Models.swift
+//
+//  Models.swift
+//  Voice Chat
+//
+//  Created by Lion Wu on 2024.09.22.
+//
+
+import Foundation
+
+struct ModelListResponse: Codable {
+    let object: String
+    let data: [ModelInfo]
+}
+
+struct ModelInfo: Codable {
+    let id: String
+    let object: String
+    let created: Int?
+    let owned_by: String?
+}
+
+
+13. 文件: Views/SettingsView.swift
+//
+//  SettingsView.swift
+//  Voice Chat
+//
+//  Created by Lion Wu on 2024.09.22.
+//
+
+import SwiftUI
+
+struct AlertError: Identifiable {
+    var id = UUID()
+    var message: String
+}
+
+struct SettingsView: View {
+    @ObservedObject var viewModel: SettingsViewModel
+
+    @State private var availableModels: [String] = []
+    @State private var isLoadingModels = false
+    @State private var errorMessage: AlertError?
+
+    init() {
+        _viewModel = ObservedObject(wrappedValue: SettingsViewModel())
+    }
+
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        #if os(macOS)
+        VStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 20) {
+                    FormContent()
+                }
+                .padding()
+            }
+        }
+        .frame(width: 500, height: 600)
+        .onAppear {
+            fetchAvailableModels()
+        }
+        .alert(item: $errorMessage) { error in
+            Alert(title: Text("Error"), message: Text(error.message), dismissButton: .default(Text("OK")))
+        }
+        #else
+        NavigationView {
+            FormContent()
+                .navigationBarTitle("Settings", displayMode: .inline)
+                .toolbar {
+                    ToolbarItem(placement: .navigationBarTrailing) {
+                        Button("Close") {
+                            dismiss()
+                        }
+                    }
+                }
+                .onAppear {
+                    fetchAvailableModels()
+                }
+                .alert(item: $errorMessage) { error in
+                    Alert(title: Text("Error"), message: Text(error.message), dismissButton: .default(Text("OK")))
+                }
+        }
+        #endif
+    }
+
+    @ViewBuilder
+    private func FormContent() -> some View {
+        #if os(macOS)
+        VStack(alignment: .leading, spacing: 20) {
+            Text("Voice Generation Settings")
+                .font(.headline)
+            voiceGenerationSettingsSection
+
+            Text("Chat Server Settings")
+                .font(.headline)
+                .padding(.top, 20)
+            chatSettingsSection
+        }
+        #else
+        Form {
+            Section(header: Text("Voice Generation Settings").font(.headline)) {
+                voiceGenerationSettingsSection
+            }
+            Section(header: Text("Chat Server Settings").font(.headline)) {
+                chatSettingsSection
+            }
+        }
+        #endif
+    }
+
+    private var voiceGenerationSettingsSection: some View {
+        Group {
+            LabeledTextField(label: "Server Address", placeholder: "Enter server address", text: $viewModel.serverAddress)
+            LabeledTextField(label: "Text Language", placeholder: "text_lang", text: $viewModel.textLang)
+            LabeledTextField(label: "Reference Audio Path", placeholder: "ref_audio_path", text: $viewModel.refAudioPath)
+            LabeledTextField(label: "Prompt Text", placeholder: "prompt_text", text: $viewModel.promptText)
+            LabeledTextField(label: "Prompt Language", placeholder: "prompt_lang", text: $viewModel.promptLang)
+
+            #if os(macOS)
+            HStack {
+                Text("Enable Streaming")
+                    .frame(width: 150, alignment: .trailing)
+                Toggle("", isOn: $viewModel.enableStreaming)
+            }
+            HStack {
+                Text("Split Method")
+                    .frame(width: 150, alignment: .trailing)
+                Picker("", selection: $viewModel.autoSplit) {
+                    Text("cut0: No Split").tag("cut0")
+                    Text("cut1: Split every 4 sentences").tag("cut1")
+                    Text("cut2: Split every 50 characters").tag("cut2")
+                    Text("cut3: Split by Chinese period").tag("cut3")
+                    Text("cut4: Split by English period").tag("cut4")
+                    Text("cut5: Split by punctuation").tag("cut5")
+                }
+                .disabled(viewModel.enableStreaming)
+            }
+            #else
+            Toggle("Enable Streaming", isOn: $viewModel.enableStreaming)
+            Picker("Split Method", selection: $viewModel.autoSplit) {
+                Text("cut0: No Split").tag("cut0")
+                Text("cut1: Split every 4 sentences").tag("cut1")
+                Text("cut2: Split every 50 characters").tag("cut2")
+                Text("cut3: Split by Chinese period").tag("cut3")
+                Text("cut4: Split by English period").tag("cut4")
+                Text("cut5: Split by punctuation").tag("cut5")
+            }
+            .disabled(viewModel.enableStreaming)
+            #endif
+        }
+    }
+
+    private var chatSettingsSection: some View {
+        Group {
+            LabeledTextField(label: "Chat API URL", placeholder: "Enter chat API URL", text: $viewModel.apiURL)
+
+            if isLoadingModels {
+                #if os(macOS)
+                HStack {
+                    ProgressView("Loading model list...")
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                #else
+                ProgressView("Loading model list...")
+                #endif
+            } else {
+                #if os(macOS)
+                HStack {
+                    Text("Select Model")
+                        .frame(width: 150, alignment: .trailing)
+                    Picker("", selection: $viewModel.selectedModel) {
+                        ForEach(availableModels, id: \.self) { model in
+                            Text(model).tag(model)
+                        }
+                    }
+                }
+                #else
+                Picker("Select Model", selection: $viewModel.selectedModel) {
+                    ForEach(availableModels, id: \.self) { model in
+                        Text(model).tag(model)
+                    }
+                }
+                #endif
+            }
+
+            #if os(macOS)
+            Button(action: fetchAvailableModels) {
+                Text("Refresh Model List")
+            }
+            .padding(.top, 10)
+            #else
+            Button(action: fetchAvailableModels) {
+                Text("Refresh Model List")
+            }
+            .padding(.top, 0)
+            #endif
+        }
+    }
+
+    private func fetchAvailableModels() {
+        guard !viewModel.apiURL.isEmpty else {
+            errorMessage = AlertError(message: "API URL is empty or invalid.")
+            return
+        }
+        isLoadingModels = true
+        errorMessage = nil
+        let urlString = "\(viewModel.apiURL)/v1/models"
+        guard let url = URL(string: urlString) else {
+            errorMessage = AlertError(message: "Invalid API URL")
+            isLoadingModels = false
+            return
+        }
+
+        let request = URLRequest(url: url, timeoutInterval: 30)
+        URLSession.shared.dataTask(with: request) { data, response, error in
+            DispatchQueue.main.async {
+                self.isLoadingModels = false
+                if let error = error {
+                    self.errorMessage = AlertError(message: "Request failed: \(error.localizedDescription)")
+                } else if let data = data,
+                          let modelList = try? JSONDecoder().decode(ModelListResponse.self, from: data) {
+                    self.availableModels = modelList.data.map { $0.id }
+                    if !self.availableModels.contains(self.viewModel.selectedModel),
+                       let firstModel = self.availableModels.first {
+                        self.viewModel.selectedModel = firstModel
+                    }
+                } else {
+                    self.errorMessage = AlertError(message: "Unable to parse model list")
+                }
+            }
+        }.resume()
+    }
+}
+
+struct LabeledTextField: View {
+    var label: String
+    var placeholder: String
+    @Binding var text: String
+
+    var body: some View {
+        #if os(macOS)
+        HStack(alignment: .center) {
+            Text(label)
+                .frame(width: 150, alignment: .trailing)
+            TextField(placeholder, text: $text)
+                .textFieldStyle(.roundedBorder)
+                .frame(maxWidth: .infinity)
+        }
+        #else
+        HStack {
+            Text(label)
+            Spacer()
+            TextField(placeholder, text: $text)
+                .multilineTextAlignment(.trailing)
+        }
+        #endif
+    }
+}
+
+#Preview {
+    SettingsView()
+}
+
+
+14. 文件: Views/BlurView.swift
+//
+//  BlurView.swift
+//  Voice Chat
+//
+//  Created by Lion Wu on 2024.11.04.
+//
+
+import SwiftUI
+
+#if os(macOS)
+struct BlurView: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSVisualEffectView {
+        let view = NSVisualEffectView()
+        view.material = .underWindowBackground
+        view.blendingMode = .behindWindow
+        view.state = .active
+        return view
+    }
+
+    func updateNSView(_ nsView: NSVisualEffectView, context: Context) {}
+}
+#else
+struct BlurView: UIViewRepresentable {
+    func makeUIView(context: Context) -> UIVisualEffectView {
+        let effect = UIBlurEffect(style: .systemChromeMaterial)
+        return UIVisualEffectView(effect: effect)
+    }
+
+    func updateUIView(_ uiView: UIVisualEffectView, context: Context) {}
+}
+#endif
+
+
+15. 文件: Views/SidebarView.swift
+//
+//  SidebarView.swift
+//  Voice Chat
+//
+//  Created by Lion Wu on 2024.11.04.
+//
+
+import SwiftUI
+
+struct SidebarView: View {
+    @EnvironmentObject var chatSessionsViewModel: ChatSessionsViewModel
+
+    var onConversationTap: (ChatSession) -> Void
+    var onOpenSettings: () -> Void
+
+    @State private var isRenaming: Bool = false
+    @State private var renamingSession: ChatSession? = nil
+    @State private var newTitle: String = ""
+
+    var body: some View {
+        #if os(macOS)
+        // macOS 端继续使用原 List + toolbar
+        List(selection: $chatSessionsViewModel.selectedSessionID) {
+            Section(header: Text("Chats")) {
+                ForEach(chatSessionsViewModel.chatSessions) { session in
+                    HStack {
+                        Text(session.title)
+                            .lineLimit(1)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        onConversationTap(session)
+                    }
+                    .contextMenu {
+                        Button("Rename") {
+                            renameSession(session)
+                        }
+                        Button("Delete") {
+                            if let index = chatSessionsViewModel.chatSessions.firstIndex(of: session) {
+                                chatSessionsViewModel.deleteSession(at: IndexSet(integer: index))
+                            }
+                        }
+                    }
+                }
+                .onDelete(perform: chatSessionsViewModel.deleteSession)
+            }
+        }
+        .listStyle(.sidebar)
+        .navigationTitle("Chats")
+        .toolbar {
+            ToolbarItem {
+                Button(action: onOpenSettings) {
+                    Image(systemName: "gearshape.fill")
+                }
+                .help("Settings")
+            }
+        }
+        .sheet(isPresented: $isRenaming) {
+            renameSheetView()
+        }
+        #else
+        // iOS/iPadOS 端
+        VStack(spacing: 0) {
+            List(selection: $chatSessionsViewModel.selectedSessionID) {
+                Section(header: Text("Chats")) {
+                    ForEach(chatSessionsViewModel.chatSessions) { session in
+                        HStack {
+                            Text(session.title)
+                                .lineLimit(1)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                        .contentShape(Rectangle())
+                        .onTapGesture {
+                            onConversationTap(session)
+                        }
+                        .contextMenu {
+                            Button("Rename") {
+                                renameSession(session)
+                            }
+                            Button("Delete") {
+                                if let index = chatSessionsViewModel.chatSessions.firstIndex(of: session) {
+                                    chatSessionsViewModel.deleteSession(at: IndexSet(integer: index))
+                                }
+                            }
+                        }
+                    }
+                    .onDelete(perform: chatSessionsViewModel.deleteSession)
+                }
+            }
+            .listStyle(.sidebar)
+
+            Divider()
+
+            Button(action: onOpenSettings) {
+                Label("Settings", systemImage: "gearshape.fill")
+                    .font(.system(.headline))
+                    .padding()
+            }
+        }
+        .sheet(isPresented: $isRenaming) {
+            renameSheetView()
+        }
+        #endif
+    }
+
+    @ViewBuilder
+    private func renameSheetView() -> some View {
+        VStack(spacing: 20) {
+            Text("Rename Chat")
+                .font(.headline)
+            TextField("New Title", text: $newTitle)
+                .textFieldStyle(RoundedBorderTextFieldStyle())
+                .padding()
+            HStack {
+                Button("Cancel") {
+                    isRenaming = false
+                }
+                Spacer()
+                Button("Save") {
+                    if let session = renamingSession {
+                        session.title = newTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+                        chatSessionsViewModel.saveChatSessions()
+                    }
+                    isRenaming = false
+                }
+            }
+        }
+        .padding()
+        .frame(width: 300)
+    }
+
+    private func renameSession(_ session: ChatSession) {
+        renamingSession = session
+        newTitle = session.title
+        isRenaming = true
+    }
+}
+
+struct SidebarView_Previews: PreviewProvider {
+    static var previews: some View {
+        SidebarView(
+            onConversationTap: { _ in },
+            onOpenSettings: {}
+        )
+        .environmentObject(ChatSessionsViewModel())
+    }
+}
+
+
+16. 文件: Views/SideMenuContainerViewController.swift
+//
+//  SideMenuContainerViewController.swift
+//  Voice Chat
+//
+//  Created by Lion Wu on 2025/02/19.
+//
+
+#if os(iOS) || os(tvOS)
+
+import SwiftUI
+import UIKit
+
+/// 这是给 iOS/iPadOS 使用的 UIViewController，
+/// 内含一个左侧 Sidebar(UIHostingController) + 一个主界面(MainContentView) 的 UIHostingController，
+/// 并实现手势跟手拖拽展开/收起侧边栏，且主界面不被“压缩”，而是向右偏移。
+class SideMenuContainerViewController: UIViewController {
+
+    // 侧边栏宽度
+    private let sideMenuWidth: CGFloat = 280
+
+    // 侧边栏控制器、主界面控制器
+    private var sidebarHostingController: UIViewController!
+    private var mainHostingController: UIViewController!
+
+    // 侧边栏与父视图的leading约束
+    private var sideMenuLeadingConstraint: NSLayoutConstraint!
+
+    // 主界面与侧边栏trailing的约束（让它们紧挨着）
+    // 注：可单独命名，也可直接写在activate里
+    private var mainLeftConstraint: NSLayoutConstraint!
+
+    // 记录当前侧边栏是否展开
+    private var isMenuOpen = false
+
+    // 拖拽时的初始 offset
+    private var startMenuLeading: CGFloat = 0
+
+    // 用于构建 SwiftUI View 的依赖（从外部传入）
+    var chatSessionsViewModel: ChatSessionsViewModel!
+    var audioManager: GlobalAudioManager!
+    var settingsManager: SettingsManager!
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+
+        // ============= 1) 构建并添加侧边栏 =============
+        let sidebarView = SidebarView(
+            onConversationTap: { [weak self] session in
+                // 切换聊天
+                self?.chatSessionsViewModel.selectedSession = session
+                // 收起侧边栏
+                self?.toggleMenu(open: false, animated: true)
+            },
+            onOpenSettings: { [weak self] in
+                self?.presentSettings()
+            }
+        )
+        .environmentObject(chatSessionsViewModel)
+
+        let sidebarVC = UIHostingController(rootView: sidebarView)
+        sidebarHostingController = sidebarVC
+
+        addChild(sidebarVC)
+        view.addSubview(sidebarVC.view)
+        sidebarVC.view.translatesAutoresizingMaskIntoConstraints = false
+        sidebarVC.didMove(toParent: self)
+
+        // ============= 2) 构建并添加主界面 =============
+        let mainView = MainContentView(
+            onToggleSidebar: { [weak self] in
+                guard let self = self else { return }
+                self.toggleMenu(open: !self.isMenuOpen, animated: true)
+            }
+        )
+        .environmentObject(chatSessionsViewModel)
+        .environmentObject(audioManager)
+        .environmentObject(settingsManager)
+
+        let mainVC = UIHostingController(rootView: mainView)
+        mainHostingController = mainVC
+
+        addChild(mainVC)
+        view.addSubview(mainVC.view)
+        mainVC.view.translatesAutoresizingMaskIntoConstraints = false
+        mainVC.didMove(toParent: self)
+
+        // ============= 3) 设置AutoLayout约束 =============
+
+        // -- 侧边栏布局 --
+        // 初始时leading = -sideMenuWidth，表示完全在屏幕左侧之外
+        sideMenuLeadingConstraint = sidebarVC.view.leadingAnchor.constraint(
+            equalTo: view.leadingAnchor, constant: -sideMenuWidth
+        )
+
+        NSLayoutConstraint.activate([
+            sideMenuLeadingConstraint,
+            sidebarVC.view.topAnchor.constraint(equalTo: view.topAnchor),
+            sidebarVC.view.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+            sidebarVC.view.widthAnchor.constraint(equalToConstant: sideMenuWidth)
+        ])
+
+        // -- 主界面布局 --
+        // 主界面的leading贴在sidebar的trailing，这样二者紧挨
+        // 宽度则与父视图等宽，保证不被“压缩”
+        mainLeftConstraint = mainVC.view.leadingAnchor.constraint(
+            equalTo: sidebarVC.view.trailingAnchor, constant: 0
+        )
+
+        NSLayoutConstraint.activate([
+            mainLeftConstraint,
+            mainVC.view.topAnchor.constraint(equalTo: view.topAnchor),
+            mainVC.view.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+            mainVC.view.widthAnchor.constraint(equalTo: view.widthAnchor)
+        ])
+
+        // 默认侧边栏“关闭”（leading = -sideMenuWidth）
+        isMenuOpen = false
+
+        // ============= 4) 添加Pan手势以实现“跟手拖拽” =============
+        let panGesture = UIPanGestureRecognizer(target: self, action: #selector(handlePanGesture(_:)))
+        panGesture.delegate = self
+        view.addGestureRecognizer(panGesture)
+    }
+
+    private func presentSettings() {
+        // 弹出 SwiftUI 的 SettingsView
+        let settingsView = SettingsView().environmentObject(settingsManager)
+        let settingsVC = UIHostingController(rootView: settingsView)
+        settingsVC.modalPresentationStyle = .formSheet
+        present(settingsVC, animated: true, completion: nil)
+    }
+
+    /// 切换侧边栏展开/收起
+    func toggleMenu(open: Bool, animated: Bool) {
+        isMenuOpen = open
+        let finalLeading = open ? 0 : -sideMenuWidth
+
+        if animated {
+            UIView.animate(withDuration: 0.3, animations: {
+                self.sideMenuLeadingConstraint.constant = finalLeading
+                self.view.layoutIfNeeded()
+            })
+        } else {
+            sideMenuLeadingConstraint.constant = finalLeading
+        }
+    }
+
+    @objc private func handlePanGesture(_ gesture: UIPanGestureRecognizer) {
+        let translation = gesture.translation(in: view).x
+
+        switch gesture.state {
+        case .began:
+            startMenuLeading = sideMenuLeadingConstraint.constant
+        case .changed:
+            // sideMenuLeadingConstraint 在 [-sideMenuWidth, 0]之间移动
+            let newLeading = startMenuLeading + translation
+            sideMenuLeadingConstraint.constant = max(-sideMenuWidth, min(0, newLeading))
+        case .ended, .cancelled:
+            let velocityX = gesture.velocity(in: view).x
+            let currentOffset = sideMenuLeadingConstraint.constant
+
+            // 根据惯性+当前位置判断是展开还是收起
+            let shouldOpen: Bool
+            if abs(velocityX) > 300 {
+                // 如果速度大于某阈值，则根据速度方向判断
+                shouldOpen = velocityX > 0
+            } else {
+                // 否则根据当前位置是否超过一半来判断
+                shouldOpen = (currentOffset > -sideMenuWidth * 0.5)
+            }
+
+            toggleMenu(open: shouldOpen, animated: true)
+        default:
+            break
+        }
+    }
+}
+
+// 让其他手势（子视图的 ScrollView 等）能/不能与 panGesture 共存
+extension SideMenuContainerViewController: UIGestureRecognizerDelegate {
+    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer,
+                           shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer) -> Bool {
+        return false
+    }
+}
+
+/// SwiftUI 包装：在 iOS 下使用此 Representable 来展示自定义容器控制器
+struct SideMenuContainerRepresentable: UIViewControllerRepresentable {
+    @EnvironmentObject var chatSessionsViewModel: ChatSessionsViewModel
+    @EnvironmentObject var audioManager: GlobalAudioManager
+    @EnvironmentObject var settingsManager: SettingsManager
+
+    func makeUIViewController(context: Context) -> SideMenuContainerViewController {
+        let vc = SideMenuContainerViewController()
+        vc.chatSessionsViewModel = chatSessionsViewModel
+        vc.audioManager = audioManager
+        vc.settingsManager = settingsManager
+        return vc
+    }
+
+    func updateUIViewController(_ uiViewController: SideMenuContainerViewController, context: Context) {
+        // 不需要实时更新
+    }
+}
+
+#endif
+
+
+17. 文件: Views/MainContentView.swift
+//
+//  MainContentView.swift
+//  Voice Chat
+//
+//  Created by Lion Wu on 2025/2/19.
+//
+
+#if os(iOS) || os(tvOS)
+
+import Foundation
+import SwiftUI
+
+/// iOS/iPadOS 主视图：顶部左/右按钮，下面是 ChatView
+struct MainContentView: View {
+    @EnvironmentObject var chatSessionsViewModel: ChatSessionsViewModel
+
+    let onToggleSidebar: () -> Void
+
+    var body: some View {
+        ZStack(alignment: .top) {
+            VStack(spacing: 0) {
+                // 自定义顶部条
+                HStack {
+                    // 左上角按钮：打开或关闭侧边栏
+                    Button(action: {
+                        onToggleSidebar()
+                    }) {
+                        Image(systemName: "line.3.horizontal")
+                            .font(.title2)
+                    }
+
+                    Spacer()
+
+                    // 右上角按钮：新建聊天
+                    Button(action: {
+                        chatSessionsViewModel.startNewSession()
+                    }) {
+                        Image(systemName: "plus")
+                            .font(.title2)
+                    }
+                    .disabled(currentChatIsEmpty)
+                }
+                .padding()
+                .background(Color(UIColor.systemBackground))
+                Divider()
+
+                // 聊天区域
+                if let selectedSession = chatSessionsViewModel.selectedSession {
+                    ChatView(chatSession: selectedSession)
+                        .id(selectedSession.id)
+                } else {
+                    // 若无选中会话，自动新建一个
+                    Text("No chat. Creating one...")
+                        .onAppear {
+                            chatSessionsViewModel.startNewSession()
+                        }
+                }
+            }
+        }
+        .onAppear {
+            // 如果启动时没有会话，自动新建
+            if chatSessionsViewModel.chatSessions.isEmpty {
+                chatSessionsViewModel.startNewSession()
+            }
+        }
+    }
+
+    private var currentChatIsEmpty: Bool {
+        guard let session = chatSessionsViewModel.selectedSession else {
+            return true
+        }
+        return session.messages.isEmpty
+    }
+}
+
+#endif
+
+
+18. 文件: Views/ChatView.swift
+//
+//  ChatView.swift
+//  Voice Chat
+//
+//  Created by Lion Wu on 2024/1/8.
+//
+
+import SwiftUI
+
+struct ChatView: View {
+    @EnvironmentObject var chatSessionsViewModel: ChatSessionsViewModel
+    @EnvironmentObject var audioManager: GlobalAudioManager
+    @StateObject private var viewModel: ChatViewModel
+    @State private var textFieldHeight: CGFloat = 40
+    @FocusState private var isInputFocused: Bool
+
+    // 用于“选择文本”功能时的弹窗
+    @State private var isShowingTextSelectionSheet: Bool = false
+    @State private var textSelectionContent: String = ""
+
+    init(chatSession: ChatSession) {
+        _viewModel = StateObject(wrappedValue: ChatViewModel(chatSession: chatSession))
+    }
+
+    var body: some View {
+        ZStack(alignment: .top) {
+            VStack {
+                ScrollViewReader { scrollView in
+                    ScrollView {
+                        LazyVStack(spacing: 10) {
+                            ForEach(viewModel.chatSession.messages) { message in
+                                VoiceMessageView(
+                                    message: message,
+                                    onSelectText: { showSelectTextSheet(with: $0) },
+                                    onRegenerate: { viewModel.regenerateSystemMessage($0) },
+                                    onEditUserMessage: { viewModel.editUserMessage($0) }
+                                )
+                                .id(message.id)
+                            }
+                        }
+                        .padding() // 整体内边距
+                        .onChange(of: viewModel.chatSession.messages.count) { _, _ in
+                            scrollToBottom(scrollView: scrollView)
+                        }
+                    }
+                    // 在 UIKit 平台上支持滚动时自动收起键盘（iOS、tvOS、watchOS）
+                    #if os(iOS) || os(tvOS) || os(watchOS)
+                    .scrollDismissesKeyboard(.interactively)
+                    #endif
+                    .onTapGesture {
+                        isInputFocused = false
+                    }
+                }
+
+                if viewModel.isLoading {
+                    ProgressView()
+                        .padding()
+                }
+
+                // 输入区域
+                HStack(spacing: 8) {
+                    AutoSizingTextEditor(text: $viewModel.userMessage, height: $textFieldHeight)
+                        .focused($isInputFocused)
+                        .frame(height: textFieldHeight)
+                        .padding(.vertical, 8)
+                        .padding(.horizontal, 12)
+
+                    Button(action: {
+                        viewModel.sendMessage()
+                    }) {
+                        Image(systemName: "arrow.up.circle.fill")
+                            .font(.system(size: 30))
+                            .foregroundColor(.blue)
+                    }
+                    .buttonStyle(PlainButtonStyle())
+                    .padding(.trailing, 8)
+                    .disabled(viewModel.userMessage.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }
+                .background(RoundedRectangle(cornerRadius: 15).fill(Color.gray.opacity(0.1)))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 15)
+                        .stroke(Color.gray.opacity(0.3), lineWidth: 1)
+                )
+                .padding()
+            }
+
+            // 语音播放视图
+            if audioManager.isShowingAudioPlayer {
+                VStack {
+                    AudioPlayerView()
+                        .environmentObject(audioManager)
+                    Spacer()
+                }
+                .transition(.move(edge: .top))
+                .animation(.easeInOut, value: audioManager.isShowingAudioPlayer)
+            }
+        }
+        #if os(macOS)
+        .navigationTitle(viewModel.chatSession.title)
+        #endif
+        .onAppear {
+            viewModel.onUpdate = { [weak viewModel, weak chatSessionsViewModel] in
+                DispatchQueue.main.async {
+                    guard let viewModel = viewModel, let chatSessionsViewModel = chatSessionsViewModel else { return }
+                    if !chatSessionsViewModel.chatSessions.contains(viewModel.chatSession) {
+                        chatSessionsViewModel.addSession(viewModel.chatSession)
+                    } else {
+                        chatSessionsViewModel.saveChatSessions()
+                    }
+                }
+            }
+        }
+        // “选择文本”功能所用的弹出窗口
+        .sheet(isPresented: $isShowingTextSelectionSheet) {
+            NavigationView {
+                ScrollView {
+                    Text(textSelectionContent)
+                        .textSelection(.enabled)
+                        .padding()
+                }
+                .navigationTitle("选择文本")
+                .toolbar {
+                    #if os(macOS)
+                    ToolbarItem(placement: .automatic) { // macOS 兼容
+                        Button("完成") {
+                            isShowingTextSelectionSheet = false
+                        }
+                    }
+                    #else
+                    ToolbarItem(placement: .navigationBarTrailing) { // iOS / iPadOS
+                        Button("完成") {
+                            isShowingTextSelectionSheet = false
+                        }
+                    }
+                    #endif
+                }
+            }
+            // iPad 下默认是 sheet，这里无需特别处理 macOS 的弹窗
+        }
+    }
+
+    private func scrollToBottom(scrollView: ScrollViewProxy) {
+        if let lastMessage = viewModel.chatSession.messages.last {
+            withAnimation(.easeIn(duration: 0.1)) {
+                scrollView.scrollTo(lastMessage.id, anchor: .bottom)
+            }
+        }
+    }
+
+    private func showSelectTextSheet(with text: String) {
+        textSelectionContent = text
+        isShowingTextSelectionSheet = true
+    }
+}
+
+// MARK: - 气泡中的长按菜单及其逻辑
+
+struct VoiceMessageView: View {
+    @ObservedObject var message: ChatMessage
+    @EnvironmentObject var audioManager: GlobalAudioManager
+
+    /// 选择文本回调
+    let onSelectText: (String) -> Void
+
+    /// 重新生成回调（仅系统消息有）
+    let onRegenerate: (ChatMessage) -> Void
+
+    /// 编辑用户消息回调（仅用户消息有）
+    let onEditUserMessage: (ChatMessage) -> Void
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 10) {
+            if message.isUser {
+                Spacer()
+                TextBubble(text: message.content, isUser: true)
+            } else {
+                // 系统消息不显示左侧头像，也不再显示额外的朗读按钮
+                TextBubble(text: message.content, isUser: false)
+            }
+        }
+        .padding(.vertical, 5)
+        // 长按或右键菜单
+        .contextMenu {
+            Button {
+                copyToClipboard(message.content)
+            } label: {
+                Label("复制", systemImage: "doc.on.doc")
+            }
+            
+            Button {
+                onSelectText(message.content)
+            } label: {
+                Label("选择文本", systemImage: "text.cursor")
+            }
+            
+            if message.isUser {
+                // 用户消息：复制、选择文本、编辑
+                Button {
+                    onEditUserMessage(message)
+                } label: {
+                    Label("编辑", systemImage: "pencil")
+                }
+            } else {
+                // 系统消息：复制、选择文本、重新生成、朗读
+                Button {
+                    onRegenerate(message)
+                } label: {
+                    Label("重新生成", systemImage: "arrow.clockwise")
+                }
+                Button {
+                    audioManager.startProcessing(text: message.content)
+                } label: {
+                    Label("朗读", systemImage: "speaker.wave.2.fill")
+                }
+            }
+        }
+    }
+
+    private func copyToClipboard(_ text: String) {
+        #if os(iOS) || os(tvOS)
+        UIPasteboard.general.string = text
+        #elseif os(macOS)
+        let pasteboard = NSPasteboard.general
+        pasteboard.declareTypes([.string], owner: nil)
+        pasteboard.setString(text, forType: .string)
+        #endif
+    }
+}
+
+// MARK: - 输入框自适应高度
+
+struct AutoSizingTextEditor: View {
+    @Binding var text: String
+    @Binding var height: CGFloat
+
+    var body: some View {
+        ZStack(alignment: .topLeading) {
+            if text.isEmpty {
+                Text("在这里输入消息...")
+                    .foregroundColor(.gray)
+                    .padding(EdgeInsets(top: 12, leading: 8, bottom: 8, trailing: 8))
+                    .font(.system(size: 17))
+            }
+
+            Text(text)
+                .font(.system(size: 17))
+                .foregroundColor(.clear)
+                .padding(8)
+                .background(
+                    GeometryReader { geometry in
+                        Color.clear
+                            .onChange(of: text) { _ in
+                                DispatchQueue.main.async {
+                                    height = geometry.size.height
+                                }
+                            }
+                    }
+                )
+
+            TextEditor(text: $text)
+                .font(.system(size: 17))
+                .padding(4)
+                .background(Color.clear)
+        }
+        .frame(height: max(height, 40))
+    }
+}
+
+// MARK: - 文字气泡
+
+struct TextBubble: View {
+    let text: String
+    let isUser: Bool
+    @State private var isExpanded = false
+    private let maxCharacters = 1000
+    /// 固定左右空白（系统消息右侧、用户消息左侧）
+    private let horizontalMargin: CGFloat = 40
+
+    var body: some View {
+        VStack(alignment: isUser ? .trailing : .leading) {
+            // 仅用户消息需要折叠逻辑，系统消息全部显示
+            Text(isUser
+                 ? (isExpanded ? text : String(text.prefix(maxCharacters)) + (text.count > maxCharacters ? "..." : ""))
+                 : text)
+                .padding(12)
+                .background(isUser ? Color.gray.opacity(0.2) : Color.clear)
+                .foregroundColor(.primary)
+                .clipShape(RoundedRectangle(cornerRadius: 15, style: .continuous))
+                // 限制气泡宽度，让两侧各留固定空白
+                .frame(maxWidth: maxWidth - horizontalMargin, alignment: isUser ? .trailing : .leading)
+
+            if isUser && text.count > maxCharacters {
+                Button(action: {
+                    withAnimation {
+                        isExpanded.toggle()
+                    }
+                }) {
+                    Text(isExpanded ? "收起" : "显示完整信息")
+                        .font(.caption)
+                        .foregroundColor(.blue)
+                        .padding(.top, 4)
+                }
+            }
+        }
+    }
+
+    private var maxWidth: CGFloat {
+        #if os(iOS) || os(tvOS)
+        return UIScreen.main.bounds.width
+        #elseif os(macOS)
+        return NSScreen.main?.frame.width ?? 800
+        #else
+        return 600
+        #endif
+    }
+}
+
+struct ChatView_Previews: PreviewProvider {
+    static var previews: some View {
+        let chatSession = ChatSession()
+        ChatView(chatSession: chatSession)
+            .environmentObject(GlobalAudioManager.shared)
+            .environmentObject(ChatSessionsViewModel())
+    }
+}
+
+
+19. 文件: Views/AudioPlayerView.swift
+//
+//  AudioPlayerView.swift
+//  Voice Chat
+//
+//  Created by Lion Wu on 2024.09.29.
+//
+
+import SwiftUI
+
+struct AudioPlayerView: View {
+    @EnvironmentObject var audioManager: GlobalAudioManager
+
+    var body: some View {
+        VStack {
+            if audioManager.isLoading {
+                HStack {
+                    ProgressView()
+                    Text("Loading...")
+                        .font(.subheadline)
+                    Spacer()
+                    CloseButton(action: audioManager.closeAudioPlayer)
+                }
+                .padding()
+            } else {
+                HStack {
+                    ControlButton(icon: "gobackward.15", action: audioManager.backward15Seconds)
+                    ControlButton(icon: audioManager.isAudioPlaying ? "pause.circle.fill" : "play.circle.fill", action: audioManager.togglePlayback, isLarge: true)
+                    ControlButton(icon: "goforward.15", action: audioManager.forward15Seconds)
+                    Text(formatTime(audioManager.currentTime))
+                        .font(.system(.body, design: .rounded))
+                        .bold()
+                        .padding(.leading, 8)
+                        .contentTransition(.numericText())
+                        .transaction { t in
+                            t.animation = .default
+                        }
+
+                    if audioManager.isBuffering {
+                        HStack(spacing: 5) {
+                            ProgressView()
+                                .scaleEffect(0.7)
+                            Text("Buffering")
+                                .font(.footnote)
+                        }
+                        .padding(.leading, 8)
+                    }
+
+                    Spacer()
+                    CloseButton(action: audioManager.closeAudioPlayer)
+                }
+                .padding()
+
+                if let errorMessage = audioManager.errorMessage {
+                    Text(errorMessage)
+                        .foregroundColor(.red)
+                        .padding()
+                }
+            }
+        }
+        .background(BlurView().opacity(0.95))
+        .cornerRadius(10)
+        .shadow(radius: 5)
+        .padding()
+        .transition(.move(edge: .top))
+        .animation(.easeInOut, value: audioManager.isShowingAudioPlayer)
+    }
+
+    private func formatTime(_ currentTime: TimeInterval) -> String {
+        guard !currentTime.isNaN, !currentTime.isInfinite else { return "00:00" }
+        let currentMinutes = Int(currentTime) / 60
+        let currentSeconds = Int(currentTime) % 60
+        return String(format: "%02d:%02d", currentMinutes, currentSeconds)
+    }
+
+    struct ControlButton: View {
+        let icon: String
+        let action: () -> Void
+        var isLarge: Bool = false
+
+        var body: some View {
+            Button(action: action) {
+                Image(systemName: icon)
+                    .font(isLarge ? .largeTitle : .title)
+            }
+            .buttonStyle(PlainButtonStyle())
+        }
+    }
+
+    struct CloseButton: View {
+        let action: () -> Void
+
+        var body: some View {
+            Button(action: action) {
+                Image(systemName: "xmark.circle.fill")
+                    .font(.title)
+            }
+            .buttonStyle(PlainButtonStyle())
+        }
+    }
+}
+
+

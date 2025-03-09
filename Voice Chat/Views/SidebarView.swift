@@ -18,6 +18,8 @@ struct SidebarView: View {
     @State private var newTitle: String = ""
 
     var body: some View {
+        #if os(macOS)
+        // macOS 端继续使用原 List + toolbar
         List(selection: $chatSessionsViewModel.selectedSessionID) {
             Section(header: Text("Chats")) {
                 ForEach(chatSessionsViewModel.chatSessions) { session in
@@ -47,8 +49,7 @@ struct SidebarView: View {
         .listStyle(.sidebar)
         .navigationTitle("Chats")
         .toolbar {
-            // Settings button in the toolbar for macOS
-            ToolbarItem(placement: .automatic) {
+            ToolbarItem {
                 Button(action: onOpenSettings) {
                     Image(systemName: "gearshape.fill")
                 }
@@ -56,29 +57,77 @@ struct SidebarView: View {
             }
         }
         .sheet(isPresented: $isRenaming) {
-            VStack(spacing: 20) {
-                Text("Rename Chat")
-                    .font(.headline)
-                TextField("New Title", text: $newTitle)
-                    .textFieldStyle(RoundedBorderTextFieldStyle())
-                    .padding()
-                HStack {
-                    Button("Cancel") {
-                        isRenaming = false
-                    }
-                    Spacer()
-                    Button("Save") {
-                        if let session = renamingSession {
-                            session.title = newTitle.trimmingCharacters(in: .whitespacesAndNewlines)
-                            chatSessionsViewModel.saveChatSessions()
+            renameSheetView()
+        }
+        #else
+        // iOS/iPadOS 端
+        VStack(spacing: 0) {
+            List(selection: $chatSessionsViewModel.selectedSessionID) {
+                Section(header: Text("Chats")) {
+                    ForEach(chatSessionsViewModel.chatSessions) { session in
+                        HStack {
+                            Text(session.title)
+                                .lineLimit(1)
+                                .frame(maxWidth: .infinity, alignment: .leading)
                         }
-                        isRenaming = false
+                        .contentShape(Rectangle())
+                        .onTapGesture {
+                            onConversationTap(session)
+                        }
+                        .contextMenu {
+                            Button("Rename") {
+                                renameSession(session)
+                            }
+                            Button("Delete") {
+                                if let index = chatSessionsViewModel.chatSessions.firstIndex(of: session) {
+                                    chatSessionsViewModel.deleteSession(at: IndexSet(integer: index))
+                                }
+                            }
+                        }
                     }
+                    .onDelete(perform: chatSessionsViewModel.deleteSession)
                 }
             }
-            .padding()
-            .frame(width: 300)
+            .listStyle(.sidebar)
+
+            Divider()
+
+            Button(action: onOpenSettings) {
+                Label("Settings", systemImage: "gearshape.fill")
+                    .font(.system(.headline))
+                    .padding()
+            }
         }
+        .sheet(isPresented: $isRenaming) {
+            renameSheetView()
+        }
+        #endif
+    }
+
+    @ViewBuilder
+    private func renameSheetView() -> some View {
+        VStack(spacing: 20) {
+            Text("Rename Chat")
+                .font(.headline)
+            TextField("New Title", text: $newTitle)
+                .textFieldStyle(RoundedBorderTextFieldStyle())
+                .padding()
+            HStack {
+                Button("Cancel") {
+                    isRenaming = false
+                }
+                Spacer()
+                Button("Save") {
+                    if let session = renamingSession {
+                        session.title = newTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+                        chatSessionsViewModel.saveChatSessions()
+                    }
+                    isRenaming = false
+                }
+            }
+        }
+        .padding()
+        .frame(width: 300)
     }
 
     private func renameSession(_ session: ChatSession) {
@@ -97,4 +146,3 @@ struct SidebarView_Previews: PreviewProvider {
         .environmentObject(ChatSessionsViewModel())
     }
 }
-

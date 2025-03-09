@@ -16,6 +16,8 @@ struct ContentView: View {
     @State private var showingSettings = false
 
     var body: some View {
+        #if os(macOS)
+        // macOS: 继续用原有的 NavigationSplitView
         NavigationSplitView(columnVisibility: $columnVisibility) {
             SidebarView(
                 onConversationTap: { conversation in
@@ -24,24 +26,26 @@ struct ContentView: View {
                 onOpenSettings: { showingSettings = true }
             )
         } detail: {
-            ChatViewContainer()
+            if let selectedSession = chatSessionsViewModel.selectedSession {
+                ChatView(chatSession: selectedSession)
+                    .id(selectedSession.id)
+            } else {
+                Text("No chat selected")
+                    .font(.largeTitle)
+                    .foregroundColor(.gray)
+                    .onAppear {
+                        if chatSessionsViewModel.chatSessions.isEmpty {
+                            chatSessionsViewModel.startNewSession()
+                        }
+                    }
+            }
         }
         .sheet(isPresented: $showingSettings) {
             SettingsView()
+                .environmentObject(settingsManager)
         }
         .toolbar {
-            // On macOS, you automatically get a sidebar toggle, but on iOS/iPadOS, we can add a button manually.
-            // The reference code uses a similar approach, providing a button to show/hide sidebar.
-            #if os(iOS)
-            ToolbarItemGroup(placement: .navigationBarLeading) {
-                Button(action: toggleSidebar) {
-                    Image(systemName: columnVisibility == .all ? "sidebar.left" : "sidebar.right")
-                }
-                .help("Toggle Sidebar")
-            }
-            #endif
-
-            ToolbarItemGroup(placement: .automatic) {
+            ToolbarItem {
                 Button(action: {
                     startNewConversation()
                 }) {
@@ -52,23 +56,17 @@ struct ContentView: View {
             }
         }
         .onAppear {
-            // Ensure there's always at least one chat session
             if chatSessionsViewModel.chatSessions.isEmpty {
                 chatSessionsViewModel.startNewSession()
             }
         }
-    }
-
-    @ViewBuilder
-    private func ChatViewContainer() -> some View {
-        if let selectedSession = chatSessionsViewModel.selectedSession {
-            ChatView(chatSession: selectedSession)
-                .id(selectedSession.id)
-        } else {
-            Text("No chat selected")
-                .font(.largeTitle)
-                .foregroundColor(.gray)
-        }
+        #else
+        // iOS/iPadOS: 使用我们自定义的侧边栏容器
+        SideMenuContainerRepresentable()
+            .environmentObject(chatSessionsViewModel)
+            .environmentObject(audioManager)
+            .environmentObject(settingsManager)
+        #endif
     }
 
     private func selectConversation(_ session: ChatSession) {
@@ -77,16 +75,6 @@ struct ContentView: View {
 
     private func startNewConversation() {
         chatSessionsViewModel.startNewSession()
-    }
-
-    private func toggleSidebar() {
-        withAnimation {
-            if columnVisibility == .all {
-                columnVisibility = .detailOnly
-            } else {
-                columnVisibility = .all
-            }
-        }
     }
 }
 

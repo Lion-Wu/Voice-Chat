@@ -12,46 +12,79 @@ import NaturalLanguage
 
 @MainActor
 class GlobalAudioManager: NSObject, ObservableObject, AVAudioPlayerDelegate {
+    
     static let shared = GlobalAudioManager()
-
+    
+    // MARK: - 对外公布的状态
     @Published var isShowingAudioPlayer = false
+    
+    /**
+     isAudioPlaying 表示“用户想播放”，不代表播放器此刻必然在发声。
+     - 如果 isAudioPlaying = true，但还没音频数据到，就会进入 buffering。
+     - 如果 isAudioPlaying = false，则一定不发声、也不再 buffering。
+     */
     @Published var isAudioPlaying = false
+    
+    /// currentTime: 播放进度（秒）
     @Published var currentTime: TimeInterval = 0
+    
+    /// isLoading: 是否在全局加载（例如第一段音频时）
     @Published var isLoading = false
+    
+    /// isBuffering: 是否在缓冲（= 用户想播 + 目标分片数据尚未到）
     @Published var isBuffering = false
+    
+    /// 出错信息
     @Published var errorMessage: String? = nil
 
+    // MARK: - 播放器/计时器
     private var audioPlayer: AVAudioPlayer?
     private var audioTimer: Timer?
-    var mediaType: String = "wav"
 
-    // Segments and audio chunk handling
-    private var textSegments: [String] = []
-    private var audioChunks: [Data?] = []
-    private var chunkDurations: [TimeInterval] = []
-    private var chunkStartTimes: [TimeInterval] = []
-    private var totalDuration: TimeInterval = 0
+    // MARK: - 分段逻辑
+    private var textSegments: [String] = []         // 切分后的文本段
+    private var audioChunks: [Data?] = []           // 每段音频 (Data?)
+    private var chunkDurations: [TimeInterval] = [] // 每段音频时长
+    private var chunkStartTimes: [TimeInterval] = []// 每段起始时间（累加）
+    private var totalDuration: TimeInterval = 0     // 所有已知段的总长
+
+    /**
+     currentChunkIndex: 下一个要请求 TTS 的文本段下标
+     currentPlayingIndex: 当前播放器正在播哪个段
+     */
     private var currentChunkIndex: Int = 0
     private var currentPlayingIndex: Int = 0
+
+    /// 并发请求数和最大并发
     private var requestsInFlight: Int = 0
     private let maxRequestsInFlight = 2
 
+    /// 正在执行的网络请求
     private var dataTasks: [URLSessionDataTask] = []
+
+    /// 下一个预载的播放器
     private var nextAudioPlayer: AVAudioPlayer?
 
+    // MARK: - Seek / 状态
+    /// 用户刚刚 seek 到的目标时间，等待对应音频片段到达时恢复
     private var seekTime: TimeInterval?
+    /// 标记正在因为 seek 而产生的缓冲
     private var isSeeking: Bool = false
 
+    // MARK: - 配置
     private let settingsManager = SettingsManager.shared
+    var mediaType: String = "wav"
 
+    // MARK: - 1. startProcessing
     func startProcessing(text: String) {
         resetPlayer()
-        isLoading = true
         isShowingAudioPlayer = true
+        isLoading = true   // 首次请求音频，显示“加载中”
         currentTime = 0
         totalDuration = 0
         errorMessage = nil
 
+        // 文本分段
         let voiceSettings = settingsManager.voiceSettings
         if voiceSettings.enableStreaming {
             self.textSegments = splitTextIntoMeaningfulSegments(text)
@@ -63,16 +96,23 @@ class GlobalAudioManager: NSObject, ObservableObject, AVAudioPlayerDelegate {
         self.audioChunks = Array(repeating: nil, count: segmentCount)
         self.chunkDurations = Array(repeating: 0, count: segmentCount)
         self.chunkStartTimes = Array(repeating: 0, count: segmentCount)
-        self.currentChunkIndex = 0
-        self.currentPlayingIndex = 0
-        self.requestsInFlight = 0
 
-        sendNextSegment()
+        currentChunkIndex = 0
+        currentPlayingIndex = 0
+        requestsInFlight = 0
+
+        // 用户意图：立即播放
+        isAudioPlaying = true
+
+        // 这里依然保留了「同时发送两个请求」的做法，以便并发加速。
+        // 但是我们保证：只要第 0 段先回来了，就立马开始播放。
+        sendNextSegment() // 请求第 0 段
         if segmentCount > 1 {
-            sendNextSegment()
+            sendNextSegment() // 请求第 1 段
         }
     }
 
+    // MARK: - 2. 并发 TTS 请求
     private func sendNextSegment() {
         guard currentChunkIndex < textSegments.count else { return }
         guard requestsInFlight < maxRequestsInFlight else { return }
@@ -94,6 +134,7 @@ class GlobalAudioManager: NSObject, ObservableObject, AVAudioPlayerDelegate {
             return
         }
 
+        // 构造参数
         let serverSettings = settingsManager.serverSettings
         let modelSettings = settingsManager.modelSettings
         let voiceSettings = settingsManager.voiceSettings
@@ -131,6 +172,7 @@ class GlobalAudioManager: NSObject, ObservableObject, AVAudioPlayerDelegate {
         let task = URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
             guard let self = self else { return }
             defer {
+                // 请求结束后 -1，并尝试请求下一段
                 DispatchQueue.main.async {
                     self.requestsInFlight -= 1
                     self.sendNextSegment()
@@ -153,28 +195,69 @@ class GlobalAudioManager: NSObject, ObservableObject, AVAudioPlayerDelegate {
                 return
             }
 
+            // 音频数据到达
             DispatchQueue.main.async {
                 if index >= self.audioChunks.count { return }
                 self.audioChunks[index] = data
 
+                // 计算此段时长，更新 totalDuration
                 if let player = try? AVAudioPlayer(data: data) {
-                    let segmentDuration = player.duration
-                    self.chunkDurations[index] = segmentDuration
+                    let segDuration = player.duration
+                    self.chunkDurations[index] = segDuration
                     self.calculateChunkStartTimesAndTotalDuration()
                 }
 
-                if index == self.currentPlayingIndex {
+                // =============================
+                // 这里是关键逻辑修复：
+                // ——只要第 0 段 (index == 0) 到了，就立马关闭“加载中”并尝试播放。
+                // ——或者正好到了 currentPlayingIndex 这一段，也要去尝试播放。
+                // =============================
+                if index == 0 {
+                    // 首段到 -> 即便并发还在继续，这里也先不再是 loading 了
                     self.isLoading = false
-                    self.isBuffering = false
-                    self.playAudioChunk(at: index, fromTime: self.seekTime, shouldPlay: true)
-                    self.seekTime = nil
-                } else if self.isBuffering && self.isSeeking {
-                    self.playAudioChunk(at: self.currentPlayingIndex, fromTime: self.seekTime, shouldPlay: self.isAudioPlaying)
-                    self.seekTime = nil
-                } else if self.isBuffering && index == self.currentPlayingIndex + 1 {
+
+                    // 如果用户此时确实想播放，就立即播
+                    if self.isAudioPlaying {
+                        self.playAudioChunk(
+                            at: 0,
+                            fromTime: self.seekTime,
+                            shouldPlay: true
+                        )
+                        self.seekTime = nil
+                    }
+                }
+                else if index == self.currentPlayingIndex {
+                    // 如果正好是当前要播的分片，也把 isLoading 去掉
+                    self.isLoading = false
+
+                    // 如果用户此时确实想播放
+                    if self.isAudioPlaying {
+                        self.playAudioChunk(
+                            at: index,
+                            fromTime: self.seekTime,
+                            shouldPlay: true
+                        )
+                        self.seekTime = nil
+                    }
+                }
+
+                // 如果是当前分片的下一段 -> 预加载
+                if index == self.currentPlayingIndex + 1 {
                     self.prepareNextAudioChunk(at: index)
-                } else if index == self.currentPlayingIndex + 1 {
-                    self.prepareNextAudioChunk(at: index)
+                }
+
+                // 如果当前正在缓冲，且到达的正好是 currentPlayingIndex
+                // 也要恢复播放（保证快进后能自动恢复）
+                if self.isBuffering,
+                   index == self.currentPlayingIndex,
+                   self.isAudioPlaying
+                {
+                    self.playAudioChunk(
+                        at: self.currentPlayingIndex,
+                        fromTime: self.seekTime,
+                        shouldPlay: true
+                    )
+                    self.seekTime = nil
                 }
             }
         }
@@ -182,113 +265,138 @@ class GlobalAudioManager: NSObject, ObservableObject, AVAudioPlayerDelegate {
         dataTasks.append(task)
     }
 
+    // MARK: - 计算 chunkStartTimes & totalDuration
     private func calculateChunkStartTimesAndTotalDuration() {
-        var cumulativeTime: TimeInterval = 0
+        var cumulative: TimeInterval = 0
         for i in 0..<chunkDurations.count {
-            let duration = chunkDurations.indices.contains(i) ? chunkDurations[i] : 0
-            chunkStartTimes[i] = cumulativeTime
-            cumulativeTime += duration
+            let dur = chunkDurations[safe: i] ?? 0
+            chunkStartTimes[i] = cumulative
+            cumulative += dur
         }
-        totalDuration = cumulativeTime
+        totalDuration = cumulative
     }
 
+    // MARK: - 预载下一个分片
     private func prepareNextAudioChunk(at index: Int) {
-        guard audioChunks.indices.contains(index), let data = audioChunks[index] else { return }
+        guard let chunkOpt = audioChunks[safe: index], let data = chunkOpt else { return }
         do {
-            nextAudioPlayer = try AVAudioPlayer(data: data)
-            nextAudioPlayer?.delegate = self
-            nextAudioPlayer?.prepareToPlay()
+            let player = try AVAudioPlayer(data: data)
+            player.delegate = self
+            player.prepareToPlay()
+            nextAudioPlayer = player
         } catch {
-            print("Failed to prepare next audio: \(error)")
+            print("prepareNextAudioChunk error: \(error)")
         }
     }
 
-    private func playAudioChunk(at index: Int, fromTime time: TimeInterval? = nil, shouldPlay: Bool = true) {
-        guard audioChunks.indices.contains(index) else {
-            // No more chunks to play
-            return
-        }
+    // MARK: - 播放指定分片
+    @discardableResult
+    private func playAudioChunk(at index: Int,
+                                fromTime time: TimeInterval? = nil,
+                                shouldPlay: Bool = true) -> Bool
+    {
+        // 若该分片越界 -> 播不动
+        guard audioChunks.indices.contains(index) else { return false }
 
+        // 若该分片数据为空 -> 需要缓冲
         guard let data = audioChunks[index] else {
-            isAudioPlaying = false
             isBuffering = true
             stopAudioTimer()
-            return
+            return false
         }
 
+        // 构造播放器
         do {
-            audioPlayer = try AVAudioPlayer(data: data)
-            audioPlayer?.delegate = self
-            audioPlayer?.prepareToPlay()
+            let player = try AVAudioPlayer(data: data)
+            player.delegate = self
+            player.prepareToPlay()
 
+            self.audioPlayer = player
+
+            // 在该分片内的起始位置
             let startTime: TimeInterval = {
                 guard let t = time else { return 0 }
-                let relativeTime = t - self.chunkStartTimes[index]
-                return max(0, min(relativeTime, audioPlayer?.duration ?? 0))
+                let rel = t - (chunkStartTimes[safe: index] ?? 0)
+                return max(0, min(rel, player.duration))
             }()
+            player.currentTime = startTime
 
-            if currentTime >= totalDuration {
-                isAudioPlaying = false
-                audioPlayer?.stop()
-                stopAudioTimer()
-                return
-            }
-
-            audioPlayer?.currentTime = startTime
             if shouldPlay {
-                audioPlayer?.play()
-                isAudioPlaying = true
+                player.play()
                 startAudioTimer()
-            } else {
-                isAudioPlaying = false
             }
 
+            // 数据已到 -> 不再缓冲
             isBuffering = false
             isSeeking = false
 
+            // 如果下一个分片已经到 -> 先预载
             let nextIndex = index + 1
-            if nextIndex < audioChunks.count, audioChunks[nextIndex] != nil {
+            if let nextData = audioChunks[safe: nextIndex], nextData != nil {
                 prepareNextAudioChunk(at: nextIndex)
             }
+
+            currentPlayingIndex = index
+            return true
         } catch {
-            print("Failed to start audio playback: \(error)")
-            errorMessage = "Failed to start audio playback: \(error.localizedDescription)"
+            self.errorMessage = "Failed to start audio playback: \(error.localizedDescription)"
+            print(errorMessage ?? "")
+            return false
         }
     }
 
+    // MARK: - 播放 / 暂停
     func togglePlayback() {
-        if isBuffering { return }
+        // === 修复第二个问题点（当播放完最后一段后，再次点击“播放”，要从头开始） ===
+        // 如果已经播完了（currentTime 已经到 totalDuration 或超过），
+        // 则重置到起点(0段、0秒)。
+        if !isAudioPlaying && currentTime >= totalDuration {
+            currentPlayingIndex = 0
+            currentTime = 0
+        }
+        
+        // 若当前为“暂停” -> 切换成“想播放”
+        if !isAudioPlaying {
+            isAudioPlaying = true
 
-        if isAudioPlaying {
-            audioPlayer?.pause()
-            isAudioPlaying = false
-            stopAudioTimer()
-        } else {
-            if currentTime >= totalDuration {
-                seek(to: 0, shouldPlay: true)
+            // 如果当前分片有数据，直接播放
+            if let _ = audioChunks[safe: currentPlayingIndex] {
+                playAudioChunk(
+                    at: currentPlayingIndex,
+                    fromTime: currentTime,
+                    shouldPlay: true
+                )
             } else {
-                audioPlayer?.play()
-                isAudioPlaying = true
-                startAudioTimer()
+                // 否则需要缓冲
+                isBuffering = true
             }
+        } else {
+            // 若当前为“想播放” -> 切换成“暂停”
+            isAudioPlaying = false
+            audioPlayer?.pause()
+            stopAudioTimer()
+            // 不再需要缓冲
+            isBuffering = false
         }
     }
 
+    // MARK: - 快进 / 后退 15 秒
     func forward15Seconds() {
-        let newTime = currentTime + 15
-        seek(to: newTime, shouldPlay: isAudioPlaying)
+        seek(to: currentTime + 15, shouldPlay: isAudioPlaying)
     }
 
     func backward15Seconds() {
-        let newTime = currentTime - 15
-        seek(to: newTime, shouldPlay: isAudioPlaying)
+        seek(to: currentTime - 15, shouldPlay: isAudioPlaying)
     }
 
+    // MARK: - seek
     func seek(to time: TimeInterval, shouldPlay: Bool = false) {
         guard totalDuration > 0 else { return }
+
         let newTime = max(0, min(time, totalDuration))
         currentTime = newTime
 
+        // 找到对应分片下标
         var targetChunkIndex = 0
         for i in 0..<chunkStartTimes.count {
             if chunkStartTimes[i] > newTime {
@@ -300,28 +408,41 @@ class GlobalAudioManager: NSObject, ObservableObject, AVAudioPlayerDelegate {
             }
         }
 
+        // 如果切换了分片，就停止当前的播放
         if targetChunkIndex != currentPlayingIndex {
             audioPlayer?.stop()
             audioPlayer = nil
             currentPlayingIndex = targetChunkIndex
         }
 
+        // 如果分片已经下载完，则直接播放/暂停
         if let _ = audioChunks[safe: currentPlayingIndex] {
-            playAudioChunk(at: currentPlayingIndex, fromTime: currentTime, shouldPlay: shouldPlay)
-            isBuffering = false
+            playAudioChunk(
+                at: currentPlayingIndex,
+                fromTime: newTime,
+                shouldPlay: shouldPlay
+            )
         } else {
-            isBuffering = true
-            seekTime = currentTime
+            // 没下载 => 缓冲
+            isBuffering = shouldPlay
+            isSeeking = true
+            seekTime = newTime
             stopAudioTimer()
         }
 
-        if newTime >= totalDuration {
+        // 如果用户 seek 到了 totalDuration 且已经是最后一段，也可能直接结束
+        if newTime >= totalDuration,
+           currentPlayingIndex >= audioChunks.count - 1,
+           audioChunks[audioChunks.count - 1] != nil
+        {
             isAudioPlaying = false
             audioPlayer?.stop()
             stopAudioTimer()
+            currentTime = totalDuration
         }
     }
 
+    // MARK: - 关闭
     func closeAudioPlayer() {
         resetPlayer()
         isAudioPlaying = false
@@ -329,43 +450,65 @@ class GlobalAudioManager: NSObject, ObservableObject, AVAudioPlayerDelegate {
         isLoading = false
     }
 
+    // MARK: - 重置
     private func resetPlayer() {
         dataTasks.forEach { $0.cancel() }
         dataTasks.removeAll()
 
         audioPlayer?.stop()
         audioPlayer = nil
+
         nextAudioPlayer?.stop()
         nextAudioPlayer = nil
-        currentTime = 0
-        totalDuration = 0
+
         stopAudioTimer()
+
         textSegments.removeAll()
         audioChunks.removeAll()
         chunkDurations.removeAll()
         chunkStartTimes.removeAll()
+
         currentChunkIndex = 0
         currentPlayingIndex = 0
         requestsInFlight = 0
+        totalDuration = 0
+        currentTime = 0
+
         isBuffering = false
         isSeeking = false
         seekTime = nil
         errorMessage = nil
     }
 
+    // MARK: - 计时器
     private func startAudioTimer() {
         stopAudioTimer()
         audioTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
-            guard let self = self, !self.isBuffering else { return }
+            guard let self = self else { return }
+            
+            // 若在缓冲，就不更新 currentTime
+            if self.isBuffering { return }
+
             if let player = self.audioPlayer {
                 let chunkStartTime = self.chunkStartTimes[safe: self.currentPlayingIndex] ?? 0
-                let playerCurrentTime = player.currentTime
-                self.currentTime = chunkStartTime + playerCurrentTime
+                let localTime = player.currentTime
+
+                // 更新 currentTime
+                self.currentTime = chunkStartTime + localTime
+
+                // 如果已经播到 totalDuration，就真正结束
                 if self.currentTime >= self.totalDuration {
-                    self.currentTime = self.totalDuration
-                    self.isAudioPlaying = false
-                    player.stop()
-                    self.stopAudioTimer()
+                    // 如果已经加载完所有分片，则停止
+                    if self.allChunksLoaded() {
+                        self.currentTime = self.totalDuration
+                        self.isAudioPlaying = false
+                        player.stop()
+                        self.stopAudioTimer()
+                    } else {
+                        // 如果并未全部加载完，就进入缓冲等待新的音频
+                        self.isBuffering = self.isAudioPlaying
+                        player.pause()
+                    }
                 }
             }
         }
@@ -379,51 +522,71 @@ class GlobalAudioManager: NSObject, ObservableObject, AVAudioPlayerDelegate {
         audioTimer = nil
     }
 
+    private func allChunksLoaded() -> Bool {
+        // 若还有某段是 nil，就表示没下载完
+        return !audioChunks.contains(where: { $0 == nil })
+    }
+
+    // MARK: - 构造 TTS URL
     private func constructTTSURL() -> URL? {
         let serverSettings = settingsManager.serverSettings
         let urlString = "\(serverSettings.serverAddress)/tts"
         return URL(string: urlString)
     }
 
-    // MARK: AVAudioPlayerDelegate
-
+    // MARK: - AVAudioPlayerDelegate
     func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
         currentPlayingIndex += 1
-        if currentTime >= totalDuration {
+
+        // 若已经是最后一个分片，则说明真正播完
+        if currentPlayingIndex >= audioChunks.count {
+            currentPlayingIndex = audioChunks.count - 1
             currentTime = totalDuration
             isAudioPlaying = false
             stopAudioTimer()
             return
         }
 
-        if let nextPlayer = nextAudioPlayer {
-            audioPlayer = nextPlayer
+        // 如果 nextAudioPlayer 已经准备好了，就直接切过去
+        if let next = nextAudioPlayer {
+            audioPlayer = next
             nextAudioPlayer = nil
             audioPlayer?.delegate = self
-            audioPlayer?.play()
-            isAudioPlaying = true
-            startAudioTimer()
 
+            if isAudioPlaying {
+                audioPlayer?.play()
+                startAudioTimer()
+            }
+
+            // 再预载下一个
             let nextIndex = currentPlayingIndex + 1
-            if nextIndex < audioChunks.count, audioChunks[nextIndex] != nil {
+            if nextIndex < audioChunks.count,
+               audioChunks[nextIndex] != nil
+            {
                 prepareNextAudioChunk(at: nextIndex)
             }
-        } else if currentPlayingIndex < audioChunks.count {
-            if audioChunks[currentPlayingIndex] != nil {
-                playAudioChunk(at: currentPlayingIndex, fromTime: currentTime, shouldPlay: true)
+        } else {
+            // 没有预载好的播放器
+            if let _ = audioChunks[safe: currentPlayingIndex] {
+                // 该分片数据已到 => 立即播
+                if isAudioPlaying {
+                    playAudioChunk(
+                        at: currentPlayingIndex,
+                        fromTime: chunkStartTimes[currentPlayingIndex],
+                        shouldPlay: true
+                    )
+                }
             } else {
-                isBuffering = true
+                // 数据没到 => 进入缓冲
+                if isAudioPlaying {
+                    isBuffering = true
+                }
                 stopAudioTimer()
             }
-        } else {
-            isAudioPlaying = false
-            currentTime = totalDuration
-            stopAudioTimer()
         }
     }
 
-    // MARK: Text Splitting Functions
-
+    // MARK: - 文本拆分逻辑（和之前一样）
     private func splitTextIntoMeaningfulSegments(_ text: String, minSize: Int = 10, maxSize: Int = 100) -> [String] {
         let modifiedText = text
             .replacingOccurrences(of: #"\.\n"#, with: ". ")
@@ -435,10 +598,12 @@ class GlobalAudioManager: NSObject, ObservableObject, AVAudioPlayerDelegate {
         let sentenceTokenizer = NLTokenizer(unit: .sentence)
         sentenceTokenizer.string = modifiedText
         var sentenceFound = false
+
         sentenceTokenizer.enumerateTokens(in: modifiedText.startIndex..<modifiedText.endIndex) { sentenceRange, _ in
             sentenceFound = true
             let sentence = String(modifiedText[sentenceRange])
             let language = detectLanguage(for: sentence)
+
             if getCount(for: currentSegment + " " + sentence, language: language) > maxSize {
                 if !currentSegment.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     segments.append(currentSegment.trimmingCharacters(in: .whitespacesAndNewlines))
@@ -447,8 +612,8 @@ class GlobalAudioManager: NSObject, ObservableObject, AVAudioPlayerDelegate {
                 if let splitSentences = splitSentenceAtConjunctions(sentence, language: language, minSize: minSize, maxSize: maxSize) {
                     segments.append(contentsOf: splitSentences)
                 } else {
-                    let splitSegments = splitSentence(sentence, language: language, minSize: minSize, maxSize: maxSize)
-                    segments.append(contentsOf: splitSegments)
+                    let subSegs = splitSentence(sentence, language: language, minSize: minSize, maxSize: maxSize)
+                    segments.append(contentsOf: subSegs)
                 }
             } else {
                 currentSegment += " " + sentence
@@ -461,8 +626,8 @@ class GlobalAudioManager: NSObject, ObservableObject, AVAudioPlayerDelegate {
             if let splitText = splitSentenceAtConjunctions(modifiedText, language: language, minSize: minSize, maxSize: maxSize) {
                 segments.append(contentsOf: splitText)
             } else {
-                let splitSegments = splitSentence(modifiedText, language: language, minSize: minSize, maxSize: maxSize)
-                segments.append(contentsOf: splitSegments)
+                let subSegs = splitSentence(modifiedText, language: language, minSize: minSize, maxSize: maxSize)
+                segments.append(contentsOf: subSegs)
             }
         }
 
@@ -514,8 +679,12 @@ class GlobalAudioManager: NSObject, ObservableObject, AVAudioPlayerDelegate {
         let nsSentence = sentence as NSString
         let tagger = NSLinguisticTagger(tagSchemes: [.lexicalClass], options: 0)
         tagger.string = sentence
+
         var conjunctionRanges: [NSRange] = []
-        tagger.enumerateTags(in: NSRange(location: 0, length: nsSentence.length), unit: .word, scheme: .lexicalClass) { tag, tokenRange, _ in
+        tagger.enumerateTags(in: NSRange(location: 0, length: nsSentence.length),
+                             unit: .word,
+                             scheme: .lexicalClass)
+        { tag, tokenRange, _ in
             if tag == .conjunction {
                 conjunctionRanges.append(tokenRange)
             }
@@ -528,7 +697,8 @@ class GlobalAudioManager: NSObject, ObservableObject, AVAudioPlayerDelegate {
         var buffer = ""
 
         for tokenRange in conjunctionRanges {
-            let splitRange = NSRange(location: lastSplitIndex, length: tokenRange.location - lastSplitIndex)
+            let splitRange = NSRange(location: lastSplitIndex,
+                                     length: tokenRange.location - lastSplitIndex)
             if splitRange.length > 0 {
                 let segment = nsSentence.substring(with: splitRange).trimmingCharacters(in: .whitespacesAndNewlines)
                 if !segment.isEmpty {
@@ -539,24 +709,26 @@ class GlobalAudioManager: NSObject, ObservableObject, AVAudioPlayerDelegate {
                             splitSegments.append(buffer.trimmingCharacters(in: .whitespacesAndNewlines))
                             buffer = ""
                         }
-                        if let splitSentences = splitSentenceAtConjunctions(segment, language: language, minSize: minSize, maxSize: maxSize) {
-                            splitSegments.append(contentsOf: splitSentences)
+                        if let subSplit = splitSentenceAtConjunctions(segment, language: language, minSize: minSize, maxSize: maxSize) {
+                            splitSegments.append(contentsOf: subSplit)
                         } else {
-                            let furtherSplits = splitSentence(segment, language: language, minSize: minSize, maxSize: maxSize)
-                            splitSegments.append(contentsOf: furtherSplits)
+                            let further = splitSentence(segment, language: language, minSize: minSize, maxSize: maxSize)
+                            splitSegments.append(contentsOf: further)
                         }
                     }
                 }
             }
-
-            let conjunction = nsSentence.substring(with: tokenRange).trimmingCharacters(in: .whitespacesAndNewlines)
-            buffer += " " + conjunction
+            let conj = nsSentence.substring(with: tokenRange).trimmingCharacters(in: .whitespacesAndNewlines)
+            buffer += " " + conj
             lastSplitIndex = tokenRange.location + tokenRange.length
         }
 
-        let remainingRange = NSRange(location: lastSplitIndex, length: nsSentence.length - lastSplitIndex)
+        // 收尾
+        let remainingRange = NSRange(location: lastSplitIndex,
+                                     length: nsSentence.length - lastSplitIndex)
         if remainingRange.length > 0 {
-            let remainingSegment = nsSentence.substring(with: remainingRange).trimmingCharacters(in: .whitespacesAndNewlines)
+            let remainingSegment = nsSentence.substring(with: remainingRange)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
             if !remainingSegment.isEmpty {
                 if getCount(for: buffer + " " + remainingSegment, language: language) <= maxSize {
                     buffer += " " + remainingSegment
@@ -565,6 +737,7 @@ class GlobalAudioManager: NSObject, ObservableObject, AVAudioPlayerDelegate {
                         splitSegments.append(buffer.trimmingCharacters(in: .whitespacesAndNewlines))
                     }
                     splitSegments.append(remainingSegment)
+                    buffer = ""
                 }
             }
         }
@@ -573,23 +746,23 @@ class GlobalAudioManager: NSObject, ObservableObject, AVAudioPlayerDelegate {
             splitSegments.append(buffer.trimmingCharacters(in: .whitespacesAndNewlines))
         }
 
-        var finalSegments: [String] = []
+        var final: [String] = []
         for seg in splitSegments {
             let segCount = getCount(for: seg, language: language)
             if segCount > maxSize {
-                let furtherSplits = splitSentence(seg, language: language, minSize: minSize, maxSize: maxSize)
-                finalSegments.append(contentsOf: furtherSplits)
+                let further = splitSentence(seg, language: language, minSize: minSize, maxSize: maxSize)
+                final.append(contentsOf: further)
             } else if segCount >= minSize {
-                finalSegments.append(seg)
+                final.append(seg)
             } else {
-                if let last = finalSegments.popLast() {
-                    finalSegments.append(last + " " + seg)
+                if let last = final.popLast() {
+                    final.append(last + " " + seg)
                 } else {
-                    finalSegments.append(seg)
+                    final.append(seg)
                 }
             }
         }
-        return finalSegments
+        return final
     }
 
     private func splitSentence(_ sentence: String, language: String, minSize: Int, maxSize: Int) -> [String] {
@@ -597,8 +770,8 @@ class GlobalAudioManager: NSObject, ObservableObject, AVAudioPlayerDelegate {
         if languageIsWordBased(language) {
             let words = sentence.split { $0.isWhitespace }
             var current = ""
-            for word in words {
-                let wordStr = String(word)
+            for w in words {
+                let wordStr = String(w)
                 let potential = current.isEmpty ? wordStr : "\(current) \(wordStr)"
                 if wordCount(in: potential) > maxSize {
                     if !current.isEmpty {
@@ -616,11 +789,12 @@ class GlobalAudioManager: NSObject, ObservableObject, AVAudioPlayerDelegate {
                 splitSegments.append(current.trimmingCharacters(in: .whitespacesAndNewlines))
             }
         } else {
+            // 非词汇型语言，按字符数分
             var current = ""
-            for char in sentence {
-                let charStr = String(char)
-                let potential = current + charStr
-                if characterCount(in: potential) > maxSize {
+            for c in sentence {
+                let charStr = String(c)
+                let pot = current + charStr
+                if characterCount(in: pot) > maxSize {
                     if !current.isEmpty {
                         splitSegments.append(current)
                         current = charStr
@@ -629,7 +803,7 @@ class GlobalAudioManager: NSObject, ObservableObject, AVAudioPlayerDelegate {
                         current = ""
                     }
                 } else {
-                    current = potential
+                    current = pot
                 }
             }
             if !current.isEmpty {
@@ -640,9 +814,9 @@ class GlobalAudioManager: NSObject, ObservableObject, AVAudioPlayerDelegate {
     }
 }
 
-// Safe array indexing
+// 安全下标
 private extension Array {
-    subscript(safe index: Int) -> Element? {
-        return indices.contains(index) ? self[index] : nil
+    subscript(safe i: Int) -> Element? {
+        return indices.contains(i) ? self[i] : nil
     }
 }
