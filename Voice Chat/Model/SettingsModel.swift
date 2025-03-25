@@ -103,10 +103,19 @@ class SettingsManager: ObservableObject {
     }
 
     private static func saveSettings<T: Codable>(_ settings: T, forKey key: String) {
+        // 1) 在当前线程先把非 Sendable 的泛型 T 编码为 Data
+        let encoded: Data?
+        do {
+            encoded = try PropertyListEncoder().encode(settings)
+        } catch {
+            print("Error encoding settings: \(error)")
+            return
+        }
+        guard let finalData = encoded else { return }
+
+        // 2) 把 Data 丢到后台写入 UserDefaults
         DispatchQueue.global(qos: .background).async {
-            if let data = try? PropertyListEncoder().encode(settings) {
-                UserDefaults.standard.set(data, forKey: key)
-            }
+            UserDefaults.standard.set(finalData, forKey: key)
         }
     }
 

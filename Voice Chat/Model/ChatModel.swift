@@ -91,7 +91,7 @@ class ChatService: NSObject, URLSessionDataDelegate {
         }
     }
 
-    func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
+    nonisolated func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
         let text = String(decoding: data, as: UTF8.self)
         text.enumerateLines { (line, _) in
             guard line.starts(with: "data: ") else { return }
@@ -116,7 +116,7 @@ class ChatService: NSObject, URLSessionDataDelegate {
         }
     }
 
-    func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
+    nonisolated func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
         if let error = error {
             DispatchQueue.main.async {
                 self.onError?(error)
@@ -124,3 +124,6 @@ class ChatService: NSObject, URLSessionDataDelegate {
         }
     }
 }
+
+// MARK: - Sendable Conformance
+extension ChatMessage: @unchecked Sendable {}

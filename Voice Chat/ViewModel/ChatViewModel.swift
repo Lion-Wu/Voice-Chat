@@ -49,7 +49,7 @@ class ChatViewModel: ObservableObject {
         // Capture current messages on the main actor
         let currentMessages = chatSession.messages
         // Perform network call on a background thread
-        DispatchQueue.global(qos: .userInitiated).async {
+        Task {
             self.chatService.fetchStreamedData(messages: currentMessages)
         }
     }
@@ -78,7 +78,7 @@ class ChatViewModel: ObservableObject {
         // 重新请求回复
         let currentMessages = chatSession.messages
         isLoading = true
-        DispatchQueue.global(qos: .userInitiated).async {
+        Task {
             self.chatService.fetchStreamedData(messages: currentMessages)
         }
     }

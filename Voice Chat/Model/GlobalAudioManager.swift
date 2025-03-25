@@ -484,30 +484,32 @@ class GlobalAudioManager: NSObject, ObservableObject, AVAudioPlayerDelegate {
     private func startAudioTimer() {
         stopAudioTimer()
         audioTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
-            guard let self = self else { return }
-            
-            // 若在缓冲，就不更新 currentTime
-            if self.isBuffering { return }
-
-            if let player = self.audioPlayer {
-                let chunkStartTime = self.chunkStartTimes[safe: self.currentPlayingIndex] ?? 0
-                let localTime = player.currentTime
-
-                // 更新 currentTime
-                self.currentTime = chunkStartTime + localTime
-
-                // 如果已经播到 totalDuration，就真正结束
-                if self.currentTime >= self.totalDuration {
-                    // 如果已经加载完所有分片，则停止
-                    if self.allChunksLoaded() {
-                        self.currentTime = self.totalDuration
-                        self.isAudioPlaying = false
-                        player.stop()
-                        self.stopAudioTimer()
-                    } else {
-                        // 如果并未全部加载完，就进入缓冲等待新的音频
-                        self.isBuffering = self.isAudioPlaying
-                        player.pause()
+            Task { @MainActor in
+                guard let self = self else { return }
+                
+                // 若在缓冲，就不更新 currentTime
+                if self.isBuffering { return }
+ 
+                if let player = self.audioPlayer {
+                    let chunkStartTime = self.chunkStartTimes[safe: self.currentPlayingIndex] ?? 0
+                    let localTime = player.currentTime
+ 
+                    // 更新 currentTime
+                    self.currentTime = chunkStartTime + localTime
+ 
+                    // 如果已经播到 totalDuration，就真正结束
+                    if self.currentTime >= self.totalDuration {
+                        // 如果已经加载完所有分片，则停止
+                        if self.allChunksLoaded() {
+                            self.currentTime = self.totalDuration
+                            self.isAudioPlaying = false
+                            player.stop()
+                            self.stopAudioTimer()
+                        } else {
+                            // 如果并未全部加载完，就进入缓冲等待新的音频
+                            self.isBuffering = self.isAudioPlaying
+                            player.pause()
+                        }
                     }
                 }
             }
@@ -535,53 +537,55 @@ class GlobalAudioManager: NSObject, ObservableObject, AVAudioPlayerDelegate {
     }
 
     // MARK: - AVAudioPlayerDelegate
-    func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
-        currentPlayingIndex += 1
-
-        // 若已经是最后一个分片，则说明真正播完
-        if currentPlayingIndex >= audioChunks.count {
-            currentPlayingIndex = audioChunks.count - 1
-            currentTime = totalDuration
-            isAudioPlaying = false
-            stopAudioTimer()
-            return
-        }
-
-        // 如果 nextAudioPlayer 已经准备好了，就直接切过去
-        if let next = nextAudioPlayer {
-            audioPlayer = next
-            nextAudioPlayer = nil
-            audioPlayer?.delegate = self
-
-            if isAudioPlaying {
-                audioPlayer?.play()
-                startAudioTimer()
+    nonisolated func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
+        Task { @MainActor in
+            currentPlayingIndex += 1
+ 
+            // 若已经是最后一个分片，则说明真正播完
+            if currentPlayingIndex >= audioChunks.count {
+                currentPlayingIndex = audioChunks.count - 1
+                currentTime = totalDuration
+                isAudioPlaying = false
+                stopAudioTimer()
+                return
             }
-
-            // 再预载下一个
-            let nextIndex = currentPlayingIndex + 1
-            if nextIndex < audioChunks.count,
-               audioChunks[nextIndex] != nil
-            {
-                prepareNextAudioChunk(at: nextIndex)
-            }
-        } else {
-            // 没有预载好的播放器
-            if let _ = audioChunks[safe: currentPlayingIndex] {
-                // 该分片数据已到 => 立即播
+ 
+            // 如果 nextAudioPlayer 已经准备好了，就直接切过去
+            if let next = nextAudioPlayer {
+                audioPlayer = next
+                nextAudioPlayer = nil
+                audioPlayer?.delegate = self
+ 
                 if isAudioPlaying {
-                    playAudioChunk(
-                        at: currentPlayingIndex,
-                        fromTime: chunkStartTimes[currentPlayingIndex],
-                        shouldPlay: true
-                    )
+                    audioPlayer?.play()
+                    startAudioTimer()
+                }
+ 
+                // 再预载下一个
+                let nextIndex = currentPlayingIndex + 1
+                if nextIndex < audioChunks.count,
+                   audioChunks[nextIndex] != nil
+                {
+                    prepareNextAudioChunk(at: nextIndex)
                 }
             } else {
-                // 数据没到 => 进入缓冲
-                if isAudioPlaying {
-                    isBuffering = true
+                // 没有预载好的播放器
+                if let _ = audioChunks[safe: currentPlayingIndex] {
+                    // 该分片数据已到 => 立即播
+                    if isAudioPlaying {
+                        playAudioChunk(
+                            at: currentPlayingIndex,
+                            fromTime: chunkStartTimes[currentPlayingIndex],
+                            shouldPlay: true
+                        )
+                    }
+                } else {
+                    // 数据没到 => 进入缓冲
+                    if isAudioPlaying {
+                        isBuffering = true
+                    }
+                    stopAudioTimer()
                 }
-                stopAudioTimer()
             }
         }
     }

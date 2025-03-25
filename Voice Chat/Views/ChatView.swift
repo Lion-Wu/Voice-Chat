@@ -249,7 +249,7 @@ struct AutoSizingTextEditor: View {
                 .background(
                     GeometryReader { geometry in
                         Color.clear
-                            .onChange(of: text) { _ in
+                            .onChange(of: text) { _, _ in
                                 DispatchQueue.main.async {
                                     height = geometry.size.height
                                 }

@@ -7,6 +7,7 @@
 
 import Foundation
 
+@MainActor
 class ChatSessionsViewModel: ObservableObject {
     @Published var chatSessions: [ChatSession] = []
     @Published var selectedSessionID: UUID? = nil
@@ -57,45 +58,55 @@ class ChatSessionsViewModel: ObservableObject {
 
     func saveChatSessions() {
         let path = chatSessionsFileURL()
-        let sessionsCopy = chatSessions
+
+        // 先在当前线程（主 actor）把 chatSessions 编码成 Data
+        let encodedData: Data
+        do {
+            encodedData = try JSONEncoder().encode(chatSessions)
+        } catch {
+            print("Error saving sessions (encode failed): \(error)")
+            return
+        }
+
+        // 把 Data 丢到后台线程写文件，避免直接跨 actor 捕获 chatSessions/self
         DispatchQueue.global(qos: .background).async {
             do {
-                let data = try JSONEncoder().encode(sessionsCopy)
-                try data.write(to: path, options: .atomic)
+                try encodedData.write(to: path, options: .atomic)
             } catch {
-                print("Error saving sessions: \(error)")
+                print("Error saving sessions (write failed): \(error)")
             }
         }
     }
 
     func loadChatSessions() {
         let path = chatSessionsFileURL()
+
         DispatchQueue.global(qos: .background).async {
-            if let data = try? Data(contentsOf: path) {
+            // 后台线程读取文件并解码
+            let data = try? Data(contentsOf: path)
+            let loadedSessions: [ChatSession]
+
+            if let data = data {
                 do {
-                    let loaded = try JSONDecoder().decode([ChatSession].self, from: data)
-                    DispatchQueue.main.async {
-                        self.chatSessions = loaded
-                        if self.selectedSessionID == nil {
-                            self.selectedSessionID = self.chatSessions.first?.id
-                        }
-                        if self.chatSessions.isEmpty {
-                            self.startNewSession()
-                        }
-                    }
+                    loadedSessions = try JSONDecoder().decode([ChatSession].self, from: data)
                 } catch {
                     print("load sessions error: \(error)")
-                    DispatchQueue.main.async {
-                        if self.chatSessions.isEmpty {
-                            self.startNewSession()
-                        }
-                    }
+                    loadedSessions = []
                 }
             } else {
-                DispatchQueue.main.async {
-                    if self.chatSessions.isEmpty {
-                        self.startNewSession()
-                    }
+                loadedSessions = []
+            }
+
+            // 回到主 actor 更新 UI
+            DispatchQueue.main.async { [weak self] in
+                guard let self = self else { return }
+
+                self.chatSessions = loadedSessions
+                if self.selectedSessionID == nil {
+                    self.selectedSessionID = self.chatSessions.first?.id
+                }
+                if self.chatSessions.isEmpty {
+                    self.startNewSession()
                 }
             }
         }
