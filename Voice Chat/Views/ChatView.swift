@@ -37,10 +37,15 @@ struct ChatView: View {
                                 )
                                 .id(message.id)
                             }
+                            if viewModel.isLoading {
+                                LoadingBubble()
+                            }
                         }
                         .padding() // 整体内边距
                         .onChange(of: viewModel.chatSession.messages.count) { _, _ in
-                            scrollToBottom(scrollView: scrollView)
+                            if let lastMessage = viewModel.chatSession.messages.last, lastMessage.isUser {
+                                scrollToBottom(scrollView: scrollView)
+                            }
                         }
                     }
                     // 在 UIKit 平台上支持滚动时自动收起键盘（iOS、tvOS、watchOS）
@@ -50,11 +55,6 @@ struct ChatView: View {
                     .onTapGesture {
                         isInputFocused = false
                     }
-                }
-
-                if viewModel.isLoading {
-                    ProgressView()
-                        .padding()
                 }
 
                 // 输入区域
@@ -312,6 +312,35 @@ struct TextBubble: View {
         #else
         return 600
         #endif
+    }
+}
+
+struct LoadingIndicatorView: View {
+    @State private var scale: CGFloat = 0.8
+    
+    var body: some View {
+        Circle()
+            .frame(width: 20, height: 20)
+            .foregroundColor(.gray)
+            .scaleEffect(scale)
+            .onAppear {
+                withAnimation(Animation.easeInOut(duration: 0.8).repeatForever(autoreverses: true)) {
+                    scale = 1.2
+                }
+            }
+    }
+}
+
+struct LoadingBubble: View {
+    var body: some View {
+        HStack(alignment: .top, spacing: 10) {
+            LoadingIndicatorView()
+                .padding(12)
+                .background(Color.clear)
+                .clipShape(RoundedRectangle(cornerRadius: 15, style: .continuous))
+            Spacer()
+        }
+        .padding(.vertical, 5)
     }
 }
 
