@@ -16,6 +16,9 @@ struct MainContentView: View {
 
     let onToggleSidebar: () -> Void
 
+    // 由子视图 ChatView 回传的当前会话消息数，用于实时决定右上角加号可用性
+    @State private var currentMessagesCount: Int = 0
+
     var body: some View {
         ZStack(alignment: .top) {
             VStack(spacing: 0) {
@@ -38,7 +41,7 @@ struct MainContentView: View {
                         Image(systemName: "plus")
                             .font(.title2)
                     }
-                    .disabled(currentChatIsEmpty)
+                    .disabled(currentMessagesCount == 0) // 当当前会话没有消息时置灰；一旦有消息由子视图立即回传启用
                 }
                 .padding()
                 .background(Color(UIColor.systemBackground))
@@ -46,8 +49,16 @@ struct MainContentView: View {
 
                 // 聊天区域
                 if let selectedSession = chatSessionsViewModel.selectedSession {
-                    ChatView(chatSession: selectedSession)
-                        .id(selectedSession.id)
+                    ChatView(
+                        chatSession: selectedSession,
+                        onMessagesCountChange: { newCount in
+                            // 子视图主动上报消息数，驱动右上角加号按钮的可用状态
+                            if currentMessagesCount != newCount {
+                                currentMessagesCount = newCount
+                            }
+                        }
+                    )
+                    .id(selectedSession.id)
                 } else {
                     // 若无选中会话，自动新建一个
                     Text("No chat. Creating one...")
@@ -62,14 +73,9 @@ struct MainContentView: View {
             if chatSessionsViewModel.chatSessions.isEmpty {
                 chatSessionsViewModel.startNewSession()
             }
+            // 同步一次初始可用状态
+            currentMessagesCount = chatSessionsViewModel.selectedSession?.messages.count ?? 0
         }
-    }
-
-    private var currentChatIsEmpty: Bool {
-        guard let session = chatSessionsViewModel.selectedSession else {
-            return true
-        }
-        return session.messages.isEmpty
     }
 }
 

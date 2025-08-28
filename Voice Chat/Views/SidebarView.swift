@@ -19,48 +19,49 @@ struct SidebarView: View {
 
     var body: some View {
         #if os(macOS)
-        // macOS 端继续使用原 List + toolbar
-        List(selection: $chatSessionsViewModel.selectedSessionID) {
-            Section(header: Text("Chats")) {
-                ForEach(chatSessionsViewModel.chatSessions) { session in
-                    HStack {
-                        Text(session.title)
-                            .lineLimit(1)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                    .contentShape(Rectangle())
-                    .onTapGesture {
-                        onConversationTap(session)
-                    }
-                    .contextMenu {
-                        Button("Rename") {
-                            renameSession(session)
+        // macOS 与 iOS 统一：使用 VStack，底部放「Settings」按钮，不再使用顶部 Toolbar
+        VStack(spacing: 0) {
+            List(selection: $chatSessionsViewModel.selectedSessionID) {
+                Section(header: Text("Chats")) {
+                    ForEach(chatSessionsViewModel.chatSessions) { session in
+                        HStack {
+                            Text(session.title)
+                                .lineLimit(1)
+                                .frame(maxWidth: .infinity, alignment: .leading)
                         }
-                        Button("Delete") {
-                            if let index = chatSessionsViewModel.chatSessions.firstIndex(of: session) {
-                                chatSessionsViewModel.deleteSession(at: IndexSet(integer: index))
+                        .contentShape(Rectangle())
+                        .onTapGesture {
+                            onConversationTap(session)
+                        }
+                        .contextMenu {
+                            Button("Rename") {
+                                renameSession(session)
+                            }
+                            Button("Delete") {
+                                if let index = chatSessionsViewModel.chatSessions.firstIndex(of: session) {
+                                    chatSessionsViewModel.deleteSession(at: IndexSet(integer: index))
+                                }
                             }
                         }
                     }
+                    .onDelete(perform: chatSessionsViewModel.deleteSession)
                 }
-                .onDelete(perform: chatSessionsViewModel.deleteSession)
             }
-        }
-        .listStyle(.sidebar)
-        .navigationTitle("Chats")
-        .toolbar {
-            ToolbarItem {
-                Button(action: onOpenSettings) {
-                    Image(systemName: "gearshape.fill")
-                }
-                .help("Settings")
+            .listStyle(.sidebar)
+
+            Divider()
+
+            Button(action: onOpenSettings) {
+                Label("Settings", systemImage: "gearshape.fill")
+                    .font(.system(.headline))
+                    .padding()
             }
         }
         .sheet(isPresented: $isRenaming) {
             renameSheetView()
         }
         #else
-        // iOS/iPadOS 端
+        // iOS/iPadOS 端保持原样：底部按钮
         VStack(spacing: 0) {
             List(selection: $chatSessionsViewModel.selectedSessionID) {
                 Section(header: Text("Chats")) {

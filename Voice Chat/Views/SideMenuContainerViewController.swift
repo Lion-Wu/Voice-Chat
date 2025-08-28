@@ -16,7 +16,7 @@ import UIKit
 class SideMenuContainerViewController: UIViewController {
 
     // 侧边栏宽度
-    private let sideMenuWidth: CGFloat = 280
+    private let sideMenuWidth: CGFloat = 325
 
     // 侧边栏控制器、主界面控制器
     private var sidebarHostingController: UIViewController!

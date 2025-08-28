@@ -53,7 +53,7 @@ class SettingsManager: ObservableObject {
             autoSplit: "cut0"
         )
         self.chatSettings = Self.loadSettings(forKey: "ChatSettings") ?? ChatSettings(
-            apiURL: "http://localhost:11434",
+            apiURL: "http://localhost:1234",
             selectedModel: ""
         )
         self.voiceSettings = Self.loadSettings(forKey: "VoiceSettings") ?? VoiceSettings(enableStreaming: true)
