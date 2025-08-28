@@ -7,10 +7,14 @@
 
 import SwiftUI
 
+// MARK: - Alert Model
+
 struct AlertError: Identifiable {
     var id = UUID()
     var message: String
 }
+
+// MARK: - Settings View
 
 struct SettingsView: View {
     @ObservedObject var viewModel: SettingsViewModel
@@ -30,41 +34,41 @@ struct SettingsView: View {
         VStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
-                    FormContent()
+                    formContent()
                 }
                 .padding()
             }
         }
         .frame(width: 500, height: 600)
-        .onAppear {
-            fetchAvailableModels()
-        }
+        .onAppear { fetchAvailableModels() }
         .alert(item: $errorMessage) { error in
-            Alert(title: Text("Error"), message: Text(error.message), dismissButton: .default(Text("OK")))
+            Alert(title: Text("Error"),
+                  message: Text(error.message),
+                  dismissButton: .default(Text("OK")))
         }
         #else
         NavigationView {
-            FormContent()
+            formContent()
                 .navigationBarTitle("Settings", displayMode: .inline)
                 .toolbar {
                     ToolbarItem(placement: .navigationBarTrailing) {
-                        Button("Close") {
-                            dismiss()
-                        }
+                        Button("Close") { dismiss() }
                     }
                 }
-                .onAppear {
-                    fetchAvailableModels()
-                }
+                .onAppear { fetchAvailableModels() }
                 .alert(item: $errorMessage) { error in
-                    Alert(title: Text("Error"), message: Text(error.message), dismissButton: .default(Text("OK")))
+                    Alert(title: Text("Error"),
+                          message: Text(error.message),
+                          dismissButton: .default(Text("OK")))
                 }
         }
         #endif
     }
 
+    // MARK: - Form Content
+
     @ViewBuilder
-    private func FormContent() -> some View {
+    private func formContent() -> some View {
         #if os(macOS)
         VStack(alignment: .leading, spacing: 20) {
             Text("Voice Generation Settings")
@@ -88,13 +92,25 @@ struct SettingsView: View {
         #endif
     }
 
+    // MARK: - Sections
+
     private var voiceGenerationSettingsSection: some View {
         Group {
-            LabeledTextField(label: "Server Address", placeholder: "Enter server address", text: $viewModel.serverAddress)
-            LabeledTextField(label: "Text Language", placeholder: "text_lang", text: $viewModel.textLang)
-            LabeledTextField(label: "Reference Audio Path", placeholder: "ref_audio_path", text: $viewModel.refAudioPath)
-            LabeledTextField(label: "Prompt Text", placeholder: "prompt_text", text: $viewModel.promptText)
-            LabeledTextField(label: "Prompt Language", placeholder: "prompt_lang", text: $viewModel.promptLang)
+            LabeledTextField(label: "Server Address",
+                             placeholder: "Enter server address",
+                             text: $viewModel.serverAddress)
+            LabeledTextField(label: "Text Language",
+                             placeholder: "text_lang",
+                             text: $viewModel.textLang)
+            LabeledTextField(label: "Reference Audio Path",
+                             placeholder: "ref_audio_path",
+                             text: $viewModel.refAudioPath)
+            LabeledTextField(label: "Prompt Text",
+                             placeholder: "prompt_text",
+                             text: $viewModel.promptText)
+            LabeledTextField(label: "Prompt Language",
+                             placeholder: "prompt_lang",
+                             text: $viewModel.promptLang)
 
             #if os(macOS)
             HStack {
@@ -132,7 +148,9 @@ struct SettingsView: View {
 
     private var chatSettingsSection: some View {
         Group {
-            LabeledTextField(label: "Chat API URL", placeholder: "Enter chat API URL", text: $viewModel.apiURL)
+            LabeledTextField(label: "Chat API URL",
+                             placeholder: "Enter chat API URL",
+                             text: $viewModel.apiURL)
 
             if isLoadingModels {
                 #if os(macOS)
@@ -177,6 +195,8 @@ struct SettingsView: View {
         }
     }
 
+    // MARK: - Networking
+
     private func fetchAvailableModels() {
         guard !viewModel.apiURL.isEmpty else {
             errorMessage = AlertError(message: "API URL is empty or invalid.")
@@ -184,10 +204,11 @@ struct SettingsView: View {
         }
         isLoadingModels = true
         errorMessage = nil
+
         let urlString = "\(viewModel.apiURL)/v1/models"
         guard let url = URL(string: urlString) else {
-            errorMessage = AlertError(message: "Invalid API URL")
             isLoadingModels = false
+            errorMessage = AlertError(message: "Invalid API URL")
             return
         }
 
@@ -197,20 +218,24 @@ struct SettingsView: View {
                 self.isLoadingModels = false
                 if let error = error {
                     self.errorMessage = AlertError(message: "Request failed: \(error.localizedDescription)")
-                } else if let data = data,
-                          let modelList = try? JSONDecoder().decode(ModelListResponse.self, from: data) {
-                    self.availableModels = modelList.data.map { $0.id }
-                    if !self.availableModels.contains(self.viewModel.selectedModel),
-                       let firstModel = self.availableModels.first {
-                        self.viewModel.selectedModel = firstModel
-                    }
-                } else {
+                    return
+                }
+                guard let data = data,
+                      let modelList = try? JSONDecoder().decode(ModelListResponse.self, from: data) else {
                     self.errorMessage = AlertError(message: "Unable to parse model list")
+                    return
+                }
+                self.availableModels = modelList.data.map { $0.id }
+                if !self.availableModels.contains(self.viewModel.selectedModel),
+                   let firstModel = self.availableModels.first {
+                    self.viewModel.selectedModel = firstModel
                 }
             }
         }.resume()
     }
 }
+
+// MARK: - LabeledTextField
 
 struct LabeledTextField: View {
     var label: String

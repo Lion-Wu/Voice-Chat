@@ -7,6 +7,8 @@
 
 import Foundation
 
+// MARK: - Value Types
+
 struct ServerSettings: Codable {
     var serverAddress: String
     var textLang: String
@@ -30,8 +32,10 @@ struct VoiceSettings: Codable {
     var enableStreaming: Bool
 }
 
+// MARK: - Settings Manager
+
 @MainActor
-class SettingsManager: ObservableObject {
+final class SettingsManager: ObservableObject {
     static let shared = SettingsManager()
 
     @Published var serverSettings: ServerSettings
@@ -39,25 +43,35 @@ class SettingsManager: ObservableObject {
     @Published var chatSettings: ChatSettings
     @Published var voiceSettings: VoiceSettings
 
+    // 避免魔法字符串
+    private enum Keys {
+        static let server = "ServerSettings"
+        static let model  = "ModelSettings"
+        static let chat   = "ChatSettings"
+        static let voice  = "VoiceSettings"
+    }
+
     private init() {
-        self.serverSettings = Self.loadSettings(forKey: "ServerSettings") ?? ServerSettings(
+        self.serverSettings = Self.loadSettings(forKey: Keys.server) ?? ServerSettings(
             serverAddress: "http://127.0.0.1:9880",
             textLang: "auto",
             refAudioPath: "",
             promptText: "",
             promptLang: "auto"
         )
-        self.modelSettings = Self.loadSettings(forKey: "ModelSettings") ?? ModelSettings(
+        self.modelSettings = Self.loadSettings(forKey: Keys.model) ?? ModelSettings(
             modelId: "",
             language: "auto",
             autoSplit: "cut0"
         )
-        self.chatSettings = Self.loadSettings(forKey: "ChatSettings") ?? ChatSettings(
+        self.chatSettings = Self.loadSettings(forKey: Keys.chat) ?? ChatSettings(
             apiURL: "http://localhost:1234",
             selectedModel: ""
         )
-        self.voiceSettings = Self.loadSettings(forKey: "VoiceSettings") ?? VoiceSettings(enableStreaming: true)
+        self.voiceSettings = Self.loadSettings(forKey: Keys.voice) ?? VoiceSettings(enableStreaming: true)
     }
+
+    // MARK: - Update APIs
 
     func updateServerSettings(serverAddress: String, textLang: String, refAudioPath: String, promptText: String, promptLang: String) {
         serverSettings.serverAddress = serverAddress
@@ -86,24 +100,25 @@ class SettingsManager: ObservableObject {
         saveVoiceSettings()
     }
 
+    // MARK: - Persist
+
     func saveServerSettings() {
-        Self.saveSettings(serverSettings, forKey: "ServerSettings")
+        Self.saveSettings(serverSettings, forKey: Keys.server)
     }
 
     func saveModelSettings() {
-        Self.saveSettings(modelSettings, forKey: "ModelSettings")
+        Self.saveSettings(modelSettings, forKey: Keys.model)
     }
 
     func saveChatSettings() {
-        Self.saveSettings(chatSettings, forKey: "ChatSettings")
+        Self.saveSettings(chatSettings, forKey: Keys.chat)
     }
 
     func saveVoiceSettings() {
-        Self.saveSettings(voiceSettings, forKey: "VoiceSettings")
+        Self.saveSettings(voiceSettings, forKey: Keys.voice)
     }
 
     private static func saveSettings<T: Codable>(_ settings: T, forKey key: String) {
-        // 1) 在当前线程先把非 Sendable 的泛型 T 编码为 Data
         let encoded: Data?
         do {
             encoded = try PropertyListEncoder().encode(settings)
@@ -113,7 +128,6 @@ class SettingsManager: ObservableObject {
         }
         guard let finalData = encoded else { return }
 
-        // 2) 把 Data 丢到后台写入 UserDefaults
         DispatchQueue.global(qos: .background).async {
             UserDefaults.standard.set(finalData, forKey: key)
         }

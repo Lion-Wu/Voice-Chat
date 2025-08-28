@@ -17,7 +17,6 @@ struct ContentView: View {
 
     var body: some View {
         #if os(macOS)
-        // macOS: 继续用原有的 NavigationSplitView
         NavigationSplitView(columnVisibility: $columnVisibility) {
             SidebarView(
                 onConversationTap: { conversation in
@@ -34,9 +33,7 @@ struct ContentView: View {
                     .font(.largeTitle)
                     .foregroundColor(.gray)
                     .onAppear {
-                        if chatSessionsViewModel.chatSessions.isEmpty {
-                            chatSessionsViewModel.startNewSession()
-                        }
+                        ensureAtLeastOneSession()
                     }
             }
         }
@@ -46,27 +43,28 @@ struct ContentView: View {
         }
         .toolbar {
             ToolbarItem {
-                Button(action: {
-                    startNewConversation()
-                }) {
+                Button(action: startNewConversation) {
                     Image(systemName: "plus")
                 }
                 .help("New Chat")
                 .disabled(!chatSessionsViewModel.canStartNewSession)
             }
         }
-        .onAppear {
-            if chatSessionsViewModel.chatSessions.isEmpty {
-                chatSessionsViewModel.startNewSession()
-            }
-        }
+        .onAppear { ensureAtLeastOneSession() }
         #else
-        // iOS/iPadOS: 使用我们自定义的侧边栏容器
         SideMenuContainerRepresentable()
             .environmentObject(chatSessionsViewModel)
             .environmentObject(audioManager)
             .environmentObject(settingsManager)
         #endif
+    }
+
+    // MARK: - Helpers
+
+    private func ensureAtLeastOneSession() {
+        if chatSessionsViewModel.chatSessions.isEmpty {
+            chatSessionsViewModel.startNewSession()
+        }
     }
 
     private func selectConversation(_ session: ChatSession) {

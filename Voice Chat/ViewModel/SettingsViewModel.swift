@@ -3,7 +3,6 @@
 //  Voice Chat
 //
 //  Created by Lion Wu on 2024.10.09.
-//  Modified by [Your Name] on [Date]
 //
 
 import Foundation
@@ -11,91 +10,56 @@ import Combine
 
 @MainActor
 class SettingsViewModel: ObservableObject {
-    @Published var serverAddress: String {
-        didSet {
-            saveServerSettings()
-        }
-    }
-    @Published var textLang: String {
-        didSet {
-            saveServerSettings()
-        }
-    }
-    @Published var refAudioPath: String {
-        didSet {
-            saveServerSettings()
-        }
-    }
-    @Published var promptText: String {
-        didSet {
-            saveServerSettings()
-        }
-    }
-    @Published var promptLang: String {
-        didSet {
-            saveServerSettings()
-        }
-    }
+    // MARK: - Published Settings (双向绑定 -> 自动保存)
+    @Published var serverAddress: String { didSet { saveServerSettings() } }
+    @Published var textLang: String { didSet { saveServerSettings() } }
+    @Published var refAudioPath: String { didSet { saveServerSettings() } }
+    @Published var promptText: String { didSet { saveServerSettings() } }
+    @Published var promptLang: String { didSet { saveServerSettings() } }
 
-    @Published var apiURL: String {
-        didSet {
-            saveChatSettings()
-        }
-    }
-    @Published var selectedModel: String {
-        didSet {
-            saveChatSettings()
-        }
-    }
+    @Published var apiURL: String { didSet { saveChatSettings() } }
+    @Published var selectedModel: String { didSet { saveChatSettings() } }
 
     @Published var enableStreaming: Bool {
         didSet {
             saveVoiceSettings()
-            // If enabling streaming, automatically set autoSplit to "cut0"
             if enableStreaming {
+                // 开启流式时，强制切为 cut0
                 autoSplit = "cut0"
             }
         }
     }
-    @Published var autoSplit: String {
-        didSet {
-            saveModelSettings()
-        }
-    }
-    @Published var modelId: String {
-        didSet {
-            saveModelSettings()
-        }
-    }
-    @Published var language: String {
-        didSet {
-            saveModelSettings()
-        }
-    }
 
+    @Published var autoSplit: String { didSet { saveModelSettings() } }
+    @Published var modelId: String { didSet { saveModelSettings() } }
+    @Published var language: String { didSet { saveModelSettings() } }
+
+    // MARK: - Dependency
     private let settingsManager = SettingsManager.shared
 
+    // MARK: - Init
     init() {
-        let serverSettings = settingsManager.serverSettings
-        self.serverAddress = serverSettings.serverAddress
-        self.textLang = serverSettings.textLang
-        self.refAudioPath = serverSettings.refAudioPath
-        self.promptText = serverSettings.promptText
-        self.promptLang = serverSettings.promptLang
+        let s = settingsManager.serverSettings
+        serverAddress = s.serverAddress
+        textLang = s.textLang
+        refAudioPath = s.refAudioPath
+        promptText = s.promptText
+        promptLang = s.promptLang
 
-        let chatSettings = settingsManager.chatSettings
-        self.apiURL = chatSettings.apiURL
-        self.selectedModel = chatSettings.selectedModel
+        let c = settingsManager.chatSettings
+        apiURL = c.apiURL
+        selectedModel = c.selectedModel
 
-        let voiceSettings = settingsManager.voiceSettings
-        self.enableStreaming = voiceSettings.enableStreaming
+        let v = settingsManager.voiceSettings
+        enableStreaming = v.enableStreaming
 
-        let modelSettings = settingsManager.modelSettings
-        self.autoSplit = modelSettings.autoSplit
-        self.modelId = modelSettings.modelId
-        self.language = modelSettings.language
+        let m = settingsManager.modelSettings
+        autoSplit = m.autoSplit
+        modelId = m.modelId
+        language = m.language
     }
 
+    // MARK: - Persist
     func saveServerSettings() {
         settingsManager.updateServerSettings(
             serverAddress: serverAddress,

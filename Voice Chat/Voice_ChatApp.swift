@@ -8,6 +8,7 @@
 import SwiftUI
 
 @main
+@MainActor
 struct Voice_ChatApp: App {
     @StateObject private var audioManager = GlobalAudioManager.shared
     @StateObject private var settingsManager = SettingsManager.shared
@@ -21,12 +22,10 @@ struct Voice_ChatApp: App {
                 .environmentObject(chatSessionsViewModel)
         }
         #if os(macOS)
-        // 系统级设置窗口（⌘,）保持不变
         Settings {
             SettingsView()
                 .environmentObject(settingsManager)
         }
-        // 替换系统的 “New” 命令（默认新建窗口）为 “New Chat”
         .commands {
             AppMenuCommands(chatSessionsViewModel)
         }
@@ -39,24 +38,19 @@ struct Voice_ChatApp: App {
 private struct AppMenuCommands: Commands {
     @ObservedObject var chatSessionsViewModel: ChatSessionsViewModel
 
-    /// 通过构造函数把 ViewModel 传入，避免 .environmentObject（Commands 不支持）
     init(_ vm: ChatSessionsViewModel) {
         self._chatSessionsViewModel = ObservedObject(wrappedValue: vm)
     }
 
     var body: some Commands {
-        // 用我们自己的按钮替换系统的“新建”命令组（含 ⌘N）
         CommandGroup(replacing: .newItem) {
             Button("New Chat") {
-                // 双重保险：即使 UI 层禁用出问题，这里也不执行
                 guard chatSessionsViewModel.canStartNewSession else { return }
                 chatSessionsViewModel.startNewSession()
             }
             .keyboardShortcut("n", modifiers: [.command])
             .disabled(!chatSessionsViewModel.canStartNewSession)
         }
-
-        // 其他默认命令（如 Preferences/Settings ⌘,）保持系统行为
     }
 }
 #endif

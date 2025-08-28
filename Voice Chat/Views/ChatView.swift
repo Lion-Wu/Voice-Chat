@@ -15,7 +15,7 @@ import Foundation
 import MarkdownUI
 import CoreText
 
-// MARK: - ─────────── 平台类型别名 ────────────
+// MARK: - 平台类型别名
 
 #if os(iOS) || os(tvOS) || os(watchOS)
 private typealias PlatformNativeFont = UIFont
@@ -23,7 +23,7 @@ private typealias PlatformNativeFont = UIFont
 private typealias PlatformNativeFont = NSFont
 #endif
 
-// MARK: - ─────────── 平台颜色映射 ────────────
+// MARK: - 平台颜色映射
 
 private enum PlatformColor {
     static var systemBackground: Color {
@@ -49,7 +49,7 @@ private enum PlatformColor {
     }
 }
 
-// MARK: - ─────────── 主题与辅助样式 ────────────
+// MARK: - 主题与辅助样式
 
 private enum ChatTheme {
     static let bgGradient = LinearGradient(
@@ -90,7 +90,7 @@ private struct BubbleBackground: ViewModifier {
 }
 private extension View { func bubbleStyle(isUser: Bool) -> some View { modifier(BubbleBackground(isUser: isUser)) } }
 
-// MARK: - ─────────── 使用 MarkdownUI 的 Markdown 渲染 ────────────
+// MARK: - Markdown 渲染
 
 fileprivate struct RichMarkdownView: View {
     let markdown: String
@@ -104,7 +104,7 @@ fileprivate struct RichMarkdownView: View {
     }
 }
 
-// MARK: - ─────────── <think> 提取 ────────────
+// MARK: - <think> 提取
 
 private struct ThinkParts {
     let think: String?
@@ -126,9 +126,8 @@ private extension String {
     }
 }
 
-// MARK: - ─────────── 仅渲染“最后 N 条视觉行”的高性能预览（CoreText 断行 + Text 渲染） ────────────
+// MARK: - 仅渲染“最后 N 条视觉行”
 
-/// 平台字体规格
 private struct PlatformFontSpec: Equatable {
     let size: CGFloat
     let isMonospaced: Bool
@@ -154,15 +153,13 @@ private struct PlatformFontSpec: Equatable {
     var ctFont: CTFont { CTFontCreateWithName(native.fontName as CFString, size, nil) }
 }
 
-/// 只渲染“最后 N 条视觉行”（真实换行），始终**底对齐**，最新行在**最下方**
 private struct TailLinesText: View {
     let text: String
     let lines: Int
     let font: PlatformFontSpec
-    /// 固定高度（行高 × 行数）
     private var fixedHeight: CGFloat { font.lineHeight * CGFloat(max(1, lines)) }
 
-    @State private var displayTail: String = ""   // 实际展示的那段小文本
+    @State private var displayTail: String = ""
     @State private var lastComputedForTextCount: Int = -1
     @State private var lastWidth: CGFloat = 0
 
@@ -170,7 +167,6 @@ private struct TailLinesText: View {
         GeometryReader { geo in
             let w = max(1, floor(geo.size.width))
 
-            // 底对齐展示（最新行在最下）
             ZStack(alignment: .bottomLeading) {
                 Text(displayTail)
                     .font(.system(size: font.size, design: font.isMonospaced ? .monospaced : .default))
@@ -184,10 +180,9 @@ private struct TailLinesText: View {
             .onChange(of: geo.size) { _, _ in recomputeIfNeeded(width: w) }
         }
         .frame(height: fixedHeight, alignment: .bottom)
-        .accessibilityLabel("思考预览（仅尾部若干真实视觉行）")
+        .accessibilityLabel("思考预览")
     }
 
-    /// 只在必要时重算，避免重复开销
     private func recomputeIfNeeded(width: CGFloat) {
         let tcount = text.utf16.count
         let needs = (tcount != lastComputedForTextCount) || abs(width - lastWidth) > 0.5
@@ -199,11 +194,9 @@ private struct TailLinesText: View {
     }
 }
 
-/// 使用 CoreText 断行，仅对**文本尾部的窗口**做布局，直到覆盖到 N 条视觉行为止
 private func computeTailVisualLines(text: String, width: CGFloat, lines: Int, font: PlatformFontSpec) -> String {
     guard !text.isEmpty, width > 1, lines > 0 else { return "" }
 
-    // 为了效率，仅对尾部窗口断行；不足时倍增窗口，最多 32K 字
     let ns = text as NSString
     let total = ns.length
     var windowLen = min(2048, total)
@@ -215,10 +208,7 @@ private func computeTailVisualLines(text: String, width: CGFloat, lines: Int, fo
         let range = NSRange(location: start, length: total - start)
         let chunk = ns.substring(with: range) as NSString
 
-        // CoreText 断行（使用 chunk 作为排版对象）
-        let attrs: [CFString: Any] = [
-            kCTFontAttributeName: font.ctFont
-        ]
+        let attrs: [CFString: Any] = [kCTFontAttributeName: font.ctFont]
         let attrStr = CFAttributedStringCreate(nil, chunk as CFString, attrs as CFDictionary)!
         let framesetter = CTFramesetterCreateWithAttributedString(attrStr)
 
@@ -228,19 +218,15 @@ private func computeTailVisualLines(text: String, width: CGFloat, lines: Int, fo
         let linesCF = CTFrameGetLines(frame)
         let count = CFArrayGetCount(linesCF)
 
-        if count == 0 {
-            // 没断出行（极端情况），返回空
-            return ""
-        }
+        if count == 0 { return "" }
 
-        // 取最后 N 行在 chunk 中的字符串范围
         let take = min(lines, count)
         var firstLoc = Int.max
         var lastMax = 0
         for i in (count - take)..<count {
             let unmanaged = CFArrayGetValueAtIndex(linesCF, i)
             let line = unsafeBitCast(unmanaged, to: CTLine.self)
-            let r = CTLineGetStringRange(line) // 相对于 chunk
+            let r = CTLineGetStringRange(line)
             let loc = r.location
             let len = r.length
             firstLoc = min(firstLoc, loc)
@@ -252,19 +238,17 @@ private func computeTailVisualLines(text: String, width: CGFloat, lines: Int, fo
 
         lastResult = tail
 
-        // 如果已经覆盖到 N 行，或窗口已到上限，就结束
         if count >= lines || windowLen >= maxLen || windowLen >= total {
             break
         }
 
-        // 否则扩大窗口再试（倍增）
         windowLen = min(maxLen, min(total, windowLen * 2))
     }
 
     return lastResult
 }
 
-// MARK: - ─────────── 仅当“视觉上多了一行”才触发自动滚动 ────────────
+// MARK: - 自动滚动的辅助键
 
 private struct LineHeightKey: PreferenceKey {
     static var defaultValue: CGFloat { 18 }
@@ -297,7 +281,7 @@ private struct MessageHeightKey: PreferenceKey {
     }
 }
 
-// MARK: - ─────────── 视图模型 & 主要视图 ────────────
+// MARK: - ChatView
 
 struct ChatView: View {
     @EnvironmentObject var chatSessionsViewModel: ChatSessionsViewModel
@@ -515,7 +499,6 @@ struct ChatView: View {
                 }
             }
         }
-        // 与正文 16pt 对齐用于“多一行”阈值
         .overlay(HeightMeasurer(font: .system(size: 16), lineHeight: $bodyLineHeight))
         .sheet(isPresented: $isShowingTextSelectionSheet) {
             NavigationView {
@@ -548,7 +531,7 @@ struct ChatView: View {
     }
 }
 
-// MARK: - ─────────── 底部哨兵视图 ────────────
+// MARK: - 底部哨兵视图
 
 private struct BottomSentinel: View {
     var onAppearAtBottom: () -> Void
@@ -563,7 +546,7 @@ private struct BottomSentinel: View {
     }
 }
 
-// MARK: - ─────────── 气泡视图等 ────────────
+// MARK: - 气泡及子视图
 
 struct VoiceMessageView: View {
     @ObservedObject var message: ChatMessage
@@ -636,7 +619,6 @@ private struct SystemTextBubble: View {
         let thinkView = Group {
             if let think = parts.think {
                 if parts.isClosed {
-                    // 思考完毕：默认只显示状态，可展开查看完整思考
                     DisclosureGroup(isExpanded: $showThink) {
                         Text(think)
                             .font(thinkFont)
@@ -662,7 +644,6 @@ private struct SystemTextBubble: View {
                             .stroke(ChatTheme.subtleStroke, lineWidth: 1)
                     )
                 } else {
-                    // 思考中：折叠时仅绘制“最后 N 行”，展开才渲染完整文本
                     VStack(alignment: .leading, spacing: 6) {
                         DisclosureGroup(isExpanded: $showThink) {
                             Text(think)
@@ -771,7 +752,7 @@ private struct UserTextBubble: View {
     }
 }
 
-// MARK: - ─────────── 输入框自适应 ────────────
+// MARK: - 输入框自适应
 
 #if os(macOS)
 private struct AutoSizingTextEditor: NSViewRepresentable {
@@ -819,7 +800,7 @@ private struct AutoSizingTextEditor: NSViewRepresentable {
     final class CommitTextView: NSTextView {
         var onCommit: () -> Void = {}
         override func keyDown(with event: NSEvent) {
-            if event.keyCode == 36 { // Return
+            if event.keyCode == 36 {
                 if event.modifierFlags.contains(.shift) {
                     super.keyDown(with: event)
                 } else {
@@ -876,7 +857,7 @@ private struct AutoSizingTextEditor: View {
 }
 #endif
 
-// MARK: - ─────────── Loading 指示 ────────────
+// MARK: - Loading 指示
 
 private struct LoadingIndicatorView: View {
     @State private var phase: CGFloat = 0
@@ -917,7 +898,7 @@ private struct LoadingBubble: View {
     }
 }
 
-// MARK: - ─────────── 预览 ────────────
+// MARK: - 预览
 
 struct ChatView_Previews: PreviewProvider {
     static var previews: some View {

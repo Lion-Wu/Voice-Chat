@@ -19,7 +19,6 @@ struct SidebarView: View {
 
     var body: some View {
         #if os(macOS)
-        // macOS 与 iOS 统一：使用 VStack，底部放「Settings」按钮，不再使用顶部 Toolbar
         VStack(spacing: 0) {
             List(selection: $chatSessionsViewModel.selectedSessionID) {
                 Section(header: Text("Chats")) {
@@ -30,13 +29,9 @@ struct SidebarView: View {
                                 .frame(maxWidth: .infinity, alignment: .leading)
                         }
                         .contentShape(Rectangle())
-                        .onTapGesture {
-                            onConversationTap(session)
-                        }
+                        .onTapGesture { onConversationTap(session) }
                         .contextMenu {
-                            Button("Rename") {
-                                renameSession(session)
-                            }
+                            Button("Rename") { renameSession(session) }
                             Button("Delete") {
                                 if let index = chatSessionsViewModel.chatSessions.firstIndex(of: session) {
                                     chatSessionsViewModel.deleteSession(at: IndexSet(integer: index))
@@ -57,11 +52,8 @@ struct SidebarView: View {
                     .padding()
             }
         }
-        .sheet(isPresented: $isRenaming) {
-            renameSheetView()
-        }
+        .sheet(isPresented: $isRenaming) { renameSheetView() }
         #else
-        // iOS/iPadOS 端保持原样：底部按钮
         VStack(spacing: 0) {
             List(selection: $chatSessionsViewModel.selectedSessionID) {
                 Section(header: Text("Chats")) {
@@ -72,13 +64,9 @@ struct SidebarView: View {
                                 .frame(maxWidth: .infinity, alignment: .leading)
                         }
                         .contentShape(Rectangle())
-                        .onTapGesture {
-                            onConversationTap(session)
-                        }
+                        .onTapGesture { onConversationTap(session) }
                         .contextMenu {
-                            Button("Rename") {
-                                renameSession(session)
-                            }
+                            Button("Rename") { renameSession(session) }
                             Button("Delete") {
                                 if let index = chatSessionsViewModel.chatSessions.firstIndex(of: session) {
                                     chatSessionsViewModel.deleteSession(at: IndexSet(integer: index))
@@ -99,11 +87,11 @@ struct SidebarView: View {
                     .padding()
             }
         }
-        .sheet(isPresented: $isRenaming) {
-            renameSheetView()
-        }
+        .sheet(isPresented: $isRenaming) { renameSheetView() }
         #endif
     }
+
+    // MARK: - Rename
 
     @ViewBuilder
     private func renameSheetView() -> some View {
@@ -114,9 +102,7 @@ struct SidebarView: View {
                 .textFieldStyle(RoundedBorderTextFieldStyle())
                 .padding()
             HStack {
-                Button("Cancel") {
-                    isRenaming = false
-                }
+                Button("Cancel") { isRenaming = false }
                 Spacer()
                 Button("Save") {
                     if let session = renamingSession {

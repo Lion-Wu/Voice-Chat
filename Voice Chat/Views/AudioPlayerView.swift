@@ -24,8 +24,11 @@ struct AudioPlayerView: View {
             } else {
                 HStack {
                     ControlButton(icon: "gobackward.15", action: audioManager.backward15Seconds)
-                    ControlButton(icon: audioManager.isAudioPlaying ? "pause.circle.fill" : "play.circle.fill", action: audioManager.togglePlayback, isLarge: true)
+                    ControlButton(icon: audioManager.isAudioPlaying ? "pause.circle.fill" : "play.circle.fill",
+                                  action: audioManager.togglePlayback,
+                                  isLarge: true)
                     ControlButton(icon: "goforward.15", action: audioManager.forward15Seconds)
+
                     Text(formatTime(audioManager.currentTime))
                         .font(.system(.body, design: .rounded))
                         .bold()

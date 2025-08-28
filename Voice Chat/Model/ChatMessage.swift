@@ -7,22 +7,28 @@
 
 import Foundation
 
-class ChatMessage: Identifiable, Codable, Equatable, ObservableObject {
+final class ChatMessage: Identifiable, Codable, Equatable, ObservableObject {
+    // MARK: - Identity
     var id = UUID()
+
+    // MARK: - Content
     @Published var content: String
     var isUser: Bool
     var isActive: Bool = true
 
+    // MARK: - Init
     init(content: String, isUser: Bool, isActive: Bool = true) {
         self.content = content
         self.isUser = isUser
         self.isActive = isActive
     }
 
+    // MARK: - Equatable
     static func == (lhs: ChatMessage, rhs: ChatMessage) -> Bool {
-        return lhs.id == rhs.id
+        lhs.id == rhs.id
     }
 
+    // MARK: - Codable
     private enum CodingKeys: String, CodingKey {
         case id, content, isUser, isActive
     }

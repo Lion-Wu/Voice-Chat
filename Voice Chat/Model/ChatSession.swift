@@ -7,27 +7,32 @@
 
 import Foundation
 
-class ChatSession: Identifiable, Codable, ObservableObject, Equatable, Hashable {
+final class ChatSession: Identifiable, Codable, ObservableObject, Equatable, Hashable {
+    // MARK: - Identity
     let id: UUID
+
+    // MARK: - Content
     @Published var messages: [ChatMessage]
     @Published var title: String
 
+    // MARK: - Init
     init() {
         self.id = UUID()
         self.messages = []
         self.title = "New Chat"
     }
 
-    // Equatable
+    // MARK: - Equatable
     static func == (lhs: ChatSession, rhs: ChatSession) -> Bool {
-        return lhs.id == rhs.id
+        lhs.id == rhs.id
     }
 
-    // Hashable
+    // MARK: - Hashable
     func hash(into hasher: inout Hasher) {
         hasher.combine(id)
     }
 
+    // MARK: - Codable
     private enum CodingKeys: String, CodingKey {
         case id, messages, title
     }

@@ -10,23 +10,23 @@ import AVFoundation
 
 @MainActor
 class VoiceViewModel: ObservableObject {
-    @Published var text = "Sample text."
-    @Published var connectionStatus = "Waiting for connection"
+    // MARK: - State
+    @Published var text: String = "Sample text."
+    @Published var connectionStatus: String = "Waiting for connection"
     @Published var errorMessage: String?
-    @Published var isLoading = false
+    @Published var isLoading: Bool = false
 
+    // MARK: - Audio Session
     func setupAudioSession() {
         #if os(iOS) || os(tvOS)
         do {
             let session = AVAudioSession.sharedInstance()
-            try session.setCategory(.playback, mode: .default)
-            try session.setActive(true)
+            try session.setCategory(.playback, mode: .default, options: [])
+            try session.setActive(true, options: [])
         } catch {
-            DispatchQueue.main.async {
-                self.errorMessage = "Unable to set up audio session: \(error.localizedDescription)"
-            }
+            self.errorMessage = "Unable to set up audio session: \(error.localizedDescription)"
         }
         #endif
-        // On macOS, AVAudioSession is not used. It's safe to skip.
+        // On macOS, AVAudioSession is not used.
     }
 }
