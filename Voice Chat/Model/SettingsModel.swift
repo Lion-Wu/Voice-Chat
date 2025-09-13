@@ -6,8 +6,9 @@
 //
 
 import Foundation
+import SwiftData
 
-// MARK: - Value Types
+// MARK: - Value Types（与 UI 交互的轻量结构体）
 
 struct ServerSettings: Codable {
     var serverAddress: String
@@ -32,7 +33,55 @@ struct VoiceSettings: Codable {
     var enableStreaming: Bool
 }
 
-// MARK: - Settings Manager
+// MARK: - SwiftData 实体（单行表：保存所有设置）
+
+@Model
+final class AppSettings {
+    var id: UUID
+    var serverAddress: String
+    var textLang: String
+    var refAudioPath: String
+    var promptText: String
+    var promptLang: String
+
+    var modelId: String
+    var language: String
+    var autoSplit: String
+
+    var apiURL: String
+    var selectedModel: String
+
+    var enableStreaming: Bool
+
+    init(
+        serverAddress: String = "http://127.0.0.1:9880",
+        textLang: String = "auto",
+        refAudioPath: String = "",
+        promptText: String = "",
+        promptLang: String = "auto",
+        modelId: String = "",
+        language: String = "auto",
+        autoSplit: String = "cut0",
+        apiURL: String = "http://localhost:1234",
+        selectedModel: String = "",
+        enableStreaming: Bool = true
+    ) {
+        self.id = UUID()
+        self.serverAddress = serverAddress
+        self.textLang = textLang
+        self.refAudioPath = refAudioPath
+        self.promptText = promptText
+        self.promptLang = promptLang
+        self.modelId = modelId
+        self.language = language
+        self.autoSplit = autoSplit
+        self.apiURL = apiURL
+        self.selectedModel = selectedModel
+        self.enableStreaming = enableStreaming
+    }
+}
+
+// MARK: - Settings Manager（从 UserDefaults 改为 SwiftData）
 
 @MainActor
 final class SettingsManager: ObservableObject {
@@ -43,35 +92,60 @@ final class SettingsManager: ObservableObject {
     @Published var chatSettings: ChatSettings
     @Published var voiceSettings: VoiceSettings
 
-    // 避免魔法字符串
-    private enum Keys {
-        static let server = "ServerSettings"
-        static let model  = "ModelSettings"
-        static let chat   = "ChatSettings"
-        static let voice  = "VoiceSettings"
-    }
+    private var context: ModelContext?
+    private var entity: AppSettings?
 
     private init() {
-        self.serverSettings = Self.loadSettings(forKey: Keys.server) ?? ServerSettings(
+        // 先用默认值，等 attach(context:) 后加载数据库
+        self.serverSettings = ServerSettings(
             serverAddress: "http://127.0.0.1:9880",
             textLang: "auto",
             refAudioPath: "",
             promptText: "",
             promptLang: "auto"
         )
-        self.modelSettings = Self.loadSettings(forKey: Keys.model) ?? ModelSettings(
-            modelId: "",
-            language: "auto",
-            autoSplit: "cut0"
-        )
-        self.chatSettings = Self.loadSettings(forKey: Keys.chat) ?? ChatSettings(
-            apiURL: "http://localhost:1234",
-            selectedModel: ""
-        )
-        self.voiceSettings = Self.loadSettings(forKey: Keys.voice) ?? VoiceSettings(enableStreaming: true)
+        self.modelSettings = ModelSettings(modelId: "", language: "auto", autoSplit: "cut0")
+        self.chatSettings = ChatSettings(apiURL: "http://localhost:1234", selectedModel: "")
+        self.voiceSettings = VoiceSettings(enableStreaming: true)
     }
 
-    // MARK: - Update APIs
+    // 在 App / ContentView 注入的 SwiftData 上下文
+    func attach(context: ModelContext) {
+        guard self.context == nil else { return }
+        self.context = context
+        loadFromStore()
+    }
+
+    private func loadFromStore() {
+        guard let context else { return }
+        let descriptor = FetchDescriptor<AppSettings>(predicate: nil, sortBy: [])
+        if let first = try? context.fetch(descriptor).first {
+            self.entity = first
+        } else {
+            let fresh = AppSettings()
+            context.insert(fresh)
+            self.entity = fresh
+            try? context.save()
+        }
+
+        guard let e = self.entity else { return }
+        self.serverSettings = ServerSettings(
+            serverAddress: e.serverAddress,
+            textLang: e.textLang,
+            refAudioPath: e.refAudioPath,
+            promptText: e.promptText,
+            promptLang: e.promptLang
+        )
+        self.modelSettings = ModelSettings(
+            modelId: e.modelId, language: e.language, autoSplit: e.autoSplit
+        )
+        self.chatSettings = ChatSettings(
+            apiURL: e.apiURL, selectedModel: e.selectedModel
+        )
+        self.voiceSettings = VoiceSettings(enableStreaming: e.enableStreaming)
+    }
+
+    // MARK: - Update APIs（直接写入 SwiftData）
 
     func updateServerSettings(serverAddress: String, textLang: String, refAudioPath: String, promptText: String, promptLang: String) {
         serverSettings.serverAddress = serverAddress
@@ -100,44 +174,36 @@ final class SettingsManager: ObservableObject {
         saveVoiceSettings()
     }
 
-    // MARK: - Persist
+    // MARK: - Persist（SwiftData）
 
     func saveServerSettings() {
-        Self.saveSettings(serverSettings, forKey: Keys.server)
+        guard let e = entity, let context else { return }
+        e.serverAddress = serverSettings.serverAddress
+        e.textLang = serverSettings.textLang
+        e.refAudioPath = serverSettings.refAudioPath
+        e.promptText = serverSettings.promptText
+        e.promptLang = serverSettings.promptLang
+        try? context.save()
     }
 
     func saveModelSettings() {
-        Self.saveSettings(modelSettings, forKey: Keys.model)
+        guard let e = entity, let context else { return }
+        e.modelId = modelSettings.modelId
+        e.language = modelSettings.language
+        e.autoSplit = modelSettings.autoSplit
+        try? context.save()
     }
 
     func saveChatSettings() {
-        Self.saveSettings(chatSettings, forKey: Keys.chat)
+        guard let e = entity, let context else { return }
+        e.apiURL = chatSettings.apiURL
+        e.selectedModel = chatSettings.selectedModel
+        try? context.save()
     }
 
     func saveVoiceSettings() {
-        Self.saveSettings(voiceSettings, forKey: Keys.voice)
-    }
-
-    private static func saveSettings<T: Codable>(_ settings: T, forKey key: String) {
-        let encoded: Data?
-        do {
-            encoded = try PropertyListEncoder().encode(settings)
-        } catch {
-            print("Error encoding settings: \(error)")
-            return
-        }
-        guard let finalData = encoded else { return }
-
-        DispatchQueue.global(qos: .background).async {
-            UserDefaults.standard.set(finalData, forKey: key)
-        }
-    }
-
-    private static func loadSettings<T: Codable>(forKey key: String) -> T? {
-        if let data = UserDefaults.standard.data(forKey: key),
-           let settings = try? PropertyListDecoder().decode(T.self, from: data) {
-            return settings
-        }
-        return nil
+        guard let e = entity, let context else { return }
+        e.enableStreaming = voiceSettings.enableStreaming
+        try? context.save()
     }
 }

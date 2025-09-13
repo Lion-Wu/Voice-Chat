@@ -6,8 +6,11 @@
 //
 
 import SwiftUI
+import SwiftData
 
 struct ContentView: View {
+    @Environment(\.modelContext) private var modelContext
+
     @EnvironmentObject var audioManager: GlobalAudioManager
     @EnvironmentObject var settingsManager: SettingsManager
     @EnvironmentObject var chatSessionsViewModel: ChatSessionsViewModel
@@ -50,12 +53,21 @@ struct ContentView: View {
                 .disabled(!chatSessionsViewModel.canStartNewSession)
             }
         }
-        .onAppear { ensureAtLeastOneSession() }
+        .onAppear {
+            chatSessionsViewModel.attach(context: modelContext)
+            settingsManager.attach(context: modelContext)
+            ensureAtLeastOneSession()
+        }
         #else
         SideMenuContainerRepresentable()
             .environmentObject(chatSessionsViewModel)
             .environmentObject(audioManager)
             .environmentObject(settingsManager)
+            .onAppear {
+                chatSessionsViewModel.attach(context: modelContext)
+                settingsManager.attach(context: modelContext)
+                ensureAtLeastOneSession()
+            }
         #endif
     }
 
@@ -79,6 +91,7 @@ struct ContentView: View {
 struct ContentView_Previews: PreviewProvider {
     static var previews: some View {
         ContentView()
+            .modelContainer(for: [ChatSession.self, ChatMessage.self, AppSettings.self], inMemory: true)
             .environmentObject(GlobalAudioManager.shared)
             .environmentObject(SettingsManager.shared)
             .environmentObject(ChatSessionsViewModel())

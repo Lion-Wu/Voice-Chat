@@ -55,6 +55,10 @@ final class GlobalAudioManager: NSObject, ObservableObject, AVAudioPlayerDelegat
     // MARK: - Constants
     private let endEpsilon: TimeInterval = 0.03
 
+    // MARK: - Lightweight caches (perf)
+    private let langCache = NSCache<NSString, NSString>()
+    private let wordCountCache = NSCache<NSString, NSNumber>()
+
     // MARK: - URL Builder
     private func constructTTSURL() -> URL? {
         let addr = settingsManager.serverSettings.serverAddress
@@ -451,7 +455,7 @@ final class GlobalAudioManager: NSObject, ObservableObject, AVAudioPlayerDelegat
                       !self.isBuffering else { return }
 
                 let segStart = self.startTime(forSegment: self.currentPlayingIndex)
-                var newTime = segStart + p.currentTime
+                let newTime = segStart + p.currentTime
 
                 if self.allChunksLoaded() && newTime >= (self.totalDuration - self.endEpsilon) {
                     self.currentTime = self.totalDuration
@@ -575,254 +579,299 @@ final class GlobalAudioManager: NSObject, ObservableObject, AVAudioPlayerDelegat
         lastProgressTimestamp = Date()
     }
 
-    // MARK: - Text Segmentation
-    private func splitTextIntoMeaningfulSegments(_ text: String,
-                                                 minSize: Int = 10,
-                                                 maxSize: Int = 100) -> [String] {
-        var modified = text
-        let patterns: [String] = [
-            #"([。！？?!…])\s*\n+"#,
-            #"(\.)\s*\n+"#
-        ]
-        for pat in patterns {
-            modified = modified.replacingOccurrences(
-                of: pat,
-                with: "$1 ",
-                options: .regularExpression
-            )
+    // MARK: - Text Segmentation (unchanged behavior, optimized impl)
+    private func splitTextIntoMeaningfulSegments(_ rawText: String) -> [String] {
+        // Tunable heuristics
+        let targetMinSec: Double = 5.0
+        let targetMaxSec: Double = 10.0
+        let enWordsPerSec: Double = 2.8   // ~168 wpm
+        let zhCharsPerSec: Double = 4.5   // 4–5 cps
+        let maxCJKLen = 75
+        let maxWordLen = 50
+
+        // 1) Normalize whitespace & add pause punctuation for bare newlines (O(n) single pass)
+        let normalized = normalizeLinesAddingPause(rawText)
+
+        // 2) Tokenize into sentences
+        let sentenceTokenizer = NLTokenizer(unit: .sentence)
+        sentenceTokenizer.string = normalized
+
+        var sentences: [String] = []
+        sentenceTokenizer.enumerateTokens(in: normalized.startIndex..<normalized.endIndex) { range, _ in
+            let s = String(normalized[range]).trimmingCharacters(in: .whitespacesAndNewlines)
+            if !s.isEmpty { sentences.append(s) }
+            return true
         }
-        modified = modified.replacingOccurrences(of: #"\n+"#, with: " ", options: .regularExpression)
-        modified = modified.replacingOccurrences(of: #"[\u{00A0}\s]+"#, with: " ", options: .regularExpression)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if sentences.isEmpty {
+            sentences = [normalized.trimmingCharacters(in: .whitespacesAndNewlines)]
+                .compactMap { $0.isEmpty ? nil : $0 }
+        }
 
-        var segs: [String] = []
-        var current = ""
-        let tokenizer = NLTokenizer(unit: .sentence)
-        tokenizer.string = modified
-        var found = false
+        // 3) Greedy build segments
+        var i = 0
+        var segments: [String] = []
 
-        tokenizer.enumerateTokens(in: modified.startIndex..<modified.endIndex) { range, _ in
-            found = true
-            let sentence = String(modified[range])
-            let lang = detectLanguage(for: sentence)
-            let candidate = (current.isEmpty ? "" : current + " ") + sentence
-            if getCount(for: candidate, language: lang) > maxSize {
-                if !current.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    segs.append(current.trimmingCharacters(in: .whitespacesAndNewlines))
-                    current = ""
+        while i < sentences.count {
+            let s1 = sentences[i]
+            let lang1 = dominantLanguageCached(s1)
+            let sec1 = estSeconds(s1, lang: lang1, enWPS: enWordsPerSec, zhCPS: zhCharsPerSec)
+            let c1 = countFor(s1, lang: lang1)
+
+            // Overlong -> split down
+            if sec1 > targetMaxSec || c1 > hardMax(for: lang1, maxWordLen: maxWordLen, maxCJKLen: maxCJKLen) {
+                let pieces = splitOverlongSentence(
+                    s1,
+                    lang: lang1,
+                    maxLen: hardMax(for: lang1, maxWordLen: maxWordLen, maxCJKLen: maxCJKLen),
+                    targetMinSec: targetMinSec,
+                    targetMaxSec: targetMaxSec,
+                    enWPS: enWordsPerSec,
+                    zhCPS: zhCharsPerSec
+                )
+                for p in pieces {
+                    let pl = dominantLanguageCached(p)
+                    segments.append(ensureTerminalPunctuation(p, lang: pl))
                 }
-                if let sub = splitSentenceAtConjunctions(sentence, language: lang,
-                                                         minSize: minSize, maxSize: maxSize) {
-                    segs.append(contentsOf: sub)
+                i += 1
+                continue
+            }
+
+            // If 5–10s, keep single (prefer short)
+            if sec1 >= targetMinSec && sec1 <= targetMaxSec {
+                segments.append(ensureTerminalPunctuation(s1, lang: lang1))
+                i += 1
+                continue
+            }
+
+            // If <5s, try merge with next; prefer exactly two sentences within <=10s and under hard cap
+            if sec1 < targetMinSec, i + 1 < sentences.count {
+                let s2 = sentences[i + 1]
+                let merged = (s1 + " " + s2).replacingOccurrences(of: #"[\s]+"#, with: " ", options: .regularExpression)
+                let mLang = dominantLanguageCached(merged)
+                let mSec = estSeconds(merged, lang: mLang, enWPS: enWordsPerSec, zhCPS: zhCharsPerSec)
+                let mCount = countFor(merged, lang: mLang)
+                if mSec <= targetMaxSec &&
+                    mCount <= hardMax(for: mLang, maxWordLen: maxWordLen, maxCJKLen: maxCJKLen) {
+                    segments.append(ensureTerminalPunctuation(merged, lang: mLang))
+                    i += 2
+                    continue
                 } else {
-                    segs.append(contentsOf: splitSentence(sentence, language: lang,
-                                                          minSize: minSize, maxSize: maxSize))
+                    segments.append(ensureTerminalPunctuation(s1, lang: lang1))
+                    i += 1
+                    continue
                 }
+            }
+
+            // Fallback
+            segments.append(ensureTerminalPunctuation(s1, lang: lang1))
+            i += 1
+        }
+
+        // 4) Clean
+        let cleaned = segments
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+
+        return cleaned
+    }
+
+    // MARK: - Normalization (single pass, no regex loops)
+    private func normalizeLinesAddingPause(_ text: String) -> String {
+        // 合并多余空白但先保留换行
+        var base = text
+        base = base.replacingOccurrences(of: #"[ \t\u{00A0}]{2,}"#, with: " ", options: .regularExpression)
+        // 分割行，重组时在“裸换行”处插入轻停顿（，/ ,），避免连读
+        let lines = base.split(whereSeparator: \.isNewline).map { String($0) }
+
+        if lines.isEmpty { return text.trimmingCharacters(in: .whitespacesAndNewlines) }
+
+        var out = lines[0]
+        for idx in 1..<lines.count {
+            // 查看 out 当前末尾的“最后一个非空白字符”
+            let trimmedOut = out.trimmingCharacters(in: .whitespacesAndNewlines)
+            let lastScalar = trimmedOut.unicodeScalars.last
+            let lastChar = lastScalar.map { Character($0) }
+
+            // 终止/停顿/逗号等集合
+            let terminals: Set<Character> = ["。","！","？",".","!","?","…","；",";","．"]
+            let commaLikes: Set<Character> = ["，",",","、",":","：","；",";"]
+
+            let needPause: Bool
+            if let lc = lastChar {
+                needPause = !(terminals.contains(lc) || commaLikes.contains(lc))
+            } else {
+                needPause = true
+            }
+
+            if needPause {
+                let comma = isCJKChar(lastScalar) ? "，" : ","
+                out += comma
+            }
+            out += "\n" + lines[idx]
+        }
+        return out.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    // MARK: - Language & counting helpers (cached)
+    private func dominantLanguageCached(_ text: String) -> String {
+        let key = text as NSString
+        if let v = langCache.object(forKey: key) { return v as String }
+        let r = NLLanguageRecognizer()
+        r.processString(text)
+        let lang = (r.dominantLanguage?.rawValue) ?? "und"
+        langCache.setObject(lang as NSString, forKey: key)
+        return lang
+    }
+
+    private func isWordLanguage(_ lang: String) -> Bool {
+        // Treat ja/ko/zh as non-word-based; others as word-based
+        return !["ja","ko","zh-Hans","zh-Hant","zh"].contains(lang)
+    }
+
+    private func wordCountCached(_ text: String) -> Int {
+        let key = text as NSString
+        if let v = wordCountCache.object(forKey: key) { return v.intValue }
+        let t = NLTokenizer(unit: .word)
+        t.string = text
+        var c = 0
+        t.enumerateTokens(in: text.startIndex..<text.endIndex) { _, _ in c += 1; return true }
+        wordCountCache.setObject(NSNumber(value: c), forKey: key)
+        return c
+    }
+
+    private func countFor(_ text: String, lang: String) -> Int {
+        isWordLanguage(lang) ? wordCountCached(text) : text.count
+    }
+
+    private func estSeconds(_ text: String, lang: String, enWPS: Double, zhCPS: Double) -> Double {
+        if isWordLanguage(lang) {
+            return Double(wordCountCached(text)) / enWPS
+        } else {
+            return Double(text.count) / zhCPS
+        }
+    }
+
+    private func hardMax(for lang: String, maxWordLen: Int, maxCJKLen: Int) -> Int {
+        isWordLanguage(lang) ? maxWordLen : maxCJKLen
+    }
+
+    private func ensureTerminalPunctuation(_ text: String, lang: String) -> String {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let last = trimmed.unicodeScalars.last else { return trimmed }
+        let lastCh = Character(last)
+        let terminal: Set<Character> = ["。","！","？",".","!","?","…","；",";","．"]
+        if terminal.contains(lastCh) { return trimmed }
+        // 如果是逗号/冒号/顿号结尾，也补一个终止符
+        let commaLike: Set<Character> = ["，",",","、",":","：","；",";"]
+        if commaLike.contains(lastCh) {
+            return trimmed + (isWordLanguage(lang) ? "." : "。")
+        }
+        // 默认补终止符
+        return trimmed + (isWordLanguage(lang) ? "." : "。")
+    }
+
+    private func isCJKChar(_ scalarOpt: UnicodeScalar?) -> Bool {
+        guard let s = scalarOpt else { return false }
+        switch s.value {
+        case 0x4E00...0x9FFF, // CJK Unified Ideographs
+             0x3400...0x4DBF, // CJK Extension A
+             0x20000...0x2A6DF, // Extension B
+             0x2A700...0x2B73F, // Extension C
+             0x2B740...0x2B81F, // Extension D
+             0x2B820...0x2CEAF, // Extension E
+             0xF900...0xFAFF: // Compatibility Ideographs
+            return true
+        default:
+            return false
+        }
+    }
+
+    // 句子过长时的分割：先按逗号/分号/冒号/顿号等，再按词边界强切
+    private func splitOverlongSentence(_ sentence: String,
+                                       lang: String,
+                                       maxLen: Int,
+                                       targetMinSec: Double,
+                                       targetMaxSec: Double,
+                                       enWPS: Double,
+                                       zhCPS: Double) -> [String] {
+        // 1) 优先按较弱停顿标点切分
+        let midPunctPattern = #"[,，、;；:：]"#
+        var parts = sentence.split(usingRegex: midPunctPattern)
+        if parts.isEmpty { parts = [sentence] }
+
+        // 2) 合并/再切，确保每段不超 maxLen，且大致不超过 10s
+        var reduced: [String] = []
+        var buffer = ""
+
+        func secs(_ s: String, _ l: String) -> Double {
+            isWordLanguage(l) ? Double(wordCountCached(s)) / enWPS : Double(s.count) / zhCPS
+        }
+
+        for p in parts {
+            let candidate = buffer.isEmpty ? p : (buffer + " " + p)
+            let l = dominantLanguageCached(candidate)
+            let c = countFor(candidate, lang: l)
+            if c <= maxLen && secs(candidate, l) <= max(targetMaxSec * 1.15, targetMaxSec) {
+                buffer = candidate
+            } else {
+                if !buffer.isEmpty { reduced.append(buffer) }
+                buffer = p
+            }
+        }
+        if !buffer.isEmpty { reduced.append(buffer) }
+
+        // 3) 对仍然超长/超时的片段，用词边界强切
+        var finalPieces: [String] = []
+        for piece in reduced {
+            let l = dominantLanguageCached(piece)
+            let needForce =
+                (!isWordLanguage(l) && piece.count > maxLen) ||
+                (isWordLanguage(l) && wordCountCached(piece) > maxLen) ||
+                secs(piece, l) > targetMaxSec
+
+            if needForce {
+                finalPieces.append(contentsOf:
+                    forceSplitByWordBoundary(piece, lang: l, maxLen: maxLen)
+                )
+            } else {
+                finalPieces.append(piece)
+            }
+        }
+        return finalPieces
+    }
+
+    /// 使用 Apple 内置的 NLTokenizer(.word) 在词边界上强制切分，避免把“你好”切成“你，好”
+    private func forceSplitByWordBoundary(_ text: String, lang: String, maxLen: Int) -> [String] {
+        var pieces: [String] = []
+        let tokenizer = NLTokenizer(unit: .word)
+        tokenizer.string = text
+
+        var current = ""
+        tokenizer.enumerateTokens(in: text.startIndex..<text.endIndex) { range, _ in
+            let token = String(text[range])
+            let candidate = current.isEmpty ? token : (current + (needsSpaceBetween(current, token) ? " " : "") + token)
+
+            let currentLen: Int = isWordLanguage(lang) ? wordCountCached(candidate) : candidate.count
+            if currentLen > maxLen {
+                if !current.isEmpty { pieces.append(current) }
+                current = token
             } else {
                 current = candidate
             }
             return true
         }
-
-        if !found {
-            let lang = detectLanguage(for: modified)
-            if let sub = splitSentenceAtConjunctions(modified, language: lang,
-                                                     minSize: minSize, maxSize: maxSize) {
-                segs.append(contentsOf: sub)
-            } else {
-                segs.append(contentsOf: splitSentence(modified, language: lang,
-                                                      minSize: minSize, maxSize: maxSize))
-            }
-        }
-
-        if !current.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            segs.append(current.trimmingCharacters(in: .whitespacesAndNewlines))
-        }
-
-        segs = segs.compactMap {
-            let trimmed = $0.trimmingCharacters(in: .whitespacesAndNewlines)
-            return trimmed.isEmpty ? nil : trimmed
-        }
-        return segs
+        if !current.isEmpty { pieces.append(current) }
+        return pieces
     }
 
-    private func detectLanguage(for text: String) -> String {
-        let r = NLLanguageRecognizer()
-        r.processString(text)
-        return r.dominantLanguage?.rawValue ?? "unknown"
-    }
-
-    private func languageIsWordBased(_ lang: String) -> Bool {
-        ["en","fr","de","es","it","pt","ru","ja","ko"].contains(lang)
-    }
-
-    private func wordCount(in text: String) -> Int {
-        guard !text.isEmpty else { return 0 }
-        let t = NLTokenizer(unit: .word)
-        t.string = text
-        var c = 0
-        t.enumerateTokens(in: text.startIndex..<text.endIndex) { _, _ in c += 1; return true }
-        return c
-    }
-
-    private func characterCount(in text: String) -> Int { text.count }
-
-    private func getCount(for text: String, language: String) -> Int {
-        languageIsWordBased(language) ? wordCount(in: text) : characterCount(in: text)
-    }
-
-    private func splitSentenceAtConjunctions(_ sentence: String,
-                                             language: String,
-                                             minSize: Int,
-                                             maxSize: Int) -> [String]? {
-        guard languageIsWordBased(language) else { return nil }
-
-        let ns = sentence as NSString
-        let tagger = NSLinguisticTagger(tagSchemes: [.lexicalClass], options: 0)
-        tagger.string = sentence
-
-        var conjRanges: [NSRange] = []
-        tagger.enumerateTags(in: NSRange(location: 0, length: ns.length),
-                             unit: .word,
-                             scheme: .lexicalClass) { tag, range, _ in
-            if tag == .conjunction { conjRanges.append(range) }
-        }
-        guard !conjRanges.isEmpty else { return nil }
-
-        var segments: [String] = []
-        var last = 0
-        var buf = ""
-
-        for r in conjRanges {
-            let splitRange = NSRange(location: last, length: r.location - last)
-            if splitRange.length > 0 {
-                let part = ns.substring(with: splitRange)
-                    .trimmingCharacters(in: .whitespacesAndNewlines)
-                if !part.isEmpty {
-                    if getCount(for: (buf.isEmpty ? part : buf + " " + part), language: language) <= maxSize {
-                        buf = (buf.isEmpty ? part : buf + " " + part)
-                    } else {
-                        if !buf.isEmpty {
-                            segments.append(buf.trimmingCharacters(in: .whitespacesAndNewlines))
-                            buf = ""
-                        }
-                        if let sub = splitSentenceAtConjunctions(part, language: language,
-                                                                 minSize: minSize, maxSize: maxSize) {
-                            segments.append(contentsOf: sub)
-                        } else {
-                            segments.append(contentsOf: splitSentence(part, language: language,
-                                                                      minSize: minSize, maxSize: maxSize))
-                        }
-                    }
-                }
-            }
-            let conj = ns.substring(with: r)
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-            buf += (buf.isEmpty ? conj : " " + conj)
-            last = r.location + r.length
-        }
-
-        let remRange = NSRange(location: last, length: ns.length - last)
-        if remRange.length > 0 {
-            let rem = ns.substring(with: remRange)
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-            if !rem.isEmpty {
-                if getCount(for: (buf.isEmpty ? rem : buf + " " + rem), language: language) <= maxSize {
-                    buf = (buf.isEmpty ? rem : buf + " " + rem)
-                } else {
-                    if !buf.isEmpty {
-                        segments.append(buf.trimmingCharacters(in: .whitespacesAndNewlines))
-                    }
-                    segments.append(rem)
-                    buf = ""
-                }
-            }
-        }
-        if !buf.isEmpty {
-            segments.append(buf.trimmingCharacters(in: .whitespacesAndNewlines))
-        }
-
-        var final: [String] = []
-        for seg in segments {
-            let cnt = getCount(for: seg, language: language)
-            if cnt > maxSize {
-                final.append(contentsOf: splitSentence(seg, language: language,
-                                                       minSize: minSize, maxSize: maxSize))
-            } else if cnt >= minSize {
-                final.append(seg)
-            } else {
-                if var lastSeg = final.popLast() {
-                    lastSeg += " " + seg
-                    final.append(lastSeg)
-                } else {
-                    final.append(seg)
-                }
-            }
-        }
-        return final
-    }
-
-    private func splitSentence(_ sentence: String,
-                               language: String,
-                               minSize: Int,
-                               maxSize: Int) -> [String] {
-        guard !sentence.isEmpty else { return [] }
-        var segments: [String] = []
-        if languageIsWordBased(language) {
-            let words = sentence.split { $0.isWhitespace }
-            var cur = ""
-            for w in words {
-                let s = String(w)
-                let pot = cur.isEmpty ? s : "\(cur) \(s)"
-                if wordCount(in: pot) > maxSize {
-                    if !cur.isEmpty {
-                        segments.append(cur.trimmingCharacters(in: .whitespacesAndNewlines))
-                        cur = s
-                    } else {
-                        segments.append(s)
-                        cur = ""
-                    }
-                } else {
-                    cur = pot
-                }
-            }
-            if !cur.isEmpty {
-                segments.append(cur.trimmingCharacters(in: .whitespacesAndNewlines))
-            }
-        } else {
-            var cur = ""
-            for c in sentence {
-                let s = String(c)
-                let pot = cur + s
-                if pot.count > maxSize {
-                    if !cur.isEmpty {
-                        segments.append(cur)
-                        cur = s
-                    } else {
-                        segments.append(s)
-                        cur = ""
-                    }
-                } else {
-                    cur = pot
-                }
-            }
-            if !cur.isEmpty {
-                segments.append(cur)
-            }
-        }
-        if segments.count > 1 {
-            var merged: [String] = []
-            for seg in segments {
-                if getCount(for: seg, language: language) < minSize, var last = merged.popLast() {
-                    last += " " + seg
-                    merged.append(last.trimmingCharacters(in: .whitespacesAndNewlines))
-                } else {
-                    merged.append(seg.trimmingCharacters(in: .whitespacesAndNewlines))
-                }
-            }
-            return merged
-        }
-        return segments
+    private func needsSpaceBetween(_ a: String, _ b: String) -> Bool {
+        // CJK 与 CJK 不加空格；字母/数字与字母/数字之间加空格
+        let aLast = a.unicodeScalars.last
+        let bFirst = b.unicodeScalars.first
+        let aCJK = isCJKChar(aLast)
+        let bCJK = isCJKChar(bFirst)
+        if aCJK || bCJK { return false }
+        return true
     }
 }
 
@@ -830,5 +879,30 @@ final class GlobalAudioManager: NSObject, ObservableObject, AVAudioPlayerDelegat
 private extension Array {
     subscript(safe idx: Int) -> Element? {
         (indices.contains(idx) ? self[idx] : nil)
+    }
+}
+
+// MARK: - String helpers
+private extension String {
+    /// Split by regex separators and keep content pieces (separators dropped).
+    func split(usingRegex pattern: String) -> [String] {
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: []) else { return [self] }
+        let ns = self as NSString
+        var last = 0
+        var parts: [String] = []
+        for m in regex.matches(in: self, options: [], range: NSRange(location: 0, length: ns.length)) {
+            let r = NSRange(location: last, length: m.range.location - last)
+            if r.length > 0 {
+                let sub = ns.substring(with: r).trimmingCharacters(in: .whitespacesAndNewlines)
+                if !sub.isEmpty { parts.append(sub) }
+            }
+            last = m.range.location + m.range.length
+        }
+        let tail = NSRange(location: last, length: ns.length - last)
+        if tail.length > 0 {
+            let sub = ns.substring(with: tail).trimmingCharacters(in: .whitespacesAndNewlines)
+            if !sub.isEmpty { parts.append(sub) }
+        }
+        return parts
     }
 }

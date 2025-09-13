@@ -112,6 +112,7 @@ struct Delta: Codable {
 enum ChatNetworkError: Error {
     case invalidURL
     case serverError(String)
+    case timeout(String)
 }
 
 // MARK: - ChatService (Streaming)
@@ -120,9 +121,10 @@ final class ChatService: NSObject, URLSessionDataDelegate, @unchecked Sendable {
     private var session: URLSession?
     private var dataTask: URLSessionDataTask?
 
-    var onMessageReceived: ((ChatMessage) -> Void)?
-    var onError: ((Error) -> Void)?
-    var onStreamFinished: (() -> Void)?
+    /// ★ 回调显式限定在主线程执行
+    var onDelta: (@MainActor (String) -> Void)?
+    var onError: (@MainActor (Error) -> Void)?
+    var onStreamFinished: (@MainActor () -> Void)?
 
     // 推理/正文状态
     private var isLegacyThinkStream = false
@@ -131,36 +133,68 @@ final class ChatService: NSObject, URLSessionDataDelegate, @unchecked Sendable {
     private var sentThinkOpen = false
     private var sentThinkClose = false
 
+    // SSE 解析缓冲
+    private var ssePartialLine: String = ""
+
+    // 超时/看门狗（满足“至少 1 小时”的需求）
+    private let firstTokenTimeout: TimeInterval = 3600        // 1h 等首 token
+    private let silentGapTimeout: TimeInterval  = 3600        // 1h 无增量
+    private var streamStartAt: Date?
+    private var lastDeltaAt: Date?
+    private var watchdog: Timer?
+
+    // 取消标记：用于丢弃停止后的任何残余增量
+    private var isCancelled: Bool = false
+
     override init() {
         super.init()
         let configuration = URLSessionConfiguration.default
-        configuration.timeoutIntervalForRequest = 60
-        configuration.timeoutIntervalForResource = 300
+        configuration.waitsForConnectivity = true
+        configuration.timeoutIntervalForRequest  = 3900   // ~1h+5m 余量
+        configuration.timeoutIntervalForResource = 3900
+        configuration.httpMaximumConnectionsPerHost = 1
         self.session = URLSession(configuration: configuration, delegate: self, delegateQueue: nil)
     }
 
+    deinit { stopWatchdog() }
+
+    /// 现在在主 actor 上调用，避免把 SwiftData 模型跨隔离传递
+    @MainActor
     func fetchStreamedData(messages: [ChatMessage]) {
         dataTask?.cancel()
         resetStreamState()
+        isCancelled = false
 
-        // 在主线程捕获只读配置后再开请求
-        Task { @MainActor in
-            let settings = SettingsManager.shared
-            let base = settings.chatSettings.apiURL
-            let model = settings.chatSettings.selectedModel
-            let apiURLString = "\(base)/v1/chat/completions"
-            await self.startStreaming(apiURLString: apiURLString, model: model, messages: messages)
-        }
+        let settings = SettingsManager.shared
+        let base = settings.chatSettings.apiURL
+        let model = settings.chatSettings.selectedModel
+        let apiURLString = "\(base)/v1/chat/completions"
+        self.startStreaming(apiURLString: apiURLString, model: model, messages: messages)
     }
 
-    private func startStreaming(apiURLString: String, model: String, messages: [ChatMessage]) async {
+    /// 取消当前流式请求
+    func cancelStreaming() {
+        isCancelled = true
+        dataTask?.cancel()
+        dataTask = nil
+        stopWatchdog()
+        resetStreamState()
+    }
+
+    /// 非异步：只负责组装请求并启动 URLSession 流
+    private func startStreaming(apiURLString: String, model: String, messages: [ChatMessage]) {
         guard let apiURL = URL(string: apiURLString) else {
-            DispatchQueue.main.async { self.onError?(ChatNetworkError.invalidURL) }
+            Task { @MainActor in self.onError?(ChatNetworkError.invalidURL) }
             return
         }
 
         var request = URLRequest(url: apiURL)
         request.httpMethod = "POST"
+        request.timeoutInterval = 3900 // 单请求超时 ~1h+5m
+        request.addValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.addValue("text/event-stream", forHTTPHeaderField: "Accept")
+        request.addValue("keep-alive", forHTTPHeaderField: "Connection")
+        request.addValue("no-cache", forHTTPHeaderField: "Cache-Control")
 
         let requestBody: [String: Any] = [
             "model": model,
@@ -172,11 +206,13 @@ final class ChatService: NSObject, URLSessionDataDelegate, @unchecked Sendable {
             let jsonData = try JSONSerialization.data(withJSONObject: requestBody, options: [])
             request.httpBody = jsonData
         } catch {
-            DispatchQueue.main.async { self.onError?(error) }
+            Task { @MainActor in self.onError?(error) }
             return
         }
 
-        request.addValue("application/json", forHTTPHeaderField: "Content-Type")
+        streamStartAt = Date()
+        lastDeltaAt = nil
+        startWatchdog()
 
         dataTask = session?.dataTask(with: request)
         dataTask?.resume()
@@ -188,94 +224,156 @@ final class ChatService: NSObject, URLSessionDataDelegate, @unchecked Sendable {
         newFormatActive = false
         sentThinkOpen = false
         sentThinkClose = false
+        ssePartialLine = ""
+        streamStartAt = nil
+        lastDeltaAt = nil
     }
 
     private func transformedMessagesForRequest(messages: [ChatMessage]) -> [[String: String]] {
-        messages.map { message in
-            [
-                "role": message.isUser ? "user" : "assistant",
-                "content": message.content
-            ]
-        }
+        messages
+            .filter { !$0.content.hasPrefix("!error:") }
+            .map { message in
+                [
+                    "role": message.isUser ? "user" : "assistant",
+                    "content": message.content
+                ]
+            }
     }
 
     // MARK: - URLSession Data Delegate
-    func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
-        let text = String(decoding: data, as: UTF8.self)
-        text.enumerateLines { (line, _) in
-            guard line.starts(with: "data: ") else { return }
-            let jsonPart = line.dropFirst("data: ".count)
 
-            if jsonPart == "[DONE]" {
-                // 新格式：若 <think> 未闭合，自动闭合
+    func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
+        guard !isCancelled else { return }
+
+        let chunk = String(decoding: data, as: UTF8.self)
+        ssePartialLine += chunk
+
+        let lines = ssePartialLine.split(
+            maxSplits: Int.max,
+            omittingEmptySubsequences: false,
+            whereSeparator: { $0.isNewline }
+        )
+
+        var processCount = lines.count
+        if let last = ssePartialLine.last, last != "\n" && last != "\r" {
+            processCount -= 1
+        }
+
+        for i in 0..<max(0, processCount) {
+            guard !isCancelled else { return }
+            let line = String(lines[i]).trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !line.isEmpty else { continue }
+            guard line.hasPrefix("data:") else { continue }
+
+            let payloadString = String(line.dropFirst("data:".count))
+                .trimmingCharacters(in: CharacterSet.whitespaces)
+
+            if payloadString == "[DONE]" {
                 if self.newFormatActive && self.sentThinkOpen && !self.sentThinkClose && !self.isLegacyThinkStream {
-                    self.emitAssistantDelta("</think>")
+                    self.emitDelta("</think>")
                     self.sentThinkClose = true
                 }
-                DispatchQueue.main.async { self.onStreamFinished?() }
+                Task { @MainActor in self.onStreamFinished?() }
+                stopWatchdog()
                 return
             }
 
-            guard let data = jsonPart.data(using: .utf8) else { return }
-
-            if let decoded = try? JSONDecoder().decode(ChatCompletionChunk.self, from: data) {
+            guard let jsonData = payloadString.data(using: String.Encoding.utf8) else { continue }
+            if let decoded = try? JSONDecoder().decode(ChatCompletionChunk.self, from: jsonData) {
                 self.handleDecodedChunk(decoded)
-            } else {
-                // 忽略无法解码的片段
             }
+        }
+
+        if processCount >= 0 {
+            let remainder = lines.suffix(from: max(0, processCount)).joined(separator: "\n")
+            ssePartialLine = remainder
         }
     }
 
     private func handleDecodedChunk(_ chunk: ChatCompletionChunk) {
+        guard !isCancelled else { return }
         guard let choices = chunk.choices else { return }
         for choice in choices {
+            guard !isCancelled else { return }
             guard let delta = choice.delta else { continue }
 
             let deltaText = delta.content ?? ""
 
-            // 旧格式：内容自带 <think> / </think>
             if deltaText.contains("<think>") || deltaText.contains("</think>") {
                 isLegacyThinkStream = true
             }
 
-            // Handling reasoning stream (new format)
             if let r = delta.reasoning?.text, !r.isEmpty {
                 newFormatActive = true
                 if !isLegacyThinkStream && !sentThinkOpen {
-                    emitAssistantDelta("<think>")
+                    emitDelta("<think>")
                     sentThinkOpen = true
                 }
-                emitAssistantDelta(r)
+                emitDelta(r)
             }
 
-            // Handling content stream
             if !deltaText.isEmpty {
                 if newFormatActive && !isLegacyThinkStream && sentThinkOpen && !sentThinkClose {
-                    emitAssistantDelta("</think>")
+                    emitDelta("</think>")
                     sentThinkClose = true
                 }
-                emitAssistantDelta(deltaText)
+                emitDelta(deltaText)
             }
         }
     }
 
-    private func emitAssistantDelta(_ piece: String) {
-        let message = ChatMessage(content: piece, isUser: false)
-        DispatchQueue.main.async { [weak self] in
-            self?.onMessageReceived?(message)
-        }
+    private func emitDelta(_ piece: String) {
+        guard !isCancelled else { return }
+        lastDeltaAt = Date()
+        Task { @MainActor in self.onDelta?(piece) }
         sawAnyAssistantToken = true
     }
 
     func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
+        stopWatchdog()
         if let error = error {
-            DispatchQueue.main.async { self.onError?(error) }
+            Task { @MainActor in self.onError?(error) }
         } else {
-            // 正常结束但未收到 [DONE] 的情况，也触发完成
-            DispatchQueue.main.async { self.onStreamFinished?() }
+            Task { @MainActor in self.onStreamFinished?() }
         }
     }
-}
 
-// MARK: - Sendable Conformance
-extension ChatMessage: @unchecked Sendable {}
+    // MARK: - Watchdog（在 1 小时极端等待时报错）
+
+    private func startWatchdog() {
+        stopWatchdog()
+        watchdog = Timer.scheduledTimer(withTimeInterval: 5.0, repeats: true) { [weak self] _ in
+            guard let self else { return }
+            guard !self.isCancelled else { return }
+            let now = Date()
+
+            if let start = self.streamStartAt, self.lastDeltaAt == nil {
+                if now.timeIntervalSince(start) > self.firstTokenTimeout {
+                    self.dataTask?.cancel()
+                    self.dataTask = nil
+                    self.stopWatchdog()
+                    Task { @MainActor in self.onError?(ChatNetworkError.timeout("连接超时")) }
+                }
+                return
+            }
+
+            if let last = self.lastDeltaAt {
+                if now.timeIntervalSince(last) > self.silentGapTimeout {
+                    self.dataTask?.cancel()
+                    self.dataTask = nil
+                    self.stopWatchdog()
+                    Task { @MainActor in self.onError?(ChatNetworkError.timeout("连接超时")) }
+                }
+            }
+        }
+        if let w = watchdog {
+            w.tolerance = 1.0
+            RunLoop.current.add(w, forMode: .common)
+        }
+    }
+
+    private func stopWatchdog() {
+        watchdog?.invalidate()
+        watchdog = nil
+    }
+}

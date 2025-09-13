@@ -33,7 +33,7 @@ struct SidebarView: View {
                         .contextMenu {
                             Button("Rename") { renameSession(session) }
                             Button("Delete") {
-                                if let index = chatSessionsViewModel.chatSessions.firstIndex(of: session) {
+                                if let index = chatSessionsViewModel.chatSessions.firstIndex(where: { $0.id == session.id }) {
                                     chatSessionsViewModel.deleteSession(at: IndexSet(integer: index))
                                 }
                             }
@@ -68,7 +68,7 @@ struct SidebarView: View {
                         .contextMenu {
                             Button("Rename") { renameSession(session) }
                             Button("Delete") {
-                                if let index = chatSessionsViewModel.chatSessions.firstIndex(of: session) {
+                                if let index = chatSessionsViewModel.chatSessions.firstIndex(where: { $0.id == session.id }) {
                                     chatSessionsViewModel.deleteSession(at: IndexSet(integer: index))
                                 }
                             }
@@ -107,7 +107,7 @@ struct SidebarView: View {
                 Button("Save") {
                     if let session = renamingSession {
                         session.title = newTitle.trimmingCharacters(in: .whitespacesAndNewlines)
-                        chatSessionsViewModel.saveChatSessions()
+                        chatSessionsViewModel.persist(session: session, reason: .immediate)
                     }
                     isRenaming = false
                 }
@@ -130,6 +130,7 @@ struct SidebarView_Previews: PreviewProvider {
             onConversationTap: { _ in },
             onOpenSettings: {}
         )
+        .modelContainer(for: [ChatSession.self, ChatMessage.self, AppSettings.self], inMemory: true)
         .environmentObject(ChatSessionsViewModel())
     }
 }

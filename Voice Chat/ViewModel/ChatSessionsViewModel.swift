@@ -6,23 +6,20 @@
 //
 
 import Foundation
-
-// MARK: - 文件存取 Actor（专职后台 I/O，避免跨 Actor 违规调用）
-private actor ChatSessionsFileStore {
-    func write(data: Data, to url: URL) async throws {
-        try data.write(to: url, options: .atomic)
-    }
-
-    func read(from url: URL) async -> Data? {
-        return try? Data(contentsOf: url)
-    }
-}
+import SwiftData
 
 @MainActor
 final class ChatSessionsViewModel: ObservableObject {
     // MARK: - Published State
-    @Published var chatSessions: [ChatSession] = []
+    @Published private(set) var chatSessions: [ChatSession] = []
     @Published var selectedSessionID: UUID? = nil
+
+    // MARK: - SwiftData
+    private var context: ModelContext?
+
+    // MARK: - Save Throttle（避免流式写入洪水）
+    private var lastSaveTime: [UUID: Date] = [:]
+    private let throttleInterval: TimeInterval = 1.0
 
     // MARK: - Derived
     var selectedSession: ChatSession? {
@@ -30,9 +27,7 @@ final class ChatSessionsViewModel: ObservableObject {
             guard let id = selectedSessionID else { return nil }
             return chatSessions.first(where: { $0.id == id })
         }
-        set {
-            selectedSessionID = newValue?.id
-        }
+        set { selectedSessionID = newValue?.id }
     }
 
     var canStartNewSession: Bool {
@@ -42,111 +37,94 @@ final class ChatSessionsViewModel: ObservableObject {
         return true
     }
 
-    // MARK: - Dependencies
-    private let fileStore = ChatSessionsFileStore()
-
-    // MARK: - Init
-    init() {
-        // 启动时异步加载
-        loadChatSessions()
+    // MARK: - Attach Context
+    func attach(context: ModelContext) {
+        // 避免重复附加
+        if self.context == nil {
+            self.context = context
+            loadChatSessions()
+        }
     }
 
     // MARK: - Session Ops
     func startNewSession() {
-        let newSession = ChatSession()
-        chatSessions.insert(newSession, at: 0)
-        selectedSessionID = newSession.id
-        saveChatSessions()
+        guard let context else { return }
+        let new = ChatSession(title: "New Chat")
+        context.insert(new)
+        do { try context.save() } catch { print("Save new session error: \(error)") }
+        refreshSessionsAndSelect(new.id)
     }
 
     func addSession(_ session: ChatSession) {
-        if !chatSessions.contains(session) {
-            chatSessions.insert(session, at: 0)
-            saveChatSessions()
+        guard let context else { return }
+        // 如果不在上下文中则插入
+        if session.modelContext == nil {
+            context.insert(session)
         }
+        persist(session: session, reason: .immediate)
+        refreshSessionsAndSelect(session.id)
     }
 
     func deleteSession(at offsets: IndexSet) {
-        chatSessions.remove(atOffsets: offsets)
+        guard let context else { return }
+        for index in offsets {
+            let s = chatSessions[index]
+            context.delete(s) // 级联删除消息
+        }
+        do { try context.save() } catch { print("Delete error: \(error)") }
+        loadChatSessions()
         if !chatSessions.contains(where: { $0.id == selectedSessionID }) {
             selectedSessionID = chatSessions.first?.id
         }
-        saveChatSessions()
+        if chatSessions.isEmpty {
+            startNewSession()
+        }
     }
 
-    // MARK: - Persistence (并发安全)
-    /// 主 Actor 上编码数据，然后交给后台 actor 写入磁盘
-    func saveChatSessions() {
-        let url = chatSessionsFileURL()
+    // MARK: - Persistence (SwiftData)
+    enum PersistReason { case throttled, immediate }
 
-        // 在主 Actor 上先把引用类型编码为 Data，避免把非 Sendable 跨 Actor 传递
-        let encodedData: Data
-        do {
-            encodedData = try JSONEncoder().encode(chatSessions)
-        } catch {
-            print("Error saving sessions (encode failed): \(error)")
-            return
-        }
+    func persist(session: ChatSession, reason: PersistReason = .throttled) {
+        guard let context else { return }
+        session.updatedAt = Date()
 
-        // 后台 actor 负责写入磁盘
-        Task.detached { [fileStore] in
-            do {
-                try await fileStore.write(data: encodedData, to: url)
-            } catch {
-                // 仅日志，不回调到 UI
-                print("Error saving sessions (write failed): \(error)")
+        switch reason {
+        case .immediate:
+            do { try context.save() } catch { print("Immediate save error: \(error)") }
+        case .throttled:
+            let now = Date()
+            let last = lastSaveTime[session.id] ?? .distantPast
+            if now.timeIntervalSince(last) >= throttleInterval {
+                lastSaveTime[session.id] = now
+                do { try context.save() } catch { print("Throttled save error: \(error)") }
             }
         }
     }
 
-    /// 异步从磁盘加载，会在后台 actor 读取，再切回主 Actor 更新 UI
+    // MARK: - Fetch
     func loadChatSessions() {
-        let url = chatSessionsFileURL()
-
-        Task.detached { [fileStore] in
-            let data = await fileStore.read(from: url)
-
-            let loadedSessions: [ChatSession]
-            if let data {
-                do {
-                    loadedSessions = try JSONDecoder().decode([ChatSession].self, from: data)
-                } catch {
-                    print("load sessions error: \(error)")
-                    loadedSessions = []
-                }
-            } else {
-                loadedSessions = []
+        guard let context else { return }
+        let descriptor = FetchDescriptor<ChatSession>(
+            predicate: nil,
+            sortBy: [SortDescriptor(\.updatedAt, order: .reverse)]
+        )
+        do {
+            let fetched = try context.fetch(descriptor)
+            chatSessions = fetched
+            if selectedSessionID == nil {
+                selectedSessionID = chatSessions.first?.id
             }
-
-            await MainActor.run {
-                self.chatSessions = loadedSessions
-                if self.selectedSessionID == nil {
-                    self.selectedSessionID = self.chatSessions.first?.id
-                }
-                if self.chatSessions.isEmpty {
-                    self.startNewSession()
-                }
+            if chatSessions.isEmpty {
+                startNewSession()
             }
+        } catch {
+            print("Fetch sessions error: \(error)")
+            chatSessions = []
         }
     }
 
-    // MARK: - File URL
-    private func chatSessionsFileURL() -> URL {
-        #if os(iOS) || os(tvOS)
-        let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
-        return docs.appendingPathComponent("chat_sessions.json")
-        #elseif os(macOS)
-        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-        let dir = appSupport.appendingPathComponent(Bundle.main.bundleIdentifier ?? "VoiceChat")
-        do {
-            try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true, attributes: nil)
-        } catch {
-            // 即使创建失败，也返回上层路径，后续写入可能失败但不会崩溃
-            print("Failed to create Application Support directory: \(error)")
-        }
-        return dir.appendingPathComponent("chat_sessions.json")
-        #else
-        return URL(fileURLWithPath: "/tmp/chat_sessions.json")
-        #endif
+    private func refreshSessionsAndSelect(_ id: UUID?) {
+        loadChatSessions()
+        if let id { selectedSessionID = id }
     }
 }
