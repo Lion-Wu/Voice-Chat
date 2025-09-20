@@ -10,12 +10,14 @@ import Combine
 
 @MainActor
 class SettingsViewModel: ObservableObject {
-    // MARK: - Published Settings (双向绑定 -> 自动保存)
+    // MARK: - 旧设置（保留）
     @Published var serverAddress: String { didSet { saveServerSettings() } }
     @Published var textLang: String { didSet { saveServerSettings() } }
-    @Published var refAudioPath: String { didSet { saveServerSettings() } }
-    @Published var promptText: String { didSet { saveServerSettings() } }
-    @Published var promptLang: String { didSet { saveServerSettings() } }
+
+    // ★ 下列三个迁移至预设管理，这里不再直接绑定到 ServerSettings
+    @Published var refAudioPath_legacy: String { didSet { saveServerSettings() } }
+    @Published var promptText_legacy: String { didSet { saveServerSettings() } }
+    @Published var promptLang_legacy: String { didSet { saveServerSettings() } }
 
     @Published var apiURL: String { didSet { saveChatSettings() } }
     @Published var selectedModel: String { didSet { saveChatSettings() } }
@@ -29,22 +31,51 @@ class SettingsViewModel: ObservableObject {
             }
         }
     }
+    @Published var autoReadAfterGeneration: Bool { didSet { saveVoiceSettings() } }
 
     @Published var autoSplit: String { didSet { saveModelSettings() } }
     @Published var modelId: String { didSet { saveModelSettings() } }
     @Published var language: String { didSet { saveModelSettings() } }
 
+    // MARK: - 预设 UI 绑定
+    struct PresetSummary: Identifiable, Equatable {
+        var id: UUID
+        var name: String
+    }
+
+    @Published var presetList: [PresetSummary] = []
+    @Published var selectedPresetID: UUID? {
+        didSet {
+            if !suppressPresetDidSet {
+                SettingsManager.shared.selectPreset(selectedPresetID, apply: true)
+                // 切换后重新拉取当前预设的字段
+                loadSelectedPresetFields()
+            }
+        }
+    }
+
+    @Published var presetName: String = ""          { didSet { savePresetFields() } }
+    @Published var presetRefAudioPath: String = ""  { didSet { savePresetFields() } }
+    @Published var presetPromptText: String = ""    { didSet { savePresetFields() } }
+    @Published var presetPromptLang: String = "auto" { didSet { savePresetFields() } }
+    @Published var presetGPTWeightsPath: String = "" { didSet { savePresetFields() } }
+    @Published var presetSoVITSWeightsPath: String = "" { didSet { savePresetFields() } }
+
     // MARK: - Dependency
     private let settingsManager = SettingsManager.shared
+
+    // 防止切换时 didSet 递归
+    private var suppressPresetDidSet = false
+    private var suppressSavePreset = false
 
     // MARK: - Init
     init() {
         let s = settingsManager.serverSettings
         serverAddress = s.serverAddress
         textLang = s.textLang
-        refAudioPath = s.refAudioPath
-        promptText = s.promptText
-        promptLang = s.promptLang
+        refAudioPath_legacy = s.refAudioPath
+        promptText_legacy = s.promptText
+        promptLang_legacy = s.promptLang
 
         let c = settingsManager.chatSettings
         apiURL = c.apiURL
@@ -52,21 +83,27 @@ class SettingsViewModel: ObservableObject {
 
         let v = settingsManager.voiceSettings
         enableStreaming = v.enableStreaming
+        autoReadAfterGeneration = v.autoReadAfterGeneration
 
         let m = settingsManager.modelSettings
         autoSplit = m.autoSplit
         modelId = m.modelId
         language = m.language
+
+        reloadPresetListAndSelection()
+        loadSelectedPresetFields()
     }
 
-    // MARK: - Persist
+    // MARK: - Persist（旧设置）
+
     func saveServerSettings() {
+        // 旧字段保持回写（ref/prompt_* 仅兼容；TTS 不再读取它们）
         settingsManager.updateServerSettings(
             serverAddress: serverAddress,
             textLang: textLang,
-            refAudioPath: refAudioPath,
-            promptText: promptText,
-            promptLang: promptLang
+            refAudioPath: refAudioPath_legacy,
+            promptText: promptText_legacy,
+            promptLang: promptLang_legacy
         )
     }
 
@@ -79,7 +116,8 @@ class SettingsViewModel: ObservableObject {
 
     func saveVoiceSettings() {
         settingsManager.updateVoiceSettings(
-            enableStreaming: enableStreaming
+            enableStreaming: enableStreaming,
+            autoReadAfterGeneration: autoReadAfterGeneration
         )
     }
 
@@ -89,5 +127,71 @@ class SettingsViewModel: ObservableObject {
             language: language,
             autoSplit: autoSplit
         )
+    }
+
+    // MARK: - Preset helpers
+
+    func reloadPresetListAndSelection() {
+        presetList = settingsManager.presets.map { .init(id: $0.id, name: $0.name) }
+        suppressPresetDidSet = true
+        selectedPresetID = settingsManager.selectedPresetID
+        suppressPresetDidSet = false
+    }
+
+    func loadSelectedPresetFields() {
+        guard let id = settingsManager.selectedPresetID,
+              let p = settingsManager.presets.first(where: { $0.id == id }) else {
+            presetName = ""
+            presetRefAudioPath = ""
+            presetPromptText = ""
+            presetPromptLang = "auto"
+            presetGPTWeightsPath = ""
+            presetSoVITSWeightsPath = ""
+            return
+        }
+        suppressSavePreset = true
+        presetName = p.name
+        presetRefAudioPath = p.refAudioPath
+        presetPromptText = p.promptText
+        presetPromptLang = p.promptLang
+        presetGPTWeightsPath = p.gptWeightsPath
+        presetSoVITSWeightsPath = p.sovitsWeightsPath
+        suppressSavePreset = false
+    }
+
+    private func savePresetFields() {
+        guard !suppressSavePreset, let id = settingsManager.selectedPresetID else { return }
+        settingsManager.updatePreset(
+            id: id,
+            name: presetName,
+            refAudioPath: presetRefAudioPath,
+            promptText: presetPromptText,
+            promptLang: presetPromptLang,
+            gptWeightsPath: presetGPTWeightsPath,
+            sovitsWeightsPath: presetSoVITSWeightsPath
+        )
+        // 名称可能变化，刷新列表显示
+        reloadPresetListAndSelection()
+    }
+
+    // UI 操作
+    func addPreset() {
+        if let p = settingsManager.createPreset() {
+            reloadPresetListAndSelection()
+            settingsManager.selectPreset(p.id, apply: false)
+            reloadPresetListAndSelection()
+            loadSelectedPresetFields()
+        }
+    }
+
+    func deleteCurrentPreset() {
+        guard let id = settingsManager.selectedPresetID else { return }
+        settingsManager.deletePreset(id)
+        reloadPresetListAndSelection()
+        loadSelectedPresetFields()
+    }
+
+    func applySelectedPresetNow() {
+        Task { await settingsManager.applySelectedPreset() }
     }
 }

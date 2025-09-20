@@ -17,6 +17,11 @@ struct SidebarView: View {
     @State private var renamingSession: ChatSession? = nil
     @State private var newTitle: String = ""
 
+    // 删除确认
+    @State private var showDeleteChatAlert: Bool = false
+    @State private var pendingDeleteOffsets: IndexSet?
+    @State private var pendingDeleteSingleIndex: Int?
+
     var body: some View {
         #if os(macOS)
         VStack(spacing: 0) {
@@ -32,14 +37,16 @@ struct SidebarView: View {
                         .onTapGesture { onConversationTap(session) }
                         .contextMenu {
                             Button("Rename") { renameSession(session) }
-                            Button("Delete") {
-                                if let index = chatSessionsViewModel.chatSessions.firstIndex(where: { $0.id == session.id }) {
-                                    chatSessionsViewModel.deleteSession(at: IndexSet(integer: index))
+                            Button("Delete", role: .destructive) {
+                                if let idx = chatSessionsViewModel.chatSessions.firstIndex(where: { $0.id == session.id }) {
+                                    pendingDeleteSingleIndex = idx
+                                    pendingDeleteOffsets = nil
+                                    showDeleteChatAlert = true
                                 }
                             }
                         }
                     }
-                    .onDelete(perform: chatSessionsViewModel.deleteSession)
+                    .onDelete(perform: handleSwipeDelete)
                 }
             }
             .listStyle(.sidebar)
@@ -53,6 +60,24 @@ struct SidebarView: View {
             }
         }
         .sheet(isPresented: $isRenaming) { renameSheetView() }
+        .alert("Delete chat?",
+               isPresented: $showDeleteChatAlert) {
+            Button("Delete", role: .destructive) {
+                if let idx = pendingDeleteSingleIndex {
+                    chatSessionsViewModel.deleteSession(at: IndexSet(integer: idx))
+                    pendingDeleteSingleIndex = nil
+                } else if let offsets = pendingDeleteOffsets {
+                    chatSessionsViewModel.deleteSession(at: offsets)
+                    pendingDeleteOffsets = nil
+                }
+            }
+            Button("Cancel", role: .cancel) {
+                pendingDeleteSingleIndex = nil
+                pendingDeleteOffsets = nil
+            }
+        } message: {
+            Text("This action cannot be undone.")
+        }
         #else
         VStack(spacing: 0) {
             List(selection: $chatSessionsViewModel.selectedSessionID) {
@@ -67,14 +92,16 @@ struct SidebarView: View {
                         .onTapGesture { onConversationTap(session) }
                         .contextMenu {
                             Button("Rename") { renameSession(session) }
-                            Button("Delete") {
-                                if let index = chatSessionsViewModel.chatSessions.firstIndex(where: { $0.id == session.id }) {
-                                    chatSessionsViewModel.deleteSession(at: IndexSet(integer: index))
+                            Button("Delete", role: .destructive) {
+                                if let idx = chatSessionsViewModel.chatSessions.firstIndex(where: { $0.id == session.id }) {
+                                    pendingDeleteSingleIndex = idx
+                                    pendingDeleteOffsets = nil
+                                    showDeleteChatAlert = true
                                 }
                             }
                         }
                     }
-                    .onDelete(perform: chatSessionsViewModel.deleteSession)
+                    .onDelete(perform: handleSwipeDelete)
                 }
             }
             .listStyle(.sidebar)
@@ -88,7 +115,33 @@ struct SidebarView: View {
             }
         }
         .sheet(isPresented: $isRenaming) { renameSheetView() }
+        .alert("Delete chat?",
+               isPresented: $showDeleteChatAlert) {
+            Button("Delete", role: .destructive) {
+                if let idx = pendingDeleteSingleIndex {
+                    chatSessionsViewModel.deleteSession(at: IndexSet(integer: idx))
+                    pendingDeleteSingleIndex = nil
+                } else if let offsets = pendingDeleteOffsets {
+                    chatSessionsViewModel.deleteSession(at: offsets)
+                    pendingDeleteOffsets = nil
+                }
+            }
+            Button("Cancel", role: .cancel) {
+                pendingDeleteSingleIndex = nil
+                pendingDeleteOffsets = nil
+            }
+        } message: {
+            Text("This action cannot be undone.")
+        }
         #endif
+    }
+
+    // MARK: - Swipe Delete Hook
+
+    private func handleSwipeDelete(at offsets: IndexSet) {
+        pendingDeleteOffsets = offsets
+        pendingDeleteSingleIndex = nil
+        showDeleteChatAlert = true
     }
 
     // MARK: - Rename

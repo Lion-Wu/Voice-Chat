@@ -10,31 +10,25 @@
 import SwiftUI
 import UIKit
 
-/// iOS/iPadOS 使用的容器控制器：左侧 Sidebar + 右侧主视图（MainContentView）。
-/// 采用跟手拖拽展开/收起侧边栏，主视图不缩放，仅水平位移。
 final class SideMenuContainerViewController: UIViewController {
 
-    // MARK: - Layout Constants
     private let sideMenuWidth: CGFloat = 325
 
-    // MARK: - Child Controllers
     private var sidebarHostingController: UIViewController!
     private var mainHostingController: UIViewController!
 
-    // MARK: - Constraints
     private var sideMenuLeadingConstraint: NSLayoutConstraint!
     private var mainLeftConstraint: NSLayoutConstraint!
 
-    // MARK: - State
     private var isMenuOpen = false
     private var startMenuLeading: CGFloat = 0
 
-    // MARK: - Dependencies
     var chatSessionsViewModel: ChatSessionsViewModel!
     var audioManager: GlobalAudioManager!
     var settingsManager: SettingsManager!
+    // ★ 新增：语音输入管理器
+    var speechInputManager: SpeechInputManager!
 
-    // MARK: - Lifecycle
     override func viewDidLoad() {
         super.viewDidLoad()
         configureHierarchy()
@@ -42,9 +36,7 @@ final class SideMenuContainerViewController: UIViewController {
         configureGestures()
     }
 
-    // MARK: - Setup
     private func configureHierarchy() {
-        // Sidebar
         let sidebarView = SidebarView(
             onConversationTap: { [weak self] session in
                 self?.chatSessionsViewModel.selectedSession = session
@@ -64,7 +56,6 @@ final class SideMenuContainerViewController: UIViewController {
         sidebarVC.view.translatesAutoresizingMaskIntoConstraints = false
         sidebarVC.didMove(toParent: self)
 
-        // Main
         let mainView = MainContentView(
             onToggleSidebar: { [weak self] in
                 guard let self = self else { return }
@@ -74,6 +65,8 @@ final class SideMenuContainerViewController: UIViewController {
         .environmentObject(chatSessionsViewModel)
         .environmentObject(audioManager)
         .environmentObject(settingsManager)
+        // ★ 传入语音输入
+        .environmentObject(speechInputManager)
 
         let mainVC = UIHostingController(rootView: mainView)
         self.mainHostingController = mainVC
@@ -88,7 +81,6 @@ final class SideMenuContainerViewController: UIViewController {
         guard let sidebarView = sidebarHostingController?.view,
               let mainView = mainHostingController?.view else { return }
 
-        // Sidebar constraints
         sideMenuLeadingConstraint = sidebarView.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: -sideMenuWidth)
         NSLayoutConstraint.activate([
             sideMenuLeadingConstraint,
@@ -97,7 +89,6 @@ final class SideMenuContainerViewController: UIViewController {
             sidebarView.widthAnchor.constraint(equalToConstant: sideMenuWidth)
         ])
 
-        // Main constraints
         mainLeftConstraint = mainView.leadingAnchor.constraint(equalTo: sidebarView.trailingAnchor, constant: 0)
         NSLayoutConstraint.activate([
             mainLeftConstraint,
@@ -115,7 +106,6 @@ final class SideMenuContainerViewController: UIViewController {
         view.addGestureRecognizer(panGesture)
     }
 
-    // MARK: - Actions
     private func presentSettings() {
         let settingsView = SettingsView().environmentObject(settingsManager)
         let settingsVC = UIHostingController(rootView: settingsView)
@@ -162,7 +152,6 @@ final class SideMenuContainerViewController: UIViewController {
     }
 }
 
-// MARK: - Gesture Delegate
 extension SideMenuContainerViewController: UIGestureRecognizerDelegate {
     func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer,
                            shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer) -> Bool {
@@ -170,17 +159,19 @@ extension SideMenuContainerViewController: UIGestureRecognizerDelegate {
     }
 }
 
-// MARK: - SwiftUI Bridge
 struct SideMenuContainerRepresentable: UIViewControllerRepresentable {
     @EnvironmentObject var chatSessionsViewModel: ChatSessionsViewModel
     @EnvironmentObject var audioManager: GlobalAudioManager
     @EnvironmentObject var settingsManager: SettingsManager
+    // ★ 透传
+    @EnvironmentObject var speechInputManager: SpeechInputManager
 
     func makeUIViewController(context: Context) -> SideMenuContainerViewController {
         let vc = SideMenuContainerViewController()
         vc.chatSessionsViewModel = chatSessionsViewModel
         vc.audioManager = audioManager
         vc.settingsManager = settingsManager
+        vc.speechInputManager = speechInputManager
         return vc
     }
 

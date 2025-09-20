@@ -14,6 +14,7 @@ struct Voice_ChatApp: App {
     @StateObject private var audioManager = GlobalAudioManager.shared
     @StateObject private var settingsManager = SettingsManager.shared
     @StateObject private var chatSessionsViewModel = ChatSessionsViewModel()
+    @StateObject private var speechInputManager = SpeechInputManager()   // ★ 新增：语音输入管理器
 
     var body: some Scene {
         WindowGroup {
@@ -21,6 +22,7 @@ struct Voice_ChatApp: App {
                 .environmentObject(audioManager)
                 .environmentObject(settingsManager)
                 .environmentObject(chatSessionsViewModel)
+                .environmentObject(speechInputManager)   // ★ 注入
                 // 绑定 SwiftData 上下文给单例/VM（避免 Settings 场景先出现时无上下文）
                 .background(ContextBinder()
                     .environmentObject(settingsManager)
@@ -48,7 +50,12 @@ struct Voice_ChatApp: App {
 
     /// 统一的 SwiftData 容器（只初始化一次；App 与 Settings 场景共享）
     private static let sharedContainer: ModelContainer = {
-        let schema = Schema([ChatSession.self, ChatMessage.self, AppSettings.self])
+        let schema = Schema([
+            ChatSession.self,
+            ChatMessage.self,
+            AppSettings.self,
+            VoicePreset.self              // ★ 新增：模型预设实体
+        ])
         // 使用默认配置，让系统选择合适的持久化位置
         let config = ModelConfiguration()
         do {
@@ -81,7 +88,7 @@ private struct AppMenuCommands: Commands {
 }
 #endif
 
-/// 将 SwiftData 的 ModelContext 注入到需要的单例/VM
+/// 将 SwiftData 的 ModelContext 注入到需要的单例/VM，并在首次可用时应用当前预设（顺序设置权重）
 private struct ContextBinder: View {
     @Environment(\.modelContext) private var context
     @EnvironmentObject var settingsManager: SettingsManager
@@ -92,6 +99,8 @@ private struct ContextBinder: View {
             .task {
                 settingsManager.attach(context: context)
                 chatSessionsViewModel.attach(context: context)
+                // ★ 应用启动后自动按当前预设设置权重（顺序调用两个 API）
+                await settingsManager.applyPresetOnLaunchIfNeeded()
             }
     }
 }
