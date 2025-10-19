@@ -55,6 +55,14 @@ struct ChatView: View {
         contentHeight > (viewportHeight + 1)
     }
 
+    private var messageListHorizontalPadding: CGFloat {
+        #if os(macOS)
+        return 16
+        #else
+        return 8
+        #endif
+    }
+
     var body: some View {
         ZStack(alignment: .top) {
             PlatformColor.systemBackground.ignoresSafeArea()
@@ -68,46 +76,7 @@ struct ChatView: View {
                         if #available(iOS 17.0, tvOS 17.0, macOS 14.0, watchOS 10.0, *) {
                             GeometryReader { outerGeo in
                                 ScrollView {
-                                    VStack(spacing: 0) {
-                                        LazyVStack(spacing: 12) {
-                                            ForEach(visibleMessages) { message in
-                                                VoiceMessageView(
-                                                    message: message,
-                                                    showActionButtons: !(viewModel.isLoading && (visibleMessages.last?.id == message.id)),
-                                                    onSelectText: { showSelectTextSheet(with: $0) },
-                                                    onRegenerate: { viewModel.regenerateSystemMessage($0) },
-                                                    onEditUserMessage: { msg in
-                                                        viewModel.beginEditUserMessage(msg)
-                                                        isInputFocused = true
-                                                    },
-                                                    onRetry: { errMsg in
-                                                        viewModel.retry(afterErrorMessage: errMsg)
-                                                    }
-                                                )
-                                                .id(message.id)
-                                                .transition(.move(edge: .bottom).combined(with: .opacity))
-                                                .animation(.spring(response: 0.35, dampingFraction: 0.85), value: visibleMessages.map(\.id))
-                                            }
-
-                                            if viewModel.isPriming {
-                                                AssistantAlignedLoadingBubble()
-                                            }
-                                        }
-                                        .scrollTargetLayout()
-                                        .background(
-                                            GeometryReader { contentGeo in
-                                                Color.clear.preference(key: ContentHeightKey.self, value: contentGeo.size.height)
-                                            }
-                                        )
-#if os(macOS)
-                                        .padding(.horizontal)
-#else
-                                        .padding(.horizontal, 8)
-#endif
-                                        .padding(.vertical, 12)
-                                    }
-                                    .frame(maxWidth: contentColumnMaxWidth())
-                                    .frame(maxWidth: .infinity, alignment: .center)
+                                    messageList(scrollTargetsEnabled: true)
                                 }
                                 .background(
                                     Color.clear.preference(key: ViewportHeightKey.self, value: outerGeo.size.height)
@@ -120,40 +89,7 @@ struct ChatView: View {
                             }
                         } else {
                             ScrollView {
-                                VStack(spacing: 0) {
-                                    LazyVStack(spacing: 12) {
-                                        ForEach(visibleMessages) { message in
-                                            VoiceMessageView(
-                                                message: message,
-                                                showActionButtons: !(viewModel.isLoading && (visibleMessages.last?.id == message.id)),
-                                                onSelectText: { showSelectTextSheet(with: $0) },
-                                                onRegenerate: { viewModel.regenerateSystemMessage($0) },
-                                                onEditUserMessage: { msg in
-                                                    viewModel.beginEditUserMessage(msg)
-                                                    isInputFocused = true
-                                                },
-                                                onRetry: { errMsg in
-                                                    viewModel.retry(afterErrorMessage: errMsg)
-                                                }
-                                            )
-                                            .id(message.id)
-                                            .transition(.move(edge: .bottom).combined(with: .opacity))
-                                            .animation(.spring(response: 0.35, dampingFraction: 0.85), value: visibleMessages.map(\.id))
-                                        }
-
-                                        if viewModel.isPriming {
-                                            AssistantAlignedLoadingBubble()
-                                        }
-                                    }
-#if os(macOS)
-                                    .padding(.horizontal)
-#else
-                                    .padding(.horizontal, 8)
-#endif
-                                    .padding(.vertical, 12)
-                                }
-                                .frame(maxWidth: contentColumnMaxWidth())
-                                .frame(maxWidth: .infinity, alignment: .center)
+                                messageList(scrollTargetsEnabled: false)
                             }
                             .scrollDismissesKeyboard(.interactively)
                             .onTapGesture { isInputFocused = false }
@@ -403,6 +339,57 @@ struct ChatView: View {
             }
         )
         #endif
+    }
+
+    @ViewBuilder
+    private func messageList(scrollTargetsEnabled: Bool) -> some View {
+        if scrollTargetsEnabled {
+            messageListCore()
+                .scrollTargetLayout()
+                .padding(.horizontal, messageListHorizontalPadding)
+                .padding(.vertical, 12)
+                .frame(maxWidth: contentColumnMaxWidth())
+                .frame(maxWidth: .infinity, alignment: .center)
+        } else {
+            messageListCore()
+                .padding(.horizontal, messageListHorizontalPadding)
+                .padding(.vertical, 12)
+                .frame(maxWidth: contentColumnMaxWidth())
+                .frame(maxWidth: .infinity, alignment: .center)
+        }
+    }
+
+    @ViewBuilder
+    private func messageListCore() -> some View {
+        VStack(spacing: 12) {
+            ForEach(visibleMessages) { message in
+                VoiceMessageView(
+                    message: message,
+                    showActionButtons: !(viewModel.isLoading && (visibleMessages.last?.id == message.id)),
+                    onSelectText: { showSelectTextSheet(with: $0) },
+                    onRegenerate: { viewModel.regenerateSystemMessage($0) },
+                    onEditUserMessage: { msg in
+                        viewModel.beginEditUserMessage(msg)
+                        isInputFocused = true
+                    },
+                    onRetry: { errMsg in
+                        viewModel.retry(afterErrorMessage: errMsg)
+                    }
+                )
+                .id(message.id)
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+                .animation(.spring(response: 0.35, dampingFraction: 0.85), value: visibleMessages.map(\.id))
+            }
+
+            if viewModel.isPriming {
+                AssistantAlignedLoadingBubble()
+            }
+        }
+        .background(
+            GeometryReader { contentGeo in
+                Color.clear.preference(key: ContentHeightKey.self, value: contentGeo.size.height)
+            }
+        )
     }
 
     private func showSelectTextSheet(with text: String) {
