@@ -8,11 +8,11 @@ import CoreText
 
 #if os(iOS) || os(tvOS) || os(watchOS)
 import UIKit
-// 修复点：去掉 private，避免 internal 成员返回 private 类型导致的访问级别冲突
+// Use an internal typealias so that public members can return platform fonts safely.
 typealias PlatformNativeFont = UIFont
 #elseif os(macOS)
 import AppKit
-// 修复点：去掉 private，保持与上面一致
+// Keep the same visibility on macOS to mirror the iOS implementation.
 typealias PlatformNativeFont = NSFont
 #endif
 
@@ -68,7 +68,7 @@ struct TailLinesText: View {
             .onChange(of: geo.size) { _, _ in recomputeIfNeeded(width: w) }
         }
         .frame(height: fixedHeight, alignment: .bottom)
-        .accessibilityLabel("思考预览")
+        .accessibilityLabel(Text(L10n.TailLinesText.accessibilityPreview))
     }
 
     private func recomputeIfNeeded(width: CGFloat) {

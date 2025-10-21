@@ -13,11 +13,15 @@ struct ContentView: View {
 
     @EnvironmentObject var audioManager: GlobalAudioManager
     @EnvironmentObject var settingsManager: SettingsManager
+    @EnvironmentObject var settingsViewModel: SettingsViewModel
     @EnvironmentObject var chatSessionsViewModel: ChatSessionsViewModel
-    @EnvironmentObject var speechInputManager: SpeechInputManager   // ★ 新增
+    @EnvironmentObject var speechInputManager: SpeechInputManager
 
+#if os(macOS)
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
+#else
     @State private var showingSettings = false
+#endif
 
     var body: some View {
         #if os(macOS)
@@ -26,14 +30,14 @@ struct ContentView: View {
                 onConversationTap: { conversation in
                     selectConversation(conversation)
                 },
-                onOpenSettings: { showingSettings = true }
+                onOpenSettings: openSettings
             )
         } detail: {
             if let selectedSession = chatSessionsViewModel.selectedSession {
                 ChatView(chatSession: selectedSession)
                     .id(selectedSession.id)
             } else {
-                Text("No chat selected")
+                Text(L10n.Content.noChatSelected)
                     .font(.largeTitle)
                     .foregroundColor(.gray)
                     .onAppear {
@@ -41,16 +45,12 @@ struct ContentView: View {
                     }
             }
         }
-        .sheet(isPresented: $showingSettings) {
-            SettingsView()
-                .environmentObject(settingsManager)
-        }
         .toolbar {
             ToolbarItem {
                 Button(action: startNewConversation) {
                     Image(systemName: "plus")
                 }
-                .help("New Chat")
+                .help(L10n.Common.helpNewChat)
                 .disabled(!chatSessionsViewModel.canStartNewSession)
             }
         }
@@ -64,11 +64,17 @@ struct ContentView: View {
             .environmentObject(chatSessionsViewModel)
             .environmentObject(audioManager)
             .environmentObject(settingsManager)
-            .environmentObject(speechInputManager) // ★ 传入 iOS 容器
+            .environmentObject(settingsViewModel)
+            .environmentObject(speechInputManager)
             .onAppear {
                 chatSessionsViewModel.attach(context: modelContext)
                 settingsManager.attach(context: modelContext)
                 ensureAtLeastOneSession()
+            }
+            .sheet(isPresented: $showingSettings) {
+                SettingsView()
+                    .environmentObject(settingsManager)
+                    .environmentObject(settingsViewModel)
             }
         #endif
     }
@@ -88,6 +94,14 @@ struct ContentView: View {
     private func startNewConversation() {
         chatSessionsViewModel.startNewSession()
     }
+
+    private func openSettings() {
+#if os(macOS)
+        AppUI.openSettingsWindow()
+#else
+        showingSettings = true
+#endif
+    }
 }
 
 struct ContentView_Previews: PreviewProvider {
@@ -96,7 +110,8 @@ struct ContentView_Previews: PreviewProvider {
             .modelContainer(for: [ChatSession.self, ChatMessage.self, AppSettings.self], inMemory: true)
             .environmentObject(GlobalAudioManager.shared)
             .environmentObject(SettingsManager.shared)
+            .environmentObject(SettingsViewModel())
             .environmentObject(ChatSessionsViewModel())
-            .environmentObject(SpeechInputManager()) // ★ 新增
+            .environmentObject(SpeechInputManager())
     }
 }

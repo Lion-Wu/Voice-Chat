@@ -15,7 +15,7 @@ struct AudioPlayerView: View {
             if audioManager.isLoading {
                 HStack {
                     ProgressView()
-                    Text("Loading...")
+                    Text(L10n.Common.loading)
                         .font(.subheadline)
                     Spacer()
                     CloseButton(action: audioManager.closeAudioPlayer)
@@ -42,7 +42,7 @@ struct AudioPlayerView: View {
                         HStack(spacing: 5) {
                             ProgressView()
                                 .scaleEffect(0.7)
-                            Text("Buffering")
+                            Text(L10n.AudioPlayer.buffering)
                                 .font(.footnote)
                         }
                         .padding(.leading, 8)

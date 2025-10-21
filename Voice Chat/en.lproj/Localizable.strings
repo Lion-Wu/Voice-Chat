@@ -1,0 +1,109 @@
+"common_ok" = "OK";
+"common_cancel" = "Cancel";
+"common_delete" = "Delete";
+"common_close" = "Close";
+"common_done" = "Done";
+"common_save" = "Save";
+"common_add" = "Add";
+"common_error" = "Error";
+"common_loading" = "Loading...";
+"common_refresh" = "Refresh";
+"common_apply_now" = "Apply Now";
+"common_stop" = "Stop";
+"common_send" = "Send";
+"common_voice_input_start" = "Start voice input";
+"common_voice_input_stop" = "Stop voice input";
+"common_realtime_voice" = "Real-time conversation";
+"common_full_screen_edit" = "Full-screen edit";
+"common_full_screen_editor_title" = "Full Screen Editor";
+"common_new_chat" = "New Chat";
+"common_help_new_chat" = "Start a new conversation";
+"common_irreversible_action_message" = "This action cannot be undone.";
+"common_unknown_error" = "Unknown error";
+"common_copy" = "Copy";
+"common_select_text" = "Select Text";
+"common_edit" = "Edit";
+"common_retry" = "Retry";
+"common_read_aloud" = "Read Aloud";
+"common_show_more" = "Show full message";
+"common_show_less" = "Show less";
+"common_accessibility_copy" = "Copy message";
+"common_accessibility_regenerate" = "Regenerate response";
+"common_accessibility_read_aloud" = "Read message aloud";
+"common_accessibility_placeholder_hint" = "Message input placeholder";
+"common_connection_timeout" = "Connection timeout";
+
+"content_no_chat_selected" = "No chat selected";
+"content_creating_chat" = "No chat found. Creating one...";
+
+"sidebar_chats_header" = "Chats";
+"sidebar_settings" = "Settings";
+"sidebar_rename" = "Rename";
+"sidebar_delete" = "Delete";
+"sidebar_delete_chat_title" = "Delete chat?";
+"sidebar_rename_chat_title" = "Rename Chat";
+"sidebar_new_title_placeholder" = "New Title";
+
+"settings_navigation_title" = "Settings";
+"settings_voice_server_section" = "Voice Server";
+"settings_server_address" = "Server Address";
+"settings_server_address_placeholder" = "http://127.0.0.1:9880";
+"settings_text_language" = "Text Language";
+"settings_text_language_placeholder" = "Enter text language (e.g. auto/zh/en)";
+"settings_model_preset_section" = "Model Preset";
+"settings_current_preset" = "Current Preset";
+"settings_add_preset" = "Add";
+"settings_delete_preset" = "Delete";
+"settings_delete_preset_title" = "Delete this preset?";
+"settings_delete_preset_message" = "This action cannot be undone.";
+"settings_applying_preset" = "Applying preset...";
+"settings_preset_name" = "Preset Name";
+"settings_ref_audio_path" = "Reference Audio Path";
+"settings_ref_audio_placeholder" = "GPT_SoVITS/refs/voice.wav";
+"settings_prompt_text" = "Prompt Text";
+"settings_prompt_text_placeholder" = "Reference text (optional)";
+"settings_prompt_language" = "Prompt Language";
+"settings_gpt_weights_path" = "GPT Weights Path";
+"settings_sovits_weights_path" = "SoVITS Weights Path";
+"settings_apply_preset_now" = "Apply Preset Now";
+"settings_voice_output_section" = "Voice Output";
+"settings_enable_streaming" = "Enable Streaming";
+"settings_auto_read_after_generation" = "Auto Read After Generation";
+"settings_split_method" = "Split Method";
+"settings_chat_server_section" = "Chat Server Settings";
+"settings_chat_api_url" = "Chat API URL";
+"settings_select_model" = "Select Model";
+"settings_refresh_model_list" = "Refresh Model List";
+"settings_loading_models" = "Loading model list...";
+"settings_api_url_empty_error" = "API URL is empty or invalid.";
+"settings_invalid_api_url_error" = "Invalid API URL.";
+"settings_request_failed_error" = "Request failed:";
+"settings_failed_to_parse_models_error" = "Unable to parse model list.";
+"settings_general_tab" = "General";
+"settings_presets_tab" = "Presets";
+"settings_voice_tab" = "Voice";
+"settings_chat_tab" = "Chat";
+
+"chat_editing" = "Editing";
+"chat_cancel_editing_help" = "Cancel editing and restore the message list.";
+"chat_input_placeholder" = "Type your message...";
+"chat_full_screen_edit_accessibility" = "Open full-screen editor";
+
+"overlay_voice_error_title" = "Voice Error";
+"overlay_voice_error_fallback" = "Unknown error";
+
+"voice_message_error_title" = "An error occurred";
+"voice_message_thinking" = "Thinking";
+"voice_message_thinking_finished" = "Thinking complete";
+
+"tail_lines_preview_accessibility" = "Thinking preview";
+
+"audio_buffering" = "Buffering";
+
+"dictation_language_chinese" = "Chinese";
+"dictation_language_english" = "English";
+
+"speech_input_permissions_missing" = "Speech recognition or microphone permissions are missing.";
+"speech_input_unsupported_platform" = "Speech input is not supported on this platform.";
+"speech_input_recognizer_unavailable" = "Speech recognition is unavailable. Please check your network or system settings.";
+"speech_input_engine_start_failed_fmt" = "Unable to start audio input: %@";

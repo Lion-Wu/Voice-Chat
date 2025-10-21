@@ -1,0 +1,109 @@
+"common_ok" = "OK";
+"common_cancel" = "キャンセル";
+"common_delete" = "削除";
+"common_close" = "閉じる";
+"common_done" = "完了";
+"common_save" = "保存";
+"common_add" = "追加";
+"common_error" = "エラー";
+"common_loading" = "読み込み中...";
+"common_refresh" = "再読み込み";
+"common_apply_now" = "今すぐ適用";
+"common_stop" = "停止";
+"common_send" = "送信";
+"common_voice_input_start" = "音声入力を開始";
+"common_voice_input_stop" = "音声入力を停止";
+"common_realtime_voice" = "リアルタイム会話";
+"common_full_screen_edit" = "全画面編集";
+"common_full_screen_editor_title" = "全画面エディタ";
+"common_new_chat" = "新しいチャット";
+"common_help_new_chat" = "新しい会話を開始";
+"common_irreversible_action_message" = "この操作は取り消せません。";
+"common_unknown_error" = "不明なエラー";
+"common_copy" = "コピー";
+"common_select_text" = "テキストを選択";
+"common_edit" = "編集";
+"common_retry" = "再試行";
+"common_read_aloud" = "読み上げ";
+"common_show_more" = "メッセージをすべて表示";
+"common_show_less" = "折りたたむ";
+"common_accessibility_copy" = "メッセージをコピー";
+"common_accessibility_regenerate" = "応答を再生成";
+"common_accessibility_read_aloud" = "メッセージを読み上げ";
+"common_accessibility_placeholder_hint" = "メッセージ入力プレースホルダ";
+"common_connection_timeout" = "接続がタイムアウトしました";
+
+"content_no_chat_selected" = "チャットが選択されていません";
+"content_creating_chat" = "チャットがありません。作成しています...";
+
+"sidebar_chats_header" = "チャット";
+"sidebar_settings" = "設定";
+"sidebar_rename" = "名前を変更";
+"sidebar_delete" = "削除";
+"sidebar_delete_chat_title" = "チャットを削除しますか？";
+"sidebar_rename_chat_title" = "チャット名を変更";
+"sidebar_new_title_placeholder" = "新しいタイトル";
+
+"settings_navigation_title" = "設定";
+"settings_voice_server_section" = "音声サーバー";
+"settings_server_address" = "サーバーアドレス";
+"settings_server_address_placeholder" = "http://127.0.0.1:9880";
+"settings_text_language" = "テキスト言語";
+"settings_text_language_placeholder" = "テキスト言語を入力 (例: auto/zh/en)";
+"settings_model_preset_section" = "モデルプリセット";
+"settings_current_preset" = "現在のプリセット";
+"settings_add_preset" = "追加";
+"settings_delete_preset" = "削除";
+"settings_delete_preset_title" = "このプリセットを削除しますか？";
+"settings_delete_preset_message" = "この操作は取り消せません。";
+"settings_applying_preset" = "プリセットを適用中...";
+"settings_preset_name" = "プリセット名";
+"settings_ref_audio_path" = "参照音声パス";
+"settings_ref_audio_placeholder" = "GPT_SoVITS/refs/voice.wav";
+"settings_prompt_text" = "プロンプトテキスト";
+"settings_prompt_text_placeholder" = "参照テキスト (任意)";
+"settings_prompt_language" = "プロンプト言語";
+"settings_gpt_weights_path" = "GPT 重みファイル";
+"settings_sovits_weights_path" = "SoVITS 重みファイル";
+"settings_apply_preset_now" = "プリセットを適用";
+"settings_voice_output_section" = "音声出力";
+"settings_enable_streaming" = "ストリーミングを有効にする";
+"settings_auto_read_after_generation" = "生成後に自動で読み上げ";
+"settings_split_method" = "分割方法";
+"settings_chat_server_section" = "チャットサーバー設定";
+"settings_chat_api_url" = "チャット API URL";
+"settings_select_model" = "モデルを選択";
+"settings_refresh_model_list" = "モデル一覧を更新";
+"settings_loading_models" = "モデル一覧を読み込み中...";
+"settings_api_url_empty_error" = "API URL が空か無効です。";
+"settings_invalid_api_url_error" = "API URL が無効です。";
+"settings_request_failed_error" = "リクエストに失敗しました:";
+"settings_failed_to_parse_models_error" = "モデル一覧を解析できませんでした。";
+"settings_general_tab" = "一般";
+"settings_presets_tab" = "プリセット";
+"settings_voice_tab" = "音声";
+"settings_chat_tab" = "チャット";
+
+"chat_editing" = "編集中";
+"chat_cancel_editing_help" = "編集を取り消してメッセージ一覧を復元します。";
+"chat_input_placeholder" = "ここにメッセージを入力...";
+"chat_full_screen_edit_accessibility" = "全画面エディタを開く";
+
+"overlay_voice_error_title" = "音声エラー";
+"overlay_voice_error_fallback" = "不明なエラー";
+
+"voice_message_error_title" = "エラーが発生しました";
+"voice_message_thinking" = "思考中";
+"voice_message_thinking_finished" = "思考完了";
+
+"tail_lines_preview_accessibility" = "思考プレビュー";
+
+"audio_buffering" = "バッファリング中";
+
+"dictation_language_chinese" = "中国語";
+"dictation_language_english" = "英語";
+
+"speech_input_permissions_missing" = "音声認識またはマイクの権限がありません。";
+"speech_input_unsupported_platform" = "このプラットフォームでは音声入力を利用できません。";
+"speech_input_recognizer_unavailable" = "音声認識を利用できません。ネットワークまたはシステム設定を確認してください。";
+"speech_input_engine_start_failed_fmt" = "音声入力を開始できません: %@";

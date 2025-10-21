@@ -18,10 +18,10 @@ extension GlobalAudioManager {
         return URL(string: "\(addr)/tts")
     }
 
-    // MARK: - Request Queue（整段模式才使用 sendNextSegment）
+    // MARK: - Request queue (only used when streaming full segments)
     func sendNextSegment() {
         guard currentChunkIndex < textSegments.count else { return }
-        guard !isRealtimeMode else { return } // ★ 实时模式不使用递归链
+        guard !isRealtimeMode else { return } // Realtime mode manages its own queue
         let idx = currentChunkIndex
         currentChunkIndex += 1
         sendTTSRequest(for: textSegments[idx], index: idx)
@@ -54,7 +54,7 @@ extension GlobalAudioManager {
         guard let body = try? JSONSerialization.data(withJSONObject: params) else {
             self.errorMessage = "Unable to serialize JSON"
             inFlightIndexes.remove(index)
-            // 实时模式：尝试继续队列，避免卡死
+            // In realtime mode, continue pumping the queue to avoid stalls.
             if isRealtimeMode { processRealtimeQueueIfNeeded() }
             return
         }
@@ -77,7 +77,7 @@ extension GlobalAudioManager {
                     if self.isRealtimeMode {
                         self.processRealtimeQueueIfNeeded()
                     } else {
-                        // 普通模式按链式逐段发送
+                        // In non-realtime mode, chain the next request.
                         self.sendNextSegment()
                     }
                 }
@@ -100,7 +100,7 @@ extension GlobalAudioManager {
                     return
                 }
 
-                // 确保数组越界安全（实时模式下数组是动态增长的）
+                // Ensure arrays have capacity when realtime mode grows dynamically.
                 if index >= self.audioChunks.count {
                     let delta = index - self.audioChunks.count + 1
                     for _ in 0..<delta {

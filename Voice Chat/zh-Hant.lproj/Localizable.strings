@@ -1,0 +1,109 @@
+"common_ok" = "確定";
+"common_cancel" = "取消";
+"common_delete" = "刪除";
+"common_close" = "關閉";
+"common_done" = "完成";
+"common_save" = "儲存";
+"common_add" = "新增";
+"common_error" = "錯誤";
+"common_loading" = "載入中...";
+"common_refresh" = "重新整理";
+"common_apply_now" = "立即套用";
+"common_stop" = "停止";
+"common_send" = "傳送";
+"common_voice_input_start" = "開始語音輸入";
+"common_voice_input_stop" = "停止語音輸入";
+"common_realtime_voice" = "即時對話";
+"common_full_screen_edit" = "全螢幕編輯";
+"common_full_screen_editor_title" = "全螢幕編輯器";
+"common_new_chat" = "新增對話";
+"common_help_new_chat" = "開始新的對話";
+"common_irreversible_action_message" = "此操作無法復原。";
+"common_unknown_error" = "未知錯誤";
+"common_copy" = "複製";
+"common_select_text" = "選取文字";
+"common_edit" = "編輯";
+"common_retry" = "重試";
+"common_read_aloud" = "朗讀";
+"common_show_more" = "顯示完整訊息";
+"common_show_less" = "收起";
+"common_accessibility_copy" = "複製訊息";
+"common_accessibility_regenerate" = "重新產生回覆";
+"common_accessibility_read_aloud" = "朗讀訊息";
+"common_accessibility_placeholder_hint" = "訊息輸入提示";
+"common_connection_timeout" = "連線逾時";
+
+"content_no_chat_selected" = "尚未選取對話";
+"content_creating_chat" = "沒有對話，正在建立...";
+
+"sidebar_chats_header" = "對話";
+"sidebar_settings" = "設定";
+"sidebar_rename" = "重新命名";
+"sidebar_delete" = "刪除";
+"sidebar_delete_chat_title" = "刪除此對話？";
+"sidebar_rename_chat_title" = "重新命名對話";
+"sidebar_new_title_placeholder" = "新標題";
+
+"settings_navigation_title" = "設定";
+"settings_voice_server_section" = "語音伺服器";
+"settings_server_address" = "伺服器位址";
+"settings_server_address_placeholder" = "http://127.0.0.1:9880";
+"settings_text_language" = "文字語言";
+"settings_text_language_placeholder" = "輸入文字語言（例如 auto/zh/en）";
+"settings_model_preset_section" = "模型預設";
+"settings_current_preset" = "目前預設";
+"settings_add_preset" = "新增";
+"settings_delete_preset" = "刪除";
+"settings_delete_preset_title" = "確定刪除此預設？";
+"settings_delete_preset_message" = "此操作無法復原。";
+"settings_applying_preset" = "正在套用預設...";
+"settings_preset_name" = "預設名稱";
+"settings_ref_audio_path" = "參考音訊路徑";
+"settings_ref_audio_placeholder" = "GPT_SoVITS/refs/voice.wav";
+"settings_prompt_text" = "提示文字";
+"settings_prompt_text_placeholder" = "參考文字（選填）";
+"settings_prompt_language" = "提示語言";
+"settings_gpt_weights_path" = "GPT 權重路徑";
+"settings_sovits_weights_path" = "SoVITS 權重路徑";
+"settings_apply_preset_now" = "立即套用預設";
+"settings_voice_output_section" = "語音輸出";
+"settings_enable_streaming" = "啟用串流播放";
+"settings_auto_read_after_generation" = "產生後自動朗讀";
+"settings_split_method" = "切分方式";
+"settings_chat_server_section" = "聊天伺服器設定";
+"settings_chat_api_url" = "聊天 API 位址";
+"settings_select_model" = "選擇模型";
+"settings_refresh_model_list" = "重新整理模型列表";
+"settings_loading_models" = "正在載入模型列表...";
+"settings_api_url_empty_error" = "API 位址為空或無效。";
+"settings_invalid_api_url_error" = "API 位址無效。";
+"settings_request_failed_error" = "請求失敗：";
+"settings_failed_to_parse_models_error" = "無法解析模型列表。";
+"settings_general_tab" = "一般";
+"settings_presets_tab" = "預設";
+"settings_voice_tab" = "語音";
+"settings_chat_tab" = "聊天";
+
+"chat_editing" = "編輯中";
+"chat_cancel_editing_help" = "取消編輯並還原訊息列表。";
+"chat_input_placeholder" = "在此輸入訊息...";
+"chat_full_screen_edit_accessibility" = "開啟全螢幕編輯器";
+
+"overlay_voice_error_title" = "語音錯誤";
+"overlay_voice_error_fallback" = "未知錯誤";
+
+"voice_message_error_title" = "發生錯誤";
+"voice_message_thinking" = "思考中";
+"voice_message_thinking_finished" = "思考完成";
+
+"tail_lines_preview_accessibility" = "思考預覽";
+
+"audio_buffering" = "緩衝中";
+
+"dictation_language_chinese" = "中文";
+"dictation_language_english" = "英文";
+
+"speech_input_permissions_missing" = "缺少語音辨識或麥克風權限。";
+"speech_input_unsupported_platform" = "此平台不支援語音輸入。";
+"speech_input_recognizer_unavailable" = "語音辨識無法使用，請檢查網路或系統設定。";
+"speech_input_engine_start_failed_fmt" = "無法啟動音訊輸入：%@";

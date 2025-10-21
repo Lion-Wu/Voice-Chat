@@ -10,19 +10,20 @@
 import Foundation
 import SwiftUI
 
-/// iOS/iPadOS 主视图：顶部左/右按钮，下面是 ChatView。
+/// Primary container for the chat interface on iOS and tvOS.
 struct MainContentView: View {
     @EnvironmentObject var chatSessionsViewModel: ChatSessionsViewModel
 
     let onToggleSidebar: () -> Void
 
-    /// 由子视图 ChatView 回传的当前会话消息数，用于决定右上角加号可用性。
+    /// The number of messages reported by the active chat view. Used to guard against
+    /// starting a new session when the current conversation is empty.
     @State private var currentMessagesCount: Int = 0
 
     var body: some View {
         ZStack(alignment: .top) {
             VStack(spacing: 0) {
-                // 顶部条
+                // Top toolbar
                 HStack {
                     Button(action: { onToggleSidebar() }) {
                         Image(systemName: "line.3.horizontal")
@@ -41,7 +42,7 @@ struct MainContentView: View {
                 .background(Color(UIColor.systemBackground))
                 Divider()
 
-                // 聊天区域
+                // Conversation area
                 if let selectedSession = chatSessionsViewModel.selectedSession {
                     ChatView(
                         chatSession: selectedSession,
@@ -53,7 +54,7 @@ struct MainContentView: View {
                     )
                     .id(selectedSession.id)
                 } else {
-                    Text("No chat. Creating one...")
+                    Text(L10n.Content.creatingChat)
                         .onAppear {
                             chatSessionsViewModel.startNewSession()
                         }
