@@ -23,13 +23,12 @@ struct ChatView: View {
     @State private var inputOverflow: Bool = false
     @State private var showFullScreenComposer: Bool = false
 
-    @State private var contentHeight: CGFloat = 0
-    @State private var viewportHeight: CGFloat = 0
+    @State private var pendingScrollTarget: ChatMessage.ID?
 
-    // ★ 实时语音 Overlay VM（MVVM）
+    // Realtime voice overlay view model presented when the user starts dictation.
     @StateObject private var voiceOverlayVM = VoiceChatOverlayViewModel()
 
-    // 语音听写基准文本
+    // Baseline text captured before dictation begins.
     @State private var dictationBaseText: String = ""
 
     var onMessagesCountChange: (Int) -> Void = { _ in }
@@ -51,10 +50,6 @@ struct ChatView: View {
         return Array(orderedMessages.prefix(idx + 1))
     }
 
-    private var shouldAnchorBottom: Bool {
-        contentHeight > (viewportHeight + 1)
-    }
-
     private var messageListHorizontalPadding: CGFloat {
         #if os(macOS)
         return 16
@@ -70,22 +65,31 @@ struct ChatView: View {
             VStack(spacing: 0) {
                 Divider().overlay(ChatTheme.separator).opacity(0)
 
-                // ===================== 内容区 =====================
+                // MARK: - Message list
                 Group {
-                    if !voiceOverlayVM.isPresented {   // ★ 打开实时语音界面时：不渲染原聊天列表
+                    if !voiceOverlayVM.isPresented {
                         if #available(iOS 17.0, tvOS 17.0, macOS 14.0, watchOS 10.0, *) {
-                            GeometryReader { outerGeo in
+                            ScrollViewReader { proxy in
                                 ScrollView {
                                     messageList(scrollTargetsEnabled: true)
                                 }
-                                .background(
-                                    Color.clear.preference(key: ViewportHeightKey.self, value: outerGeo.size.height)
-                                )
-                                .onPreferenceChange(ContentHeightKey.self) { contentHeight = $0 }
-                                .onPreferenceChange(ViewportHeightKey.self) { viewportHeight = $0 }
-                                .defaultScrollAnchor(shouldAnchorBottom ? .bottom : .top)
+                                .defaultScrollAnchor(.bottom)
                                 .scrollDismissesKeyboard(.interactively)
                                 .onTapGesture { isInputFocused = false }
+                                .onAppear {
+                                    pendingScrollTarget = visibleMessages.last?.id
+                                }
+                                .onChange(of: visibleMessages.last?.id) { id in
+                                    guard let id else { return }
+                                    pendingScrollTarget = id
+                                }
+                                .onChange(of: pendingScrollTarget) { id in
+                                    guard let id else { return }
+                                    withAnimation(.easeOut(duration: 0.25)) {
+                                        proxy.scrollTo(id, anchor: .bottom)
+                                    }
+                                    pendingScrollTarget = nil
+                                }
                             }
                         } else {
                             ScrollView {
@@ -95,17 +99,17 @@ struct ChatView: View {
                             .onTapGesture { isInputFocused = false }
                         }
                     } else {
-                        // 占位：避免后台渲染
+                        // Skip layout while the realtime overlay is visible to avoid unnecessary work.
                         Color.clear.frame(height: 1)
                     }
                 }
 
-                // ===================== 编辑提示条 =====================
+                // MARK: - Editing indicator
                 if viewModel.isEditing, let _ = visibleMessages.last {
                     HStack(spacing: 8) {
                         Image(systemName: "pencil")
                             .foregroundStyle(.orange)
-                        Text("正在编辑")
+                        Text("Editing")
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
                             .lineLimit(1)
@@ -119,25 +123,25 @@ struct ChatView: View {
                                 .foregroundStyle(.secondary)
                         }
                         .buttonStyle(.plain)
-                        .help("取消编辑并恢复显示")
+                        .help("Cancel editing and show the latest response")
                     }
                     .padding(.horizontal, 12)
                     .padding(.vertical, 8)
                     .background(PlatformColor.secondaryBackground.opacity(0.6))
                 }
 
-                // ===================== 输入区 =====================
+                // MARK: - Composer
                 VStack(spacing: 10) {
                     HStack(alignment: .bottom, spacing: 10) {
-                        // 自适应输入框
+                        // Dynamic height text editor
                         ZStack(alignment: .topLeading) {
                             if viewModel.userMessage.isEmpty {
-                                Text("在这里输入消息…")
+                                Text("Type your message…")
                                     .font(.system(size: 17))
                                     .foregroundColor(.secondary)
                                     .padding(.top, InputMetrics.outerV + InputMetrics.innerTop)
                                     .padding(.leading, InputMetrics.outerH + InputMetrics.innerLeading)
-                                    .accessibilityHint("输入框占位提示")
+                                    .accessibilityHint("Message field placeholder")
                             }
 
 #if os(macOS)
@@ -182,7 +186,7 @@ struct ChatView: View {
                                 }
                                 .padding(.top, 6)
                                 .padding(.trailing, 8)
-                                .accessibilityLabel("全屏编辑")
+                                .accessibilityLabel("Open full-screen composer")
                                 .frame(maxWidth: .infinity, alignment: .topTrailing)
                             }
 #endif
@@ -193,7 +197,7 @@ struct ChatView: View {
                                 .stroke(ChatTheme.subtleStroke, lineWidth: 1)
                         )
 
-                        // ★ 语音听写（麦克风）按钮（保留）
+                        // Dictation toggle
                         Button {
                             toggleDictation()
                         } label: {
@@ -202,12 +206,12 @@ struct ChatView: View {
                                 .symbolRenderingMode(.hierarchical)
                                 .foregroundStyle(speechInputManager.isRecording ? .red : ChatTheme.accent)
                                 .shadow(color: ChatTheme.bubbleShadow, radius: 4, x: 0, y: 2)
-                                .accessibilityLabel(speechInputManager.isRecording ? "停止语音输入" : "语音输入")
+                                .accessibilityLabel(speechInputManager.isRecording ? "Stop voice input" : "Start voice input")
                         }
                         .buttonStyle(.plain)
-                        .help(speechInputManager.isRecording ? "停止语音输入" : "语音输入")
+                        .help(speechInputManager.isRecording ? "Stop voice input" : "Start voice input")
 
-                        // ★ 右侧按钮：加载中 -> 停止；否则：有文本 -> 发送；无文本 -> “声波”实时对话
+                        // Action button: stop, send, or open realtime voice overlay.
                         if viewModel.isLoading {
                             Button {
                                 viewModel.cancelCurrentRequest()
@@ -217,12 +221,11 @@ struct ChatView: View {
                                     .symbolRenderingMode(.hierarchical)
                                     .foregroundStyle(.red)
                                     .shadow(color: ChatTheme.bubbleShadow, radius: 4, x: 0, y: 2)
-                                    .accessibilityLabel("停止")
+                                    .accessibilityLabel("Stop current response")
                             }
                             .buttonStyle(.plain)
                         } else {
                             if viewModel.userMessage.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                                // ★ 无文本时：声波图标 -> 打开实时语音界面
                                 Button {
                                     openRealtimeVoiceOverlay()
                                 } label: {
@@ -231,7 +234,7 @@ struct ChatView: View {
                                         .symbolRenderingMode(.hierarchical)
                                         .foregroundStyle(ChatTheme.accent)
                                         .shadow(color: ChatTheme.bubbleShadow, radius: 4, x: 0, y: 2)
-                                        .accessibilityLabel("实时语音对话")
+                                        .accessibilityLabel("Start realtime voice conversation")
                                 }
                                 .buttonStyle(.plain)
                             } else {
@@ -243,7 +246,7 @@ struct ChatView: View {
                                         .symbolRenderingMode(.hierarchical)
                                         .foregroundStyle(ChatTheme.accent)
                                         .shadow(color: ChatTheme.bubbleShadow, radius: 4, x: 0, y: 2)
-                                        .accessibilityLabel("发送")
+                                        .accessibilityLabel("Send message")
                                 }
                                 .buttonStyle(.plain)
                             }
@@ -293,8 +296,8 @@ struct ChatView: View {
             }
         }
 
-        // ======== 平台化的“实时语音”面板呈现 ========
-        #if os(iOS) || os(tvOS)
+        // MARK: - Realtime voice overlay presentation
+#if os(iOS) || os(tvOS)
         .fullScreenCover(isPresented: $voiceOverlayVM.isPresented) {
             RealtimeVoiceOverlayView(
                 onClose: {
@@ -305,7 +308,6 @@ struct ChatView: View {
                     viewModel.prepareRealtimeTTSForNextAssistant()
                     viewModel.userMessage = text
                     viewModel.sendMessage()
-                    // iOS 下保持 Overlay 常驻，便于连续对话
                 }
             )
             .environmentObject(speechInputManager)
@@ -315,7 +317,6 @@ struct ChatView: View {
             }
         }
         #elseif os(macOS)
-        // ✅ macOS 修复：用 overlay 全屏覆盖显示 RealtimeVoiceOverlayView
         .overlay(
             Group {
                 if voiceOverlayVM.isPresented {
@@ -328,7 +329,6 @@ struct ChatView: View {
                             viewModel.prepareRealtimeTTSForNextAssistant()
                             viewModel.userMessage = text
                             viewModel.sendMessage()
-                            // macOS 下同样保持 Overlay 常驻，便于连续对话
                         }
                     )
                     .environmentObject(speechInputManager)
@@ -343,20 +343,12 @@ struct ChatView: View {
 
     @ViewBuilder
     private func messageList(scrollTargetsEnabled: Bool) -> some View {
-        if scrollTargetsEnabled {
-            messageListCore()
-                .scrollTargetLayout()
-                .padding(.horizontal, messageListHorizontalPadding)
-                .padding(.vertical, 12)
-                .frame(maxWidth: contentColumnMaxWidth())
-                .frame(maxWidth: .infinity, alignment: .center)
-        } else {
-            messageListCore()
-                .padding(.horizontal, messageListHorizontalPadding)
-                .padding(.vertical, 12)
-                .frame(maxWidth: contentColumnMaxWidth())
-                .frame(maxWidth: .infinity, alignment: .center)
-        }
+        messageListCore()
+            .modifier(ScrollTargetModifier(enabled: scrollTargetsEnabled))
+            .padding(.horizontal, messageListHorizontalPadding)
+            .padding(.vertical, 12)
+            .frame(maxWidth: contentColumnMaxWidth())
+            .frame(maxWidth: .infinity, alignment: .center)
     }
 
     @ViewBuilder
@@ -385,11 +377,6 @@ struct ChatView: View {
                 AssistantAlignedLoadingBubble()
             }
         }
-        .background(
-            GeometryReader { contentGeo in
-                Color.clear.preference(key: ContentHeightKey.self, value: contentGeo.size.height)
-            }
-        )
     }
 
     private func showSelectTextSheet(with text: String) {
@@ -397,7 +384,7 @@ struct ChatView: View {
         isShowingTextSelectionSheet = true
     }
 
-    // MARK: - 语音输入开关
+    // MARK: - Dictation
     private func toggleDictation() {
         if speechInputManager.isRecording {
             speechInputManager.stopRecording()
@@ -423,13 +410,30 @@ struct ChatView: View {
         }
     }
 
-    // MARK: - 打开实时语音覆盖层
-    private func openRealtimeVoiceOverlay() {
-        voiceOverlayVM.present()
+    // MARK: - Realtime overlay
+private func openRealtimeVoiceOverlay() {
+    voiceOverlayVM.present()
+}
+}
+
+private struct ScrollTargetModifier: ViewModifier {
+    let enabled: Bool
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if enabled {
+            if #available(iOS 17.0, tvOS 17.0, macOS 14.0, watchOS 10.0, *) {
+                content.scrollTargetLayout()
+            } else {
+                content
+            }
+        } else {
+            content
+        }
     }
 }
 
-// MARK: - 预览
+// MARK: - Preview
 
 struct ChatView_Previews: PreviewProvider {
     static var previews: some View {

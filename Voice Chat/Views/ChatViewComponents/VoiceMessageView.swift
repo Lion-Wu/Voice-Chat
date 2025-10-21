@@ -22,7 +22,7 @@ struct VoiceMessageView: View {
     private let thinkFont: Font = .system(size: 14, design: .monospaced)
 
     var body: some View {
-        // 错误气泡特殊处理
+        // Render error bubbles with a distinct appearance.
         if message.content.hasPrefix("!error:") {
             return AnyView(
                 HStack {
@@ -96,9 +96,9 @@ struct UserContextMenuModifier: ViewModifier {
             content.contextMenu(menuItems: {
                 let parts = message.content.extractThinkParts()
                 let bodyText = parts.body
-                Button { copyToClipboard(bodyText) } label: { Label("复制", systemImage: "doc.on.doc") }
-                Button { onSelectText(bodyText) } label: { Label("选择文本", systemImage: "text.cursor") }
-                Button { onEditUserMessage(message) } label: { Label("编辑", systemImage: "pencil") }
+                Button { copyToClipboard(bodyText) } label: { Label("Copy", systemImage: "doc.on.doc") }
+                Button { onSelectText(bodyText) } label: { Label("Select Text", systemImage: "text.cursor") }
+                Button { onEditUserMessage(message) } label: { Label("Edit", systemImage: "pencil") }
             })
         } else {
             content
@@ -115,13 +115,13 @@ struct ErrorBubbleView: View {
             HStack(spacing: 8) {
                 Image(systemName: "exclamationmark.triangle.fill")
                     .foregroundStyle(.white)
-                Text("发生错误")
+                Text("An error occurred")
                     .foregroundStyle(.white)
                     .font(.headline)
             }
             .padding(.bottom, 2)
 
-            Text(text.isEmpty ? "未知错误" : text)
+            Text(text.isEmpty ? "Unknown error" : text)
                 .foregroundStyle(.white.opacity(0.95))
                 .font(.subheadline)
 
@@ -130,7 +130,7 @@ struct ErrorBubbleView: View {
                 Button {
                     onRetry()
                 } label: {
-                    Label("重试", systemImage: "arrow.clockwise")
+                    Label("Retry", systemImage: "arrow.clockwise")
                         .font(.subheadline.weight(.semibold))
                         .padding(.vertical, 6)
                         .padding(.horizontal, 10)
@@ -175,7 +175,7 @@ struct SystemTextBubble: View {
                             Image(systemName: "checkmark.seal.fill")
                                 .font(.subheadline)
                                 .foregroundStyle(.green)
-                            Text("思考完毕")
+                            Text("Reasoning complete")
                                 .foregroundColor(.secondary)
                                 .font(.caption)
                         }
@@ -201,7 +201,7 @@ struct SystemTextBubble: View {
                                 Image(systemName: "brain.head.profile")
                                     .font(.subheadline)
                                     .foregroundStyle(.orange)
-                                Text("思考中")
+                                Text("Thinking")
                                     .foregroundColor(.secondary)
                                     .font(.caption)
                             }
@@ -250,7 +250,7 @@ struct SystemTextBubble: View {
                             .font(.system(size: 16, weight: .semibold))
                             #endif
                             .padding(2)
-                            .accessibilityLabel("复制")
+                            .accessibilityLabel("Copy")
                     }
                     .buttonStyle(.plain)
                     .foregroundStyle(.secondary)
@@ -263,7 +263,7 @@ struct SystemTextBubble: View {
                             .font(.system(size: 16, weight: .semibold))
                             #endif
                             .padding(2)
-                            .accessibilityLabel("重新生成")
+                            .accessibilityLabel("Regenerate")
                     }
                     .buttonStyle(.plain)
                     .foregroundStyle(.secondary)
@@ -276,7 +276,7 @@ struct SystemTextBubble: View {
                             .font(.system(size: 16, weight: .semibold))
                             #endif
                             .padding(2)
-                            .accessibilityLabel("朗读")
+                            .accessibilityLabel("Read aloud")
                     }
                     .buttonStyle(.plain)
                     .foregroundStyle(.secondary)
@@ -307,7 +307,7 @@ struct UserTextBubble: View {
                 .frame(maxWidth: contentMaxWidthForUser(), alignment: .trailing)
 
             if text.count > maxCharacters {
-                Button(expanded ? "收起" : "显示完整信息") {
+                Button(expanded ? "Collapse" : "Show full details") {
                     withAnimation(.easeInOut) { expanded.toggle() }
                 }
                 .font(.caption)

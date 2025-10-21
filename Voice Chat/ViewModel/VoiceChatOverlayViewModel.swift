@@ -16,7 +16,12 @@ final class VoiceChatOverlayViewModel: ObservableObject {
         case en
         var id: String { rawValue }
 
-        var display: String { self == .zh ? "中文" : "English" }
+        var display: String {
+            switch self {
+            case .zh: return String(localized: "Chinese")
+            case .en: return String(localized: "English")
+            }
+        }
         var locale: Locale {
             switch self {
             case .zh: return Locale(identifier: "zh-CN")
@@ -33,12 +38,12 @@ final class VoiceChatOverlayViewModel: ObservableObject {
         case error(String)
     }
 
-    // UI 状态
+    // MARK: - Presentation state
     @Published var isPresented: Bool = false
     @Published var lang: Lang = .zh
     @Published var state: State = .idle
 
-    // 外部注入回调：识别完成后把文本发给当前 Chat
+    // MARK: - Callback
     var onRecognizedFinal: ((String) -> Void)?
 
     func present() {

@@ -8,8 +8,10 @@
 
 /* Begin PBXBuildFile section */
 		B329D65B2B394979000A17C9 /* Voice_ChatApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = B329D65A2B394979000A17C9 /* Voice_ChatApp.swift */; };
-		B329D65F2B39497A000A17C9 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = B329D65E2B39497A000A17C9 /* Assets.xcassets */; };
-		B329D6622B39497A000A17C9 /* Preview Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = B329D6612B39497A000A17C9 /* Preview Assets.xcassets */; };
+            B329D65F2B39497A000A17C9 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = B329D65E2B39497A000A17C9 /* Assets.xcassets */; };
+            B329D6622B39497A000A17C9 /* Preview Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = B329D6612B39497A000A17C9 /* Preview Assets.xcassets */; };
+            E1F1A0202F00A7D700AB12CD /* Localizable.strings in Resources */ = {isa = PBXBuildFile; fileRef = E1F1A0102F00A7D700AB12CD /* Localizable.strings */; };
+            E1F1A0322F00A8D200AB12CD /* MacSettingsPresenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = E1F1A0302F00A8D200AB12CD /* MacSettingsPresenter.swift */; };
 		B4A629592B59617A006125B5 /* ChatViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B4A629582B59617A006125B5 /* ChatViewModel.swift */; };
 		B4E916D52B4BDBD900E49A6B /* ChatModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B4E916D42B4BDBD900E49A6B /* ChatModel.swift */; };
 		B4E916DF2B4BF0E500E49A6B /* VoiceViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B4E916DE2B4BF0E500E49A6B /* VoiceViewModel.swift */; };
@@ -34,7 +36,6 @@
 		FDA8D9292E7F0E320012B42F /* RichMarkdownView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FDA8D9232E7F0E320012B42F /* RichMarkdownView.swift */; };
 		FDA8D92A2E7F0E320012B42F /* ThinkParts.swift in Sources */ = {isa = PBXBuildFile; fileRef = FDA8D9242E7F0E320012B42F /* ThinkParts.swift */; };
 		FDA8D92C2E7F0ED00012B42F /* TailLinesText.swift in Sources */ = {isa = PBXBuildFile; fileRef = FDA8D92B2E7F0ED00012B42F /* TailLinesText.swift */; };
-		FDA8D92E2E7F0EE30012B42F /* PreferenceKeys.swift in Sources */ = {isa = PBXBuildFile; fileRef = FDA8D92D2E7F0EE30012B42F /* PreferenceKeys.swift */; };
 		FDA8D9302E7F0EF50012B42F /* LayoutHelpers.swift in Sources */ = {isa = PBXBuildFile; fileRef = FDA8D92F2E7F0EF50012B42F /* LayoutHelpers.swift */; };
 		FDA8D9322E7F0F150012B42F /* AutoSizingTextEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = FDA8D9312E7F0F150012B42F /* AutoSizingTextEditor.swift */; };
 		FDA8D9342E7F0F260012B42F /* LoadingViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = FDA8D9332E7F0F260012B42F /* LoadingViews.swift */; };
@@ -60,9 +61,14 @@
 		B329D6612B39497A000A17C9 /* Preview Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = "Preview Assets.xcassets"; sourceTree = "<group>"; };
 		B4A629582B59617A006125B5 /* ChatViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatViewModel.swift; sourceTree = "<group>"; };
 		B4E916D42B4BDBD900E49A6B /* ChatModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatModel.swift; sourceTree = "<group>"; };
-		B4E916DE2B4BF0E500E49A6B /* VoiceViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceViewModel.swift; sourceTree = "<group>"; };
-		FD0577A42CB626FD009FC45C /* SettingsViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = SettingsViewModel.swift; path = "Voice Chat/ViewModel/SettingsViewModel.swift"; sourceTree = SOURCE_ROOT; };
-		FD0B94DD2CD8E63500DBFA1D /* Voice Chat.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = "Voice Chat.entitlements"; sourceTree = "<group>"; };
+            B4E916DE2B4BF0E500E49A6B /* VoiceViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceViewModel.swift; sourceTree = "<group>"; };
+            FD0577A42CB626FD009FC45C /* SettingsViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = SettingsViewModel.swift; path = "Voice Chat/ViewModel/SettingsViewModel.swift"; sourceTree = SOURCE_ROOT; };
+            FD0B94DD2CD8E63500DBFA1D /* Voice Chat.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = "Voice Chat.entitlements"; sourceTree = "<group>"; };
+            E1F1A0002F00A7D700AB12CD /* en */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = en; path = "Voice Chat/Resources/Localization/en.lproj/Localizable.strings"; sourceTree = SOURCE_ROOT; };
+            E1F1A0012F00A7D700AB12CD /* zh-Hans */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = "zh-Hans"; path = "Voice Chat/Resources/Localization/zh-Hans.lproj/Localizable.strings"; sourceTree = SOURCE_ROOT; };
+            E1F1A0022F00A7D700AB12CD /* zh-Hant */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = "zh-Hant"; path = "Voice Chat/Resources/Localization/zh-Hant.lproj/Localizable.strings"; sourceTree = SOURCE_ROOT; };
+            E1F1A0032F00A7D700AB12CD /* ja */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = ja; path = "Voice Chat/Resources/Localization/ja.lproj/Localizable.strings"; sourceTree = SOURCE_ROOT; };
+            E1F1A0302F00A8D200AB12CD /* MacSettingsPresenter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = MacSettingsPresenter.swift; path = "Voice Chat/Utilities/MacSettingsPresenter.swift"; sourceTree = SOURCE_ROOT; };
 		FD0B94DE2CD9080700DBFA1D /* ChatSessionsViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatSessionsViewModel.swift; sourceTree = "<group>"; };
 		FD0B94E02CD9082600DBFA1D /* ChatSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ChatSession.swift; path = "Voice Chat/Model/ChatSession.swift"; sourceTree = SOURCE_ROOT; };
 		FD0B94E22CD9095C00DBFA1D /* SidebarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarView.swift; sourceTree = "<group>"; };
@@ -83,7 +89,6 @@
 		FDA8D9232E7F0E320012B42F /* RichMarkdownView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RichMarkdownView.swift; sourceTree = "<group>"; };
 		FDA8D9242E7F0E320012B42F /* ThinkParts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThinkParts.swift; sourceTree = "<group>"; };
 		FDA8D92B2E7F0ED00012B42F /* TailLinesText.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TailLinesText.swift; sourceTree = "<group>"; };
-		FDA8D92D2E7F0EE30012B42F /* PreferenceKeys.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreferenceKeys.swift; sourceTree = "<group>"; };
 		FDA8D92F2E7F0EF50012B42F /* LayoutHelpers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LayoutHelpers.swift; sourceTree = "<group>"; };
 		FDA8D9312E7F0F150012B42F /* AutoSizingTextEditor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AutoSizingTextEditor.swift; sourceTree = "<group>"; };
 		FDA8D9332E7F0F260012B42F /* LoadingViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LoadingViews.swift; sourceTree = "<group>"; };
@@ -129,18 +134,20 @@
 			name = Products;
 			sourceTree = "<group>";
 		};
-		B329D6592B394979000A17C9 /* Voice Chat */ = {
-			isa = PBXGroup;
-			children = (
-				B329D65A2B394979000A17C9 /* Voice_ChatApp.swift */,
-				FD40D5732CA875CC0064E732 /* ContentView.swift */,
-				FD0B94DD2CD8E63500DBFA1D /* Voice Chat.entitlements */,
-				B4E916D62B4BE0BD00E49A6B /* Views */,
-				B4E916DD2B4BF04400E49A6B /* ViewModel */,
-				B4E916D72B4BE1C300E49A6B /* Model */,
-				B329D65E2B39497A000A17C9 /* Assets.xcassets */,
-				B329D6602B39497A000A17C9 /* Preview Content */,
-			);
+                B329D6592B394979000A17C9 /* Voice Chat */ = {
+                        isa = PBXGroup;
+                        children = (
+                                B329D65A2B394979000A17C9 /* Voice_ChatApp.swift */,
+                                FD40D5732CA875CC0064E732 /* ContentView.swift */,
+                                FD0B94DD2CD8E63500DBFA1D /* Voice Chat.entitlements */,
+                                B4E916D62B4BE0BD00E49A6B /* Views */,
+                                B4E916DD2B4BF04400E49A6B /* ViewModel */,
+                                B4E916D72B4BE1C300E49A6B /* Model */,
+                                E1F1A0312F00A8D200AB12CD /* Utilities */,
+                                E1F1A0102F00A7D700AB12CD /* Localizable.strings */,
+                                B329D65E2B39497A000A17C9 /* Assets.xcassets */,
+                                B329D6602B39497A000A17C9 /* Preview Content */,
+                        );
 			path = "Voice Chat";
 			sourceTree = "<group>";
 		};
@@ -152,7 +159,7 @@
 			path = "Preview Content";
 			sourceTree = "<group>";
 		};
-		B4E916D62B4BE0BD00E49A6B /* Views */ = {
+                B4E916D62B4BE0BD00E49A6B /* Views */ = {
 			isa = PBXGroup;
 			children = (
 				FD0C3AB12C9F38F2009095A1 /* SettingsView.swift */,
@@ -168,9 +175,9 @@
 			path = Views;
 			sourceTree = "<group>";
 		};
-		B4E916D72B4BE1C300E49A6B /* Model */ = {
-			isa = PBXGroup;
-			children = (
+                B4E916D72B4BE1C300E49A6B /* Model */ = {
+                        isa = PBXGroup;
+                        children = (
 				FD0B94E02CD9082600DBFA1D /* ChatSession.swift */,
 				FD0B94E62CD90A2500DBFA1D /* ChatMessage.swift */,
 				B4E916D42B4BDBD900E49A6B /* ChatModel.swift */,
@@ -180,9 +187,17 @@
 				FD7228642E7EBE22005BF261 /* SpeechInputManager.swift */,
 				FD0C3AC62C9F54A9009095A1 /* Models.swift */,
 			);
-			path = Model;
-			sourceTree = "<group>";
-		};
+                        path = Model;
+                        sourceTree = "<group>";
+                };
+                E1F1A0312F00A8D200AB12CD /* Utilities */ = {
+                        isa = PBXGroup;
+                        children = (
+                                E1F1A0302F00A8D200AB12CD /* MacSettingsPresenter.swift */,
+                        );
+                        path = Utilities;
+                        sourceTree = "<group>";
+                };
 		B4E916DD2B4BF04400E49A6B /* ViewModel */ = {
 			isa = PBXGroup;
 			children = (
@@ -203,7 +218,6 @@
 				FDA8D9232E7F0E320012B42F /* RichMarkdownView.swift */,
 				FDA8D9242E7F0E320012B42F /* ThinkParts.swift */,
 				FDA8D92B2E7F0ED00012B42F /* TailLinesText.swift */,
-				FDA8D92D2E7F0EE30012B42F /* PreferenceKeys.swift */,
 				FDA8D92F2E7F0EF50012B42F /* LayoutHelpers.swift */,
 				FDA8D9312E7F0F150012B42F /* AutoSizingTextEditor.swift */,
 				FDA8D9332E7F0F260012B42F /* LoadingViews.swift */,
@@ -229,6 +243,20 @@
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
+
+/* Begin PBXVariantGroup section */
+            E1F1A0102F00A7D700AB12CD /* Localizable.strings */ = {
+                    isa = PBXVariantGroup;
+                    children = (
+                            E1F1A0002F00A7D700AB12CD /* en */,
+                            E1F1A0012F00A7D700AB12CD /* zh-Hans */,
+                            E1F1A0022F00A7D700AB12CD /* zh-Hant */,
+                            E1F1A0032F00A7D700AB12CD /* ja */,
+                    );
+                    name = Localizable.strings;
+                    sourceTree = "<group>";
+            };
+/* End PBXVariantGroup section */
 
 /* Begin PBXNativeTarget section */
 		B329D6562B394979000A17C9 /* Voice Chat */ = {
@@ -291,10 +319,11 @@
 		B329D6552B394979000A17C9 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
-			files = (
-				B329D6622B39497A000A17C9 /* Preview Assets.xcassets in Resources */,
-				B329D65F2B39497A000A17C9 /* Assets.xcassets in Resources */,
-			);
+                        files = (
+                                B329D6622B39497A000A17C9 /* Preview Assets.xcassets in Resources */,
+                                B329D65F2B39497A000A17C9 /* Assets.xcassets in Resources */,
+                                E1F1A0202F00A7D700AB12CD /* Localizable.strings in Resources */,
+                        );
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXResourcesBuildPhase section */
@@ -324,7 +353,6 @@
 				FDA8D92C2E7F0ED00012B42F /* TailLinesText.swift in Sources */,
 				FDF714C12E7FC54100B62D71 /* IncrementalTextSegmenter.swift in Sources */,
 				FD0B94E12CD9082600DBFA1D /* ChatSession.swift in Sources */,
-				FDA8D92E2E7F0EE30012B42F /* PreferenceKeys.swift in Sources */,
 				B4A629592B59617A006125B5 /* ChatViewModel.swift in Sources */,
 				FDA8D9362E7F0F360012B42F /* VoiceMessageView.swift in Sources */,
 				FD0B94DF2CD9080700DBFA1D /* ChatSessionsViewModel.swift in Sources */,
@@ -336,11 +364,12 @@
 				FDA8D9472E7F13050012B42F /* SafeArray.swift in Sources */,
 				FDA8D9382E7F0F520012B42F /* FullScreenComposer.swift in Sources */,
 				FDF714C32E7FC55300B62D71 /* VoiceChatOverlayViewModel.swift in Sources */,
-				FDA8D9292E7F0E320012B42F /* RichMarkdownView.swift in Sources */,
-				FDA8D92A2E7F0E320012B42F /* ThinkParts.swift in Sources */,
-				B4E916DF2B4BF0E500E49A6B /* VoiceViewModel.swift in Sources */,
-				FD40D5742CA875CC0064E732 /* ContentView.swift in Sources */,
-				FDA8D93A2E7F11F00012B42F /* AudioRequests.swift in Sources */,
+                                FDA8D9292E7F0E320012B42F /* RichMarkdownView.swift in Sources */,
+                                FDA8D92A2E7F0E320012B42F /* ThinkParts.swift in Sources */,
+                                B4E916DF2B4BF0E500E49A6B /* VoiceViewModel.swift in Sources */,
+                                FD40D5742CA875CC0064E732 /* ContentView.swift in Sources */,
+                                E1F1A0322F00A8D200AB12CD /* MacSettingsPresenter.swift in Sources */,
+                                FDA8D93A2E7F11F00012B42F /* AudioRequests.swift in Sources */,
 				FDA8D9442E7F12AA0012B42F /* TextSegmentation.swift in Sources */,
 				FD2DD7D32D65A7A200D124A6 /* MainContentView.swift in Sources */,
 				FD0C3AC72C9F54A9009095A1 /* Models.swift in Sources */,
@@ -500,8 +529,8 @@
 				ENABLE_RESOURCE_ACCESS_USB = NO;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
-				INFOPLIST_KEY_NSMicrophoneUsageDescription = "使用麦克风";
-				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "使用语音识别";
+                            INFOPLIST_KEY_NSMicrophoneUsageDescription = "Microphone access is required for voice chat.";
+                            INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "Speech recognition is required to transcribe your voice.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -551,8 +580,8 @@
 				ENABLE_RESOURCE_ACCESS_USB = NO;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
-				INFOPLIST_KEY_NSMicrophoneUsageDescription = "使用麦克风";
-				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "使用语音识别";
+                            INFOPLIST_KEY_NSMicrophoneUsageDescription = "Microphone access is required for voice chat.";
+                            INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "Speech recognition is required to transcribe your voice.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;

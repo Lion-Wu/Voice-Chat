@@ -2,8 +2,6 @@
 //  SettingsView.swift
 //  Voice Chat
 //
-//  Created by Lion Wu on 2024.09.22.
-//
 
 import SwiftUI
 
@@ -22,8 +20,6 @@ struct SettingsView: View {
     @State private var availableModels: [String] = []
     @State private var isLoadingModels = false
     @State private var errorMessage: AlertError?
-
-    // 预设删除确认
     @State private var showDeletePresetAlert = false
 
     @EnvironmentObject var settingsManager: SettingsManager
@@ -34,45 +30,11 @@ struct SettingsView: View {
     }
 
     var body: some View {
-        #if os(macOS)
-        VStack(spacing: 0) {
-            Form {
-                serverSection
-                presetSection
-                voiceOutputSection
-                chatSection
-            }
-            .formStyle(.grouped)
-        }
-        .frame(width: 600, height: 720)
-        .onAppear { fetchAvailableModels() }
-        .alert(item: $errorMessage) { error in
-            Alert(title: Text("Error"),
-                  message: Text(error.message),
-                  dismissButton: .default(Text("OK")))
-        }
-        .alert("Delete this preset?",
-               isPresented: $showDeletePresetAlert) {
-            Button("Delete", role: .destructive) { viewModel.deleteCurrentPreset() }
-            Button("Cancel", role: .cancel) { }
-        } message: {
-            Text("This action cannot be undone.")
-        }
-        #else
-        NavigationView {
-            Form {
-                serverSection
-                presetSection
-                voiceOutputSection
-                chatSection
-            }
-            .navigationBarTitle("Settings", displayMode: .inline)
-            .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button("Close") { dismiss() }
-                }
-            }
-            .onAppear { fetchAvailableModels() }
+#if os(macOS)
+        macSettingsView
+#else
+        iOSSettingsView
+#endif
             .alert(item: $errorMessage) { error in
                 Alert(title: Text("Error"),
                       message: Text(error.message),
@@ -85,11 +47,41 @@ struct SettingsView: View {
             } message: {
                 Text("This action cannot be undone.")
             }
-        }
-        #endif
+            .task(fetchAvailableModels)
     }
 
-    // MARK: - Sections (统一使用 Form + Section，恢复分割线，行距更舒展)
+#if os(macOS)
+    private var macSettingsView: some View {
+        SettingsTabView {
+            settingsForm
+                .tabItem { Label("General", systemImage: "slider.horizontal.3") }
+        }
+        .frame(minWidth: 560, minHeight: 640)
+    }
+#endif
+
+    private var iOSSettingsView: some View {
+        NavigationStack {
+            settingsForm
+                .navigationTitle("Settings")
+                .toolbar {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Button("Close") { dismiss() }
+                    }
+                }
+        }
+    }
+
+    @ViewBuilder
+    private var settingsForm: some View {
+        Form {
+            serverSection
+            presetSection
+            voiceOutputSection
+            chatSection
+        }
+        .formStyle(.grouped)
+    }
 
     private var serverSection: some View {
         Section(header: Text("Voice Server")) {
@@ -108,152 +100,137 @@ struct SettingsView: View {
 
     private var presetSection: some View {
         Section(header: Text("Model Preset")) {
-            // Preset Picker Row + actions
-            VStack(spacing: 10) {
-                #if os(macOS)
-                HStack(alignment: .center, spacing: 12) {
-                    Text("Current Preset")
-                        .frame(width: 150, alignment: .trailing)
-                    Picker("", selection: $viewModel.selectedPresetID) {
-                        ForEach(viewModel.presetList) { p in
-                            Text(p.name).tag(Optional.some(p.id))
-                        }
-                    }
-                    .pickerStyle(.menu) // macOS: explicit Pop-up style
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                }
-
-                HStack(spacing: 12) {
-                    Spacer()
-
-                    // Add preset — use plain style and explicit hit shape to avoid overlap
-                    Button {
-                        viewModel.addPreset()
-                    } label: {
-                        Label {
-                            Text("Add")
-                        } icon: {
-                            Image(systemName: "plus.circle.fill")
-                        }
-                    }
-                    .buttonStyle(.plain)
-                    .contentShape(Rectangle())
-                    .padding(.horizontal, 2)
-
-                    // Delete preset — destructive role + red trash icon, plain style to avoid menu-like propagation
-                    Button(role: .destructive) {
-                        showDeletePresetAlert = true
-                    } label: {
-                        Label {
-                            Text("Delete")
-                        } icon: {
-                            Image(systemName: "trash")
-                                .symbolRenderingMode(.monochrome)
-                                .foregroundStyle(.red)
-                        }
-                    }
-                    .buttonStyle(.plain)
-                    .contentShape(Rectangle())
-                    .padding(.horizontal, 2)
-                    .disabled(viewModel.presetList.count <= 1 || viewModel.selectedPresetID == nil)
-                }
-                #else
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Current Preset").font(.subheadline).foregroundColor(.secondary)
-                    Picker("", selection: $viewModel.selectedPresetID) {
-                        ForEach(viewModel.presetList) { p in
-                            Text(p.name).tag(Optional.some(p.id))
-                        }
-                    }
-                    .pickerStyle(.menu) // iOS: show as menu pop-up instead of navigation link
-
-                    HStack(spacing: 16) {
-                        Button {
-                            viewModel.addPreset()
-                        } label: {
-                            Label("Add", systemImage: "plus.circle.fill")
-                        }
-                        .buttonStyle(.plain)
-                        .contentShape(Rectangle())
-
-                        Button(role: .destructive) {
-                            showDeletePresetAlert = true
-                        } label: {
-                            Label {
-                                Text("Delete")
-                            } icon: {
-                                Image(systemName: "trash")
-                                    .symbolRenderingMode(.monochrome)
-                                    .foregroundStyle(.red)
-                            }
-                        }
-                        .buttonStyle(.plain)
-                        .contentShape(Rectangle())
-                        .disabled(viewModel.presetList.count <= 1 || viewModel.selectedPresetID == nil)
-                    }
-                }
-                #endif
-
-                // Applying status / error
-                if settingsManager.isApplyingPreset {
-                    HStack(spacing: 8) {
-                        ProgressView()
-                        Text("Applying preset...")
-                            .foregroundColor(.secondary)
-                        Spacer()
-                    }
-                    .padding(.top, 2)
-                } else if let err = settingsManager.lastApplyError, !err.isEmpty {
-                    HStack(spacing: 8) {
-                        Image(systemName: "exclamationmark.triangle.fill").foregroundColor(.orange)
-                        Text(err).foregroundColor(.secondary)
-                        Spacer()
-                    }
-                    .padding(.top, 2)
-                }
-            }
-
-            // Preset fields (清晰分组 + 有序排布)
-            Group {
-                LabeledTextField(label: "Preset Name",
-                                 placeholder: "Preset name",
-                                 text: $viewModel.presetName)
-
-                LabeledTextField(label: "ref_audio_path",
-                                 placeholder: "GPT_SoVITS/refs/xxx.wav",
-                                 text: $viewModel.presetRefAudioPath)
-                LabeledTextField(label: "prompt_text",
-                                 placeholder: "参考文本（可选）",
-                                 text: $viewModel.presetPromptText)
-                LabeledTextField(label: "prompt_lang",
-                                 placeholder: "auto/zh/en ...",
-                                 text: $viewModel.presetPromptLang)
-
-                LabeledTextField(label: "GPT weights path",
-                                 placeholder: "GPT_SoVITS/pretrained_models/s1xxx.ckpt",
-                                 text: $viewModel.presetGPTWeightsPath)
-                LabeledTextField(label: "SoVITS weights path",
-                                 placeholder: "GPT_SoVITS/pretrained_models/s2xxx.pth",
-                                 text: $viewModel.presetSoVITSWeightsPath)
-            }
-
-            // Apply button
-            HStack {
-                Spacer()
-                Button {
-                    viewModel.applySelectedPresetNow()
-                } label: {
-                    Label("Apply Preset Now", systemImage: "arrow.triangle.2.circlepath.circle.fill")
-                }
-                .disabled(settingsManager.isApplyingPreset || viewModel.selectedPresetID == nil)
-            }
-            .padding(.top, 6)
+            presetPicker
+            presetFields
+            presetApplyButton
         }
+    }
+
+    @ViewBuilder
+    private var presetPicker: some View {
+#if os(macOS)
+        HStack(alignment: .center, spacing: 12) {
+            Text("Current Preset")
+                .frame(width: 150, alignment: .trailing)
+            Picker("", selection: $viewModel.selectedPresetID) {
+                ForEach(viewModel.presetList) { preset in
+                    Text(preset.name).tag(Optional.some(preset.id))
+                }
+            }
+            .pickerStyle(.menu)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        presetActions
+#else
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Current Preset")
+                .font(.subheadline)
+                .foregroundColor(.secondary)
+            Picker("", selection: $viewModel.selectedPresetID) {
+                ForEach(viewModel.presetList) { preset in
+                    Text(preset.name).tag(Optional.some(preset.id))
+                }
+            }
+            .pickerStyle(.menu)
+            presetActions
+        }
+#endif
+        if settingsManager.isApplyingPreset {
+            HStack(spacing: 8) {
+                ProgressView()
+                Text("Applying preset...")
+                    .foregroundColor(.secondary)
+                Spacer()
+            }
+            .padding(.top, 2)
+        } else if let error = settingsManager.lastApplyError, !error.isEmpty {
+            HStack(spacing: 8) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .foregroundColor(.orange)
+                Text(error)
+                    .foregroundColor(.secondary)
+                Spacer()
+            }
+            .padding(.top, 2)
+        }
+    }
+
+    private var presetActions: some View {
+        HStack(spacing: 12) {
+#if os(macOS)
+            Spacer()
+#endif
+            Button(action: viewModel.addPreset) {
+                Label("Add", systemImage: "plus.circle.fill")
+            }
+            .buttonStyle(.plain)
+            .contentShape(Rectangle())
+
+            Button(role: .destructive) {
+                showDeletePresetAlert = true
+            } label: {
+                Label("Delete", systemImage: "trash")
+            }
+            .buttonStyle(.plain)
+            .contentShape(Rectangle())
+            .disabled(viewModel.presetList.count <= 1 || viewModel.selectedPresetID == nil)
+        }
+    }
+
+    private var presetFields: some View {
+        Group {
+            LabeledTextField(label: "Preset Name",
+                             placeholder: "Preset name",
+                             text: $viewModel.presetName)
+
+            LabeledTextField(label: "ref_audio_path",
+                             placeholder: "GPT_SoVITS/refs/xxx.wav",
+                             text: $viewModel.presetRefAudioPath)
+            LabeledTextField(label: "prompt_text",
+                             placeholder: "Reference text (optional)",
+                             text: $viewModel.presetPromptText)
+            LabeledTextField(label: "prompt_lang",
+                             placeholder: "auto/zh/en ...",
+                             text: $viewModel.presetPromptLang)
+
+            LabeledTextField(label: "GPT weights path",
+                             placeholder: "GPT_SoVITS/pretrained_models/s1xxx.ckpt",
+                             text: $viewModel.presetGPTWeightsPath)
+            LabeledTextField(label: "SoVITS weights path",
+                             placeholder: "GPT_SoVITS/pretrained_models/s2xxx.pth",
+                             text: $viewModel.presetSoVITSWeightsPath)
+        }
+    }
+
+    private var presetApplyButton: some View {
+        HStack {
+            Spacer()
+            Button(action: viewModel.applySelectedPresetNow) {
+                Label("Apply Preset Now", systemImage: "arrow.triangle.2.circlepath.circle.fill")
+            }
+            .disabled(settingsManager.isApplyingPreset || viewModel.selectedPresetID == nil)
+        }
+        .padding(.top, 6)
     }
 
     private var voiceOutputSection: some View {
         Section(header: Text("Voice Output")) {
-            #if os(macOS)
+#if os(macOS)
+            macVoiceSettings
+#else
+            Toggle("Enable Streaming", isOn: $viewModel.enableStreaming)
+            Toggle("Auto Read After Generation", isOn: $viewModel.autoReadAfterGeneration)
+            Picker("Split Method", selection: $viewModel.autoSplit) {
+                splitOptions
+            }
+            .disabled(viewModel.enableStreaming)
+#endif
+        }
+    }
+
+#if os(macOS)
+    private var macVoiceSettings: some View {
+        VStack(spacing: 8) {
             HStack {
                 Text("Enable Streaming")
                     .frame(width: 150, alignment: .trailing)
@@ -268,29 +245,22 @@ struct SettingsView: View {
                 Text("Split Method")
                     .frame(width: 150, alignment: .trailing)
                 Picker("", selection: $viewModel.autoSplit) {
-                    Text("cut0: No Split").tag("cut0")
-                    Text("cut1: every 4 sentences").tag("cut1")
-                    Text("cut2: every 50 chars").tag("cut2")
-                    Text("cut3: by Chinese period").tag("cut3")
-                    Text("cut4: by English period").tag("cut4")
-                    Text("cut5: by punctuation").tag("cut5")
+                    splitOptions
                 }
                 .disabled(viewModel.enableStreaming)
             }
-            #else
-            Toggle("Enable Streaming", isOn: $viewModel.enableStreaming)
-            Toggle("Auto Read After Generation", isOn: $viewModel.autoReadAfterGeneration)
-            Picker("Split Method", selection: $viewModel.autoSplit) {
-                Text("cut0: No Split").tag("cut0")
-                Text("cut1: every 4 sentences").tag("cut1")
-                Text("cut2: every 50 chars").tag("cut2")
-                Text("cut3: by Chinese period").tag("cut3")
-                Text("cut4: by English period").tag("cut4")
-                Text("cut5: by punctuation").tag("cut5")
-            }
-            .disabled(viewModel.enableStreaming)
-            #endif
         }
+    }
+#endif
+
+    @ViewBuilder
+    private var splitOptions: some View {
+        Text("cut0: No Split").tag("cut0")
+        Text("cut1: every 4 sentences").tag("cut1")
+        Text("cut2: every 50 chars").tag("cut2")
+        Text("cut3: by Chinese period").tag("cut3")
+        Text("cut4: by English period").tag("cut4")
+        Text("cut5: by punctuation").tag("cut5")
     }
 
     private var chatSection: some View {
@@ -305,7 +275,7 @@ struct SettingsView: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
             } else {
-                #if os(macOS)
+#if os(macOS)
                 HStack {
                     Text("Select Model")
                         .frame(width: 150, alignment: .trailing)
@@ -315,13 +285,13 @@ struct SettingsView: View {
                         }
                     }
                 }
-                #else
+#else
                 Picker("Select Model", selection: $viewModel.selectedModel) {
                     ForEach(availableModels, id: \.self) { model in
                         Text(model).tag(model)
                     }
                 }
-                #endif
+#endif
             }
 
             HStack {
@@ -334,7 +304,7 @@ struct SettingsView: View {
         }
     }
 
-    // MARK: - Networking (List Models)
+    // MARK: - Networking
 
     private func fetchAvailableModels() {
         guard !viewModel.apiURL.isEmpty else {
@@ -352,7 +322,7 @@ struct SettingsView: View {
         }
 
         let request = URLRequest(url: url, timeoutInterval: 30)
-        URLSession.shared.dataTask(with: request) { data, response, error in
+        URLSession.shared.dataTask(with: request) { data, _, error in
             DispatchQueue.main.async {
                 self.isLoadingModels = false
                 if let error = error {
@@ -374,7 +344,7 @@ struct SettingsView: View {
     }
 }
 
-// MARK: - LabeledTextField
+// MARK: - Labeled Text Field
 
 struct LabeledTextField: View {
     var label: String
@@ -382,7 +352,7 @@ struct LabeledTextField: View {
     @Binding var text: String
 
     var body: some View {
-        #if os(macOS)
+#if os(macOS)
         HStack(alignment: .center, spacing: 12) {
             Text(label)
                 .frame(width: 150, alignment: .trailing)
@@ -392,18 +362,13 @@ struct LabeledTextField: View {
                 .frame(maxWidth: .infinity)
         }
         .padding(.vertical, 2)
-        #else
+#else
         HStack(spacing: 12) {
             Text(label)
             Spacer()
             TextField(placeholder, text: $text)
                 .multilineTextAlignment(.trailing)
         }
-        #endif
+#endif
     }
-}
-
-#Preview {
-    SettingsView()
-        .environmentObject(SettingsManager.shared)
 }

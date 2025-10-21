@@ -7,22 +7,22 @@
 
 import Foundation
 
-/// 将“流式增量文本”组装为可朗读的完整片段：
-/// - 忽略 <think>…</think> 内的内容；只输出正文部分；
-/// - 以句末标点（中英文 . ! ? 。！？；…）或换行为切分点；
-/// - 若迟迟无标点，按长度阈值强制切分（避免长时间憋段）。
+/// Build incremental streaming text into readable segments.
+/// - Ignore content inside <think>…</think> blocks and emit only visible text.
+/// - Split on sentence punctuation or line breaks.
+/// - If no punctuation arrives for a long time, split by length to avoid long delays.
 struct IncrementalTextSegmenter {
 
     private var buffer: String = ""
     private var inThink: Bool = false
 
-    // 阈值（经验值）：英文按单词数估，中文按字符数估
+    // Heuristics for enforced splits: words for English, characters for CJK.
     private let maxCJKChars: Int = 80
     private let maxENWords: Int = 30
 
-    // 句末标点
+    // Sentence punctuation marks.
     private let terminalSet: Set<Character> = Set("。！？!?……;；.。")
-    // 软断行（\n 也视作断点）
+    // Soft line breaks also count as boundaries.
     private let newline: Character = "\n"
 
     mutating func reset() {
@@ -30,7 +30,7 @@ struct IncrementalTextSegmenter {
         inThink = false
     }
 
-    /// 追加一段增量，返回可立即朗读的片段数组
+    /// Append an incremental chunk and return any ready-to-read segments.
     mutating func append(_ delta: String) -> [String] {
         guard !delta.isEmpty else { return [] }
 
@@ -38,7 +38,7 @@ struct IncrementalTextSegmenter {
         var i = delta.startIndex
 
         while i < delta.endIndex {
-            // 处理 think 标签的进入/退出
+            // Track entry and exit of <think> blocks.
             if delta[i...].hasPrefix("<think>") {
                 inThink = true
                 i = delta.index(i, offsetBy: 7)
@@ -50,12 +50,12 @@ struct IncrementalTextSegmenter {
                 continue
             }
 
-            // 非 think 内容才进入 buffer
+            // Only append visible content.
             let ch = delta[i]
             if !inThink {
                 buffer.append(ch)
 
-                // 换行或句末标点 -> 直接切分
+                // Split immediately on punctuation or newline.
                 if ch == newline || terminalSet.contains(ch) {
                     let seg = buffer.trimmingCharacters(in: .whitespacesAndNewlines)
                     if !seg.isEmpty {
@@ -63,7 +63,7 @@ struct IncrementalTextSegmenter {
                     }
                     buffer = ""
                 } else {
-                    // 无标点情况下的长度强切
+                    // Enforce a split when content grows too long without punctuation.
                     if shouldForceSplit(buffer) {
                         let seg = buffer.trimmingCharacters(in: .whitespacesAndNewlines)
                         if !seg.isEmpty {
@@ -80,7 +80,7 @@ struct IncrementalTextSegmenter {
         return produced
     }
 
-    /// 流结束：把剩余未切分的尾巴吐出
+    /// Finish the stream and emit any remaining buffer.
     mutating func finalize() -> [String] {
         guard !buffer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return [] }
         let tail = buffer.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -90,9 +90,9 @@ struct IncrementalTextSegmenter {
 
     // MARK: - Helpers
 
-    /// 简易的英文单词/中文字符计数强切逻辑
+    /// Lightweight helper to decide length-based splits.
     private func shouldForceSplit(_ text: String) -> Bool {
-        // 是否包含 CJK
+        // Detect whether the text contains CJK characters.
         let hasCJK = text.unicodeScalars.contains { $0.properties.isIdeographic }
         if hasCJK {
             return text.count >= maxCJKChars
