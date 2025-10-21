@@ -252,7 +252,7 @@ extension GlobalAudioManager {
         return finalPieces
     }
 
-    /// 使用 NLTokenizer(.word) 在词边界上强制切分
+    /// Forces segmentation along word boundaries using NLTokenizer
     func forceSplitByWordBoundary(_ text: String, lang: String, maxLen: Int) -> [String] {
         var pieces: [String] = []
         let tokenizer = NLTokenizer(unit: .word)

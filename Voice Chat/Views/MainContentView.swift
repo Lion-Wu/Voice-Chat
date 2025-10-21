@@ -10,19 +10,19 @@
 import Foundation
 import SwiftUI
 
-/// iOS/iPadOS 主视图：顶部左/右按钮，下面是 ChatView。
+/// Primary content view for iOS and iPadOS with a top bar and the chat surface.
 struct MainContentView: View {
     @EnvironmentObject var chatSessionsViewModel: ChatSessionsViewModel
 
     let onToggleSidebar: () -> Void
 
-    /// 由子视图 ChatView 回传的当前会话消息数，用于决定右上角加号可用性。
+    /// Tracks the number of messages to decide whether the add button should be enabled.
     @State private var currentMessagesCount: Int = 0
 
     var body: some View {
         ZStack(alignment: .top) {
             VStack(spacing: 0) {
-                // 顶部条
+                // Top toolbar
                 HStack {
                     Button(action: { onToggleSidebar() }) {
                         Image(systemName: "line.3.horizontal")
@@ -35,13 +35,14 @@ struct MainContentView: View {
                         Image(systemName: "plus")
                             .font(.title2)
                     }
+                    .accessibilityLabel(Text(L10n.Sidebar.newChat))
                     .disabled(currentMessagesCount == 0)
                 }
                 .padding()
                 .background(Color(UIColor.systemBackground))
                 Divider()
 
-                // 聊天区域
+                // Chat area
                 if let selectedSession = chatSessionsViewModel.selectedSession {
                     ChatView(
                         chatSession: selectedSession,
@@ -53,7 +54,7 @@ struct MainContentView: View {
                     )
                     .id(selectedSession.id)
                 } else {
-                    Text("No chat. Creating one...")
+                    Text(L10n.Chat.creatingNewChat)
                         .onAppear {
                             chatSessionsViewModel.startNewSession()
                         }

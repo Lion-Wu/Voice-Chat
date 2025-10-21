@@ -7,6 +7,9 @@
 
 import SwiftUI
 import SwiftData
+#if os(macOS)
+import AppKit
+#endif
 
 struct ContentView: View {
     @Environment(\.modelContext) private var modelContext
@@ -14,10 +17,9 @@ struct ContentView: View {
     @EnvironmentObject var audioManager: GlobalAudioManager
     @EnvironmentObject var settingsManager: SettingsManager
     @EnvironmentObject var chatSessionsViewModel: ChatSessionsViewModel
-    @EnvironmentObject var speechInputManager: SpeechInputManager   // ★ 新增
+    @EnvironmentObject var speechInputManager: SpeechInputManager
 
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
-    @State private var showingSettings = false
 
     var body: some View {
         #if os(macOS)
@@ -26,14 +28,14 @@ struct ContentView: View {
                 onConversationTap: { conversation in
                     selectConversation(conversation)
                 },
-                onOpenSettings: { showingSettings = true }
+                onOpenSettings: { openSettingsWindow() }
             )
         } detail: {
             if let selectedSession = chatSessionsViewModel.selectedSession {
                 ChatView(chatSession: selectedSession)
                     .id(selectedSession.id)
             } else {
-                Text("No chat selected")
+                Text(L10n.Chat.noChatSelected)
                     .font(.largeTitle)
                     .foregroundColor(.gray)
                     .onAppear {
@@ -41,16 +43,13 @@ struct ContentView: View {
                     }
             }
         }
-        .sheet(isPresented: $showingSettings) {
-            SettingsView()
-                .environmentObject(settingsManager)
-        }
         .toolbar {
             ToolbarItem {
                 Button(action: startNewConversation) {
                     Image(systemName: "plus")
                 }
-                .help("New Chat")
+                .help(L10n.Sidebar.newChat)
+                .accessibilityLabel(Text(L10n.Sidebar.newChat))
                 .disabled(!chatSessionsViewModel.canStartNewSession)
             }
         }
@@ -64,7 +63,7 @@ struct ContentView: View {
             .environmentObject(chatSessionsViewModel)
             .environmentObject(audioManager)
             .environmentObject(settingsManager)
-            .environmentObject(speechInputManager) // ★ 传入 iOS 容器
+            .environmentObject(speechInputManager)
             .onAppear {
                 chatSessionsViewModel.attach(context: modelContext)
                 settingsManager.attach(context: modelContext)
@@ -88,6 +87,12 @@ struct ContentView: View {
     private func startNewConversation() {
         chatSessionsViewModel.startNewSession()
     }
+
+    #if os(macOS)
+    private func openSettingsWindow() {
+        NSApp.sendAction(Selector(("showPreferencesWindow:")), to: nil, from: nil)
+    }
+    #endif
 }
 
 struct ContentView_Previews: PreviewProvider {
@@ -97,6 +102,6 @@ struct ContentView_Previews: PreviewProvider {
             .environmentObject(GlobalAudioManager.shared)
             .environmentObject(SettingsManager.shared)
             .environmentObject(ChatSessionsViewModel())
-            .environmentObject(SpeechInputManager()) // ★ 新增
+            .environmentObject(SpeechInputManager())
     }
 }

@@ -16,7 +16,7 @@ final class SpeechInputManager: NSObject, ObservableObject {
         case zh = "zh-CN"
         case en = "en-US"
         var id: String { rawValue }
-        var displayName: String { self == .zh ? "中文" : "English" }
+        var displayName: String { self == .zh ? L10n.Speech.languageChinese : L10n.Speech.languageEnglish }
         var locale: Locale { Locale(identifier: rawValue) }
     }
 
@@ -24,10 +24,10 @@ final class SpeechInputManager: NSObject, ObservableObject {
     @Published private(set) var isRecording: Bool = false
     @Published var lastError: String?
 
-    /// 实时输入音量（0~1），已做指数平滑（给 UI 圆圈）
+    /// Smoothed realtime input level (0...1) for the voice overlay UI
     @Published var inputLevel: Double = 0
 
-    /// 当前选择的听写语言（仅中/英）
+    /// Selected dictation language (Chinese or English)
     @Published var currentLanguage: DictationLanguage = .zh
 
     // MARK: - Session bookkeeping
@@ -35,26 +35,26 @@ final class SpeechInputManager: NSObject, ObservableObject {
     private var lastStableText: String = ""
     private var currentOnFinal: (@MainActor (String) -> Void)?
 
-    // level smoothing
+    // Level smoothing
     private var levelEMA: Double = 0
-    private let levelAlpha: Double = 0.20  // 平滑系数 0.2
+    private let levelAlpha: Double = 0.20  // Exponential smoothing factor
 
-    // 所有 AVAudioEngine / Speech 对象交由 actor 串行管理
+    // Manage AVAudioEngine and Speech objects on a dedicated actor
     private let worker = SpeechRecognizerWorker()
 
     // MARK: - API
 
-    /// 启动实时听写
+    /// Starts realtime dictation
     func startRecording(language: DictationLanguage? = nil,
                         onPartial: @escaping @MainActor (String) -> Void,
                         onFinal:   @escaping @MainActor (String) -> Void) async {
         lastError = nil
 
-        // 若已有录音，先停
+        // Stop any previous session before starting a new one
         if isRecording { stopRecording() }
 
         guard await requestPermissions() else {
-            lastError = "未获得语音识别或麦克风权限"
+            lastError = L10n.Speech.permissionsDenied
             return
         }
 
@@ -67,7 +67,7 @@ final class SpeechInputManager: NSObject, ObservableObject {
 
         let pickLang = language ?? currentLanguage
 
-        // 注意：@Sendable 闭包内部不直接访问 @MainActor 成员，统一切回主线程后再判断会话
+        // Ensure callbacks hop back to the main actor before touching state
         let partialWrapper: @Sendable (String) -> Void = { [weak self] text in
             Task { @MainActor in
                 guard let self else { return }
@@ -86,7 +86,7 @@ final class SpeechInputManager: NSObject, ObservableObject {
                 let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
                 self.lastStableText = trimmed
                 onFinal(trimmed)
-                // 会话终止（只有识别到非空文本才会走到这里）
+                // Session teardown happens only after non-empty text is produced
                 self.isRecording       = false
                 self.currentSessionID  = nil
                 self.currentOnFinal    = nil
@@ -95,11 +95,11 @@ final class SpeechInputManager: NSObject, ObservableObject {
             }
         }
 
-        // 音量回调：缩放 + 平滑 -> 0~1
+        // Normalize audio level callbacks to a 0...1 range with exponential smoothing
         let levelWrapper: @Sendable (Float) -> Void = { [weak self] raw in
             Task { @MainActor in
                 guard let self else { return }
-                // 经验缩放：语音 RMS 常在 0.02~0.2，放大到 0~1 区间
+                // Scale RMS values (typically 0.02~0.2) into the 0...1 range
                 let scaled = min(1.0, max(0.0, Double(raw) * 8.0))
                 self.levelEMA = self.levelEMA * (1 - self.levelAlpha) + scaled * self.levelAlpha
                 self.inputLevel = self.levelEMA
@@ -115,7 +115,7 @@ final class SpeechInputManager: NSObject, ObservableObject {
             )
             isRecording = true
         } catch {
-            lastError = error.localizedDescription
+            lastError = L10n.Speech.engineStartFailed(error.localizedDescription)
             await worker.stop()
             isRecording = false
             currentSessionID = nil
@@ -125,7 +125,7 @@ final class SpeechInputManager: NSObject, ObservableObject {
         }
     }
 
-    /// 主动结束录音（可以从任何线程调用）
+    /// Ends recording from any thread
     nonisolated func stopRecording() {
         Task { [weak self] in
             guard let self else { return }
@@ -156,7 +156,7 @@ final class SpeechInputManager: NSObject, ObservableObject {
         }
     }
 
-    // MARK: - 权限
+    // MARK: - Permissions
 
     private func requestPermissions() async -> Bool {
         #if os(iOS) || os(macOS)
@@ -174,11 +174,11 @@ final class SpeechInputManager: NSObject, ObservableObject {
         }
         return speechOK && micOK
         #else
-        // macOS 仅语音识别权限（麦克风权限由系统弹窗控制）
+        // macOS only requests speech recognition permission; microphone prompts are handled by the system
         return speechOK
         #endif
         #else
-        lastError = "此平台不支持语音输入。"
+        lastError = L10n.Speech.unsupportedPlatform
         return false
         #endif
     }
@@ -189,7 +189,7 @@ final class SpeechInputManager: NSObject, ObservableObject {
 import Speech
 import AVFoundation
 
-// MARK: - 后台识别工作者（actor 保证串行）
+// MARK: - Background speech recognizer (actor enforces serialization)
 actor SpeechRecognizerWorker {
 
     // MARK: - Internal objects
@@ -207,25 +207,25 @@ actor SpeechRecognizerWorker {
     private var onLevelHandler  : (@Sendable (Float) -> Void)?
 
     // MARK: - End-of-speech detection
-    /// 最后一次检测到“有语音活动”的时间；在真正检测到语音之前为 nil
+    /// Timestamp of the last detected speech event; nil until audio activity is observed
     private var lastSpeechAt : Date? = nil
     private var silenceLimit : TimeInterval = 1.2
     private var monitorTask  : Task<Void, Never>?
 
-    // 能量门限（线性幅度，~ -44 dB 左右）；降阈值以更敏感地对人声作出反应
+    // Energy threshold (~-44 dB) chosen for responsive voice activity detection
     private let vadLevelThreshold: Float = 0.006
     private var didEndAudioForSilence: Bool = false
 
-    /// 识别到（非空）文本后的“保护期”，在该时间窗内不触发静默结束
+    /// Grace period after partial text during which silence does not end the session
     private let postPartialGrace: TimeInterval = 0.6
     private var graceUntil: Date? = nil
 
-    /// 第一次识别到（非空）文本的时间；用于保证最短会话时长
+    /// Timestamp of the first non-empty transcription to enforce minimum session length
     private var firstTextAt: Date? = nil
-    /// 从首次文本出现起，至少保留一段时间不自动结束，避免用户句间停顿被截断
+    /// Minimum amount of active time after the first recognized text before allowing silence termination
     private let minActiveAfterFirstText: TimeInterval = 1.0
 
-    /// 只要产生过“非空转写文本”，才允许静默关麦
+    /// Ensures silence can end the session only after non-empty text has been produced
     private var hasRecognizedText: Bool = false
 
     // MARK: - Misc state
@@ -237,8 +237,10 @@ actor SpeechRecognizerWorker {
         case engineStartFailed(String)
         var errorDescription: String? {
             switch self {
-            case .recognizerUnavailable: return "语音识别不可用（请检查网络/系统设置）"
-            case .engineStartFailed(let m): return "无法启动音频输入：\(m)"
+            case .recognizerUnavailable:
+                return L10n.Speech.recognizerUnavailable
+            case .engineStartFailed(let message):
+                return L10n.Speech.engineStartFailed(message)
             }
         }
     }
@@ -250,7 +252,7 @@ actor SpeechRecognizerWorker {
                onFinal  : @Sendable @escaping (String) -> Void,
                onLevel  : @Sendable @escaping (Float) -> Void) async throws
     {
-        // 若已有会话，先彻底停掉
+        // Tear down any previous session before starting a new one
         if tapInstalled || request != nil || task != nil {
             await stop()
         }
@@ -261,7 +263,7 @@ actor SpeechRecognizerWorker {
         lastNonEmptyText   = ""
         didEmitFinal       = false
 
-        // 关键：初始不允许因静默自动收麦
+        // Initially disable silence-based endings until real speech is detected
         lastSpeechAt           = nil
         hasRecognizedText      = false
         didEndAudioForSilence  = false
@@ -272,10 +274,10 @@ actor SpeechRecognizerWorker {
         }
         recognizer = r
 
-        // 2) request（默认模式 + 系统自动标点依赖 formattedString）
+        // 2) Recognition request (default mode with automatic punctuation)
         try await makeNewRequestAndTap()
 
-        // 3) iOS 音频会话
+        // 3) Configure the iOS audio session
         #if os(iOS)
         try await MainActor.run {
             let session = AVAudioSession.sharedInstance()
@@ -289,7 +291,7 @@ actor SpeechRecognizerWorker {
         }
         #endif
 
-        // 4) 引擎
+        // 4) Prepare and start the audio engine
         audioEngine.prepare()
         do {
             try audioEngine.start()
@@ -300,15 +302,15 @@ actor SpeechRecognizerWorker {
         // 5) recognition task
         attachRecognitionTask()
 
-        // 6) 启动静默监控
+        // 6) Launch the silence monitor
         launchSilenceMonitor()
     }
 
-    /// 停止并清理
+    /// Stops recognition and releases related resources
     func stop(fallbackFinalText: String = "",
               onFinalOnMain: (@Sendable (String) -> Void)? = nil) async {
 
-        // 若尚未发出 final，则兜底（使用最后一个非空文本）
+        // If no final result has been emitted, fall back to the last non-empty text
         if !didEmitFinal {
             let candidate = lastNonEmptyText.trimmingCharacters(in: .whitespacesAndNewlines)
             if let cb = onFinalOnMain, !candidate.isEmpty {
@@ -317,7 +319,7 @@ actor SpeechRecognizerWorker {
             }
         }
 
-        // 取消任务 & tap
+        // Cancel tasks and remove the audio tap
         task?.cancel()
         task = nil
 
@@ -332,7 +334,7 @@ actor SpeechRecognizerWorker {
 
         if audioEngine.isRunning { audioEngine.stop() }
 
-        // iOS：还原 AudioSession
+        // Restore the iOS audio session configuration
         #if os(iOS)
         try? await MainActor.run {
             let session = AVAudioSession.sharedInstance()
@@ -356,9 +358,9 @@ actor SpeechRecognizerWorker {
 
     // MARK: - Internal setup helpers ---------------------------------------------------
 
-    /// 创建新的 request + tap（可在“空 final”时复用以重置识别但不中断会话）
+    /// Rebuilds the recognition request and audio tap without interrupting the session
     private func makeNewRequestAndTap() async throws {
-        // 清理旧 tap
+        // Remove any existing tap before installing a new one
         if tapInstalled {
             audioEngine.inputNode.removeTap(onBus: 0)
             tapInstalled = false
@@ -367,11 +369,11 @@ actor SpeechRecognizerWorker {
 
         let req = SFSpeechAudioBufferRecognitionRequest()
         req.shouldReportPartialResults = true
-        // 提示为“连续口述”场景，提升对人声的灵敏度与连贯性
+        // Hint that we expect continuous dictation for better responsiveness
         req.taskHint = .dictation
-        // 开启自动标点
+        // Enable automatic punctuation
         req.addsPunctuation = true
-        // 使用系统默认模式 + 自动标点（formattedString）
+        // Use the system default formatting with automatic punctuation
         request = req
 
         let inputNode = audioEngine.inputNode
@@ -380,7 +382,7 @@ actor SpeechRecognizerWorker {
             guard let self else { return }
             Task { await self.handleAmplitude(level) }
         }
-        // format=nil 让系统匹配
+        // Provide a nil format so the system chooses an appropriate one
         inputNode.installTap(onBus: 0, bufferSize: 1024, format: nil) { [tap] buffer, _ in
             tap.handle(buffer: buffer)
         }
@@ -388,7 +390,7 @@ actor SpeechRecognizerWorker {
         tapInstalled = true
     }
 
-    /// 建立识别任务
+    /// Attaches a recognition task to the speech recognizer
     private func attachRecognitionTask() {
         guard let recognizer, let req = request else { return }
         task = recognizer.recognitionTask(with: req) { [weak self] result, err in
@@ -401,14 +403,14 @@ actor SpeechRecognizerWorker {
                 }
 
                 if r.isFinal {
-                    // 只有非空文本才算真正 final；否则自动重启继续听
+                    // Only treat non-empty text as final; otherwise restart listening
                     if !txt.isEmpty {
                         Task {
                             await self.emitFinalIfNeeded(txt)
-                            await self.stop()  // 会触发上层完成与 UI 收尾
+                            await self.stop()  // Allow the caller to complete UI teardown
                         }
                     } else {
-                        // 空 final：很可能是系统超时／静音终止但未识别出文本
+                        // Empty finals usually indicate a timeout or silence without text
                         Task {
                             await self.handleEmptyFinalAndRestart()
                         }
@@ -419,7 +421,7 @@ actor SpeechRecognizerWorker {
                 }
             }
 
-            // 真错误才整体停
+            // Stop only on genuine errors
             if let _ = err {
                 Task { await self.stop() }
             }
@@ -429,7 +431,7 @@ actor SpeechRecognizerWorker {
     // MARK: - Actor helpers ------------------------------------------------------------
 
     private func handleAmplitude(_ level: Float) {
-        // 仅用于 UI 电平显示与“开始后首次活动时间”记录；不再凭能量阈值触发静默结束
+        // Record activity for UI feedback; silence detection relies on explicit timers
         registerVoiceActivity(level)
         onLevelHandler?(level)
     }
@@ -449,34 +451,34 @@ actor SpeechRecognizerWorker {
         lastNonEmptyText = text
         hasRecognizedText = true
         lastSpeechAt = .now
-        // 进入“保护期”：最近刚产生有效文本，短时停顿不应立即收麦
+        // Enter a grace period so short pauses after speech do not end the session
         graceUntil = Date().addingTimeInterval(postPartialGrace)
-        // 记录首次文本时间，用于保证最短会话时长
+        // Track the first piece of text to enforce the minimum session duration
         if firstTextAt == nil { firstTextAt = .now }
     }
 
     private func registerVoiceActivity(_ level: Float) {
-        // 只记录时间戳，防止一开始就因为环境噪声导致误判结束
+        // Only record a timestamp to avoid false positives from initial noise
         if level >= vadLevelThreshold {
             lastSpeechAt = .now
         }
     }
 
-    /// 收到“空 final”时不结束会话，直接重置 request+task 继续监听
+    /// Restart recognition when the recognizer reports an empty final result
     private func handleEmptyFinalAndRestart() async {
-        // 只有当不是我们主动因静默（已识别文本后）结束时，才重启
+        // Restart only if we did not explicitly end audio because of silence
         if didEndAudioForSilence {
-            // 这是我们主动 endAudio 触发的 final（理论上应有文本）；保持保守，直接停
+            // We triggered endAudio ourselves and expect text; stop to avoid loops
             await stop()
             return
         }
-        // 重新创建 request+tap，并重新 attach 任务，保持引擎持续运行
+        // Recreate the request and tap so the engine keeps running continuously
         do {
             try await makeNewRequestAndTap()
             attachRecognitionTask()
-            // 不改动 hasRecognizedText；仍然要求先出文本才允许静默自动结束
+            // Preserve hasRecognizedText; silence should still require prior text
         } catch {
-            // 如果重启失败，安全落地：整体 stop
+            // On failure fall back to stopping entirely
             await stop()
         }
     }
@@ -496,13 +498,13 @@ actor SpeechRecognizerWorker {
 
     private func checkSilenceTimeout() {
         guard !didEmitFinal else { return }
-        // 仅当“已经产生过非空转写文本”之后，才根据静默时间结束输入
+        // Only allow silence to end input after non-empty text has been produced
         guard hasRecognizedText, let last = lastSpeechAt else { return }
 
-        // 若仍在“保护期”内，直接返回（避免刚说完一小段就被截断）
+        // Respect the post-partial grace period to avoid cutting short brief pauses
         if let g = graceUntil, Date() < g { return }
 
-        // 若距离首次文本出现的时间不足最短会话时长，也不结束
+        // Do not end early if the session has not reached the minimum active duration
         if let first = firstTextAt {
             let alive = Date().timeIntervalSince(first)
             if alive < minActiveAfterFirstText { return }
@@ -510,14 +512,14 @@ actor SpeechRecognizerWorker {
 
         let elapsed = Date().timeIntervalSince(last)
         if elapsed > silenceLimit && !didEndAudioForSilence {
-            // 结束音频输入，交给 recognizer 产出 isFinal（此时已保证有文本）
+            // End audio so the recognizer can deliver its final result
             request?.endAudio()
             didEndAudioForSilence = true
         }
     }
 }
 
-/// 仅把音频缓冲 append 给识别请求，并回调音量（Sendable，避免跨 actor 检查）
+/// Wraps buffering audio into the recognition request and reports amplitude in a Sendable manner
 final class AudioTap: @unchecked Sendable {
     private let request: SFSpeechAudioBufferRecognitionRequest
     var amplitudeHandler: (@Sendable (Float) -> Void)?
@@ -529,7 +531,7 @@ final class AudioTap: @unchecked Sendable {
     func handle(buffer: AVAudioPCMBuffer) {
         request.append(buffer)
 
-        // 计算 RMS 作为能量指标（单声道/多声道皆可）
+        // Calculate RMS amplitude across all channels
         var rms: Float = 0
         if let chan = buffer.floatChannelData {
             let frames = Int(buffer.frameLength)

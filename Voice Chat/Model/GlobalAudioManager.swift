@@ -23,7 +23,7 @@ final class GlobalAudioManager: NSObject, ObservableObject, AVAudioPlayerDelegat
     @Published var isBuffering: Bool = false
     @Published var errorMessage: String?
 
-    // ★ 新增：输出电平（0~1），用于实时语音界面“说话时”圆圈缩放
+    // Published output level (0...1) used by the realtime voice overlay
     @Published var outputLevel: Float = 0
 
     // MARK: - Players & Timers
@@ -63,17 +63,17 @@ final class GlobalAudioManager: NSObject, ObservableObject, AVAudioPlayerDelegat
     let langCache = NSCache<NSString, NSString>()
     let wordCountCache = NSCache<NSString, NSNumber>()
 
-    // 每次 startProcessing 生成，旧回调一律丢弃，避免“已取消”误报/状态写脏
+    // Regenerate this identifier for each request so stale callbacks can be ignored safely
     var currentGenerationID = UUID()
 
-    // ★ 新增：实时流播模式开关与收尾标记
+    // Flags that drive realtime streaming lifecycle
     private(set) var isRealtimeMode: Bool = false
     private var realtimeFinalized: Bool = false
 
-    // ★★★ 新增：实时模式下严格排队（一次仅 1 个请求在飞）
+    // Serialized queue that throttles realtime requests to a single in-flight item
     var pendingRealtimeIndexes: [Int] = []
 
-    // MARK: - Entry（整段文本模式）
+    // MARK: - Standard processing entry point
     func startProcessing(text: String) {
         currentGenerationID = UUID()
         isRealtimeMode = false
@@ -102,8 +102,8 @@ final class GlobalAudioManager: NSObject, ObservableObject, AVAudioPlayerDelegat
         sendNextSegment()
     }
 
-    // MARK: - Realtime Pipeline（★ 新增）
-    /// 开始一次“实时语音流”播放（先不提供文本，随后由 appendRealtimeSegment 逐段追加）
+    // MARK: - Realtime pipeline
+    /// Starts a realtime audio stream; text segments will be appended incrementally afterwards.
     func startRealtimeStream() {
         currentGenerationID = UUID()
         isRealtimeMode = true
@@ -114,7 +114,7 @@ final class GlobalAudioManager: NSObject, ObservableObject, AVAudioPlayerDelegat
         withAnimation(.spring(response: 0.28, dampingFraction: 0.85, blendDuration: 0.12)) {
             isShowingAudioPlayer = true
         }
-        // ★ 关键：实时模式初始不算“播放中”，直到真正开始播放音频
+        // Realtime mode stays idle until audio is actually available
         isLoading = true
         isAudioPlaying = false
         currentTime = 0
@@ -128,22 +128,22 @@ final class GlobalAudioManager: NSObject, ObservableObject, AVAudioPlayerDelegat
         currentPlayingIndex = 0
     }
 
-    /// 追加一段可播文本（实时模式：进入严格排队；普通模式：直接发）
+    /// Appends a playable text segment. Realtime mode enqueues strictly; standard mode fires immediately.
     func appendRealtimeSegment(_ text: String) {
         guard isRealtimeMode else { return }
         let idx = textSegments.count
         textSegments.append(text)
         audioChunks.append(nil)
         chunkDurations.append(0)
-        // ★ 改为排队：一次只发一个
+        // Enqueue so that only one realtime request is in flight
         enqueueRealtimeIndex(idx)
     }
 
-    /// 结束本次实时流（刷新收尾；若全部播放完则结束）
+    /// Marks the realtime stream as finished; playback ends once outstanding audio completes.
     func finishRealtimeStream() {
         guard isRealtimeMode else { return }
         realtimeFinalized = true
-        // 如所有音频已加载且播放完毕，则自然触发 finishPlayback；否则等待计时器/回调推进。
+        // If everything is already buffered the standard completion handler will close the player.
     }
 
     // MARK: - Play/Pause
@@ -154,7 +154,7 @@ final class GlobalAudioManager: NSObject, ObservableObject, AVAudioPlayerDelegat
         }
 
         if !isAudioPlaying {
-            // 用户请求开始播放
+            // User requested playback
             if playbackFinished() {
                 isAudioPlaying = false
                 return
@@ -162,7 +162,7 @@ final class GlobalAudioManager: NSObject, ObservableObject, AVAudioPlayerDelegat
             if let chunkOpt = audioChunks[safe: currentPlayingIndex], let _ = chunkOpt {
                 let didStart = playAudioChunk(at: currentPlayingIndex, fromTime: currentTime, shouldPlay: true)
                 if isRealtimeMode {
-                    // 只有真正开播才认为播放中
+                    // Only flag playback once audio actually begins
                     isAudioPlaying = didStart
                     isLoading = !didStart
                 } else {
@@ -173,16 +173,16 @@ final class GlobalAudioManager: NSObject, ObservableObject, AVAudioPlayerDelegat
                 isBuffering = true
                 startStallWatchdog()
                 if isRealtimeMode {
-                    // 实时模式：数据未到 -> 继续显示加载中，不置播放中
+                    // Remain in loading state while waiting for realtime data
                     isLoading = true
                     isAudioPlaying = false
                 } else {
-                    // 普通模式保留原行为
+                    // Preserve the standard behavior for pre-generated audio
                     isAudioPlaying = true
                 }
             }
         } else {
-            // 暂停
+            // Pause
             isAudioPlaying = false
             audioPlayer?.pause()
             stopAudioTimer()
@@ -229,7 +229,7 @@ final class GlobalAudioManager: NSObject, ObservableObject, AVAudioPlayerDelegat
             seekTime = newT
             stopAudioTimer()
             startStallWatchdog()
-            // ★ 实时模式下：缺段即视为加载中且不算播放
+            // Treat missing realtime chunks as a loading state without toggling playback
             if isRealtimeMode {
                 isLoading = true
                 if shouldPlay { isAudioPlaying = false }
@@ -289,7 +289,7 @@ final class GlobalAudioManager: NSObject, ObservableObject, AVAudioPlayerDelegat
     // MARK: - Realtime queue helpers (NEW)
     func enqueueRealtimeIndex(_ index: Int) {
         if !isRealtimeMode {
-            // 普通模式直接发
+            // For non-realtime playback send immediately
             sendTTSRequest(for: textSegments[index], index: index)
             return
         }

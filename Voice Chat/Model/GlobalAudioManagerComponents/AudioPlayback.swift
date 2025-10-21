@@ -147,7 +147,7 @@ extension GlobalAudioManager {
             prepareNextAudioChunk(at: index + 1)
             return true
         } catch {
-            self.errorMessage = "Failed to start audio playback: \(error.localizedDescription)"
+            self.errorMessage = L10n.Audio.errorPlaybackFailed(error.localizedDescription)
             isBuffering = true
             startStallWatchdog()
             if isRealtimeMode {

@@ -18,10 +18,10 @@ extension GlobalAudioManager {
         return URL(string: "\(addr)/tts")
     }
 
-    // MARK: - Request Queue（整段模式才使用 sendNextSegment）
+    // MARK: - Request queue
     func sendNextSegment() {
         guard currentChunkIndex < textSegments.count else { return }
-        guard !isRealtimeMode else { return } // ★ 实时模式不使用递归链
+        guard !isRealtimeMode else { return } // Real-time mode manages its own queue
         let idx = currentChunkIndex
         currentChunkIndex += 1
         sendTTSRequest(for: textSegments[idx], index: idx)
@@ -30,7 +30,7 @@ extension GlobalAudioManager {
     func sendTTSRequest(for segmentText: String, index: Int) {
         guard !inFlightIndexes.contains(index) else { return }
         guard let url = constructTTSURL() else {
-            self.errorMessage = "Unable to construct TTS URL"
+            self.errorMessage = L10n.Audio.errorConstructURL
             return
         }
         inFlightIndexes.insert(index)
@@ -52,9 +52,9 @@ extension GlobalAudioManager {
         params["text_split_method"] = s.voiceSettings.enableStreaming ? "cut0" : s.modelSettings.autoSplit
 
         guard let body = try? JSONSerialization.data(withJSONObject: params) else {
-            self.errorMessage = "Unable to serialize JSON"
+            self.errorMessage = L10n.Audio.errorSerializeJSON
             inFlightIndexes.remove(index)
-            // 实时模式：尝试继续队列，避免卡死
+            // Continue dequeuing in real-time mode to avoid stalling
             if isRealtimeMode { processRealtimeQueueIfNeeded() }
             return
         }
@@ -77,7 +77,7 @@ extension GlobalAudioManager {
                     if self.isRealtimeMode {
                         self.processRealtimeQueueIfNeeded()
                     } else {
-                        // 普通模式按链式逐段发送
+                        // Sequentially send the remaining segments when not streaming
                         self.sendNextSegment()
                     }
                 }
@@ -86,21 +86,21 @@ extension GlobalAudioManager {
                     if err.domain == NSURLErrorDomain && err.code == NSURLErrorCancelled {
                         return
                     }
-                    self.errorMessage = err.localizedDescription
+                    self.errorMessage = L10n.Audio.errorNetwork(err.localizedDescription)
                     return
                 }
 
                 if let http = resp as? HTTPURLResponse, !(200...299).contains(http.statusCode) {
-                    self.errorMessage = "TTS server error: \(http.statusCode)"
+                    self.errorMessage = L10n.Audio.errorServer(http.statusCode)
                     return
                 }
 
                 guard let data = data, !data.isEmpty else {
-                    self.errorMessage = "No data received"
+                    self.errorMessage = L10n.Audio.errorNoData
                     return
                 }
 
-                // 确保数组越界安全（实时模式下数组是动态增长的）
+                // Ensure we have storage for dynamically appended real-time chunks
                 if index >= self.audioChunks.count {
                     let delta = index - self.audioChunks.count + 1
                     for _ in 0..<delta {

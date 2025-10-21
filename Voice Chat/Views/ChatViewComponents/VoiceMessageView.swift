@@ -22,7 +22,7 @@ struct VoiceMessageView: View {
     private let thinkFont: Font = .system(size: 14, design: .monospaced)
 
     var body: some View {
-        // 错误气泡特殊处理
+        // Special handling for error bubbles
         if message.content.hasPrefix("!error:") {
             return AnyView(
                 HStack {
@@ -83,7 +83,7 @@ struct VoiceMessageView: View {
     }
 }
 
-// ContextMenu modifier for user messages only
+// Context menu modifier for user messages only
 struct UserContextMenuModifier: ViewModifier {
     let isUser: Bool
     let message: ChatMessage
@@ -96,9 +96,15 @@ struct UserContextMenuModifier: ViewModifier {
             content.contextMenu(menuItems: {
                 let parts = message.content.extractThinkParts()
                 let bodyText = parts.body
-                Button { copyToClipboard(bodyText) } label: { Label("复制", systemImage: "doc.on.doc") }
-                Button { onSelectText(bodyText) } label: { Label("选择文本", systemImage: "text.cursor") }
-                Button { onEditUserMessage(message) } label: { Label("编辑", systemImage: "pencil") }
+                Button { copyToClipboard(bodyText) } label: {
+                    Label { Text(L10n.VoiceMessage.copy) } icon: { Image(systemName: "doc.on.doc") }
+                }
+                Button { onSelectText(bodyText) } label: {
+                    Label { Text(L10n.VoiceMessage.selectText) } icon: { Image(systemName: "text.cursor") }
+                }
+                Button { onEditUserMessage(message) } label: {
+                    Label { Text(L10n.VoiceMessage.edit) } icon: { Image(systemName: "pencil") }
+                }
             })
         } else {
             content
@@ -115,13 +121,13 @@ struct ErrorBubbleView: View {
             HStack(spacing: 8) {
                 Image(systemName: "exclamationmark.triangle.fill")
                     .foregroundStyle(.white)
-                Text("发生错误")
+                Text(L10n.VoiceMessage.errorTitle)
                     .foregroundStyle(.white)
                     .font(.headline)
             }
             .padding(.bottom, 2)
 
-            Text(text.isEmpty ? "未知错误" : text)
+            Text(text.isEmpty ? L10n.VoiceMessage.errorFallback : text)
                 .foregroundStyle(.white.opacity(0.95))
                 .font(.subheadline)
 
@@ -130,7 +136,7 @@ struct ErrorBubbleView: View {
                 Button {
                     onRetry()
                 } label: {
-                    Label("重试", systemImage: "arrow.clockwise")
+                    Label { Text(L10n.VoiceMessage.retry) } icon: { Image(systemName: "arrow.clockwise") }
                         .font(.subheadline.weight(.semibold))
                         .padding(.vertical, 6)
                         .padding(.horizontal, 10)
@@ -175,7 +181,7 @@ struct SystemTextBubble: View {
                             Image(systemName: "checkmark.seal.fill")
                                 .font(.subheadline)
                                 .foregroundStyle(.green)
-                            Text("思考完毕")
+                            Text(L10n.VoiceMessage.thinkingFinished)
                                 .foregroundColor(.secondary)
                                 .font(.caption)
                         }
@@ -201,7 +207,7 @@ struct SystemTextBubble: View {
                                 Image(systemName: "brain.head.profile")
                                     .font(.subheadline)
                                     .foregroundStyle(.orange)
-                                Text("思考中")
+                                Text(L10n.VoiceMessage.thinkingInProgress)
                                     .foregroundColor(.secondary)
                                     .font(.caption)
                             }
@@ -250,7 +256,7 @@ struct SystemTextBubble: View {
                             .font(.system(size: 16, weight: .semibold))
                             #endif
                             .padding(2)
-                            .accessibilityLabel("复制")
+                            .accessibilityLabel(Text(L10n.Accessibility.copy))
                     }
                     .buttonStyle(.plain)
                     .foregroundStyle(.secondary)
@@ -263,7 +269,7 @@ struct SystemTextBubble: View {
                             .font(.system(size: 16, weight: .semibold))
                             #endif
                             .padding(2)
-                            .accessibilityLabel("重新生成")
+                            .accessibilityLabel(Text(L10n.Accessibility.regenerate))
                     }
                     .buttonStyle(.plain)
                     .foregroundStyle(.secondary)
@@ -276,7 +282,7 @@ struct SystemTextBubble: View {
                             .font(.system(size: 16, weight: .semibold))
                             #endif
                             .padding(2)
-                            .accessibilityLabel("朗读")
+                            .accessibilityLabel(Text(L10n.Accessibility.readAloud))
                     }
                     .buttonStyle(.plain)
                     .foregroundStyle(.secondary)
@@ -307,7 +313,7 @@ struct UserTextBubble: View {
                 .frame(maxWidth: contentMaxWidthForUser(), alignment: .trailing)
 
             if text.count > maxCharacters {
-                Button(expanded ? "收起" : "显示完整信息") {
+                Button(expanded ? L10n.VoiceMessage.collapse : L10n.VoiceMessage.showFull) {
                     withAnimation(.easeInOut) { expanded.toggle() }
                 }
                 .font(.caption)
