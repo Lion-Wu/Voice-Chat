@@ -10,11 +10,10 @@ import Combine
 
 @MainActor
 class SettingsViewModel: ObservableObject {
-    // MARK: - 旧设置（保留）
+    // MARK: - Legacy settings (still persisted)
     @Published var serverAddress: String { didSet { saveServerSettings() } }
     @Published var textLang: String { didSet { saveServerSettings() } }
 
-    // ★ 下列三个迁移至预设管理，这里不再直接绑定到 ServerSettings
     @Published var refAudioPath_legacy: String { didSet { saveServerSettings() } }
     @Published var promptText_legacy: String { didSet { saveServerSettings() } }
     @Published var promptLang_legacy: String { didSet { saveServerSettings() } }
@@ -22,11 +21,16 @@ class SettingsViewModel: ObservableObject {
     @Published var apiURL: String { didSet { saveChatSettings() } }
     @Published var selectedModel: String { didSet { saveChatSettings() } }
 
+    // MARK: - Remote model list
+    @Published var availableModels: [String]
+    @Published var isFetchingModels: Bool = false
+    @Published var errorMessage: String?
+
     @Published var enableStreaming: Bool {
         didSet {
             saveVoiceSettings()
             if enableStreaming {
-                // 开启流式时，强制切为 cut0
+                // Force cut0 when streaming is enabled.
                 autoSplit = "cut0"
             }
         }
@@ -37,7 +41,7 @@ class SettingsViewModel: ObservableObject {
     @Published var modelId: String { didSet { saveModelSettings() } }
     @Published var language: String { didSet { saveModelSettings() } }
 
-    // MARK: - 预设 UI 绑定
+    // MARK: - Preset bindings for the UI
     struct PresetSummary: Identifiable, Equatable {
         var id: UUID
         var name: String
@@ -48,7 +52,7 @@ class SettingsViewModel: ObservableObject {
         didSet {
             if !suppressPresetDidSet {
                 SettingsManager.shared.selectPreset(selectedPresetID, apply: true)
-                // 切换后重新拉取当前预设的字段
+                // Reload fields after switching the selected preset.
                 loadSelectedPresetFields()
             }
         }
@@ -64,7 +68,7 @@ class SettingsViewModel: ObservableObject {
     // MARK: - Dependency
     private let settingsManager = SettingsManager.shared
 
-    // 防止切换时 didSet 递归
+    // Prevent recursive didSet when toggling state.
     private var suppressPresetDidSet = false
     private var suppressSavePreset = false
 
@@ -80,6 +84,7 @@ class SettingsViewModel: ObservableObject {
         let c = settingsManager.chatSettings
         apiURL = c.apiURL
         selectedModel = c.selectedModel
+        availableModels = selectedModel.isEmpty ? [] : [selectedModel]
 
         let v = settingsManager.voiceSettings
         enableStreaming = v.enableStreaming
@@ -94,10 +99,10 @@ class SettingsViewModel: ObservableObject {
         loadSelectedPresetFields()
     }
 
-    // MARK: - Persist（旧设置）
+    // MARK: - Persist legacy fields
 
     func saveServerSettings() {
-        // 旧字段保持回写（ref/prompt_* 仅兼容；TTS 不再读取它们）
+        // Keep writing legacy fields for backward compatibility.
         settingsManager.updateServerSettings(
             serverAddress: serverAddress,
             textLang: textLang,
@@ -170,11 +175,11 @@ class SettingsViewModel: ObservableObject {
             gptWeightsPath: presetGPTWeightsPath,
             sovitsWeightsPath: presetSoVITSWeightsPath
         )
-        // 名称可能变化，刷新列表显示
+        // Update the list when the preset name changes.
         reloadPresetListAndSelection()
     }
 
-    // UI 操作
+    // MARK: - UI operations
     func addPreset() {
         if let p = settingsManager.createPreset() {
             reloadPresetListAndSelection()
@@ -193,5 +198,51 @@ class SettingsViewModel: ObservableObject {
 
     func applySelectedPresetNow() {
         Task { await settingsManager.applySelectedPreset() }
+    }
+
+    // MARK: - Remote models
+
+    func refreshAvailableModels() {
+        guard !apiURL.isEmpty else {
+            errorMessage = String(localized: "API URL is empty or invalid.")
+            return
+        }
+
+        guard let url = URL(string: "\(apiURL)/v1/models") else {
+            errorMessage = String(localized: "Invalid API URL")
+            return
+        }
+
+        isFetchingModels = true
+        errorMessage = nil
+
+        Task {
+            defer { isFetchingModels = false }
+            do {
+                let (data, _) = try await URLSession.shared.data(from: url)
+                do {
+                    let modelList = try JSONDecoder().decode(ModelListResponse.self, from: data)
+                    availableModels = modelList.data.map { $0.id }
+                    if !availableModels.contains(selectedModel), let first = availableModels.first {
+                        selectedModel = first
+                    }
+                } catch {
+                    errorMessage = String(localized: "Unable to parse model list")
+                }
+            } catch {
+                errorMessage = String(
+                    format: String(localized: "Request failed: %@"),
+                    (error as NSError).localizedDescription
+                )
+            }
+        }
+    }
+
+    func clearErrorMessage() {
+        errorMessage = nil
+    }
+
+    var canDeleteSelectedPreset: Bool {
+        presetList.count > 1 && selectedPresetID != nil
     }
 }

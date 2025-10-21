@@ -7,98 +7,95 @@
 
 import SwiftUI
 
-// MARK: - Alert Model
-
-struct AlertError: Identifiable {
-    var id = UUID()
-    var message: String
-}
-
 // MARK: - Settings View
 
 struct SettingsView: View {
     @ObservedObject var viewModel: SettingsViewModel
 
-    @State private var availableModels: [String] = []
-    @State private var isLoadingModels = false
-    @State private var errorMessage: AlertError?
-
-    // 预设删除确认
+    // Controls the confirmation alert when deleting a preset.
     @State private var showDeletePresetAlert = false
 
     @EnvironmentObject var settingsManager: SettingsManager
     @Environment(\.dismiss) private var dismiss
 
-    init() {
-        _viewModel = ObservedObject(wrappedValue: SettingsViewModel())
+    init(viewModel: SettingsViewModel = SettingsViewModel()) {
+        _viewModel = ObservedObject(wrappedValue: viewModel)
     }
 
     var body: some View {
         #if os(macOS)
-        VStack(spacing: 0) {
-            Form {
-                serverSection
-                presetSection
-                voiceOutputSection
-                chatSection
-            }
+        settingsForm
             .formStyle(.grouped)
-        }
-        .frame(width: 600, height: 720)
-        .onAppear { fetchAvailableModels() }
-        .alert(item: $errorMessage) { error in
-            Alert(title: Text("Error"),
-                  message: Text(error.message),
-                  dismissButton: .default(Text("OK")))
-        }
-        .alert("Delete this preset?",
-               isPresented: $showDeletePresetAlert) {
-            Button("Delete", role: .destructive) { viewModel.deleteCurrentPreset() }
-            Button("Cancel", role: .cancel) { }
-        } message: {
-            Text("This action cannot be undone.")
-        }
+            .frame(width: 600, height: 720)
+            .task { viewModel.refreshAvailableModels() }
+            .alert(String(localized: "Error"), isPresented: errorBinding) {
+                Button(String(localized: "OK")) { viewModel.clearErrorMessage() }
+            } message: {
+                if let message = viewModel.errorMessage {
+                    Text(message)
+                }
+            }
+            .alert(String(localized: "Delete this preset?"),
+                   isPresented: $showDeletePresetAlert) {
+                Button(String(localized: "Delete"), role: .destructive) { viewModel.deleteCurrentPreset() }
+                Button(String(localized: "Cancel"), role: .cancel) { }
+            } message: {
+                Text(String(localized: "This action cannot be undone."))
+            }
         #else
         NavigationView {
-            Form {
-                serverSection
-                presetSection
-                voiceOutputSection
-                chatSection
-            }
-            .navigationBarTitle("Settings", displayMode: .inline)
+            settingsForm
+                .navigationBarTitle("Settings", displayMode: .inline)
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button("Close") { dismiss() }
                 }
             }
-            .onAppear { fetchAvailableModels() }
-            .alert(item: $errorMessage) { error in
-                Alert(title: Text("Error"),
-                      message: Text(error.message),
-                      dismissButton: .default(Text("OK")))
+        }
+        .task { viewModel.refreshAvailableModels() }
+        .alert(String(localized: "Error"), isPresented: errorBinding) {
+            Button(String(localized: "OK")) { viewModel.clearErrorMessage() }
+        } message: {
+            if let message = viewModel.errorMessage {
+                Text(message)
             }
-            .alert("Delete this preset?",
-                   isPresented: $showDeletePresetAlert) {
-                Button("Delete", role: .destructive) { viewModel.deleteCurrentPreset() }
-                Button("Cancel", role: .cancel) { }
-            } message: {
-                Text("This action cannot be undone.")
-            }
+        }
+        .alert(String(localized: "Delete this preset?"),
+               isPresented: $showDeletePresetAlert) {
+            Button(String(localized: "Delete"), role: .destructive) { viewModel.deleteCurrentPreset() }
+            Button(String(localized: "Cancel"), role: .cancel) { }
+        } message: {
+            Text(String(localized: "This action cannot be undone."))
         }
         #endif
     }
 
-    // MARK: - Sections (统一使用 Form + Section，恢复分割线，行距更舒展)
+    private var settingsForm: some View {
+        Form {
+            serverSection
+            presetSection
+            voiceOutputSection
+            chatSection
+        }
+    }
+
+    private var errorBinding: Binding<Bool> {
+        Binding(
+            get: { viewModel.errorMessage != nil },
+            set: { if !$0 { viewModel.clearErrorMessage() } }
+        )
+    }
+
+    // MARK: - Sections
 
     private var serverSection: some View {
         Section(header: Text("Voice Server")) {
-            LabeledTextField(
+            SettingsFieldRow(
                 label: "Server Address",
                 placeholder: "http://127.0.0.1:9880",
                 text: $viewModel.serverAddress
             )
-            LabeledTextField(
+            SettingsFieldRow(
                 label: "Text Language",
                 placeholder: "text_lang (e.g. auto/zh/en)",
                 text: $viewModel.textLang
@@ -108,54 +105,52 @@ struct SettingsView: View {
 
     private var presetSection: some View {
         Section(header: Text("Model Preset")) {
-            // Preset Picker Row + actions
+            // Preset picker row and related actions.
             VStack(spacing: 10) {
                 #if os(macOS)
-                HStack(alignment: .center, spacing: 12) {
-                    Text("Current Preset")
-                        .frame(width: 150, alignment: .trailing)
+                SettingsPickerRow(label: "Current Preset") {
                     Picker("", selection: $viewModel.selectedPresetID) {
-                        ForEach(viewModel.presetList) { p in
-                            Text(p.name).tag(Optional.some(p.id))
+                        ForEach(viewModel.presetList) { preset in
+                            Text(preset.name).tag(Optional.some(preset.id))
                         }
                     }
-                    .pickerStyle(.menu) // macOS: explicit Pop-up style
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .labelsHidden()
+                    .pickerStyle(.menu)
+                    .frame(maxWidth: macFieldWidth)
                 }
 
-                HStack(spacing: 12) {
-                    Spacer()
-
-                    // Add preset — use plain style and explicit hit shape to avoid overlap
-                    Button {
-                        viewModel.addPreset()
-                    } label: {
-                        Label {
-                            Text("Add")
-                        } icon: {
-                            Image(systemName: "plus.circle.fill")
+                if #available(macOS 13.0, *) {
+                    ControlGroup {
+                        Button {
+                            viewModel.addPreset()
+                        } label: {
+                            Label("Add", systemImage: "plus.circle")
                         }
-                    }
-                    .buttonStyle(.plain)
-                    .contentShape(Rectangle())
-                    .padding(.horizontal, 2)
 
-                    // Delete preset — destructive role + red trash icon, plain style to avoid menu-like propagation
-                    Button(role: .destructive) {
-                        showDeletePresetAlert = true
-                    } label: {
-                        Label {
-                            Text("Delete")
-                        } icon: {
-                            Image(systemName: "trash")
-                                .symbolRenderingMode(.monochrome)
-                                .foregroundStyle(.red)
+                        Button(role: .destructive) {
+                            showDeletePresetAlert = true
+                        } label: {
+                            Label("Delete", systemImage: "trash")
                         }
+                        .disabled(!viewModel.canDeleteSelectedPreset)
                     }
-                    .buttonStyle(.plain)
-                    .contentShape(Rectangle())
-                    .padding(.horizontal, 2)
-                    .disabled(viewModel.presetList.count <= 1 || viewModel.selectedPresetID == nil)
+                    .controlGroupStyle(.compactMenu)
+                    .controlSize(.small)
+                } else {
+                    HStack(spacing: 12) {
+                        Button {
+                            viewModel.addPreset()
+                        } label: {
+                            Label("Add", systemImage: "plus.circle")
+                        }
+
+                        Button(role: .destructive) {
+                            showDeletePresetAlert = true
+                        } label: {
+                            Label("Delete", systemImage: "trash")
+                        }
+                        .disabled(!viewModel.canDeleteSelectedPreset)
+                    }
                 }
                 #else
                 VStack(alignment: .leading, spacing: 8) {
@@ -189,12 +184,12 @@ struct SettingsView: View {
                         }
                         .buttonStyle(.plain)
                         .contentShape(Rectangle())
-                        .disabled(viewModel.presetList.count <= 1 || viewModel.selectedPresetID == nil)
+                        .disabled(!viewModel.canDeleteSelectedPreset)
                     }
                 }
                 #endif
 
-                // Applying status / error
+                // Applying status / error state feedback.
                 if settingsManager.isApplyingPreset {
                     HStack(spacing: 8) {
                         ProgressView()
@@ -213,28 +208,28 @@ struct SettingsView: View {
                 }
             }
 
-            // Preset fields (清晰分组 + 有序排布)
+            // Preset fields grouped for clarity.
             Group {
-                LabeledTextField(label: "Preset Name",
-                                 placeholder: "Preset name",
-                                 text: $viewModel.presetName)
+                SettingsFieldRow(label: "Preset Name",
+                                  placeholder: "Preset name",
+                                  text: $viewModel.presetName)
 
-                LabeledTextField(label: "ref_audio_path",
-                                 placeholder: "GPT_SoVITS/refs/xxx.wav",
-                                 text: $viewModel.presetRefAudioPath)
-                LabeledTextField(label: "prompt_text",
-                                 placeholder: "参考文本（可选）",
-                                 text: $viewModel.presetPromptText)
-                LabeledTextField(label: "prompt_lang",
-                                 placeholder: "auto/zh/en ...",
-                                 text: $viewModel.presetPromptLang)
+                SettingsFieldRow(label: "ref_audio_path",
+                                  placeholder: "GPT_SoVITS/refs/xxx.wav",
+                                  text: $viewModel.presetRefAudioPath)
+                SettingsFieldRow(label: "prompt_text",
+                                  placeholder: "Reference text (optional)",
+                                  text: $viewModel.presetPromptText)
+                SettingsFieldRow(label: "prompt_lang",
+                                  placeholder: "auto/zh/en ...",
+                                  text: $viewModel.presetPromptLang)
 
-                LabeledTextField(label: "GPT weights path",
-                                 placeholder: "GPT_SoVITS/pretrained_models/s1xxx.ckpt",
-                                 text: $viewModel.presetGPTWeightsPath)
-                LabeledTextField(label: "SoVITS weights path",
-                                 placeholder: "GPT_SoVITS/pretrained_models/s2xxx.pth",
-                                 text: $viewModel.presetSoVITSWeightsPath)
+                SettingsFieldRow(label: "GPT weights path",
+                                  placeholder: "GPT_SoVITS/pretrained_models/s1xxx.ckpt",
+                                  text: $viewModel.presetGPTWeightsPath)
+                SettingsFieldRow(label: "SoVITS weights path",
+                                  placeholder: "GPT_SoVITS/pretrained_models/s2xxx.pth",
+                                  text: $viewModel.presetSoVITSWeightsPath)
             }
 
             // Apply button
@@ -254,19 +249,9 @@ struct SettingsView: View {
     private var voiceOutputSection: some View {
         Section(header: Text("Voice Output")) {
             #if os(macOS)
-            HStack {
-                Text("Enable Streaming")
-                    .frame(width: 150, alignment: .trailing)
-                Toggle("", isOn: $viewModel.enableStreaming)
-            }
-            HStack {
-                Text("Auto Read After Generation")
-                    .frame(width: 150, alignment: .trailing)
-                Toggle("", isOn: $viewModel.autoReadAfterGeneration)
-            }
-            HStack {
-                Text("Split Method")
-                    .frame(width: 150, alignment: .trailing)
+            SettingsToggleRow(label: "Enable Streaming", isOn: $viewModel.enableStreaming)
+            SettingsToggleRow(label: "Auto Read After Generation", isOn: $viewModel.autoReadAfterGeneration)
+            SettingsPickerRow(label: "Split Method") {
                 Picker("", selection: $viewModel.autoSplit) {
                     Text("cut0: No Split").tag("cut0")
                     Text("cut1: every 4 sentences").tag("cut1")
@@ -275,7 +260,9 @@ struct SettingsView: View {
                     Text("cut4: by English period").tag("cut4")
                     Text("cut5: by punctuation").tag("cut5")
                 }
+                .labelsHidden()
                 .disabled(viewModel.enableStreaming)
+                .frame(maxWidth: macFieldWidth)
             }
             #else
             Toggle("Enable Streaming", isOn: $viewModel.enableStreaming)
@@ -295,29 +282,29 @@ struct SettingsView: View {
 
     private var chatSection: some View {
         Section(header: Text("Chat Server Settings")) {
-            LabeledTextField(label: "Chat API URL",
-                             placeholder: "Enter chat API URL",
-                             text: $viewModel.apiURL)
+            SettingsFieldRow(label: "Chat API URL",
+                              placeholder: "Enter chat API URL",
+                              text: $viewModel.apiURL)
 
-            if isLoadingModels {
+            if viewModel.isFetchingModels {
                 HStack {
                     ProgressView("Loading model list...")
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
             } else {
                 #if os(macOS)
-                HStack {
-                    Text("Select Model")
-                        .frame(width: 150, alignment: .trailing)
+                SettingsPickerRow(label: "Select Model") {
                     Picker("", selection: $viewModel.selectedModel) {
-                        ForEach(availableModels, id: \.self) { model in
+                        ForEach(viewModel.availableModels, id: \.self) { model in
                             Text(model).tag(model)
                         }
                     }
+                    .labelsHidden()
+                    .frame(maxWidth: macFieldWidth)
                 }
                 #else
                 Picker("Select Model", selection: $viewModel.selectedModel) {
-                    ForEach(availableModels, id: \.self) { model in
+                    ForEach(viewModel.availableModels, id: \.self) { model in
                         Text(model).tag(model)
                     }
                 }
@@ -326,79 +313,85 @@ struct SettingsView: View {
 
             HStack {
                 Spacer()
-                Button(action: fetchAvailableModels) {
+                Button(action: viewModel.refreshAvailableModels) {
                     Label("Refresh Model List", systemImage: "arrow.clockwise.circle")
                 }
             }
             .padding(.top, 6)
         }
     }
-
-    // MARK: - Networking (List Models)
-
-    private func fetchAvailableModels() {
-        guard !viewModel.apiURL.isEmpty else {
-            errorMessage = AlertError(message: "API URL is empty or invalid.")
-            return
-        }
-        isLoadingModels = true
-        errorMessage = nil
-
-        let urlString = "\(viewModel.apiURL)/v1/models"
-        guard let url = URL(string: urlString) else {
-            isLoadingModels = false
-            errorMessage = AlertError(message: "Invalid API URL")
-            return
-        }
-
-        let request = URLRequest(url: url, timeoutInterval: 30)
-        URLSession.shared.dataTask(with: request) { data, response, error in
-            DispatchQueue.main.async {
-                self.isLoadingModels = false
-                if let error = error {
-                    self.errorMessage = AlertError(message: "Request failed: \(error.localizedDescription)")
-                    return
-                }
-                guard let data = data,
-                      let modelList = try? JSONDecoder().decode(ModelListResponse.self, from: data) else {
-                    self.errorMessage = AlertError(message: "Unable to parse model list")
-                    return
-                }
-                self.availableModels = modelList.data.map { $0.id }
-                if !self.availableModels.contains(self.viewModel.selectedModel),
-                   let firstModel = self.availableModels.first {
-                    self.viewModel.selectedModel = firstModel
-                }
-            }
-        }.resume()
-    }
 }
 
-// MARK: - LabeledTextField
+#if os(macOS)
+private let macFieldWidth: CGFloat = 320
+#endif
 
-struct LabeledTextField: View {
-    var label: String
-    var placeholder: String
+// MARK: - Shared Form Helpers
+
+private struct SettingsFieldRow: View {
+    let label: LocalizedStringKey
+    let placeholder: LocalizedStringKey
     @Binding var text: String
 
     var body: some View {
         #if os(macOS)
-        HStack(alignment: .center, spacing: 12) {
-            Text(label)
-                .frame(width: 150, alignment: .trailing)
-                .foregroundColor(.secondary)
+        LabeledContent(label) {
             TextField(placeholder, text: $text)
                 .textFieldStyle(.roundedBorder)
-                .frame(maxWidth: .infinity)
+                .frame(maxWidth: macFieldWidth)
         }
         .padding(.vertical, 2)
         #else
-        HStack(spacing: 12) {
+        VStack(alignment: .leading, spacing: 6) {
             Text(label)
-            Spacer()
+                .font(.subheadline)
+                .foregroundColor(.secondary)
+            #if canImport(UIKit)
             TextField(placeholder, text: $text)
-                .multilineTextAlignment(.trailing)
+                .textInputAutocapitalization(.never)
+                .disableAutocorrection(true)
+            #else
+            TextField(placeholder, text: $text)
+            #endif
         }
+        #endif
+    }
+}
+
+private struct SettingsPickerRow<Content: View>: View {
+    let label: LocalizedStringKey
+    @ViewBuilder var content: () -> Content
+
+    var body: some View {
+        #if os(macOS)
+        LabeledContent(label) {
+            content()
+        }
+        .padding(.vertical, 2)
+        #else
+        VStack(alignment: .leading, spacing: 6) {
+            Text(label)
+                .font(.subheadline)
+                .foregroundColor(.secondary)
+            content()
+        }
+        #endif
+    }
+}
+
+private struct SettingsToggleRow: View {
+    let label: LocalizedStringKey
+    @Binding var isOn: Bool
+
+    var body: some View {
+        #if os(macOS)
+        LabeledContent(label) {
+            Toggle("", isOn: $isOn)
+                .labelsHidden()
+        }
+        .padding(.vertical, 2)
+        #else
+        Toggle(label, isOn: $isOn)
         #endif
     }
 }

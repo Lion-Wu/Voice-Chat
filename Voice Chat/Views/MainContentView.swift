@@ -10,19 +10,19 @@
 import Foundation
 import SwiftUI
 
-/// iOS/iPadOS 主视图：顶部左/右按钮，下面是 ChatView。
+/// iOS and iPadOS host view that wraps the chat UI with a custom sidebar toggle.
 struct MainContentView: View {
     @EnvironmentObject var chatSessionsViewModel: ChatSessionsViewModel
 
     let onToggleSidebar: () -> Void
 
-    /// 由子视图 ChatView 回传的当前会话消息数，用于决定右上角加号可用性。
+    /// Keeps track of the number of messages in the current session so the add button can be disabled when the conversation is empty.
     @State private var currentMessagesCount: Int = 0
 
     var body: some View {
         ZStack(alignment: .top) {
             VStack(spacing: 0) {
-                // 顶部条
+                // Top toolbar
                 HStack {
                     Button(action: { onToggleSidebar() }) {
                         Image(systemName: "line.3.horizontal")
@@ -41,7 +41,7 @@ struct MainContentView: View {
                 .background(Color(UIColor.systemBackground))
                 Divider()
 
-                // 聊天区域
+                // Chat area
                 if let selectedSession = chatSessionsViewModel.selectedSession {
                     ChatView(
                         chatSession: selectedSession,

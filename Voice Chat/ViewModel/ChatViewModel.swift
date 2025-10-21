@@ -29,23 +29,19 @@ class ChatViewModel: ObservableObject {
     private var currentAssistantMessageID: UUID?
     private var interruptedAssistantMessageID: UUID?
 
-    // ★ 新增：一次性开关——下一次请求是否启用“实时朗读”（仅在 Voice Overlay 触发时打开）
     private var enableRealtimeTTSNext: Bool = false
-    // ★ 新增：本轮是否处于实时朗读中
     private var realtimeTTSActive: Bool = false
-    // ★ 新增：增量切分器（忽略 think，按标点/长度切）
     private var incSegmenter = IncrementalTextSegmenter()
 
     // MARK: - Init
     init(chatSession: ChatSession) {
         self.chatSession = chatSession
 
-        // ★ 增量字符串回调（显式回到主线程）
         chatService.onDelta = { [weak self] piece in
             guard let self = self else { return }
             self.handleAssistantDelta(piece)
 
-            // 实时朗读：把“正文增量”送入切分器 -> 产出完整片段 -> 立即交给全局音频管理器
+            // When streaming speech, extract body segments and push them to the global audio manager immediately.
             if self.realtimeTTSActive {
                 let newSegments = self.incSegmenter.append(piece)
                 for seg in newSegments where !seg.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -78,7 +74,6 @@ class ChatViewModel: ObservableObject {
             self.chatSession.messages.append(err)
             self.onUpdate?()
 
-            // ★ 出错时，若处于实时模式，做一次收尾
             if self.realtimeTTSActive {
                 GlobalAudioManager.shared.finishRealtimeStream()
                 self.realtimeTTSActive = false
@@ -112,7 +107,6 @@ class ChatViewModel: ObservableObject {
 
             self.onUpdate?()
 
-            // ★ 流结束：若正处于实时朗读 -> 把剩余 buffer 刷出并结束；否则按原先“生成后自动朗读”
             if self.realtimeTTSActive {
                 let tails = self.incSegmenter.finalize()
                 for seg in tails where !seg.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -129,7 +123,7 @@ class ChatViewModel: ObservableObject {
         }
     }
 
-    // MARK: - 公共方法：供语音界面触发“下一轮启用实时朗读”
+    // MARK: - Realtime speech toggle
     func prepareRealtimeTTSForNextAssistant() {
         enableRealtimeTTSNext = true
     }
@@ -183,7 +177,6 @@ class ChatViewModel: ObservableObject {
         userMessage = ""
         onUpdate?()
 
-        // ★ 决定是否开启本轮“实时朗读”
         realtimeTTSActive = SettingsManager.shared.voiceSettings.enableStreaming && enableRealtimeTTSNext
         enableRealtimeTTSNext = false
         if realtimeTTSActive {
@@ -284,7 +277,7 @@ class ChatViewModel: ObservableObject {
         chatService.fetchStreamedData(messages: currentMessages)
     }
 
-    // MARK: - 编辑流程
+    // MARK: - Editing workflow
 
     func beginEditUserMessage(_ message: ChatMessage) {
         guard message.isUser else { return }
@@ -297,7 +290,7 @@ class ChatViewModel: ObservableObject {
         userMessage = ""
     }
 
-    // MARK: - Helpers (retry 清理辅助)
+    // MARK: - Helpers (retry cleanup helpers)
 
     private func indexOfNearestUnclosedThinkAssistant(beforeOrAt time: Date) -> Int? {
         let enumerated = chatSession.messages.enumerated()

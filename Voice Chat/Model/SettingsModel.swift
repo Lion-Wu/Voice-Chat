@@ -8,12 +8,12 @@
 import Foundation
 import SwiftData
 
-// MARK: - Value Types（与 UI 交互的轻量结构体）
+// MARK: - Value types for UI interaction
 
 struct ServerSettings: Codable {
     var serverAddress: String
     var textLang: String
-    // 下面三个已迁移到 VoicePreset，仍保留字段以兼容老库，但不再由业务读取
+    // Legacy fields kept for compatibility; values are managed by VoicePreset.
     var refAudioPath: String
     var promptText: String
     var promptLang: String
@@ -32,18 +32,18 @@ struct ChatSettings: Codable {
 
 struct VoiceSettings: Codable {
     var enableStreaming: Bool
-    /// 是否在生成完毕后自动开始朗读
+    /// Indicates whether the assistant should read the response after generation.
     var autoReadAfterGeneration: Bool
 }
 
-// MARK: - 预设实体（SwiftData）
+// MARK: - Preset entity (SwiftData)
 
 @Model
 final class VoicePreset {
     var id: UUID
     var name: String
 
-    // 组内字段（原来散落在 ServerSettings 中的 3 个 + 2 个新权重路径）
+    // Grouped fields that were previously scattered across server settings.
     var refAudioPath: String
     var promptText: String
     var promptLang: String
@@ -73,14 +73,14 @@ final class VoicePreset {
     }
 }
 
-// MARK: - SwiftData 实体（单行表：保存全局设置）
+// MARK: - SwiftData entity for global settings
 
 @Model
 final class AppSettings {
     var id: UUID
     var serverAddress: String
     var textLang: String
-    // 兼容旧库：以下三个在新版本中改由 VoicePreset 管理
+    // Backwards compatibility: retained for older data stores.
     var refAudioPath: String
     var promptText: String
     var promptLang: String
@@ -95,7 +95,6 @@ final class AppSettings {
     var enableStreaming: Bool
     var autoReadAfterGeneration: Bool?
 
-    // ★ 新增：当前选中的预设 ID
     var selectedPresetID: UUID?
 
     init(
@@ -130,35 +129,34 @@ final class AppSettings {
     }
 }
 
-// MARK: - Settings Manager（SwiftData 版）
+// MARK: - Settings manager (SwiftData)
 
 @MainActor
 final class SettingsManager: ObservableObject {
     static let shared = SettingsManager()
 
-    // 旧结构（仍用于：serverAddress / textLang）
+    // Legacy structure still used for serverAddress and textLang.
     @Published var serverSettings: ServerSettings
     @Published var modelSettings: ModelSettings
     @Published var chatSettings: ChatSettings
     @Published var voiceSettings: VoiceSettings
 
-    // ★ 预设列表与选择
     @Published private(set) var presets: [VoicePreset] = []
     @Published private(set) var selectedPresetID: UUID?
     var selectedPreset: VoicePreset? { presets.first { $0.id == selectedPresetID } }
 
-    // 应用预设的状态
+    // Tracks preset application state.
     @Published private(set) var isApplyingPreset: Bool = false
     @Published private(set) var lastApplyError: String?
 
     private var context: ModelContext?
     private var entity: AppSettings?
 
-    // 启动只执行一次
+    // Only runs once during startup.
     private var didApplyOnLaunch = false
 
     private init() {
-        // 先用默认值，等 attach(context:) 后加载数据库
+        // Start with defaults until the SwiftData context is attached.
         self.serverSettings = ServerSettings(
             serverAddress: "http://127.0.0.1:9880",
             textLang: "auto",
@@ -171,18 +169,18 @@ final class SettingsManager: ObservableObject {
         self.voiceSettings = VoiceSettings(enableStreaming: true, autoReadAfterGeneration: false)
     }
 
-    // 在 App / ContentView 注入的 SwiftData 上下文
+    // SwiftData context injected from the app/content view.
     func attach(context: ModelContext) {
         guard self.context == nil else { return }
         self.context = context
         loadFromStore()
         loadPresetsFromStore()
         ensureDefaultPresetIfNeeded()
-        // 把 entity.selectedPresetID 同步到内存
+        // Mirror entity.selectedPresetID into memory.
         self.selectedPresetID = self.entity?.selectedPresetID ?? self.presets.first?.id
     }
 
-    // MARK: - 加载持久化设置
+    // MARK: - Load persisted settings
 
     private func loadFromStore() {
         guard let context else { return }
@@ -236,7 +234,7 @@ final class SettingsManager: ObservableObject {
     private func ensureDefaultPresetIfNeeded() {
         guard let context, let e = entity else { return }
         if presets.isEmpty {
-            // 从旧库字段构建一个默认预设
+            // Build a default preset from legacy fields.
             let def = VoicePreset(
                 name: "Default",
                 refAudioPath: e.refAudioPath,
@@ -252,7 +250,7 @@ final class SettingsManager: ObservableObject {
             try? context.save()
             self.selectedPresetID = def.id
         } else {
-            // 如果还没选中，默认选第一个
+            // Select the first preset if none is chosen.
             if e.selectedPresetID == nil {
                 e.selectedPresetID = presets.first?.id
                 try? context.save()
@@ -261,10 +259,10 @@ final class SettingsManager: ObservableObject {
         }
     }
 
-    // MARK: - 更新经典设置（保留）
+    // MARK: - Update legacy settings
 
     func updateServerSettings(serverAddress: String, textLang: String, refAudioPath: String, promptText: String, promptLang: String) {
-        // 注意：refAudioPath/promptText/promptLang 已迁移至预设，这里仅维持老库字段，以兼容历史数据
+        // Keep legacy fields in sync for compatibility, even though presets now own these values.
         serverSettings.serverAddress = serverAddress
         serverSettings.textLang = textLang
         serverSettings.refAudioPath = refAudioPath
@@ -292,7 +290,7 @@ final class SettingsManager: ObservableObject {
         saveVoiceSettings()
     }
 
-    // MARK: - 预设 CRUD
+    // MARK: - Preset CRUD
 
     func createPreset(name: String = "New Preset") -> VoicePreset? {
         guard let context else { return nil }
@@ -313,7 +311,7 @@ final class SettingsManager: ObservableObject {
     func deletePreset(_ id: UUID) {
         guard let context else { return }
         if let target = presets.first(where: { $0.id == id }) {
-            // 若删除的是当前选中，则切到其他
+            // If the selected preset is removed, choose another one.
             if selectedPresetID == id {
                 let fallback = presets.first(where: { $0.id != id })?.id
                 selectedPresetID = fallback
@@ -356,7 +354,7 @@ final class SettingsManager: ObservableObject {
         if apply { Task { await self.applySelectedPreset() } }
     }
 
-    // MARK: - 持久化经典设置
+    // MARK: - Persist legacy settings
 
     func saveServerSettings() {
         guard let e = entity, let context else { return }
@@ -390,7 +388,7 @@ final class SettingsManager: ObservableObject {
         try? context.save()
     }
 
-    // MARK: - 预设应用（顺序调用两个权重 API）
+    // MARK: - Apply preset (sequentially invokes weight APIs)
 
     func applyPresetOnLaunchIfNeeded() async {
         guard !didApplyOnLaunch else { return }
@@ -406,13 +404,13 @@ final class SettingsManager: ObservableObject {
         lastApplyError = nil
         defer { isApplyingPreset = false }
 
-        // 先更新旧库中三个字段，保证其它地方读取到的兼容值同步（虽然 TTS 已改用 selectedPreset）
+        // Update legacy fields first so any legacy consumers stay in sync.
         serverSettings.refAudioPath = preset.refAudioPath
         serverSettings.promptText = preset.promptText
         serverSettings.promptLang = preset.promptLang
         saveServerSettings()
 
-        // 构造 URL（兼容 serverAddress 末尾是否有 /）
+        // Build the URL while tolerating trailing slashes in serverAddress.
         func buildURL(_ path: String, weightsPath: String) -> URL? {
             let base = serverSettings.serverAddress.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
             var comps = URLComponents(string: base + path)
@@ -431,7 +429,7 @@ final class SettingsManager: ObservableObject {
                 }
                 if let s = String(data: data, encoding: .utf8),
                    s.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() != "success" {
-                    // 某些实现只返回空 body，这里不强制失败
+                    // Some implementations return an empty body; treat that as success.
                 }
             } catch {
                 lastApplyError = "Set GPT weights failed: \(error.localizedDescription)"
@@ -453,7 +451,7 @@ final class SettingsManager: ObservableObject {
                 }
                 if let s = String(data: data, encoding: .utf8),
                    s.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() != "success" {
-                    // 同上，不强制
+                    // Same rationale as above.
                 }
             } catch {
                 lastApplyError = "Set SoVITS weights failed: \(error.localizedDescription)"
