@@ -10,11 +10,11 @@ import Combine
 
 @MainActor
 class SettingsViewModel: ObservableObject {
-    // MARK: - 旧设置（保留）
+    // MARK: - Legacy Settings (kept for backward compatibility)
     @Published var serverAddress: String { didSet { saveServerSettings() } }
     @Published var textLang: String { didSet { saveServerSettings() } }
 
-    // ★ 下列三个迁移至预设管理，这里不再直接绑定到 ServerSettings
+    // Fields kept only for migration. Their values are now managed by presets.
     @Published var refAudioPath_legacy: String { didSet { saveServerSettings() } }
     @Published var promptText_legacy: String { didSet { saveServerSettings() } }
     @Published var promptLang_legacy: String { didSet { saveServerSettings() } }
@@ -26,7 +26,7 @@ class SettingsViewModel: ObservableObject {
         didSet {
             saveVoiceSettings()
             if enableStreaming {
-                // 开启流式时，强制切为 cut0
+                // Force "cut0" when streaming is enabled.
                 autoSplit = "cut0"
             }
         }
@@ -37,7 +37,7 @@ class SettingsViewModel: ObservableObject {
     @Published var modelId: String { didSet { saveModelSettings() } }
     @Published var language: String { didSet { saveModelSettings() } }
 
-    // MARK: - 预设 UI 绑定
+    // MARK: - Preset Bindings
     struct PresetSummary: Identifiable, Equatable {
         var id: UUID
         var name: String
@@ -48,7 +48,7 @@ class SettingsViewModel: ObservableObject {
         didSet {
             if !suppressPresetDidSet {
                 SettingsManager.shared.selectPreset(selectedPresetID, apply: true)
-                // 切换后重新拉取当前预设的字段
+                // Reload preset fields whenever the selection changes.
                 loadSelectedPresetFields()
             }
         }
@@ -64,7 +64,7 @@ class SettingsViewModel: ObservableObject {
     // MARK: - Dependency
     private let settingsManager = SettingsManager.shared
 
-    // 防止切换时 didSet 递归
+    // Prevent re-entrant didSet loops when changing presets programmatically.
     private var suppressPresetDidSet = false
     private var suppressSavePreset = false
 
@@ -94,10 +94,10 @@ class SettingsViewModel: ObservableObject {
         loadSelectedPresetFields()
     }
 
-    // MARK: - Persist（旧设置）
+    // MARK: - Persistence for Legacy Settings
 
     func saveServerSettings() {
-        // 旧字段保持回写（ref/prompt_* 仅兼容；TTS 不再读取它们）
+        // Persist legacy fields so older data remains accessible.
         settingsManager.updateServerSettings(
             serverAddress: serverAddress,
             textLang: textLang,
@@ -129,7 +129,7 @@ class SettingsViewModel: ObservableObject {
         )
     }
 
-    // MARK: - Preset helpers
+    // MARK: - Preset Helpers
 
     func reloadPresetListAndSelection() {
         presetList = settingsManager.presets.map { .init(id: $0.id, name: $0.name) }
@@ -170,11 +170,11 @@ class SettingsViewModel: ObservableObject {
             gptWeightsPath: presetGPTWeightsPath,
             sovitsWeightsPath: presetSoVITSWeightsPath
         )
-        // 名称可能变化，刷新列表显示
+        // Refresh the list because the preset name might have changed.
         reloadPresetListAndSelection()
     }
 
-    // UI 操作
+    // MARK: - UI Actions
     func addPreset() {
         if let p = settingsManager.createPreset() {
             reloadPresetListAndSelection()

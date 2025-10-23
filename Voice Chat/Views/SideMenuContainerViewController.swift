@@ -26,7 +26,7 @@ final class SideMenuContainerViewController: UIViewController {
     var chatSessionsViewModel: ChatSessionsViewModel!
     var audioManager: GlobalAudioManager!
     var settingsManager: SettingsManager!
-    // ★ 新增：语音输入管理器
+    // Injected speech input manager.
     var speechInputManager: SpeechInputManager!
 
     override func viewDidLoad() {
@@ -65,7 +65,7 @@ final class SideMenuContainerViewController: UIViewController {
         .environmentObject(chatSessionsViewModel)
         .environmentObject(audioManager)
         .environmentObject(settingsManager)
-        // ★ 传入语音输入
+        // Provide the speech input manager to the SwiftUI hierarchy.
         .environmentObject(speechInputManager)
 
         let mainVC = UIHostingController(rootView: mainView)
@@ -163,7 +163,7 @@ struct SideMenuContainerRepresentable: UIViewControllerRepresentable {
     @EnvironmentObject var chatSessionsViewModel: ChatSessionsViewModel
     @EnvironmentObject var audioManager: GlobalAudioManager
     @EnvironmentObject var settingsManager: SettingsManager
-    // ★ 透传
+    // Forward the speech input manager from SwiftUI to UIKit.
     @EnvironmentObject var speechInputManager: SpeechInputManager
 
     func makeUIViewController(context: Context) -> SideMenuContainerViewController {

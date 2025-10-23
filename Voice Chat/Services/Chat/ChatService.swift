@@ -1,164 +1,58 @@
 //
-//  ChatModel.swift
+//  ChatService.swift
 //  Voice Chat
 //
-//  Created by Lion Wu on 2024/1/8.
+//  Created as part of MVVM restructuring.
 //
 
 import Foundation
 
-// MARK: - Streaming Chunk Models
-
-struct ChatCompletionChunk: Codable {
-    var id: String?
-    var object: String?
-    var created: Int?
-    var model: String?
-    var choices: [Choice]?
-}
-
-struct Choice: Codable {
-    var index: Int?
-    var finish_reason: String?
-    var delta: Delta?
-}
-
-/// 兼容 LM Studio v0.3.23+ 的 reasoning 流式字段
-struct ReasoningValue: Codable {
-    let text: String
-
-    init(from decoder: Decoder) throws {
-        if let single = try? String(from: decoder) {
-            self.text = single
-            return
-        }
-        if let obj = try? AnyDict(from: decoder) {
-            if let s = obj.dict["content"]?.stringValue ?? obj.dict["text"]?.stringValue {
-                self.text = s
-                return
-            }
-            let joined = obj.dict.values.compactMap { $0.stringValue }.joined()
-            if !joined.isEmpty {
-                self.text = joined
-                return
-            }
-        }
-        if let arr = try? [AnyDict](from: decoder) {
-            let collected = arr.compactMap { item in
-                item.dict["content"]?.stringValue ?? item.dict["text"]?.stringValue
-            }.joined()
-            self.text = collected
-            return
-        }
-        self.text = ""
-    }
-}
-
-struct AnyDecodable: Decodable {
-    let value: Any
-
-    var stringValue: String? {
-        if let s = value as? String { return s }
-        if let n = value as? NSNumber { return n.stringValue }
-        return nil
-    }
-
-    init(from decoder: Decoder) throws {
-        let container = try decoder.singleValueContainer()
-        if let s = try? container.decode(String.self) {
-            value = s
-        } else if let b = try? container.decode(Bool.self) {
-            value = b
-        } else if let i = try? container.decode(Int.self) {
-            value = i
-        } else if let d = try? container.decode(Double.self) {
-            value = d
-        } else if let obj = try? AnyDict(from: decoder) {
-            value = obj.dict
-        } else if let arr = try? [AnyDecodable](from: decoder) {
-            value = arr.map { $0.value }
-        } else {
-            value = NSNull()
-        }
-    }
-}
-
-fileprivate struct DynamicCodingKey: CodingKey {
-    let stringValue: String
-    init?(stringValue: String) { self.stringValue = stringValue }
-    var intValue: Int? { nil }
-    init?(intValue: Int) { return nil }
-}
-
-struct AnyDict: Decodable {
-    let dict: [String: AnyDecodable]
-
-    init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: DynamicCodingKey.self)
-        var result: [String: AnyDecodable] = [:]
-        for key in container.allKeys {
-            result[key.stringValue] = try container.decode(AnyDecodable.self, forKey: key)
-        }
-        self.dict = result
-    }
-}
-
-struct Delta: Codable {
-    var role: String?
-    var content: String?
-    var reasoning: ReasoningValue?
-}
-
-enum ChatNetworkError: Error {
-    case invalidURL
-    case serverError(String)
-    case timeout(String)
-}
-
-// MARK: - ChatService (Streaming)
-
+/// Service responsible for handling streamed chat completions.
 final class ChatService: NSObject, URLSessionDataDelegate, @unchecked Sendable {
+    // MARK: - Session Lifecycle
     private var session: URLSession?
     private var dataTask: URLSessionDataTask?
 
-    /// ★ 回调显式限定在主线程执行
+    /// Main-actor callbacks to keep SwiftData usage safe.
     var onDelta: (@MainActor (String) -> Void)?
     var onError: (@MainActor (Error) -> Void)?
     var onStreamFinished: (@MainActor () -> Void)?
 
-    // 推理/正文状态
+    // MARK: - Streaming State
     private var isLegacyThinkStream = false
     private var sawAnyAssistantToken = false
     private var newFormatActive = false
     private var sentThinkOpen = false
     private var sentThinkClose = false
 
-    // SSE 解析缓冲
     private var ssePartialLine: String = ""
 
-    // 超时/看门狗（满足“至少 1 小时”的需求）
-    private let firstTokenTimeout: TimeInterval = 3600        // 1h 等首 token
-    private let silentGapTimeout: TimeInterval  = 3600        // 1h 无增量
+    // MARK: - Watchdog
+    private let firstTokenTimeout: TimeInterval = 3600
+    private let silentGapTimeout: TimeInterval = 3600
     private var streamStartAt: Date?
     private var lastDeltaAt: Date?
     private var watchdog: Timer?
 
-    // 取消标记：用于丢弃停止后的任何残余增量
     private var isCancelled: Bool = false
 
     override init() {
         super.init()
         let configuration = URLSessionConfiguration.default
         configuration.waitsForConnectivity = true
-        configuration.timeoutIntervalForRequest  = 3900   // ~1h+5m 余量
+        configuration.timeoutIntervalForRequest = 3900
         configuration.timeoutIntervalForResource = 3900
         configuration.httpMaximumConnectionsPerHost = 1
-        self.session = URLSession(configuration: configuration, delegate: self, delegateQueue: nil)
+        session = URLSession(configuration: configuration, delegate: self, delegateQueue: nil)
     }
 
-    deinit { stopWatchdog() }
+    deinit {
+        stopWatchdog()
+    }
 
-    /// 现在在主 actor 上调用，避免把 SwiftData 模型跨隔离传递
+    // MARK: - Public API
+
+    /// Starts a new streaming request for the supplied message history.
     @MainActor
     func fetchStreamedData(messages: [ChatMessage]) {
         dataTask?.cancel()
@@ -166,13 +60,13 @@ final class ChatService: NSObject, URLSessionDataDelegate, @unchecked Sendable {
         isCancelled = false
 
         let settings = SettingsManager.shared
-        let base = settings.chatSettings.apiURL
+        let baseURL = settings.chatSettings.apiURL
         let model = settings.chatSettings.selectedModel
-        let apiURLString = "\(base)/v1/chat/completions"
-        self.startStreaming(apiURLString: apiURLString, model: model, messages: messages)
+        let apiURLString = "\(baseURL)/v1/chat/completions"
+        startStreaming(apiURLString: apiURLString, model: model, messages: messages)
     }
 
-    /// 取消当前流式请求
+    /// Cancels the current streaming request if present.
     func cancelStreaming() {
         isCancelled = true
         dataTask?.cancel()
@@ -181,7 +75,8 @@ final class ChatService: NSObject, URLSessionDataDelegate, @unchecked Sendable {
         resetStreamState()
     }
 
-    /// 非异步：只负责组装请求并启动 URLSession 流
+    // MARK: - Private Helpers
+
     private func startStreaming(apiURLString: String, model: String, messages: [ChatMessage]) {
         guard let apiURL = URL(string: apiURLString) else {
             Task { @MainActor in self.onError?(ChatNetworkError.invalidURL) }
@@ -190,7 +85,7 @@ final class ChatService: NSObject, URLSessionDataDelegate, @unchecked Sendable {
 
         var request = URLRequest(url: apiURL)
         request.httpMethod = "POST"
-        request.timeoutInterval = 3900 // 单请求超时 ~1h+5m
+        request.timeoutInterval = 3900
         request.addValue("application/json", forHTTPHeaderField: "Content-Type")
         request.addValue("text/event-stream", forHTTPHeaderField: "Accept")
         request.addValue("keep-alive", forHTTPHeaderField: "Connection")
@@ -203,8 +98,7 @@ final class ChatService: NSObject, URLSessionDataDelegate, @unchecked Sendable {
         ]
 
         do {
-            let jsonData = try JSONSerialization.data(withJSONObject: requestBody, options: [])
-            request.httpBody = jsonData
+            request.httpBody = try JSONSerialization.data(withJSONObject: requestBody, options: [])
         } catch {
             Task { @MainActor in self.onError?(error) }
             return
@@ -240,7 +134,7 @@ final class ChatService: NSObject, URLSessionDataDelegate, @unchecked Sendable {
             }
     }
 
-    // MARK: - URLSession Data Delegate
+    // MARK: - URLSessionDataDelegate
 
     func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
         guard !isCancelled else { return }
@@ -259,9 +153,9 @@ final class ChatService: NSObject, URLSessionDataDelegate, @unchecked Sendable {
             processCount -= 1
         }
 
-        for i in 0..<max(0, processCount) {
+        for index in 0..<max(0, processCount) {
             guard !isCancelled else { return }
-            let line = String(lines[i]).trimmingCharacters(in: .whitespacesAndNewlines)
+            let line = String(lines[index]).trimmingCharacters(in: .whitespacesAndNewlines)
             guard !line.isEmpty else { continue }
             guard line.hasPrefix("data:") else { continue }
 
@@ -269,18 +163,18 @@ final class ChatService: NSObject, URLSessionDataDelegate, @unchecked Sendable {
                 .trimmingCharacters(in: CharacterSet.whitespaces)
 
             if payloadString == "[DONE]" {
-                if self.newFormatActive && self.sentThinkOpen && !self.sentThinkClose && !self.isLegacyThinkStream {
-                    self.emitDelta("</think>")
-                    self.sentThinkClose = true
+                if newFormatActive && sentThinkOpen && !sentThinkClose && !isLegacyThinkStream {
+                    emitDelta("</think>")
+                    sentThinkClose = true
                 }
                 Task { @MainActor in self.onStreamFinished?() }
                 stopWatchdog()
                 return
             }
 
-            guard let jsonData = payloadString.data(using: String.Encoding.utf8) else { continue }
+            guard let jsonData = payloadString.data(using: .utf8) else { continue }
             if let decoded = try? JSONDecoder().decode(ChatCompletionChunk.self, from: jsonData) {
-                self.handleDecodedChunk(decoded)
+                handleDecodedChunk(decoded)
             }
         }
 
@@ -303,13 +197,13 @@ final class ChatService: NSObject, URLSessionDataDelegate, @unchecked Sendable {
                 isLegacyThinkStream = true
             }
 
-            if let r = delta.reasoning?.text, !r.isEmpty {
+            if let reasoning = delta.reasoning?.text, !reasoning.isEmpty {
                 newFormatActive = true
                 if !isLegacyThinkStream && !sentThinkOpen {
                     emitDelta("<think>")
                     sentThinkOpen = true
                 }
-                emitDelta(r)
+                emitDelta(reasoning)
             }
 
             if !deltaText.isEmpty {
@@ -331,14 +225,14 @@ final class ChatService: NSObject, URLSessionDataDelegate, @unchecked Sendable {
 
     func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
         stopWatchdog()
-        if let error = error {
+        if let error {
             Task { @MainActor in self.onError?(error) }
         } else {
             Task { @MainActor in self.onStreamFinished?() }
         }
     }
 
-    // MARK: - Watchdog（在 1 小时极端等待时报错）
+    // MARK: - Watchdog
 
     private func startWatchdog() {
         stopWatchdog()
@@ -352,7 +246,7 @@ final class ChatService: NSObject, URLSessionDataDelegate, @unchecked Sendable {
                     self.dataTask?.cancel()
                     self.dataTask = nil
                     self.stopWatchdog()
-                    Task { @MainActor in self.onError?(ChatNetworkError.timeout("连接超时")) }
+                    Task { @MainActor in self.onError?(ChatNetworkError.timeout("Request timed out.")) }
                 }
                 return
             }
@@ -362,13 +256,13 @@ final class ChatService: NSObject, URLSessionDataDelegate, @unchecked Sendable {
                     self.dataTask?.cancel()
                     self.dataTask = nil
                     self.stopWatchdog()
-                    Task { @MainActor in self.onError?(ChatNetworkError.timeout("连接超时")) }
+                    Task { @MainActor in self.onError?(ChatNetworkError.timeout("Request timed out.")) }
                 }
             }
         }
-        if let w = watchdog {
-            w.tolerance = 1.0
-            RunLoop.current.add(w, forMode: .common)
+        if let watchdog {
+            watchdog.tolerance = 1.0
+            RunLoop.current.add(watchdog, forMode: .common)
         }
     }
 

@@ -13,7 +13,7 @@ import UIKit
 import AppKit
 #endif
 
-// MARK: - 平台颜色映射
+// MARK: - Platform Color Mapping
 
 enum PlatformColor {
     static var systemBackground: Color {
@@ -39,7 +39,7 @@ enum PlatformColor {
     }
 }
 
-// MARK: - 主题与辅助样式
+// MARK: - Theme and Supporting Styles
 
 enum ChatTheme {
     static let inputBG: Material = .thin
@@ -56,7 +56,7 @@ enum ChatTheme {
     static let accent = Color.blue
 }
 
-// MARK: - 输入区间距常量
+// MARK: - Input Metrics
 
 enum InputMetrics {
     static let outerV: CGFloat = 8
