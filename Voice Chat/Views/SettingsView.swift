@@ -23,7 +23,7 @@ struct SettingsView: View {
     @State private var isLoadingModels = false
     @State private var errorMessage: AlertError?
 
-    // 预设删除确认
+    // Preset deletion confirmation
     @State private var showDeletePresetAlert = false
 
     @EnvironmentObject var settingsManager: SettingsManager
@@ -89,7 +89,7 @@ struct SettingsView: View {
         #endif
     }
 
-    // MARK: - Sections (统一使用 Form + Section，恢复分割线，行距更舒展)
+    // MARK: - Sections
 
     private var serverSection: some View {
         Section(header: Text("Voice Server")) {
@@ -213,7 +213,7 @@ struct SettingsView: View {
                 }
             }
 
-            // Preset fields (清晰分组 + 有序排布)
+            // Preset fields grouped for clarity
             Group {
                 LabeledTextField(label: "Preset Name",
                                  placeholder: "Preset name",
@@ -223,7 +223,7 @@ struct SettingsView: View {
                                  placeholder: "GPT_SoVITS/refs/xxx.wav",
                                  text: $viewModel.presetRefAudioPath)
                 LabeledTextField(label: "prompt_text",
-                                 placeholder: "参考文本（可选）",
+                                 placeholder: "Reference text (optional)",
                                  text: $viewModel.presetPromptText)
                 LabeledTextField(label: "prompt_lang",
                                  placeholder: "auto/zh/en ...",
