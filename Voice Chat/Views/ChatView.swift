@@ -9,6 +9,36 @@ import SwiftUI
 import Foundation
 import SwiftData
 
+// MARK: - 等值渲染通用包装与快照键
+
+/// 轻量等值包装：仅以 `value` 判断是否需要重绘，`content` 不参与比较。
+private struct EquatableRender<Value: Equatable, Content: View>: View, Equatable {
+    static func == (lhs: EquatableRender<Value, Content>, rhs: EquatableRender<Value, Content>) -> Bool {
+        lhs.value == rhs.value
+    }
+    let value: Value
+    let content: () -> Content
+    var body: some View { content() }
+}
+
+/// 文本内容的轻量指纹，降低比较成本并避免引用型读取造成“旧视图读到新值”的误判。
+private struct ContentFingerprint: Equatable {
+    let utf16Count: Int
+    let hash: Int
+    static func make(_ s: String) -> ContentFingerprint {
+        .init(utf16Count: s.utf16.count, hash: s.hashValue)
+    }
+}
+
+/// VoiceMessage 的等值快照键：只包含会影响 UI 的纯值字段
+private struct VoiceMessageEqKey: Equatable {
+    let id: UUID
+    let isUser: Bool
+    let isActive: Bool
+    let showActionButtons: Bool
+    let contentFP: ContentFingerprint
+}
+
 struct ChatView: View {
     @EnvironmentObject var chatSessionsViewModel: ChatSessionsViewModel
     @EnvironmentObject var audioManager: GlobalAudioManager
@@ -207,7 +237,7 @@ struct ChatView: View {
                         .buttonStyle(.plain)
                         .help(speechInputManager.isRecording ? "停止语音输入" : "语音输入")
 
-                        // ★ 右侧按钮：加载中 -> 停止；否则：有文本 -> 发送；无文本 -> “声波”实时对话
+                        // ★ 右侧按钮
                         if viewModel.isLoading {
                             Button {
                                 viewModel.cancelCurrentRequest()
@@ -222,7 +252,6 @@ struct ChatView: View {
                             .buttonStyle(.plain)
                         } else {
                             if viewModel.userMessage.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                                // ★ 无文本时：声波图标 -> 打开实时语音界面
                                 Button {
                                     openRealtimeVoiceOverlay()
                                 } label: {
@@ -315,7 +344,7 @@ struct ChatView: View {
             }
         }
         #elseif os(macOS)
-        // ✅ macOS 修复：用 overlay 全屏覆盖显示 RealtimeVoiceOverlayView
+        // ✅ macOS：用 overlay 全屏覆盖显示 RealtimeVoiceOverlayView
         .overlay(
             Group {
                 if voiceOverlayVM.isPresented {
@@ -328,7 +357,6 @@ struct ChatView: View {
                             viewModel.prepareRealtimeTTSForNextAssistant()
                             viewModel.userMessage = text
                             viewModel.sendMessage()
-                            // macOS 下同样保持 Overlay 常驻，便于连续对话
                         }
                     )
                     .environmentObject(speechInputManager)
@@ -363,19 +391,33 @@ struct ChatView: View {
     private func messageListCore() -> some View {
         VStack(spacing: 12) {
             ForEach(visibleMessages) { message in
-                VoiceMessageView(
-                    message: message,
-                    showActionButtons: !(viewModel.isLoading && (visibleMessages.last?.id == message.id)),
-                    onSelectText: { showSelectTextSheet(with: $0) },
-                    onRegenerate: { viewModel.regenerateSystemMessage($0) },
-                    onEditUserMessage: { msg in
-                        viewModel.beginEditUserMessage(msg)
-                        isInputFocused = true
-                    },
-                    onRetry: { errMsg in
-                        viewModel.retry(afterErrorMessage: errMsg)
-                    }
+                // 仅最后一条在加载中时隐藏“复制/重试等”按钮
+                let showButtons = !(viewModel.isLoading && (visibleMessages.last?.id == message.id))
+
+                // 等值键：当消息正文或显隐状态未变化时跳过重绘
+                let key = VoiceMessageEqKey(
+                    id: message.id,
+                    isUser: message.isUser,
+                    isActive: message.isActive,
+                    showActionButtons: showButtons,
+                    contentFP: .make(message.content)
                 )
+
+                EquatableRender(value: key) {
+                    VoiceMessageView(
+                        message: message,
+                        showActionButtons: showButtons,
+                        onSelectText: { showSelectTextSheet(with: $0) },
+                        onRegenerate: { viewModel.regenerateSystemMessage($0) },
+                        onEditUserMessage: { msg in
+                            viewModel.beginEditUserMessage(msg)
+                            isInputFocused = true
+                        },
+                        onRetry: { errMsg in
+                            viewModel.retry(afterErrorMessage: errMsg)
+                        }
+                    )
+                }
                 .id(message.id)
                 .transition(.move(edge: .bottom).combined(with: .opacity))
                 .animation(.spring(response: 0.35, dampingFraction: 0.85), value: visibleMessages.map(\.id))
