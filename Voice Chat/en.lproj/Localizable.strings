@@ -83,6 +83,7 @@
 "Unknown error" = "Unknown error";
 "Voice Output" = "Voice Output";
 "Voice Server" = "Voice Server";
+"Chat Server" = "Chat Server";
 "An error occurred" = "An error occurred";
 "Audio engine failed to start: %@" = "Audio engine failed to start: %@";
 "English" = "English";

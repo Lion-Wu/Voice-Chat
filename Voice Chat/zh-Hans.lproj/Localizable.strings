@@ -83,6 +83,7 @@
 "Unknown error" = "未知错误";
 "Voice Output" = "语音输出";
 "Voice Server" = "语音服务器";
+"Chat Server" = "聊天服务器";
 "An error occurred" = "发生错误";
 "Audio engine failed to start: %@" = "无法开始音频播放：%@";
 "English" = "英语";

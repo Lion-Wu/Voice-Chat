@@ -53,10 +53,18 @@ struct SidebarView: View {
 
             Divider()
 
-            Button(action: onOpenSettings) {
-                Label("Settings", systemImage: "gearshape.fill")
-                    .font(.system(.headline))
-                    .padding()
+            if #available(macOS 13.0, *) {
+                SettingsLink {
+                    Label("Settings", systemImage: "gearshape.fill")
+                        .font(.system(.headline))
+                        .padding()
+                }
+            } else {
+                Button(action: onOpenSettings) {
+                    Label("Settings", systemImage: "gearshape.fill")
+                        .font(.system(.headline))
+                        .padding()
+                }
             }
         }
         .sheet(isPresented: $isRenaming) { renameSheetView() }

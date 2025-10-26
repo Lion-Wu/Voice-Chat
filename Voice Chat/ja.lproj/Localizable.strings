@@ -83,6 +83,7 @@
 "Unknown error" = "不明なエラー";
 "Voice Output" = "音声出力";
 "Voice Server" = "音声サーバー";
+"Chat Server" = "チャットサーバー";
 "An error occurred" = "エラーが発生しました";
 "Audio engine failed to start: %@" = "音声再生を開始できませんでした: %@";
 "English" = "英語";

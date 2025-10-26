@@ -7,6 +7,9 @@
 
 import SwiftUI
 import SwiftData
+#if os(macOS)
+import AppKit
+#endif
 
 struct ContentView: View {
     @Environment(\.modelContext) private var modelContext
@@ -17,7 +20,6 @@ struct ContentView: View {
     @EnvironmentObject var speechInputManager: SpeechInputManager
 
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
-    @State private var showingSettings = false
 
     var body: some View {
         #if os(macOS)
@@ -26,7 +28,7 @@ struct ContentView: View {
                 onConversationTap: { conversation in
                     selectConversation(conversation)
                 },
-                onOpenSettings: { showingSettings = true }
+                onOpenSettings: { openSettingsWindow() }
             )
         } detail: {
             if let selectedSession = chatSessionsViewModel.selectedSession {
@@ -40,10 +42,6 @@ struct ContentView: View {
                         ensureAtLeastOneSession()
                     }
             }
-        }
-        .sheet(isPresented: $showingSettings) {
-            SettingsView()
-                .environmentObject(settingsManager)
         }
         .toolbar {
             ToolbarItem {
@@ -88,6 +86,22 @@ struct ContentView: View {
     private func startNewConversation() {
         chatSessionsViewModel.startNewSession()
     }
+
+    #if os(macOS)
+    private func openSettingsWindow() {
+        guard let app = NSApp else { return }
+        app.activate(ignoringOtherApps: true)
+
+        let selectors = ["showSettingsWindow:", "showPreferencesWindow:"]
+        for name in selectors {
+            let selector = Selector(name)
+            if app.responds(to: selector) {
+                app.sendAction(selector, to: nil, from: nil)
+                break
+            }
+        }
+    }
+    #endif
 }
 
 struct ContentView_Previews: PreviewProvider {
