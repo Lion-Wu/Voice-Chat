@@ -17,7 +17,7 @@ final class ChatSessionsViewModel: ObservableObject {
     // MARK: - SwiftData
     private var context: ModelContext?
 
-    // MARK: - Save Throttle（避免流式写入洪水）
+    // MARK: - Save Throttle (to avoid excessive writes during streaming)
     private var lastSaveTime: [UUID: Date] = [:]
     private let throttleInterval: TimeInterval = 1.0
 
@@ -39,7 +39,7 @@ final class ChatSessionsViewModel: ObservableObject {
 
     // MARK: - Attach Context
     func attach(context: ModelContext) {
-        // 避免重复附加
+        // Attach the context only once.
         if self.context == nil {
             self.context = context
             loadChatSessions()
@@ -49,7 +49,7 @@ final class ChatSessionsViewModel: ObservableObject {
     // MARK: - Session Ops
     func startNewSession() {
         guard let context else { return }
-        let new = ChatSession(title: "New Chat")
+        let new = ChatSession(title: String(localized: "New Chat"))
         context.insert(new)
         do { try context.save() } catch { print("Save new session error: \(error)") }
         refreshSessionsAndSelect(new.id)
@@ -57,7 +57,7 @@ final class ChatSessionsViewModel: ObservableObject {
 
     func addSession(_ session: ChatSession) {
         guard let context else { return }
-        // 如果不在上下文中则插入
+        // Insert the session if it is not yet associated with this context.
         if session.modelContext == nil {
             context.insert(session)
         }
@@ -69,7 +69,7 @@ final class ChatSessionsViewModel: ObservableObject {
         guard let context else { return }
         for index in offsets {
             let s = chatSessions[index]
-            context.delete(s) // 级联删除消息
+            context.delete(s) // SwiftData cascades to remove related messages.
         }
         do { try context.save() } catch { print("Delete error: \(error)") }
         loadChatSessions()

@@ -23,7 +23,7 @@ struct SettingsView: View {
     @State private var isLoadingModels = false
     @State private var errorMessage: AlertError?
 
-    // 预设删除确认
+    // Preset deletion confirmation state
     @State private var showDeletePresetAlert = false
 
     @EnvironmentObject var settingsManager: SettingsManager
@@ -89,7 +89,7 @@ struct SettingsView: View {
         #endif
     }
 
-    // MARK: - Sections (统一使用 Form + Section，恢复分割线，行距更舒展)
+    // MARK: - Sections
 
     private var serverSection: some View {
         Section(header: Text("Voice Server")) {
@@ -126,7 +126,7 @@ struct SettingsView: View {
                 HStack(spacing: 12) {
                     Spacer()
 
-                    // Add preset — use plain style and explicit hit shape to avoid overlap
+                    // Add preset: plain button with an explicit hit area to avoid overlap.
                     Button {
                         viewModel.addPreset()
                     } label: {
@@ -140,7 +140,7 @@ struct SettingsView: View {
                     .contentShape(Rectangle())
                     .padding(.horizontal, 2)
 
-                    // Delete preset — destructive role + red trash icon, plain style to avoid menu-like propagation
+                    // Delete preset: destructive role with a red trash icon and plain styling.
                     Button(role: .destructive) {
                         showDeletePresetAlert = true
                     } label: {
@@ -213,7 +213,7 @@ struct SettingsView: View {
                 }
             }
 
-            // Preset fields (清晰分组 + 有序排布)
+            // Preset fields
             Group {
                 LabeledTextField(label: "Preset Name",
                                  placeholder: "Preset name",
@@ -223,7 +223,7 @@ struct SettingsView: View {
                                  placeholder: "GPT_SoVITS/refs/xxx.wav",
                                  text: $viewModel.presetRefAudioPath)
                 LabeledTextField(label: "prompt_text",
-                                 placeholder: "参考文本（可选）",
+                                 placeholder: "Reference text (optional)",
                                  text: $viewModel.presetPromptText)
                 LabeledTextField(label: "prompt_lang",
                                  placeholder: "auto/zh/en ...",
@@ -338,7 +338,7 @@ struct SettingsView: View {
 
     private func fetchAvailableModels() {
         guard !viewModel.apiURL.isEmpty else {
-            errorMessage = AlertError(message: "API URL is empty or invalid.")
+            errorMessage = AlertError(message: NSLocalizedString("API URL is empty or invalid.", comment: "Shown when the model list URL is missing"))
             return
         }
         isLoadingModels = true
@@ -347,7 +347,7 @@ struct SettingsView: View {
         let urlString = "\(viewModel.apiURL)/v1/models"
         guard let url = URL(string: urlString) else {
             isLoadingModels = false
-            errorMessage = AlertError(message: "Invalid API URL")
+            errorMessage = AlertError(message: NSLocalizedString("Invalid API URL", comment: "Shown when the model list URL cannot be parsed"))
             return
         }
 
@@ -356,12 +356,13 @@ struct SettingsView: View {
             DispatchQueue.main.async {
                 self.isLoadingModels = false
                 if let error = error {
-                    self.errorMessage = AlertError(message: "Request failed: \(error.localizedDescription)")
+                    let message = String(format: NSLocalizedString("Request failed: %@", comment: "Model list request failed"), error.localizedDescription)
+                    self.errorMessage = AlertError(message: message)
                     return
                 }
                 guard let data = data,
                       let modelList = try? JSONDecoder().decode(ModelListResponse.self, from: data) else {
-                    self.errorMessage = AlertError(message: "Unable to parse model list")
+                    self.errorMessage = AlertError(message: NSLocalizedString("Unable to parse model list", comment: "Decoding the model list failed"))
                     return
                 }
                 self.availableModels = modelList.data.map { $0.id }
@@ -384,19 +385,19 @@ struct LabeledTextField: View {
     var body: some View {
         #if os(macOS)
         HStack(alignment: .center, spacing: 12) {
-            Text(label)
+            Text(LocalizedStringKey(label))
                 .frame(width: 150, alignment: .trailing)
                 .foregroundColor(.secondary)
-            TextField(placeholder, text: $text)
+            TextField(LocalizedStringKey(placeholder), text: $text)
                 .textFieldStyle(.roundedBorder)
                 .frame(maxWidth: .infinity)
         }
         .padding(.vertical, 2)
         #else
         HStack(spacing: 12) {
-            Text(label)
+            Text(LocalizedStringKey(label))
             Spacer()
-            TextField(placeholder, text: $text)
+            TextField(LocalizedStringKey(placeholder), text: $text)
                 .multilineTextAlignment(.trailing)
         }
         #endif

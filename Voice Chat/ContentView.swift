@@ -14,7 +14,7 @@ struct ContentView: View {
     @EnvironmentObject var audioManager: GlobalAudioManager
     @EnvironmentObject var settingsManager: SettingsManager
     @EnvironmentObject var chatSessionsViewModel: ChatSessionsViewModel
-    @EnvironmentObject var speechInputManager: SpeechInputManager   // ★ 新增
+    @EnvironmentObject var speechInputManager: SpeechInputManager
 
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
     @State private var showingSettings = false
@@ -64,7 +64,7 @@ struct ContentView: View {
             .environmentObject(chatSessionsViewModel)
             .environmentObject(audioManager)
             .environmentObject(settingsManager)
-            .environmentObject(speechInputManager) // ★ 传入 iOS 容器
+            .environmentObject(speechInputManager)
             .onAppear {
                 chatSessionsViewModel.attach(context: modelContext)
                 settingsManager.attach(context: modelContext)
@@ -97,6 +97,6 @@ struct ContentView_Previews: PreviewProvider {
             .environmentObject(GlobalAudioManager.shared)
             .environmentObject(SettingsManager.shared)
             .environmentObject(ChatSessionsViewModel())
-            .environmentObject(SpeechInputManager()) // ★ 新增
+            .environmentObject(SpeechInputManager())
     }
 }

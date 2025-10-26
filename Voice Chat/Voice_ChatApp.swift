@@ -14,7 +14,7 @@ struct Voice_ChatApp: App {
     @StateObject private var audioManager = GlobalAudioManager.shared
     @StateObject private var settingsManager = SettingsManager.shared
     @StateObject private var chatSessionsViewModel = ChatSessionsViewModel()
-    @StateObject private var speechInputManager = SpeechInputManager()   // ★ 新增：语音输入管理器
+    @StateObject private var speechInputManager = SpeechInputManager.shared
 
     var body: some Scene {
         WindowGroup {
@@ -22,8 +22,8 @@ struct Voice_ChatApp: App {
                 .environmentObject(audioManager)
                 .environmentObject(settingsManager)
                 .environmentObject(chatSessionsViewModel)
-                .environmentObject(speechInputManager)   // ★ 注入
-                // 绑定 SwiftData 上下文给单例/VM（避免 Settings 场景先出现时无上下文）
+                .environmentObject(speechInputManager)
+                // Bind the SwiftData context so singletons can load persisted state before the UI needs it.
                 .background(ContextBinder()
                     .environmentObject(settingsManager)
                     .environmentObject(chatSessionsViewModel)
@@ -40,7 +40,7 @@ struct Voice_ChatApp: App {
                     .environmentObject(chatSessionsViewModel)
                 )
         }
-        // 使用同一个容器实例，避免并发打开多个容器导致 reset
+        // Reuse the same container instance to avoid creating parallel stores.
         .modelContainer(Self.sharedContainer)
         .commands {
             AppMenuCommands(chatSessionsViewModel)
@@ -48,15 +48,15 @@ struct Voice_ChatApp: App {
         #endif
     }
 
-    /// 统一的 SwiftData 容器（只初始化一次；App 与 Settings 场景共享）
+    /// Shared SwiftData container used by both the main scene and the Settings window.
     private static let sharedContainer: ModelContainer = {
         let schema = Schema([
             ChatSession.self,
             ChatMessage.self,
             AppSettings.self,
-            VoicePreset.self              // ★ 新增：模型预设实体
+            VoicePreset.self
         ])
-        // 使用默认配置，让系统选择合适的持久化位置
+        // Use the default configuration so the system chooses an appropriate storage location.
         let config = ModelConfiguration()
         do {
             return try ModelContainer(for: schema, configurations: [config])
@@ -67,7 +67,7 @@ struct Voice_ChatApp: App {
 }
 
 #if os(macOS)
-/// 自定义应用级菜单命令：将系统的 .newItem（默认新建窗口/文档）替换为 “New Chat”
+/// Custom app-level menu that replaces the default `.newItem` command with "New Chat".
 private struct AppMenuCommands: Commands {
     @ObservedObject var chatSessionsViewModel: ChatSessionsViewModel
 
@@ -88,7 +88,7 @@ private struct AppMenuCommands: Commands {
 }
 #endif
 
-/// 将 SwiftData 的 ModelContext 注入到需要的单例/VM，并在首次可用时应用当前预设（顺序设置权重）
+/// Injects the SwiftData `ModelContext` into singletons and applies the active preset once the store is ready.
 private struct ContextBinder: View {
     @Environment(\.modelContext) private var context
     @EnvironmentObject var settingsManager: SettingsManager
@@ -99,7 +99,7 @@ private struct ContextBinder: View {
             .task {
                 settingsManager.attach(context: context)
                 chatSessionsViewModel.attach(context: context)
-                // ★ 应用启动后自动按当前预设设置权重（顺序调用两个 API）
+                // Apply the persisted preset after the context becomes available.
                 await settingsManager.applyPresetOnLaunchIfNeeded()
             }
     }

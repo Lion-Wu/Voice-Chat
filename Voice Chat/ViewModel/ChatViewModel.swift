@@ -29,23 +29,23 @@ class ChatViewModel: ObservableObject {
     private var currentAssistantMessageID: UUID?
     private var interruptedAssistantMessageID: UUID?
 
-    // ★ 新增：一次性开关——下一次请求是否启用“实时朗读”（仅在 Voice Overlay 触发时打开）
+    // Flag indicating whether the next request should enable realtime narration (set by the voice overlay).
     private var enableRealtimeTTSNext: Bool = false
-    // ★ 新增：本轮是否处于实时朗读中
+    // Tracks whether the current assistant response is being streamed in realtime.
     private var realtimeTTSActive: Bool = false
-    // ★ 新增：增量切分器（忽略 think，按标点/长度切）
+    // Incremental segmenter that ignores `<think>` sections and splits on punctuation.
     private var incSegmenter = IncrementalTextSegmenter()
 
     // MARK: - Init
     init(chatSession: ChatSession) {
         self.chatSession = chatSession
 
-        // ★ 增量字符串回调（显式回到主线程）
+        // Deliver streaming deltas back on the main actor.
         chatService.onDelta = { [weak self] piece in
             guard let self = self else { return }
             self.handleAssistantDelta(piece)
 
-            // 实时朗读：把“正文增量”送入切分器 -> 产出完整片段 -> 立即交给全局音频管理器
+            // Realtime narration: send body text segments to the audio manager as they become available.
             if self.realtimeTTSActive {
                 let newSegments = self.incSegmenter.append(piece)
                 for seg in newSegments where !seg.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -78,7 +78,7 @@ class ChatViewModel: ObservableObject {
             self.chatSession.messages.append(err)
             self.onUpdate?()
 
-            // ★ 出错时，若处于实时模式，做一次收尾
+            // If an error occurs during realtime playback, finish the stream gracefully.
             if self.realtimeTTSActive {
                 GlobalAudioManager.shared.finishRealtimeStream()
                 self.realtimeTTSActive = false
@@ -112,7 +112,7 @@ class ChatViewModel: ObservableObject {
 
             self.onUpdate?()
 
-            // ★ 流结束：若正处于实时朗读 -> 把剩余 buffer 刷出并结束；否则按原先“生成后自动朗读”
+            // When streaming ends, flush any remaining realtime buffer or fall back to auto playback.
             if self.realtimeTTSActive {
                 let tails = self.incSegmenter.finalize()
                 for seg in tails where !seg.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -129,7 +129,7 @@ class ChatViewModel: ObservableObject {
         }
     }
 
-    // MARK: - 公共方法：供语音界面触发“下一轮启用实时朗读”
+    // MARK: - Public API for the realtime overlay
     func prepareRealtimeTTSForNextAssistant() {
         enableRealtimeTTSNext = true
     }
@@ -171,7 +171,7 @@ class ChatViewModel: ObservableObject {
 
         let userMsg = ChatMessage(content: trimmedMessage, isUser: true, isActive: true, createdAt: Date(), session: chatSession)
         chatSession.messages.append(userMsg)
-        if chatSession.title == "New Chat" {
+        if isPlaceholderTitle(chatSession.title) {
             chatSession.title = trimmedMessage
         }
 
@@ -183,7 +183,7 @@ class ChatViewModel: ObservableObject {
         userMessage = ""
         onUpdate?()
 
-        // ★ 决定是否开启本轮“实时朗读”
+        // Determine whether this response should use realtime narration.
         realtimeTTSActive = SettingsManager.shared.voiceSettings.enableStreaming && enableRealtimeTTSNext
         enableRealtimeTTSNext = false
         if realtimeTTSActive {
@@ -284,7 +284,7 @@ class ChatViewModel: ObservableObject {
         chatService.fetchStreamedData(messages: currentMessages)
     }
 
-    // MARK: - 编辑流程
+    // MARK: - Editing
 
     func beginEditUserMessage(_ message: ChatMessage) {
         guard message.isUser else { return }
@@ -297,7 +297,7 @@ class ChatViewModel: ObservableObject {
         userMessage = ""
     }
 
-    // MARK: - Helpers (retry 清理辅助)
+    // MARK: - Helpers (retry cleanup)
 
     private func indexOfNearestUnclosedThinkAssistant(beforeOrAt time: Date) -> Int? {
         let enumerated = chatSession.messages.enumerated()
@@ -334,4 +334,26 @@ class ChatViewModel: ObservableObject {
         }
         return trimmed
     }
+}
+
+private func isPlaceholderTitle(_ title: String) -> Bool {
+    let locales = [
+        Locale.current.identifier,
+        "en",
+        "zh-Hans",
+        "zh-Hant",
+        "ja"
+    ]
+
+    for identifier in locales {
+        let locale = Locale(identifier: identifier)
+        let localizedDefault = String(
+            localized: "New Chat",
+            locale: locale
+        )
+        if title == localizedDefault {
+            return true
+        }
+    }
+    return false
 }

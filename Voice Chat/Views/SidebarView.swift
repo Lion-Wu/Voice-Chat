@@ -17,7 +17,7 @@ struct SidebarView: View {
     @State private var renamingSession: ChatSession? = nil
     @State private var newTitle: String = ""
 
-    // 删除确认
+    // Deletion confirmation
     @State private var showDeleteChatAlert: Bool = false
     @State private var pendingDeleteOffsets: IndexSet?
     @State private var pendingDeleteSingleIndex: Int?

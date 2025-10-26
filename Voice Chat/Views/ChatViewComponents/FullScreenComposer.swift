@@ -19,16 +19,16 @@ struct FullScreenComposer: View {
             TextEditor(text: $text)
                 .font(.system(size: 17))
                 .padding()
-                .navigationTitle("全屏编辑")
+                .navigationTitle("Full Screen Editor")
                 .toolbar {
                     ToolbarItem(placement: .cancellationAction) {
-                        Button("关闭") {
+                        Button("Close") {
                             dismiss()
                             onDone()
                         }
                     }
                     ToolbarItem(placement: .confirmationAction) {
-                        Button("完成") {
+                        Button("Done") {
                             dismiss()
                             onDone()
                         }

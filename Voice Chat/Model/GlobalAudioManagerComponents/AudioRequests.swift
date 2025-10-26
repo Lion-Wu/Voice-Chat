@@ -18,10 +18,10 @@ extension GlobalAudioManager {
         return URL(string: "\(addr)/tts")
     }
 
-    // MARK: - Request Queue（整段模式才使用 sendNextSegment）
+    // MARK: - Request Queue (used only in full-text mode)
     func sendNextSegment() {
         guard currentChunkIndex < textSegments.count else { return }
-        guard !isRealtimeMode else { return } // ★ 实时模式不使用递归链
+        guard !isRealtimeMode else { return } // Realtime mode does not recurse through the queue.
         let idx = currentChunkIndex
         currentChunkIndex += 1
         sendTTSRequest(for: textSegments[idx], index: idx)
@@ -30,7 +30,7 @@ extension GlobalAudioManager {
     func sendTTSRequest(for segmentText: String, index: Int) {
         guard !inFlightIndexes.contains(index) else { return }
         guard let url = constructTTSURL() else {
-            self.errorMessage = "Unable to construct TTS URL"
+            self.errorMessage = NSLocalizedString("Unable to construct TTS URL", comment: "Shown when the TTS endpoint URL cannot be built")
             return
         }
         inFlightIndexes.insert(index)
@@ -52,9 +52,9 @@ extension GlobalAudioManager {
         params["text_split_method"] = s.voiceSettings.enableStreaming ? "cut0" : s.modelSettings.autoSplit
 
         guard let body = try? JSONSerialization.data(withJSONObject: params) else {
-            self.errorMessage = "Unable to serialize JSON"
+            self.errorMessage = NSLocalizedString("Unable to serialize JSON", comment: "Shown when encoding the TTS request body fails")
             inFlightIndexes.remove(index)
-            // 实时模式：尝试继续队列，避免卡死
+            // In realtime mode continue with the queue to avoid stalling.
             if isRealtimeMode { processRealtimeQueueIfNeeded() }
             return
         }
@@ -77,7 +77,7 @@ extension GlobalAudioManager {
                     if self.isRealtimeMode {
                         self.processRealtimeQueueIfNeeded()
                     } else {
-                        // 普通模式按链式逐段发送
+                        // Non-realtime mode continues with the next segment immediately.
                         self.sendNextSegment()
                     }
                 }
@@ -91,16 +91,17 @@ extension GlobalAudioManager {
                 }
 
                 if let http = resp as? HTTPURLResponse, !(200...299).contains(http.statusCode) {
-                    self.errorMessage = "TTS server error: \(http.statusCode)"
+                    let message = String(format: NSLocalizedString("TTS server error: %d", comment: "Shown when the TTS server returns a non-success status"), http.statusCode)
+                    self.errorMessage = message
                     return
                 }
 
                 guard let data = data, !data.isEmpty else {
-                    self.errorMessage = "No data received"
+                    self.errorMessage = NSLocalizedString("No data received", comment: "Shown when the TTS server returns an empty body")
                     return
                 }
 
-                // 确保数组越界安全（实时模式下数组是动态增长的）
+                // Ensure the arrays grow safely when realtime mode extends them dynamically.
                 if index >= self.audioChunks.count {
                     let delta = index - self.audioChunks.count + 1
                     for _ in 0..<delta {

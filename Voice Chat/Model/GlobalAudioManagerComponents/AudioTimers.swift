@@ -20,11 +20,11 @@ extension GlobalAudioManager {
                       let p = self.audioPlayer,
                       !self.isBuffering else { return }
 
-                // ★ 开启并刷新电平
+                // Enable metering and update the output level.
                 if !p.isMeteringEnabled { p.isMeteringEnabled = true }
                 p.updateMeters()
                 let power = p.averagePower(forChannel: 0) // dB [-160, 0]
-                // 线性化到 0~1
+                // Convert the decibel reading into a normalized 0...1 range.
                 let norm = max(0, min(1, pow(10.0, power / 20.0)))
                 if abs(norm - self.outputLevel) > 0.01 { self.outputLevel = Float(norm) }
 
@@ -56,7 +56,7 @@ extension GlobalAudioManager {
     func stopAudioTimer() {
         audioTimer?.invalidate()
         audioTimer = nil
-        // 停止刷新输出电平
+        // Reset output level when the timer stops updating.
         outputLevel = 0
     }
 

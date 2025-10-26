@@ -56,8 +56,11 @@ struct AutoSizingTextEditor: NSViewRepresentable {
         let lineH = tv.layoutManager?.defaultLineHeight(for: tv.font ?? .systemFont(ofSize: 17)) ?? 18
         let maxH = CGFloat(maxLines) * lineH + 18
         let newH = min(maxH, max(lineH, used.height + 18))
-        height = newH
-        onOverflowChange((used.height + 18) > (maxH - 1))
+        let shouldOverflow = (used.height + 18) > (maxH - 1)
+        DispatchQueue.main.async {
+            if abs(height - newH) > 0.5 { height = newH }
+            onOverflowChange(shouldOverflow)
+        }
 
         if let selected = tv.selectedRanges.first as? NSRange {
             tv.scrollRangeToVisible(selected)
@@ -82,8 +85,11 @@ struct AutoSizingTextEditor: NSViewRepresentable {
             let lineH = tv.layoutManager?.defaultLineHeight(for: tv.font ?? .systemFont(ofSize: 17)) ?? 18
             let maxH = CGFloat(parent.maxLines) * lineH + 18
             let newH = min(maxH, max(lineH, used.height + 18))
-            parent.height = newH
-            parent.onOverflowChange((used.height + 18) > (maxH - 1))
+            let shouldOverflow = (used.height + 18) > (maxH - 1)
+            DispatchQueue.main.async {
+                if abs(self.parent.height - newH) > 0.5 { self.parent.height = newH }
+                self.parent.onOverflowChange(shouldOverflow)
+            }
 
             let end = NSRange(location: (tv.string as NSString).length, length: 0)
             tv.scrollRangeToVisible(end)
@@ -153,10 +159,10 @@ struct AutoSizingTextEditor: UIViewRepresentable {
             tv.isScrollEnabled = shouldScroll
         }
 
-        if abs(newH - height) > 0.5 {
-            DispatchQueue.main.async { height = newH }
+        DispatchQueue.main.async {
+            if abs(height - newH) > 0.5 { height = newH }
+            onOverflowChange(shouldScroll)
         }
-        onOverflowChange(shouldScroll)
 
         if shouldScroll {
             let end = NSRange(location: (tv.text as NSString).length, length: 0)

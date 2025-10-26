@@ -22,7 +22,7 @@ final class ChatSession {
     @Relationship(deleteRule: .cascade) var messages: [ChatMessage]
 
     // MARK: - Init
-    init(title: String = "New Chat") {
+    init(title: String = String(localized: "New Chat")) {
         self.id = UUID()
         self.title = title
         self.createdAt = Date()

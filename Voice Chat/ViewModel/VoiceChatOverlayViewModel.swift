@@ -6,56 +6,223 @@
 //
 
 import Foundation
-import SwiftUI
+import Combine
 
 @MainActor
 final class VoiceChatOverlayViewModel: ObservableObject {
 
-    enum Lang: String, CaseIterable, Identifiable {
-        case zh
-        case en
-        var id: String { rawValue }
-
-        var display: String { self == .zh ? "中文" : "English" }
-        var locale: Locale {
-            switch self {
-            case .zh: return Locale(identifier: "zh-CN")
-            case .en: return Locale(identifier: "en-US")
-            }
-        }
-    }
-
-    enum State: Equatable {
-        case idle
+    enum OverlayState: Equatable {
         case listening
         case loading
         case speaking
         case error(String)
     }
 
-    // UI 状态
     @Published var isPresented: Bool = false
-    @Published var lang: Lang = .zh
-    @Published var state: State = .idle
+    @Published private(set) var state: OverlayState = .listening
+    @Published var selectedLanguage: SpeechInputManager.DictationLanguage
+    @Published private(set) var showErrorAlert: Bool = false
+    @Published private(set) var errorMessage: String?
+    @Published private(set) var inputLevel: Double = 0
+    @Published private(set) var outputLevel: Double = 0
 
-    // 外部注入回调：识别完成后把文本发给当前 Chat
-    var onRecognizedFinal: ((String) -> Void)?
+    var availableLanguages: [SpeechInputManager.DictationLanguage] {
+        SpeechInputManager.DictationLanguage.allCases
+    }
 
-    func present() {
-        state = .idle
+    private let speechInputManager: SpeechInputManager
+    private let audioManager: GlobalAudioManager
+    private var cancellables: Set<AnyCancellable> = []
+    private var onRecognizedFinal: ((String) -> Void)?
+    private var autoResumeEnabled = false
+    private var isStartingRecording = false
+
+    init(
+        speechInputManager: SpeechInputManager,
+        audioManager: GlobalAudioManager
+    ) {
+        self.speechInputManager = speechInputManager
+        self.audioManager = audioManager
+        self.selectedLanguage = speechInputManager.currentLanguage
+        bindState()
+    }
+
+    func presentSession(onFinal: @escaping (String) -> Void) {
+        onRecognizedFinal = onFinal
+        autoResumeEnabled = true
+        showErrorAlert = false
+        errorMessage = nil
         isPresented = true
+        state = .listening
+        startListening()
     }
 
     func dismiss() {
+        autoResumeEnabled = false
         isPresented = false
-        state = .idle
+        state = .listening
+        showErrorAlert = false
+        errorMessage = nil
+        cleanupSession()
     }
 
-    func setLoading() { state = .loading }
-    func setListening() { state = .listening }
-    func setSpeaking() { state = .speaking }
+    func handleViewDisappear() {
+        cleanupSession()
+    }
 
-    func setError(_ msg: String) {
-        state = .error(msg)
+    func dismissErrorMessage() {
+        showErrorAlert = false
+    }
+
+    func updateLanguage(_ language: SpeechInputManager.DictationLanguage) {
+        guard selectedLanguage != language else { return }
+        selectedLanguage = language
+        speechInputManager.currentLanguage = language
+        if isPresented {
+            restartListening()
+        }
+    }
+
+    // MARK: - Internal bindings
+
+    private func bindState() {
+        speechInputManager.$inputLevel
+            .receive(on: RunLoop.main)
+            .sink { [weak self] level in
+                self?.inputLevel = level
+            }
+            .store(in: &cancellables)
+
+        audioManager.$outputLevel
+            .receive(on: RunLoop.main)
+            .sink { [weak self] level in
+                self?.outputLevel = Double(level)
+            }
+            .store(in: &cancellables)
+
+        speechInputManager.$currentLanguage
+            .removeDuplicates()
+            .receive(on: RunLoop.main)
+            .sink { [weak self] language in
+                self?.selectedLanguage = language
+            }
+            .store(in: &cancellables)
+
+        speechInputManager.$isRecording
+            .removeDuplicates()
+            .receive(on: RunLoop.main)
+            .sink { [weak self] isRecording in
+                self?.handleRecordingChange(isRecording)
+            }
+            .store(in: &cancellables)
+
+        audioManager.$isAudioPlaying
+            .removeDuplicates()
+            .receive(on: RunLoop.main)
+            .sink { [weak self] playing in
+                self?.handleAudioPlayingChange(playing)
+            }
+            .store(in: &cancellables)
+
+        audioManager.$isLoading
+            .removeDuplicates()
+            .receive(on: RunLoop.main)
+            .sink { [weak self] loading in
+                self?.handleAudioLoadingChange(loading)
+            }
+            .store(in: &cancellables)
+
+        speechInputManager.$lastError
+            .receive(on: RunLoop.main)
+            .sink { [weak self] error in
+                guard let message = error, !message.isEmpty else { return }
+                self?.handleError(message)
+            }
+            .store(in: &cancellables)
+    }
+
+    // MARK: - State transitions
+
+    private func startListening() {
+        guard autoResumeEnabled else { return }
+        guard !speechInputManager.isRecording else { return }
+        guard !isStartingRecording else { return }
+
+        isStartingRecording = true
+        Task { [weak self] in
+            guard let self else { return }
+            await self.startRecordingSession()
+            await MainActor.run {
+                self.isStartingRecording = false
+            }
+        }
+    }
+
+    private func restartListening() {
+        cleanupRecordingOnly()
+        startListening()
+    }
+
+    private func startRecordingSession() async {
+        await speechInputManager.startRecording(
+            language: selectedLanguage,
+            onPartial: { _ in },
+            onFinal: { [weak self] text in
+                guard let self else { return }
+                self.state = .loading
+                self.onRecognizedFinal?(text)
+            }
+        )
+        if let error = speechInputManager.lastError, !error.isEmpty {
+            handleError(error)
+        }
+    }
+
+    private func cleanupRecordingOnly() {
+        speechInputManager.stopRecording()
+    }
+
+    private func cleanupSession() {
+        onRecognizedFinal = nil
+        cleanupRecordingOnly()
+    }
+
+    private func handleRecordingChange(_ isRecording: Bool) {
+        if isRecording {
+            state = .listening
+        } else {
+            resumeListeningIfIdle()
+        }
+    }
+
+    private func handleAudioPlayingChange(_ playing: Bool) {
+        if playing {
+            state = .speaking
+        } else {
+            resumeListeningIfIdle()
+        }
+    }
+
+    private func handleAudioLoadingChange(_ loading: Bool) {
+        if loading, !audioManager.isAudioPlaying {
+            state = .loading
+        } else {
+            resumeListeningIfIdle()
+        }
+    }
+
+    private func resumeListeningIfIdle() {
+        guard autoResumeEnabled, isPresented else { return }
+        guard !audioManager.isAudioPlaying else { return }
+        guard !audioManager.isLoading else { return }
+        guard !speechInputManager.isRecording else { return }
+        startListening()
+    }
+
+    private func handleError(_ message: String) {
+        errorMessage = message
+        showErrorAlert = true
+        state = .error(message)
+        autoResumeEnabled = false
     }
 }

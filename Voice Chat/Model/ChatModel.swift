@@ -23,7 +23,7 @@ struct Choice: Codable {
     var delta: Delta?
 }
 
-/// 兼容 LM Studio v0.3.23+ 的 reasoning 流式字段
+/// Decodes reasoning fields produced by LM Studio v0.3.23 and later.
 struct ReasoningValue: Codable {
     let text: String
 
@@ -121,36 +121,36 @@ final class ChatService: NSObject, URLSessionDataDelegate, @unchecked Sendable {
     private var session: URLSession?
     private var dataTask: URLSessionDataTask?
 
-    /// ★ 回调显式限定在主线程执行
+    /// Callbacks are explicitly constrained to run on the main actor.
     var onDelta: (@MainActor (String) -> Void)?
     var onError: (@MainActor (Error) -> Void)?
     var onStreamFinished: (@MainActor () -> Void)?
 
-    // 推理/正文状态
+    // Reasoning / body state tracking
     private var isLegacyThinkStream = false
     private var sawAnyAssistantToken = false
     private var newFormatActive = false
     private var sentThinkOpen = false
     private var sentThinkClose = false
 
-    // SSE 解析缓冲
+    // SSE parsing buffer
     private var ssePartialLine: String = ""
 
-    // 超时/看门狗（满足“至少 1 小时”的需求）
-    private let firstTokenTimeout: TimeInterval = 3600        // 1h 等首 token
-    private let silentGapTimeout: TimeInterval  = 3600        // 1h 无增量
+    // Watchdog configuration to cover long-running sessions (up to ~1 hour).
+    private let firstTokenTimeout: TimeInterval = 3600        // Wait up to one hour for the first token.
+    private let silentGapTimeout: TimeInterval  = 3600        // Allow up to one hour of silence between tokens.
     private var streamStartAt: Date?
     private var lastDeltaAt: Date?
     private var watchdog: Timer?
 
-    // 取消标记：用于丢弃停止后的任何残余增量
+    // Cancel flag to ignore any residual deltas after stopping.
     private var isCancelled: Bool = false
 
     override init() {
         super.init()
         let configuration = URLSessionConfiguration.default
         configuration.waitsForConnectivity = true
-        configuration.timeoutIntervalForRequest  = 3900   // ~1h+5m 余量
+        configuration.timeoutIntervalForRequest  = 3900   // Adds a few minutes of headroom beyond one hour.
         configuration.timeoutIntervalForResource = 3900
         configuration.httpMaximumConnectionsPerHost = 1
         self.session = URLSession(configuration: configuration, delegate: self, delegateQueue: nil)
@@ -158,7 +158,7 @@ final class ChatService: NSObject, URLSessionDataDelegate, @unchecked Sendable {
 
     deinit { stopWatchdog() }
 
-    /// 现在在主 actor 上调用，避免把 SwiftData 模型跨隔离传递
+    /// Called on the main actor to avoid crossing actor boundaries with SwiftData models.
     @MainActor
     func fetchStreamedData(messages: [ChatMessage]) {
         dataTask?.cancel()
@@ -172,7 +172,7 @@ final class ChatService: NSObject, URLSessionDataDelegate, @unchecked Sendable {
         self.startStreaming(apiURLString: apiURLString, model: model, messages: messages)
     }
 
-    /// 取消当前流式请求
+    /// Cancels the current streaming request.
     func cancelStreaming() {
         isCancelled = true
         dataTask?.cancel()
@@ -181,7 +181,7 @@ final class ChatService: NSObject, URLSessionDataDelegate, @unchecked Sendable {
         resetStreamState()
     }
 
-    /// 非异步：只负责组装请求并启动 URLSession 流
+    /// Builds the request and starts the URLSession stream (non-async helper).
     private func startStreaming(apiURLString: String, model: String, messages: [ChatMessage]) {
         guard let apiURL = URL(string: apiURLString) else {
             Task { @MainActor in self.onError?(ChatNetworkError.invalidURL) }
@@ -190,7 +190,7 @@ final class ChatService: NSObject, URLSessionDataDelegate, @unchecked Sendable {
 
         var request = URLRequest(url: apiURL)
         request.httpMethod = "POST"
-        request.timeoutInterval = 3900 // 单请求超时 ~1h+5m
+        request.timeoutInterval = 3900 // Individual request timeout with extra buffer beyond one hour.
         request.addValue("application/json", forHTTPHeaderField: "Content-Type")
         request.addValue("text/event-stream", forHTTPHeaderField: "Accept")
         request.addValue("keep-alive", forHTTPHeaderField: "Connection")
@@ -338,7 +338,7 @@ final class ChatService: NSObject, URLSessionDataDelegate, @unchecked Sendable {
         }
     }
 
-    // MARK: - Watchdog（在 1 小时极端等待时报错）
+// MARK: - Watchdog (reports errors after long waits)
 
     private func startWatchdog() {
         stopWatchdog()
@@ -352,7 +352,7 @@ final class ChatService: NSObject, URLSessionDataDelegate, @unchecked Sendable {
                     self.dataTask?.cancel()
                     self.dataTask = nil
                     self.stopWatchdog()
-                    Task { @MainActor in self.onError?(ChatNetworkError.timeout("连接超时")) }
+                    Task { @MainActor in self.onError?(ChatNetworkError.timeout("Connection timed out")) }
                 }
                 return
             }
@@ -362,7 +362,7 @@ final class ChatService: NSObject, URLSessionDataDelegate, @unchecked Sendable {
                     self.dataTask?.cancel()
                     self.dataTask = nil
                     self.stopWatchdog()
-                    Task { @MainActor in self.onError?(ChatNetworkError.timeout("连接超时")) }
+                    Task { @MainActor in self.onError?(ChatNetworkError.timeout("Connection timed out")) }
                 }
             }
         }
