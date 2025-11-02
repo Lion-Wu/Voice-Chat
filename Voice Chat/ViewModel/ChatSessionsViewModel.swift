@@ -14,6 +14,9 @@ final class ChatSessionsViewModel: ObservableObject {
     @Published private(set) var chatSessions: [ChatSession] = []
     @Published var selectedSessionID: UUID? = nil
 
+    // MARK: - Cached View Models
+    private var viewModelCache: [UUID: ChatViewModel] = [:]
+
     // MARK: - SwiftData
     private var context: ModelContext?
 
@@ -37,6 +40,17 @@ final class ChatSessionsViewModel: ObservableObject {
         return true
     }
 
+    // MARK: - View Model Access
+    func viewModel(for session: ChatSession) -> ChatViewModel {
+        if let cached = viewModelCache[session.id] {
+            cached.attach(session: session)
+            return cached
+        }
+        let vm = ChatViewModel(chatSession: session)
+        viewModelCache[session.id] = vm
+        return vm
+    }
+
     // MARK: - Attach Context
     func attach(context: ModelContext) {
         // Attach the context only once.
@@ -52,6 +66,7 @@ final class ChatSessionsViewModel: ObservableObject {
         let new = ChatSession(title: String(localized: "New Chat"))
         context.insert(new)
         do { try context.save() } catch { print("Save new session error: \(error)") }
+        viewModelCache[new.id] = ChatViewModel(chatSession: new)
         refreshSessionsAndSelect(new.id)
     }
 
@@ -69,6 +84,7 @@ final class ChatSessionsViewModel: ObservableObject {
         guard let context else { return }
         for index in offsets {
             let s = chatSessions[index]
+            viewModelCache.removeValue(forKey: s.id)
             context.delete(s) // SwiftData cascades to remove related messages.
         }
         do { try context.save() } catch { print("Delete error: \(error)") }
@@ -111,6 +127,7 @@ final class ChatSessionsViewModel: ObservableObject {
         do {
             let fetched = try context.fetch(descriptor)
             chatSessions = fetched
+            pruneStaleViewModels(keeping: fetched)
             if selectedSessionID == nil {
                 selectedSessionID = chatSessions.first?.id
             }
@@ -126,5 +143,13 @@ final class ChatSessionsViewModel: ObservableObject {
     private func refreshSessionsAndSelect(_ id: UUID?) {
         loadChatSessions()
         if let id { selectedSessionID = id }
+    }
+
+    private func pruneStaleViewModels(keeping sessions: [ChatSession]) {
+        let validIDs = Set(sessions.map(\.id))
+        let staleKeys = viewModelCache.keys.filter { !validIDs.contains($0) }
+        for key in staleKeys {
+            viewModelCache.removeValue(forKey: key)
+        }
     }
 }

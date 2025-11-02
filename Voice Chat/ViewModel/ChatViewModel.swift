@@ -39,6 +39,9 @@ class ChatViewModel: ObservableObject {
     // MARK: - Init
     init(chatSession: ChatSession) {
         self.chatSession = chatSession
+        if chatSession.messages.contains(where: { !$0.isUser && $0.isActive }) {
+            self.isLoading = true
+        }
 
         // Deliver streaming deltas back on the main actor.
         chatService.onDelta = { [weak self] piece in
@@ -184,7 +187,7 @@ class ChatViewModel: ObservableObject {
         onUpdate?()
 
         // Determine whether this response should use realtime narration.
-        realtimeTTSActive = SettingsManager.shared.voiceSettings.enableStreaming && enableRealtimeTTSNext
+        realtimeTTSActive = enableRealtimeTTSNext
         enableRealtimeTTSNext = false
         if realtimeTTSActive {
             incSegmenter.reset()
@@ -295,6 +298,14 @@ class ChatViewModel: ObservableObject {
     func cancelEditing() {
         editingBaseMessageID = nil
         userMessage = ""
+    }
+
+    // MARK: - Session Management
+    func attach(session newSession: ChatSession) {
+        guard chatSession.id == newSession.id else { return }
+        if chatSession !== newSession {
+            chatSession = newSession
+        }
     }
 
     // MARK: - Helpers (retry cleanup)

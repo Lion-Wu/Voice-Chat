@@ -32,7 +32,7 @@ struct ContentView: View {
             )
         } detail: {
             if let selectedSession = chatSessionsViewModel.selectedSession {
-                ChatView(chatSession: selectedSession)
+                ChatView(viewModel: chatSessionsViewModel.viewModel(for: selectedSession))
                     .id(selectedSession.id)
             } else {
                 Text("No chat selected")

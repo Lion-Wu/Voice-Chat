@@ -49,7 +49,11 @@ extension GlobalAudioManager {
             "batch_size": 1,
             "media_type": mediaType
         ]
-        params["text_split_method"] = s.voiceSettings.enableStreaming ? "cut0" : s.modelSettings.autoSplit
+        if isRealtimeMode {
+            params["text_split_method"] = "cut0"
+        } else {
+            params["text_split_method"] = s.voiceSettings.enableStreaming ? "cut0" : s.modelSettings.autoSplit
+        }
 
         guard let body = try? JSONSerialization.data(withJSONObject: params) else {
             self.errorMessage = NSLocalizedString("Unable to serialize JSON", comment: "Shown when encoding the TTS request body fails")

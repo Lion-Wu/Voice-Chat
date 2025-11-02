@@ -44,7 +44,7 @@ struct MainContentView: View {
                 // Chat content area
                 if let selectedSession = chatSessionsViewModel.selectedSession {
                     ChatView(
-                        chatSession: selectedSession,
+                        viewModel: chatSessionsViewModel.viewModel(for: selectedSession),
                         onMessagesCountChange: { newCount in
                             if currentMessagesCount != newCount {
                                 currentMessagesCount = newCount

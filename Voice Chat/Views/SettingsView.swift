@@ -10,13 +10,6 @@ import SwiftUI
 import AppKit
 #endif
 
-// MARK: - Alert Model
-
-struct AlertError: Identifiable {
-    var id = UUID()
-    var message: String
-}
-
 // MARK: - Settings View
 
 struct SettingsView: View {
@@ -24,7 +17,7 @@ struct SettingsView: View {
 
     @State private var availableModels: [String] = []
     @State private var isLoadingModels = false
-    @State private var errorMessage: AlertError?
+    @State private var chatServerErrorMessage: String?
 
     // Preset deletion confirmation state
     @State private var showDeletePresetAlert = false
@@ -73,11 +66,6 @@ struct SettingsView: View {
     private func applyCommonModifiers<Content: View>(_ content: Content) -> some View {
         content
             .onAppear { fetchAvailableModels() }
-            .alert(item: $errorMessage) { error in
-                Alert(title: Text("Error"),
-                      message: Text(error.message),
-                      dismissButton: .default(Text("OK")))
-            }
             .alert("Delete this preset?",
                    isPresented: $showDeletePresetAlert) {
                 Button("Delete", role: .destructive) { viewModel.deleteCurrentPreset() }
@@ -284,6 +272,20 @@ struct SettingsView: View {
         }
     }
 
+    @ViewBuilder
+    private var chatServerStatusView: some View {
+        if let message = chatServerErrorMessage, !message.isEmpty {
+            HStack(spacing: 8) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .foregroundColor(.orange)
+                Text(message)
+                    .foregroundColor(.secondary)
+                Spacer()
+            }
+            .padding(.top, 2)
+        }
+    }
+
     private var presetDetailFields: some View {
         Group {
             LabeledTextField(label: "Preset Name",
@@ -400,6 +402,8 @@ struct SettingsView: View {
                 }
             }
             .padding(.top, 6)
+
+            chatServerStatusView
         } header: {
             if hideHeader {
                 EmptyView()
@@ -428,34 +432,48 @@ struct SettingsView: View {
     // MARK: - Networking (List Models)
 
     private func fetchAvailableModels() {
+        chatServerErrorMessage = nil
+
         guard !viewModel.apiURL.isEmpty else {
-            errorMessage = AlertError(message: NSLocalizedString("API URL is empty or invalid.", comment: "Shown when the model list URL is missing"))
+            isLoadingModels = false
+            chatServerErrorMessage = NSLocalizedString("API URL is empty or invalid.", comment: "Shown when the model list URL is missing")
             return
         }
-        isLoadingModels = true
-        errorMessage = nil
 
         let urlString = "\(viewModel.apiURL)/v1/models"
         guard let url = URL(string: urlString) else {
             isLoadingModels = false
-            errorMessage = AlertError(message: NSLocalizedString("Invalid API URL", comment: "Shown when the model list URL cannot be parsed"))
+            chatServerErrorMessage = NSLocalizedString("Invalid API URL", comment: "Shown when the model list URL cannot be parsed")
             return
         }
+
+        isLoadingModels = true
 
         let request = URLRequest(url: url, timeoutInterval: 30)
         URLSession.shared.dataTask(with: request) { data, response, error in
             DispatchQueue.main.async {
                 self.isLoadingModels = false
+
                 if let error = error {
                     let message = String(format: NSLocalizedString("Request failed: %@", comment: "Model list request failed"), error.localizedDescription)
-                    self.errorMessage = AlertError(message: message)
+                    self.chatServerErrorMessage = message
                     return
                 }
+
+                if let http = response as? HTTPURLResponse,
+                   !(200...299).contains(http.statusCode) {
+                    let message = String(format: NSLocalizedString("Chat server responded with status %d.", comment: "Displayed when the chat server returns an error"), http.statusCode)
+                    self.chatServerErrorMessage = message
+                    return
+                }
+
                 guard let data = data,
                       let modelList = try? JSONDecoder().decode(ModelListResponse.self, from: data) else {
-                    self.errorMessage = AlertError(message: NSLocalizedString("Unable to parse model list", comment: "Decoding the model list failed"))
+                    self.chatServerErrorMessage = NSLocalizedString("Unable to parse model list", comment: "Decoding the model list failed")
                     return
                 }
+
+                self.chatServerErrorMessage = nil
                 self.availableModels = modelList.data.map { $0.id }
                 if !self.availableModels.contains(self.viewModel.selectedModel),
                    let firstModel = self.availableModels.first {

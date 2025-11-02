@@ -43,7 +43,7 @@ struct ChatView: View {
     @EnvironmentObject var chatSessionsViewModel: ChatSessionsViewModel
     @EnvironmentObject var audioManager: GlobalAudioManager
     @EnvironmentObject var speechInputManager: SpeechInputManager
-    @StateObject private var viewModel: ChatViewModel
+    @ObservedObject var viewModel: ChatViewModel
     @State private var textFieldHeight: CGFloat = 0
     @FocusState private var isInputFocused: Bool
 
@@ -64,8 +64,8 @@ struct ChatView: View {
 
     var onMessagesCountChange: (Int) -> Void = { _ in }
 
-    init(chatSession: ChatSession, onMessagesCountChange: @escaping (Int) -> Void = { _ in }) {
-        _viewModel = StateObject(wrappedValue: ChatViewModel(chatSession: chatSession))
+    init(viewModel: ChatViewModel, onMessagesCountChange: @escaping (Int) -> Void = { _ in }) {
+        self.viewModel = viewModel
         self.onMessagesCountChange = onMessagesCountChange
     }
 
@@ -91,6 +91,10 @@ struct ChatView: View {
         #else
         return 8
         #endif
+    }
+
+    private var shouldDisplayAudioPlayer: Bool {
+        audioManager.isShowingAudioPlayer && !audioManager.isRealtimeMode && !voiceOverlayVM.isPresented
     }
 
     var body: some View {
@@ -287,14 +291,14 @@ struct ChatView: View {
                 )
             }
 
-            if audioManager.isShowingAudioPlayer {
+            if shouldDisplayAudioPlayer {
                 VStack {
                     AudioPlayerView()
                         .environmentObject(audioManager)
                     Spacer()
                 }
                 .transition(.move(edge: .top).combined(with: .opacity))
-                .animation(.easeInOut, value: audioManager.isShowingAudioPlayer)
+                .animation(.easeInOut, value: shouldDisplayAudioPlayer)
             }
         }
         #if os(macOS)
@@ -423,7 +427,7 @@ struct ChatView: View {
 struct ChatView_Previews: PreviewProvider {
     static var previews: some View {
         let session = ChatSession()
-        ChatView(chatSession: session)
+        ChatView(viewModel: ChatViewModel(chatSession: session))
             .modelContainer(for: [ChatSession.self, ChatMessage.self, AppSettings.self], inMemory: true)
             .environmentObject(GlobalAudioManager.shared)
             .environmentObject(ChatSessionsViewModel())

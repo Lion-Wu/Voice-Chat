@@ -67,7 +67,7 @@ final class GlobalAudioManager: NSObject, ObservableObject, AVAudioPlayerDelegat
     var currentGenerationID = UUID()
 
     // Track whether realtime streaming is active and whether the stream has been finalized.
-    private(set) var isRealtimeMode: Bool = false
+    @Published private(set) var isRealtimeMode: Bool = false
     private var realtimeFinalized: Bool = false
 
     // Queue for realtime mode to ensure only one network request is in-flight at a time.
