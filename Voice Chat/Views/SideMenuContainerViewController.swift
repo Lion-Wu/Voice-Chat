@@ -19,6 +19,7 @@ final class SideMenuContainerViewController: UIViewController {
 
     private var sideMenuLeadingConstraint: NSLayoutConstraint!
     private var mainLeftConstraint: NSLayoutConstraint!
+    private var mainBottomConstraint: NSLayoutConstraint!
 
     private var isMenuOpen = false
     private var startMenuLeading: CGFloat = 0
@@ -90,12 +91,21 @@ final class SideMenuContainerViewController: UIViewController {
         ])
 
         mainLeftConstraint = mainView.leadingAnchor.constraint(equalTo: sidebarView.trailingAnchor, constant: 0)
-        NSLayoutConstraint.activate([
+        var mainConstraints: [NSLayoutConstraint] = [
             mainLeftConstraint,
             mainView.topAnchor.constraint(equalTo: view.topAnchor),
-            mainView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
             mainView.widthAnchor.constraint(equalTo: view.widthAnchor)
-        ])
+        ]
+
+        if #available(iOS 15.0, tvOS 15.0, *) {
+            let keyboardGuide = view.keyboardLayoutGuide
+            mainBottomConstraint = mainView.bottomAnchor.constraint(equalTo: keyboardGuide.topAnchor)
+        } else {
+            mainBottomConstraint = mainView.bottomAnchor.constraint(equalTo: view.bottomAnchor)
+        }
+        mainConstraints.append(mainBottomConstraint)
+
+        NSLayoutConstraint.activate(mainConstraints)
 
         isMenuOpen = false
     }
