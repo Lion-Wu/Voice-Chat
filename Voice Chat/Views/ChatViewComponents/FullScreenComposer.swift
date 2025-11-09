@@ -21,12 +21,6 @@ struct FullScreenComposer: View {
                 .padding()
                 .navigationTitle("Full Screen Editor")
                 .toolbar {
-                    ToolbarItem(placement: .cancellationAction) {
-                        Button("Close") {
-                            dismiss()
-                            onDone()
-                        }
-                    }
                     ToolbarItem(placement: .confirmationAction) {
                         Button("Done") {
                             dismiss()
