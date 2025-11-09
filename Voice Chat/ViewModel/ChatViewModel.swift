@@ -139,16 +139,32 @@ class ChatViewModel: ObservableObject {
 
     // MARK: - Helpers (stable ordering & safe trimming)
 
+    /// Returns messages sorted by time while preserving insertion order for identical timestamps.
     private func chronologicalMessages() -> [ChatMessage] {
-        chatSession.messages.sorted { $0.createdAt < $1.createdAt }
+        chatSession.messages
+            .enumerated()
+            .sorted { lhs, rhs in
+                if lhs.element.createdAt == rhs.element.createdAt {
+                    return lhs.offset < rhs.offset
+                }
+                return lhs.element.createdAt < rhs.element.createdAt
+            }
+            .map(\.element)
     }
 
-    private func trimMessages(from cutoff: Date, inclusive: Bool) {
-        if inclusive {
-            chatSession.messages.removeAll { $0.createdAt >= cutoff }
-        } else {
-            chatSession.messages.removeAll { $0.createdAt > cutoff }
+    /// Removes the boundary message (if requested) and everything that chronologically follows it.
+    private func trimMessages(startingAt boundary: ChatMessage, includeBoundary: Bool) {
+        let ordered = chronologicalMessages()
+        guard let boundaryIndex = ordered.firstIndex(where: { $0.id == boundary.id }) else { return }
+
+        let keepCount = includeBoundary ? boundaryIndex : boundaryIndex + 1
+        let keepIDs = Set(ordered.prefix(keepCount).map(\.id))
+
+        if keepCount == ordered.count {
+            return
         }
+
+        chatSession.messages.removeAll { !keepIDs.contains($0.id) }
     }
 
     private func closeActiveAssistantMessageIfAny() {
@@ -168,7 +184,7 @@ class ChatViewModel: ObservableObject {
 
         if let baseID = editingBaseMessageID,
            let base = chatSession.messages.first(where: { $0.id == baseID }) {
-            trimMessages(from: base.createdAt, inclusive: true)
+            trimMessages(startingAt: base, includeBoundary: true)
             editingBaseMessageID = nil
         }
 
@@ -238,8 +254,7 @@ class ChatViewModel: ObservableObject {
         interruptedAssistantMessageID = nil
 
         guard !message.isUser else { return }
-        let cutoff = message.createdAt
-        trimMessages(from: cutoff, inclusive: true)
+        trimMessages(startingAt: message, includeBoundary: true)
         onUpdate?()
 
         let currentMessages = chronologicalMessages()
@@ -254,26 +269,13 @@ class ChatViewModel: ObservableObject {
         chatService.cancelStreaming()
         closeActiveAssistantMessageIfAny()
 
-        let errorTime = errorMessage.createdAt
-
-        if let idx = chatSession.messages.firstIndex(where: { $0.id == errorMessage.id }) {
-            chatSession.messages.remove(at: idx)
-        }
-
-        if let interruptedID = interruptedAssistantMessageID,
-           let idx2 = chatSession.messages.firstIndex(where: { $0.id == interruptedID }) {
-            chatSession.messages.remove(at: idx2)
+        let ordered = chronologicalMessages()
+        guard let errorIndex = ordered.firstIndex(where: { $0.id == errorMessage.id }) else { return }
+        let priorMessages = ordered.prefix(errorIndex)
+        if let precedingUser = priorMessages.last(where: { $0.isUser }) {
+            trimMessages(startingAt: precedingUser, includeBoundary: false)
         } else {
-            let candidates = chatSession.messages.enumerated()
-                .filter { (_, m) in !m.isUser && m.createdAt <= errorTime && !m.content.hasPrefix("!error:") }
-                .sorted(by: { $0.element.createdAt > $1.element.createdAt })
-            if let (idx3, _) = candidates.first {
-                chatSession.messages.remove(at: idx3)
-            }
-        }
-
-        if let idxThink = indexOfNearestUnclosedThinkAssistant(beforeOrAt: errorTime) {
-            chatSession.messages.remove(at: idxThink)
+            trimMessages(startingAt: errorMessage, includeBoundary: true)
         }
 
         interruptedAssistantMessageID = nil
@@ -306,27 +308,6 @@ class ChatViewModel: ObservableObject {
         if chatSession !== newSession {
             chatSession = newSession
         }
-    }
-
-    // MARK: - Helpers (retry cleanup)
-
-    private func indexOfNearestUnclosedThinkAssistant(beforeOrAt time: Date) -> Int? {
-        let enumerated = chatSession.messages.enumerated()
-            .filter { (_, m) in
-                guard !m.isUser, !m.content.hasPrefix("!error:") else { return false }
-                return m.createdAt <= time
-            }
-
-        for (idx, msg) in enumerated.sorted(by: { $0.element.createdAt > $1.element.createdAt }) {
-            if isUnclosedThink(msg.content) { return idx }
-        }
-        return nil
-    }
-
-    private func isUnclosedThink(_ text: String) -> Bool {
-        guard let start = text.range(of: "<think>") else { return false }
-        let after = text[start.upperBound...]
-        return after.range(of: "</think>") == nil
     }
 
     // MARK: - Auto Read Helper
