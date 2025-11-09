@@ -65,4 +65,6 @@ enum InputMetrics {
     static let innerBottom: CGFloat = 10
     static let innerLeading: CGFloat = 6
     static let innerTrailing: CGFloat = 6
+    static let baseLineHeight: CGFloat = 21
+    static let defaultHeight: CGFloat = innerTop + innerBottom + baseLineHeight
 }

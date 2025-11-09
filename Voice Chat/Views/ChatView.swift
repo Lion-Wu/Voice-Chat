@@ -9,6 +9,10 @@ import SwiftUI
 import Foundation
 import SwiftData
 
+#if os(macOS)
+import AppKit
+#endif
+
 // MARK: - Equatable Rendering Helpers
 
 /// Wrapper that invalidates the view only when the equatable value changes.
@@ -44,7 +48,7 @@ struct ChatView: View {
     @EnvironmentObject var audioManager: GlobalAudioManager
     @EnvironmentObject var speechInputManager: SpeechInputManager
     @ObservedObject var viewModel: ChatViewModel
-    @State private var textFieldHeight: CGFloat = 0
+    @State private var textFieldHeight: CGFloat = InputMetrics.defaultHeight
     @FocusState private var isInputFocused: Bool
 
     @State private var isShowingTextSelectionSheet = false
@@ -55,6 +59,10 @@ struct ChatView: View {
 
     @State private var contentHeight: CGFloat = 0
     @State private var viewportHeight: CGFloat = 0
+
+#if os(macOS)
+    @State private var returnKeyMonitor: Any?
+#endif
 
     // View model that coordinates the realtime voice overlay.
     @StateObject private var voiceOverlayVM = VoiceChatOverlayViewModel(
@@ -93,8 +101,24 @@ struct ChatView: View {
         #endif
     }
 
+    private var floatingInputButtonHeight: CGFloat {
+        textFieldHeight + InputMetrics.outerV * 2
+    }
+
+    private var floatingInputPanelHeight: CGFloat {
+        floatingInputButtonHeight + 20
+    }
+
+    private var messageListBottomInset: CGFloat {
+        floatingInputPanelHeight + 20
+    }
+
     private var shouldDisplayAudioPlayer: Bool {
         audioManager.isShowingAudioPlayer && !audioManager.isRealtimeMode && !voiceOverlayVM.isPresented
+    }
+
+    private var trimmedUserMessage: String {
+        viewModel.userMessage.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     var body: some View {
@@ -160,135 +184,6 @@ struct ChatView: View {
                     .background(PlatformColor.secondaryBackground.opacity(0.6))
                 }
 
-                // Input area
-                VStack(spacing: 10) {
-                    HStack(alignment: .bottom, spacing: 10) {
-                        // Auto-sizing input field
-                        ZStack(alignment: .topLeading) {
-                            if viewModel.userMessage.isEmpty {
-                                Text("Type your message...")
-                                    .font(.system(size: 17))
-                                    .foregroundColor(.secondary)
-                                    .padding(.top, InputMetrics.outerV + InputMetrics.innerTop)
-                                    .padding(.leading, InputMetrics.outerH + InputMetrics.innerLeading)
-                                    .accessibilityHint("Message field placeholder")
-                            }
-
-#if os(macOS)
-                            AutoSizingTextEditor(
-                                text: $viewModel.userMessage,
-                                height: $textFieldHeight,
-                                maxLines: platformMaxLines(),
-                                onOverflowChange: { _ in },
-                                onCommit: {
-                                    let trimmed = viewModel.userMessage.trimmingCharacters(in: .whitespacesAndNewlines)
-                                    guard !viewModel.isLoading, !trimmed.isEmpty else { return }
-                                    viewModel.sendMessage()
-                                }
-                            )
-                            .focused($isInputFocused)
-                            .frame(height: textFieldHeight)
-                            .padding(.vertical, InputMetrics.outerV)
-                            .padding(.horizontal, InputMetrics.outerH)
-#else
-                            AutoSizingTextEditor(
-                                text: $viewModel.userMessage,
-                                height: $textFieldHeight,
-                                maxLines: platformMaxLines(),
-                                onOverflowChange: { overflow in
-                                    let newValue = overflow && isPhone()
-                                    if newValue != inputOverflow {
-                                        DispatchQueue.main.async {
-                                            inputOverflow = newValue
-                                        }
-                                    }
-                                }
-                            )
-                            .focused($isInputFocused)
-                            .frame(height: textFieldHeight)
-                            .padding(.vertical, InputMetrics.outerV)
-                            .padding(.horizontal, InputMetrics.outerH)
-#endif
-
-#if os(iOS) || os(tvOS)
-                            if inputOverflow && isPhone() {
-                                Button {
-                                    showFullScreenComposer = true
-                                } label: {
-                                    Image(systemName: "arrow.up.left.and.arrow.down.right")
-                                        .font(.system(size: 16, weight: .semibold))
-                                        .foregroundStyle(.secondary)
-                                }
-                                .padding(.top, 6)
-                                .padding(.trailing, 8)
-                                .accessibilityLabel("Open full screen editor")
-                                .frame(maxWidth: .infinity, alignment: .topTrailing)
-                            }
-#endif
-                        }
-                        .background(ChatTheme.inputBG, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                                .stroke(ChatTheme.subtleStroke, lineWidth: 1)
-                        )
-
-                        // Trailing controls
-                        if viewModel.isLoading {
-                            Button {
-                                viewModel.cancelCurrentRequest()
-                            } label: {
-                                Image(systemName: "stop.circle.fill")
-                                    .font(.system(size: 32, weight: .semibold))
-                                    .symbolRenderingMode(.hierarchical)
-                                    .foregroundStyle(.red)
-                                    .shadow(color: ChatTheme.bubbleShadow, radius: 4, x: 0, y: 2)
-                                    .accessibilityLabel("Stop Generation")
-                            }
-                            .buttonStyle(.plain)
-                        } else {
-                            if viewModel.userMessage.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                                Button {
-                                    openRealtimeVoiceOverlay()
-                                } label: {
-                                    Image(systemName: "waveform.circle.fill")
-                                        .font(.system(size: 32, weight: .semibold))
-                                        .symbolRenderingMode(.hierarchical)
-                                        .foregroundStyle(ChatTheme.accent)
-                                        .shadow(color: ChatTheme.bubbleShadow, radius: 4, x: 0, y: 2)
-                                        .accessibilityLabel("Start Realtime Voice Conversation")
-                                }
-                                .buttonStyle(.plain)
-                            } else {
-                                Button {
-                                    viewModel.sendMessage()
-                                } label: {
-                                    Image(systemName: "arrow.up.circle.fill")
-                                        .font(.system(size: 32, weight: .semibold))
-                                        .symbolRenderingMode(.hierarchical)
-                                        .foregroundStyle(ChatTheme.accent)
-                                        .shadow(color: ChatTheme.bubbleShadow, radius: 4, x: 0, y: 2)
-                                        .accessibilityLabel("Send Message")
-                                }
-                                .buttonStyle(.plain)
-                            }
-                        }
-                    }
-                    .padding(.horizontal, 12)
-
-                    Rectangle()
-                        .fill(LinearGradient(colors: [ChatTheme.separator, .clear], startPoint: .top, endPoint: .bottom))
-                        .frame(height: 1)
-                        .opacity(0.6)
-                        .padding(.horizontal, 12)
-                }
-                .padding(.vertical, 10)
-                .background(.ultraThinMaterial)
-                .overlay(
-                    VStack(spacing: 0) {
-                        Divider().overlay(ChatTheme.separator)
-                        Spacer(minLength: 0)
-                    }
-                )
             }
 
             if shouldDisplayAudioPlayer {
@@ -304,6 +199,11 @@ struct ChatView: View {
         #if os(macOS)
         .navigationTitle(viewModel.chatSession.title)
         #endif
+        .overlay(alignment: .bottom) {
+            floatingInputPanel
+                .padding(.horizontal, 16)
+                .padding(.bottom, 14)
+        }
         .onAppear {
             onMessagesCountChange(visibleMessages.count)
             viewModel.onUpdate = { [weak viewModel, weak chatSessionsViewModel] in
@@ -315,17 +215,25 @@ struct ChatView: View {
                 }
                 onMessagesCountChange(vm.chatSession.messages.count)
             }
+#if os(macOS)
+            registerReturnKeyMonitor()
+#endif
+        }
+        .onDisappear {
+#if os(macOS)
+            unregisterReturnKeyMonitor()
+#endif
         }
 
         // Cross-platform presentation of the realtime voice overlay
-        #if os(iOS) || os(tvOS)
+#if os(iOS) || os(tvOS)
         .fullScreenCover(isPresented: $voiceOverlayVM.isPresented) {
             RealtimeVoiceOverlayView(
                 viewModel: voiceOverlayVM,
                 onClose: { }
             )
         }
-        #elseif os(macOS)
+#elseif os(macOS)
         // macOS renders the overlay as an always-on-top layer
         .overlay(
             Group {
@@ -339,7 +247,165 @@ struct ChatView: View {
                 }
             }
         )
-        #endif
+#endif
+#if os(iOS) || os(tvOS)
+        .fullScreenCover(isPresented: $showFullScreenComposer) {
+            FullScreenComposer(text: $viewModel.userMessage) {
+                isInputFocused = true
+            }
+        }
+#endif
+    }
+
+    private func sendIfPossible() {
+        let trimmed = trimmedUserMessage
+        guard !trimmed.isEmpty, !viewModel.isLoading else { return }
+        viewModel.sendMessage()
+    }
+
+    private func handleOverflowChange(_ overflow: Bool) {
+        let shouldShowEditorExpander = overflow
+        if shouldShowEditorExpander != inputOverflow {
+            DispatchQueue.main.async {
+                inputOverflow = shouldShowEditorExpander
+            }
+        }
+    }
+
+#if os(macOS)
+    private func registerReturnKeyMonitor() {
+        guard returnKeyMonitor == nil else { return }
+        returnKeyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+            handleMacReturnKey(event)
+        }
+    }
+
+    private func unregisterReturnKeyMonitor() {
+        if let monitor = returnKeyMonitor {
+            NSEvent.removeMonitor(monitor)
+            returnKeyMonitor = nil
+        }
+    }
+
+    private func handleMacReturnKey(_ event: NSEvent) -> NSEvent? {
+        let returnKeyCodes: Set<UInt16> = [36, 76]
+        guard returnKeyCodes.contains(event.keyCode) else { return event }
+        guard isInputFocused else { return event }
+
+        let modifierMask = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        let blockingMask: NSEvent.ModifierFlags = [.command, .control, .option, .shift]
+        if modifierMask.intersection(blockingMask).isEmpty {
+            sendIfPossible()
+            return nil
+        }
+
+        return event
+    }
+#endif
+
+    private var floatingInputPanel: some View {
+        HStack(alignment: .center, spacing: 12) {
+            ZStack(alignment: .topLeading) {
+                if viewModel.userMessage.isEmpty {
+                    Text("Type your message...")
+                        .font(.system(size: 17))
+                        .foregroundColor(.secondary)
+                        .padding(.top, InputMetrics.outerV + InputMetrics.innerTop)
+                        .padding(.leading, InputMetrics.outerH + InputMetrics.innerLeading)
+                        .accessibilityHint("Message field placeholder")
+                }
+
+                AutoSizingTextEditor(
+                    text: $viewModel.userMessage,
+                    height: $textFieldHeight,
+                    maxLines: platformMaxLines(),
+                    onOverflowChange: handleOverflowChange
+                )
+                .focused($isInputFocused)
+                .frame(height: textFieldHeight)
+                .padding(.vertical, InputMetrics.outerV)
+                .padding(.horizontal, InputMetrics.outerH)
+
+                #if os(iOS) || os(tvOS)
+                if inputOverflow {
+                    Button {
+                        showFullScreenComposer = true
+                    } label: {
+                        Image(systemName: "arrow.up.left.and.arrow.down.right")
+                            .font(.system(size: 16, weight: .semibold))
+                            .foregroundStyle(.secondary)
+                    }
+                    .padding(.top, 6)
+                    .padding(.trailing, 8)
+                    .accessibilityLabel("Open full screen editor")
+                    .frame(maxWidth: .infinity, alignment: .topTrailing)
+                }
+                #endif
+            }
+            .frame(maxWidth: .infinity)
+            .overlay(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .stroke(ChatTheme.subtleStroke.opacity(0.6), lineWidth: 0.75)
+            )
+            .background(Color.clear)
+            .frame(minHeight: floatingInputButtonHeight)
+
+            floatingTrailingButton
+                .frame(minWidth: 44)
+        }
+        .padding(12)
+        .background(
+            ZStack {
+                RoundedRectangle(cornerRadius: 22, style: .continuous)
+                    .fill(.ultraThinMaterial)
+                RoundedRectangle(cornerRadius: 22, style: .continuous)
+                    .fill(PlatformColor.systemBackground.opacity(0.75))
+            }
+        )
+        .shadow(color: Color.black.opacity(0.12), radius: 12, x: 0, y: 6)
+    }
+
+    private var floatingTrailingButton: some View {
+        Group {
+            if viewModel.isLoading {
+                Button {
+                    viewModel.cancelCurrentRequest()
+                } label: {
+                    Image(systemName: "stop.circle.fill")
+                        .font(.system(size: 32, weight: .semibold))
+                        .symbolRenderingMode(.hierarchical)
+                        .foregroundStyle(.red)
+                        .shadow(color: ChatTheme.bubbleShadow, radius: 4, x: 0, y: 2)
+                        .accessibilityLabel("Stop Generation")
+                }
+                .buttonStyle(.plain)
+            } else if trimmedUserMessage.isEmpty {
+                Button {
+                    openRealtimeVoiceOverlay()
+                } label: {
+                    Image(systemName: "waveform.circle.fill")
+                        .font(.system(size: 32, weight: .semibold))
+                        .symbolRenderingMode(.hierarchical)
+                        .foregroundStyle(ChatTheme.accent)
+                        .shadow(color: ChatTheme.bubbleShadow, radius: 4, x: 0, y: 2)
+                        .accessibilityLabel("Start Realtime Voice Conversation")
+                }
+                .buttonStyle(.plain)
+            } else {
+                Button {
+                    sendIfPossible()
+                } label: {
+                    Image(systemName: "arrow.up.circle.fill")
+                        .font(.system(size: 32, weight: .semibold))
+                        .symbolRenderingMode(.hierarchical)
+                        .foregroundStyle(ChatTheme.accent)
+                        .shadow(color: ChatTheme.bubbleShadow, radius: 4, x: 0, y: 2)
+                        .accessibilityLabel("Send Message")
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .frame(height: floatingInputButtonHeight)
     }
 
     @ViewBuilder
@@ -349,12 +415,14 @@ struct ChatView: View {
                 .scrollTargetLayout()
                 .padding(.horizontal, messageListHorizontalPadding)
                 .padding(.vertical, 12)
+                .padding(.bottom, messageListBottomInset)
                 .frame(maxWidth: contentColumnMaxWidth())
                 .frame(maxWidth: .infinity, alignment: .center)
         } else {
             messageListCore()
                 .padding(.horizontal, messageListHorizontalPadding)
                 .padding(.vertical, 12)
+                .padding(.bottom, messageListBottomInset)
                 .frame(maxWidth: contentColumnMaxWidth())
                 .frame(maxWidth: .infinity, alignment: .center)
         }
