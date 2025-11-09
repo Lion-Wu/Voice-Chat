@@ -97,12 +97,8 @@ final class SideMenuContainerViewController: UIViewController {
             mainView.widthAnchor.constraint(equalTo: view.widthAnchor)
         ]
 
-        if #available(iOS 15.0, tvOS 15.0, *) {
-            let keyboardGuide = view.keyboardLayoutGuide
-            mainBottomConstraint = mainView.bottomAnchor.constraint(equalTo: keyboardGuide.topAnchor)
-        } else {
-            mainBottomConstraint = mainView.bottomAnchor.constraint(equalTo: view.bottomAnchor)
-        }
+        let keyboardGuide = view.keyboardLayoutGuide
+        mainBottomConstraint = mainView.bottomAnchor.constraint(equalTo: keyboardGuide.topAnchor)
         mainConstraints.append(mainBottomConstraint)
 
         NSLayoutConstraint.activate(mainConstraints)

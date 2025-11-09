@@ -132,24 +132,16 @@ struct ChatView: View {
                 // Conversation content area
                 Group {
                     if !voiceOverlayVM.isPresented {
-                        if #available(iOS 17.0, tvOS 17.0, macOS 14.0, watchOS 10.0, *) {
-                            GeometryReader { outerGeo in
-                                ScrollView {
-                                    messageList(scrollTargetsEnabled: true)
-                                }
-                                .background(
-                                    Color.clear.preference(key: ViewportHeightKey.self, value: outerGeo.size.height)
-                                )
-                                .onPreferenceChange(ContentHeightKey.self) { contentHeight = $0 }
-                                .onPreferenceChange(ViewportHeightKey.self) { viewportHeight = $0 }
-                                .defaultScrollAnchor(shouldAnchorBottom ? .bottom : .top)
-                                .scrollDismissesKeyboard(.interactively)
-                                .onTapGesture { isInputFocused = false }
-                            }
-                        } else {
+                        GeometryReader { outerGeo in
                             ScrollView {
-                                messageList(scrollTargetsEnabled: false)
+                                messageList(scrollTargetsEnabled: true)
                             }
+                            .background(
+                                Color.clear.preference(key: ViewportHeightKey.self, value: outerGeo.size.height)
+                            )
+                            .onPreferenceChange(ContentHeightKey.self) { contentHeight = $0 }
+                            .onPreferenceChange(ViewportHeightKey.self) { viewportHeight = $0 }
+                            .defaultScrollAnchor(shouldAnchorBottom ? .bottom : .top)
                             .scrollDismissesKeyboard(.interactively)
                             .onTapGesture { isInputFocused = false }
                         }
