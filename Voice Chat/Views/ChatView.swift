@@ -124,7 +124,6 @@ struct ChatView: View {
 
     var body: some View {
         ZStack(alignment: .top) {
-            PlatformColor.systemBackground.ignoresSafeArea()
 
             VStack(spacing: 0) {
                 Divider().overlay(ChatTheme.separator).opacity(0)

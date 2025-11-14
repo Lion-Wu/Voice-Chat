@@ -109,3 +109,11 @@
 "text_lang (e.g. auto/zh/en)" = "text_lang（例如 auto/zh/en）";
 "Waiting for connection" = "等待連線";
 "Unable to set up audio session: %@" = "無法設定音訊工作階段：%@";
+"Search Chats" = "搜尋聊天";
+"No chats match \"%@\"" = "沒有與「%@」相符的聊天";
+"No Results" = "沒有結果";
+"Try a different chat name." = "試試不同的聊天名稱。";
+"Select or start a chat" = "選擇或開始一段聊天";
+"No Chat Selected" = "未選取聊天";
+"Start a new conversation to begin talking." = "開始新的對話即可開始交流。";
+"Toggle chat list" = "切換聊天列表";

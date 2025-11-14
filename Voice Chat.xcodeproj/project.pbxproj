@@ -13,6 +13,7 @@
 		B4A629592B59617A006125B5 /* ChatViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B4A629582B59617A006125B5 /* ChatViewModel.swift */; };
 		B4E916D52B4BDBD900E49A6B /* ChatModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B4E916D42B4BDBD900E49A6B /* ChatModel.swift */; };
 		B4E916DF2B4BF0E500E49A6B /* VoiceViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B4E916DE2B4BF0E500E49A6B /* VoiceViewModel.swift */; };
+		C4442FE0C1135115CFA62BDD /* AppChrome.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4570041CD56B63DCA44B5C0 /* AppChrome.swift */; };
 		FD0577A52CB626FD009FC45C /* SettingsViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD0577A42CB626FD009FC45C /* SettingsViewModel.swift */; };
 		FD0B94DF2CD9080700DBFA1D /* ChatSessionsViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD0B94DE2CD9080700DBFA1D /* ChatSessionsViewModel.swift */; };
 		FD0B94E12CD9082600DBFA1D /* ChatSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD0B94E02CD9082600DBFA1D /* ChatSession.swift */; };
@@ -62,6 +63,7 @@
 		B4A629582B59617A006125B5 /* ChatViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatViewModel.swift; sourceTree = "<group>"; };
 		B4E916D42B4BDBD900E49A6B /* ChatModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatModel.swift; sourceTree = "<group>"; };
 		B4E916DE2B4BF0E500E49A6B /* VoiceViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceViewModel.swift; sourceTree = "<group>"; };
+		D4570041CD56B63DCA44B5C0 /* AppChrome.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppChrome.swift; sourceTree = "<group>"; };
 		FD0577A42CB626FD009FC45C /* SettingsViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = SettingsViewModel.swift; path = "Voice Chat/ViewModel/SettingsViewModel.swift"; sourceTree = SOURCE_ROOT; };
 		FD0B94DD2CD8E63500DBFA1D /* Voice Chat.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = "Voice Chat.entitlements"; sourceTree = "<group>"; };
 		FD0B94DE2CD9080700DBFA1D /* ChatSessionsViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatSessionsViewModel.swift; sourceTree = "<group>"; };
@@ -161,6 +163,7 @@
 		B4E916D62B4BE0BD00E49A6B /* Views */ = {
 			isa = PBXGroup;
 			children = (
+				D4570041CD56B63DCA44B5C0 /* AppChrome.swift */,
 				FD0C3AB12C9F38F2009095A1 /* SettingsView.swift */,
 				FD40D5712CA871120064E732 /* AudioPlayerView.swift */,
 				FD2DD7D02D65A76900D124A6 /* SideMenuContainerViewController.swift */,
@@ -312,6 +315,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				FD2DD7D12D65A76900D124A6 /* SideMenuContainerViewController.swift in Sources */,
+				C4442FE0C1135115CFA62BDD /* AppChrome.swift in Sources */,
 				FD0B94E72CD90A2500DBFA1D /* ChatMessage.swift in Sources */,
 				FDA8D9342E7F0F260012B42F /* LoadingViews.swift in Sources */,
 				FDA8D9322E7F0F150012B42F /* AutoSizingTextEditor.swift in Sources */,

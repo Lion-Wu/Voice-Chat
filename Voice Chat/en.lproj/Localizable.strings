@@ -109,3 +109,11 @@
 "text_lang (e.g. auto/zh/en)" = "text_lang (e.g. auto/zh/en)";
 "Waiting for connection" = "Waiting for connection";
 "Unable to set up audio session: %@" = "Unable to set up audio session: %@";
+"Search Chats" = "Search Chats";
+"No chats match \"%@\"" = "No chats match \"%@\"";
+"No Results" = "No Results";
+"Try a different chat name." = "Try a different chat name.";
+"Select or start a chat" = "Select or start a chat";
+"No Chat Selected" = "No Chat Selected";
+"Start a new conversation to begin talking." = "Start a new conversation to begin talking.";
+"Toggle chat list" = "Toggle chat list";

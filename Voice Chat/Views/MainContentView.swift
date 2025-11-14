@@ -16,47 +16,57 @@ struct MainContentView: View {
 
     let onToggleSidebar: () -> Void
 
-    /// Keeps track of the current conversation size to enable or disable the add button.
-    @State private var currentMessagesCount: Int = 0
+    private var selectedSessionTitle: String {
+        chatSessionsViewModel.selectedSession?.title ?? "Voice Chat"
+    }
 
     var body: some View {
-        ZStack(alignment: .top) {
-            VStack(spacing: 0) {
-                // Top bar
-                HStack {
-                    Button(action: { onToggleSidebar() }) {
-                        Image(systemName: "line.3.horizontal")
-                            .font(.title2)
-                    }
+        NavigationStack {
+            ZStack {
+                Color(uiColor: .systemBackground)
+                    .ignoresSafeArea()
 
-                    Spacer()
-
-                    Button(action: { chatSessionsViewModel.startNewSession() }) {
-                        Image(systemName: "plus")
-                            .font(.title2)
-                    }
-                    .disabled(currentMessagesCount == 0)
-                }
-                .padding()
-                .background(Color(UIColor.systemBackground))
-                Divider()
-
-                // Chat content area
-                if let selectedSession = chatSessionsViewModel.selectedSession {
-                    ChatView(
-                        viewModel: chatSessionsViewModel.viewModel(for: selectedSession),
-                        onMessagesCountChange: { newCount in
-                            if currentMessagesCount != newCount {
-                                currentMessagesCount = newCount
-                            }
+                Group {
+                    if let selectedSession = chatSessionsViewModel.selectedSession {
+                        ChatView(
+                            viewModel: chatSessionsViewModel.viewModel(for: selectedSession)
+                        )
+                        .id(selectedSession.id)
+                    } else {
+                        VStack(spacing: 12) {
+                            Image(systemName: "bubble.left.and.bubble.right")
+                                .font(.system(size: 48))
+                                .foregroundStyle(.secondary)
+                            Text("No Chat Selected")
+                                .font(.title3.weight(.semibold))
+                            Text("Start a new conversation to begin talking.")
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
                         }
-                    )
-                    .id(selectedSession.id)
-                } else {
-                    Text("No chat. Creating one...")
-                        .onAppear {
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .task {
                             chatSessionsViewModel.startNewSession()
                         }
+                    }
+                }
+            }
+            .navigationTitle(selectedSessionTitle)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button(action: { onToggleSidebar() }) {
+                        Image(systemName: "sidebar.left")
+                    }
+                    .accessibilityLabel(Text("Toggle chat list"))
+                }
+
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button(action: { chatSessionsViewModel.startNewSession() }) {
+                        Image(systemName: "plus")
+                            .font(.title2.weight(.semibold))
+                    }
+                    .accessibilityLabel("New Chat")
+                    .disabled(!chatSessionsViewModel.canStartNewSession)
                 }
             }
         }
@@ -64,7 +74,6 @@ struct MainContentView: View {
             if chatSessionsViewModel.chatSessions.isEmpty {
                 chatSessionsViewModel.startNewSession()
             }
-            currentMessagesCount = chatSessionsViewModel.selectedSession?.messages.count ?? 0
         }
     }
 }
