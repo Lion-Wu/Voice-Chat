@@ -44,19 +44,19 @@ struct SettingsView: View {
         }
         #else
         applyCommonModifiers(
-            NavigationView {
+            NavigationStack {
                 Form {
                     serverSection()
                     presetSection()
                     voiceOutputSection()
                     chatSection()
                 }
-                    .navigationBarTitle("Settings", displayMode: .inline)
-                    .toolbar {
-                        ToolbarItem(placement: .navigationBarTrailing) {
-                            Button("Close") { dismiss() }
-                        }
+                .navigationBarTitle("Settings", displayMode: .inline)
+                .toolbar {
+                    ToolbarItem(placement: .navigationBarTrailing) {
+                        Button("Close") { dismiss() }
                     }
+                }
             }
         )
         #endif
@@ -65,6 +65,7 @@ struct SettingsView: View {
     @ViewBuilder
     private func applyCommonModifiers<Content: View>(_ content: Content) -> some View {
         content
+            .background(AppBackgroundView())
             .onAppear { fetchAvailableModels() }
             .alert("Delete this preset?",
                    isPresented: $showDeletePresetAlert) {

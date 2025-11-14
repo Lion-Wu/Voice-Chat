@@ -17,24 +17,46 @@ import AppKit
 
 enum PlatformColor {
     static var systemBackground: Color {
+        groupedBackground
+    }
+
+    static var secondaryBackground: Color {
+        secondaryGroupedBackground
+    }
+
+    static var bubbleSystemFill: Color {
+        tertiaryGroupedBackground
+    }
+
+    static var groupedBackground: Color {
         #if os(macOS)
         return Color(NSColor.windowBackgroundColor)
         #else
-        return Color(UIColor.systemBackground)
+        return Color(UIColor.systemGroupedBackground)
         #endif
     }
-    static var secondaryBackground: Color {
+
+    static var secondaryGroupedBackground: Color {
         #if os(macOS)
         return Color(NSColor.underPageBackgroundColor)
         #else
-        return Color(UIColor.secondarySystemBackground)
+        return Color(UIColor.secondarySystemGroupedBackground)
         #endif
     }
-    static var bubbleSystemFill: Color {
+
+    static var tertiaryGroupedBackground: Color {
         #if os(macOS)
         return Color(NSColor.controlBackgroundColor)
         #else
-        return Color(UIColor.secondarySystemBackground)
+        return Color(UIColor.tertiarySystemGroupedBackground)
+        #endif
+    }
+
+    static var elevatedFill: Color {
+        #if os(macOS)
+        return Color(NSColor.windowBackgroundColor.withAlphaComponent(0.8))
+        #else
+        return Color(UIColor.secondarySystemBackground.withAlphaComponent(0.9))
         #endif
     }
 }
@@ -48,12 +70,17 @@ enum ChatTheme {
     static let separator = Color.primary.opacity(0.06)
 
     static let userBubbleGradient = LinearGradient(
-        colors: [Color.blue.opacity(0.85), Color.blue.opacity(0.75)],
+        colors: [
+            accent.opacity(0.95),
+            accent.opacity(0.78)
+        ],
         startPoint: .topLeading, endPoint: .bottomTrailing
     )
     static let systemBubbleFill = PlatformColor.bubbleSystemFill
     static let subtleStroke = Color.primary.opacity(0.08)
-    static let accent = Color.blue
+    static let accent = Color.accentColor
+    static let chromeBackground = PlatformColor.secondaryGroupedBackground
+    static let chromeBorder = Color.primary.opacity(0.05)
 }
 
 // MARK: - Input Layout Constants

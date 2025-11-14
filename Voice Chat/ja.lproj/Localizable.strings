@@ -109,3 +109,11 @@
 "text_lang (e.g. auto/zh/en)" = "text_lang（例: auto/zh/en）";
 "Waiting for connection" = "接続待機中";
 "Unable to set up audio session: %@" = "オーディオセッションを設定できませんでした: %@";
+"Search Chats" = "チャットを検索";
+"No chats match \"%@\"" = "「%@」に一致するチャットはありません";
+"No Results" = "結果なし";
+"Try a different chat name." = "別のチャット名を試してください。";
+"Select or start a chat" = "チャットを選択するか作成してください";
+"No Chat Selected" = "チャットが選択されていません";
+"Start a new conversation to begin talking." = "新しい会話を開始してチャットを始めましょう。";
+"Toggle chat list" = "チャット一覧を切り替え";

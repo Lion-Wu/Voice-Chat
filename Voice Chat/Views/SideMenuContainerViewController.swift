@@ -38,7 +38,7 @@ final class SideMenuContainerViewController: UIViewController {
     }
 
     private func configureHierarchy() {
-        let sidebarView = SidebarView(
+        let sidebarContent = SidebarView(
             onConversationTap: { [weak self] session in
                 self?.chatSessionsViewModel.selectedSession = session
                 self?.toggleMenu(open: false, animated: true)
@@ -48,6 +48,24 @@ final class SideMenuContainerViewController: UIViewController {
             }
         )
         .environmentObject(chatSessionsViewModel)
+
+        let sidebarView: AnyView
+        if #available(iOS 16, tvOS 16, *) {
+            sidebarView = AnyView(
+                NavigationStack {
+                    sidebarContent
+                        .toolbar(.hidden, for: .navigationBar)
+                }
+            )
+        } else {
+            sidebarView = AnyView(
+                NavigationView {
+                    sidebarContent
+                        .navigationBarHidden(true)
+                }
+                .navigationViewStyle(.stack)
+            )
+        }
 
         let sidebarVC = UIHostingController(rootView: sidebarView)
         self.sidebarHostingController = sidebarVC
