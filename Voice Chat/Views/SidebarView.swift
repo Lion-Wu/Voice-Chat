@@ -199,8 +199,10 @@ struct SidebarView: View {
                 .foregroundStyle(.secondary)
             TextField("Search Chats", text: $searchText)
                 .textFieldStyle(.plain)
+#if os(iOS) || os(tvOS)
                 .textInputAutocapitalization(.never)
                 .disableAutocorrection(true)
+#endif
 
             if !searchText.isEmpty {
                 Button {
