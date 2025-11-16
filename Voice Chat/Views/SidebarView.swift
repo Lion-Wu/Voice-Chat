@@ -312,17 +312,22 @@ struct SidebarView: View {
                     .font(.body.weight(.semibold))
                     .labelStyle(.titleAndIcon)
                     .frame(maxWidth: .infinity)
-                    .padding(.vertical, 10)
+                    .padding(.vertical, 12)
+                    .background(
+                        RoundedRectangle(cornerRadius: 18, style: .continuous)
+                            .fill(.thinMaterial)
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 18, style: .continuous)
+                            .stroke(Color.primary.opacity(0.08), lineWidth: 0.75)
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 18, style: .continuous)
+                            .stroke(PlatformColor.systemBackground.opacity(0.05), lineWidth: 0.5)
+                    )
+                    .contentShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
             }
             .buttonStyle(.plain)
-            .background(
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .fill(Color(UIColor.secondarySystemBackground))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .stroke(Color.primary.opacity(0.06), lineWidth: 0.5)
-            )
             .padding(.horizontal, 16)
         }
         .padding(.vertical, 12)

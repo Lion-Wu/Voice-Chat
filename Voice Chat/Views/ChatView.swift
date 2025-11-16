@@ -43,6 +43,10 @@ private struct VoiceMessageEqKey: Equatable {
     let contentFP: ContentFingerprint
 }
 
+private enum ScrollTarget: Hashable {
+    case bottom
+}
+
 struct ChatView: View {
     @EnvironmentObject var chatSessionsViewModel: ChatSessionsViewModel
     @EnvironmentObject var audioManager: GlobalAudioManager
@@ -59,6 +63,9 @@ struct ChatView: View {
 
     @State private var contentHeight: CGFloat = 0
     @State private var viewportHeight: CGFloat = 0
+    @State private var bottomAnchorMaxY: CGFloat = 0
+    @State private var showScrollToBottomButton: Bool = false
+    @State private var scrollProxy: ScrollViewProxy?
 
 #if os(macOS)
     @State private var returnKeyMonitor: Any?
@@ -107,7 +114,7 @@ struct ChatView: View {
     }
 
     private var floatingInputPanelHeight: CGFloat {
-        floatingInputButtonHeight + 20
+        floatingInputButtonHeight + 16
     }
 
     private var messageListBottomInset: CGFloat {
@@ -132,17 +139,36 @@ struct ChatView: View {
                 Group {
                     if !voiceOverlayVM.isPresented {
                         GeometryReader { outerGeo in
-                            ScrollView {
-                                messageList(scrollTargetsEnabled: true)
+                            ScrollViewReader { proxy in
+                                ScrollView {
+                                    messageList(scrollTargetsEnabled: true)
+                                }
+                                .coordinateSpace(name: "ChatScroll")
+                                .background(
+                                    Color.clear.preference(key: ViewportHeightKey.self, value: outerGeo.size.height)
+                                )
+                                .onPreferenceChange(ContentHeightKey.self) {
+                                    contentHeight = $0
+                                    updateScrollToBottomVisibility()
+                                }
+                                .onPreferenceChange(ViewportHeightKey.self) {
+                                    viewportHeight = $0
+                                    updateScrollToBottomVisibility()
+                                }
+                                .onPreferenceChange(BottomAnchorKey.self) { value in
+                                    bottomAnchorMaxY = value
+                                    updateScrollToBottomVisibility()
+                                }
+                                .defaultScrollAnchor(shouldAnchorBottom ? .bottom : .top)
+                                .scrollDismissesKeyboard(.interactively)
+                                .onTapGesture { isInputFocused = false }
+                                .onAppear {
+                                    scrollProxy = proxy
+                                    DispatchQueue.main.async {
+                                        scrollToBottom(animated: false)
+                                    }
+                                }
                             }
-                            .background(
-                                Color.clear.preference(key: ViewportHeightKey.self, value: outerGeo.size.height)
-                            )
-                            .onPreferenceChange(ContentHeightKey.self) { contentHeight = $0 }
-                            .onPreferenceChange(ViewportHeightKey.self) { viewportHeight = $0 }
-                            .defaultScrollAnchor(shouldAnchorBottom ? .bottom : .top)
-                            .scrollDismissesKeyboard(.interactively)
-                            .onTapGesture { isInputFocused = false }
                         }
                     } else {
                         // Placeholder to avoid rendering work while the overlay is visible.
@@ -192,9 +218,19 @@ struct ChatView: View {
         .navigationTitle(viewModel.chatSession.title)
         #endif
         .overlay(alignment: .bottom) {
-            floatingInputPanel
-                .padding(.horizontal, 16)
-                .padding(.bottom, 14)
+            VStack(spacing: 12) {
+                if showScrollToBottomButton {
+                    scrollToBottomButton
+                        .transition(
+                            .move(edge: .bottom)
+                                .combined(with: .opacity)
+                        )
+                }
+
+                floatingInputPanel
+            }
+            .padding(.horizontal, 16)
+            .padding(.bottom, 14)
         }
         .onAppear {
             onMessagesCountChange(visibleMessages.count)
@@ -247,6 +283,11 @@ struct ChatView: View {
             }
         }
 #endif
+        .onChange(of: visibleMessages.count) { _, _ in
+            if !showScrollToBottomButton {
+                scrollToBottom()
+            }
+        }
     }
 
     private func sendIfPossible() {
@@ -296,65 +337,69 @@ struct ChatView: View {
 #endif
 
     private var floatingInputPanel: some View {
-        HStack(alignment: .center, spacing: 12) {
-            ZStack(alignment: .topLeading) {
-                if viewModel.userMessage.isEmpty {
-                    Text("Type your message...")
-                        .font(.system(size: 17))
-                        .foregroundColor(.secondary)
-                        .padding(.top, InputMetrics.outerV + InputMetrics.innerTop)
-                        .padding(.leading, InputMetrics.outerH + InputMetrics.innerLeading)
-                        .accessibilityHint("Message field placeholder")
-                }
-
-                AutoSizingTextEditor(
-                    text: $viewModel.userMessage,
-                    height: $textFieldHeight,
-                    maxLines: platformMaxLines(),
-                    onOverflowChange: handleOverflowChange
-                )
-                .focused($isInputFocused)
-                .frame(height: textFieldHeight)
-                .padding(.vertical, InputMetrics.outerV)
-                .padding(.horizontal, InputMetrics.outerH)
-
-                #if os(iOS) || os(tvOS)
-                if inputOverflow {
-                    Button {
-                        showFullScreenComposer = true
-                    } label: {
-                        Image(systemName: "arrow.up.left.and.arrow.down.right")
-                            .font(.system(size: 16, weight: .semibold))
-                            .foregroundStyle(.secondary)
+        HStack(spacing: 0) {
+            HStack(alignment: .center, spacing: 10) {
+                ZStack(alignment: .topLeading) {
+                    if viewModel.userMessage.isEmpty {
+                        Text("Type your message...")
+                            .font(.system(size: 17))
+                            .foregroundColor(.secondary)
+                            .padding(.top, InputMetrics.outerV + InputMetrics.innerTop)
+                            .padding(.leading, InputMetrics.outerH + InputMetrics.innerLeading)
+                            .accessibilityHint("Message field placeholder")
                     }
-                    .padding(.top, 6)
-                    .padding(.trailing, 8)
-                    .accessibilityLabel("Open full screen editor")
-                    .frame(maxWidth: .infinity, alignment: .topTrailing)
-                }
-                #endif
-            }
-            .frame(maxWidth: .infinity)
-            .overlay(
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .stroke(ChatTheme.subtleStroke.opacity(0.6), lineWidth: 0.75)
-            )
-            .background(Color.clear)
-            .frame(minHeight: floatingInputButtonHeight)
 
-            floatingTrailingButton
-                .frame(minWidth: 44)
-        }
-        .padding(12)
-        .background(
-            ZStack {
-                RoundedRectangle(cornerRadius: 22, style: .continuous)
-                    .fill(.ultraThinMaterial)
-                RoundedRectangle(cornerRadius: 22, style: .continuous)
-                    .fill(PlatformColor.systemBackground.opacity(0.75))
+                    AutoSizingTextEditor(
+                        text: $viewModel.userMessage,
+                        height: $textFieldHeight,
+                        maxLines: platformMaxLines(),
+                        onOverflowChange: handleOverflowChange
+                    )
+                    .focused($isInputFocused)
+                    .frame(height: textFieldHeight)
+                    .padding(.vertical, InputMetrics.outerV)
+                    .padding(.leading, InputMetrics.outerH)
+                    .padding(.trailing, 6)
+
+                    #if os(iOS) || os(tvOS)
+                    if inputOverflow {
+                        Button {
+                            showFullScreenComposer = true
+                        } label: {
+                            Image(systemName: "arrow.up.left.and.arrow.down.right")
+                                .font(.system(size: 16, weight: .semibold))
+                                .foregroundStyle(.secondary)
+                        }
+                        .padding(.top, 4)
+                        .padding(.trailing, 8)
+                        .accessibilityLabel("Open full screen editor")
+                        .frame(maxWidth: .infinity, alignment: .topTrailing)
+                    }
+                    #endif
+                }
+                .frame(maxWidth: .infinity)
+
+                floatingTrailingButton
             }
-        )
-        .shadow(color: Color.black.opacity(0.12), radius: 12, x: 0, y: 6)
+            .padding(.vertical, 8)
+            .padding(.leading, 14)
+            .padding(.trailing, 10)
+            .frame(maxWidth: .infinity)
+            .background(
+                RoundedRectangle(cornerRadius: 24, style: .continuous)
+                    .fill(.thinMaterial)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 24, style: .continuous)
+                            .fill(PlatformColor.systemBackground.opacity(0.2))
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 24, style: .continuous)
+                            .stroke(ChatTheme.subtleStroke.opacity(0.35), lineWidth: 0.75)
+                    )
+            )
+            .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+            .shadow(color: Color.black.opacity(0.12), radius: 14, x: 0, y: 8)
+        }
     }
 
     private var floatingTrailingButton: some View {
@@ -364,10 +409,9 @@ struct ChatView: View {
                     viewModel.cancelCurrentRequest()
                 } label: {
                     Image(systemName: "stop.circle.fill")
-                        .font(.system(size: 32, weight: .semibold))
+                        .font(.system(size: 28, weight: .semibold))
                         .symbolRenderingMode(.hierarchical)
                         .foregroundStyle(.red)
-                        .shadow(color: ChatTheme.bubbleShadow, radius: 4, x: 0, y: 2)
                         .accessibilityLabel("Stop Generation")
                 }
                 .buttonStyle(.plain)
@@ -376,10 +420,9 @@ struct ChatView: View {
                     openRealtimeVoiceOverlay()
                 } label: {
                     Image(systemName: "waveform.circle.fill")
-                        .font(.system(size: 32, weight: .semibold))
+                        .font(.system(size: 28, weight: .semibold))
                         .symbolRenderingMode(.hierarchical)
                         .foregroundStyle(ChatTheme.accent)
-                        .shadow(color: ChatTheme.bubbleShadow, radius: 4, x: 0, y: 2)
                         .accessibilityLabel("Start Realtime Voice Conversation")
                 }
                 .buttonStyle(.plain)
@@ -388,35 +431,60 @@ struct ChatView: View {
                     sendIfPossible()
                 } label: {
                     Image(systemName: "arrow.up.circle.fill")
-                        .font(.system(size: 32, weight: .semibold))
+                        .font(.system(size: 28, weight: .semibold))
                         .symbolRenderingMode(.hierarchical)
                         .foregroundStyle(ChatTheme.accent)
-                        .shadow(color: ChatTheme.bubbleShadow, radius: 4, x: 0, y: 2)
                         .accessibilityLabel("Send Message")
                 }
                 .buttonStyle(.plain)
             }
         }
-        .frame(height: floatingInputButtonHeight)
+        .frame(width: 38, height: 38)
+    }
+
+    private var scrollToBottomButton: some View {
+        Button {
+            scrollToBottom()
+        } label: {
+            Image(systemName: "arrow.down")
+                .font(.system(size: 18, weight: .semibold))
+                .frame(width: scrollButtonSize, height: scrollButtonSize)
+                .contentShape(Circle())
+                .background(
+                    Circle()
+                        .fill(.ultraThinMaterial)
+                )
+                .overlay(
+                    Circle()
+                        .stroke(ChatTheme.subtleStroke.opacity(0.5), lineWidth: 0.6)
+                )
+                .shadow(color: Color.black.opacity(0.12), radius: 10, x: 0, y: 6)
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(.primary)
+        .accessibilityLabel("Scroll to bottom")
+    }
+
+    private var scrollButtonSize: CGFloat {
+        #if os(iOS) || os(tvOS)
+        return 40
+        #else
+        return 34
+        #endif
     }
 
     @ViewBuilder
     private func messageList(scrollTargetsEnabled: Bool) -> some View {
+        let content = messageListCore()
+            .padding(.horizontal, messageListHorizontalPadding)
+            .padding(.top, 12)
+            .frame(maxWidth: contentColumnMaxWidth())
+            .frame(maxWidth: .infinity, alignment: .center)
+
         if scrollTargetsEnabled {
-            messageListCore()
-                .scrollTargetLayout()
-                .padding(.horizontal, messageListHorizontalPadding)
-                .padding(.vertical, 12)
-                .padding(.bottom, messageListBottomInset)
-                .frame(maxWidth: contentColumnMaxWidth())
-                .frame(maxWidth: .infinity, alignment: .center)
+            content.scrollTargetLayout()
         } else {
-            messageListCore()
-                .padding(.horizontal, messageListHorizontalPadding)
-                .padding(.vertical, 12)
-                .padding(.bottom, messageListBottomInset)
-                .frame(maxWidth: contentColumnMaxWidth())
-                .frame(maxWidth: .infinity, alignment: .center)
+            content
         }
     }
 
@@ -459,12 +527,52 @@ struct ChatView: View {
             if viewModel.isPriming {
                 AssistantAlignedLoadingBubble()
             }
+
+            Color.clear
+                .frame(height: messageListBottomInset)
+                .id(ScrollTarget.bottom)
+                .background(
+                    GeometryReader { proxy in
+                        Color.clear.preference(key: BottomAnchorKey.self, value: proxy.frame(in: .named("ChatScroll")).maxY)
+                    }
+                )
         }
         .background(
             GeometryReader { contentGeo in
                 Color.clear.preference(key: ContentHeightKey.self, value: contentGeo.size.height)
             }
         )
+    }
+
+    private func scrollToBottom(animated: Bool = true) {
+        guard let proxy = scrollProxy else { return }
+        let action = {
+            proxy.scrollTo(ScrollTarget.bottom, anchor: .bottom)
+        }
+        if animated {
+            withAnimation(.easeOut(duration: 0.25)) {
+                action()
+            }
+        } else {
+            action()
+        }
+    }
+
+    private func updateScrollToBottomVisibility() {
+        guard viewportHeight > 0 else {
+            if showScrollToBottomButton {
+                showScrollToBottomButton = false
+            }
+            return
+        }
+
+        let bottomDistance = max(0, bottomAnchorMaxY - viewportHeight)
+        let shouldShow = bottomDistance > 24
+        if shouldShow != showScrollToBottomButton {
+            withAnimation(.easeInOut(duration: 0.2)) {
+                showScrollToBottomButton = shouldShow
+            }
+        }
     }
 
     private func showSelectTextSheet(with text: String) {
