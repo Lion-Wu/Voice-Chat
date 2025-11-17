@@ -13,6 +13,7 @@ import SwiftUI
 /// Primary view for iOS and iPadOS that shows a top bar and the chat content.
 struct MainContentView: View {
     @EnvironmentObject var chatSessionsViewModel: ChatSessionsViewModel
+    @EnvironmentObject var voiceOverlayViewModel: VoiceChatOverlayViewModel
 
     let onToggleSidebar: () -> Void
 
@@ -54,10 +55,12 @@ struct MainContentView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
-                    Button(action: { onToggleSidebar() }) {
-                        Image(systemName: "sidebar.left")
+                    if !voiceOverlayViewModel.isPresented {
+                        Button(action: { onToggleSidebar() }) {
+                            Image(systemName: "sidebar.left")
+                        }
+                        .accessibilityLabel(Text("Toggle chat list"))
                     }
-                    .accessibilityLabel(Text("Toggle chat list"))
                 }
 
                 ToolbarItem(placement: .topBarTrailing) {

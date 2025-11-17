@@ -7,6 +7,7 @@
 
 import Foundation
 import Combine
+import SwiftUI
 
 @MainActor
 final class VoiceChatOverlayViewModel: ObservableObject {
@@ -36,6 +37,7 @@ final class VoiceChatOverlayViewModel: ObservableObject {
     private var onRecognizedFinal: ((String) -> Void)?
     private var autoResumeEnabled = false
     private var isStartingRecording = false
+    private let overlayAnimation = Animation.spring(response: 0.4, dampingFraction: 0.85)
 
     init(
         speechInputManager: SpeechInputManager,
@@ -52,14 +54,18 @@ final class VoiceChatOverlayViewModel: ObservableObject {
         autoResumeEnabled = true
         showErrorAlert = false
         errorMessage = nil
-        isPresented = true
+        withAnimation(overlayAnimation) {
+            isPresented = true
+        }
         state = .listening
         startListening()
     }
 
     func dismiss() {
         autoResumeEnabled = false
-        isPresented = false
+        withAnimation(overlayAnimation) {
+            isPresented = false
+        }
         state = .listening
         showErrorAlert = false
         errorMessage = nil

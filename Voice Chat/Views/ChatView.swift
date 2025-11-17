@@ -72,10 +72,7 @@ struct ChatView: View {
 #endif
 
     // View model that coordinates the realtime voice overlay.
-    @StateObject private var voiceOverlayVM = VoiceChatOverlayViewModel(
-        speechInputManager: SpeechInputManager.shared,
-        audioManager: GlobalAudioManager.shared
-    )
+    @EnvironmentObject private var voiceOverlayVM: VoiceChatOverlayViewModel
 
     var onMessagesCountChange: (Int) -> Void = { _ in }
 
@@ -253,29 +250,6 @@ struct ChatView: View {
 #endif
         }
 
-        // Cross-platform presentation of the realtime voice overlay
-#if os(iOS) || os(tvOS)
-        .fullScreenCover(isPresented: $voiceOverlayVM.isPresented) {
-            RealtimeVoiceOverlayView(
-                viewModel: voiceOverlayVM,
-                onClose: { }
-            )
-        }
-#elseif os(macOS)
-        // macOS renders the overlay as an always-on-top layer
-        .overlay(
-            Group {
-                if voiceOverlayVM.isPresented {
-                    RealtimeVoiceOverlayView(
-                        viewModel: voiceOverlayVM,
-                        onClose: { }
-                    )
-                    .transition(.opacity)
-                    .zIndex(1000)
-                }
-            }
-        )
-#endif
 #if os(iOS) || os(tvOS)
         .fullScreenCover(isPresented: $showFullScreenComposer) {
             FullScreenComposer(text: $viewModel.userMessage) {
@@ -398,7 +372,8 @@ struct ChatView: View {
                     )
             )
             .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
-            .shadow(color: Color.black.opacity(0.12), radius: 14, x: 0, y: 8)
+            .shadow(color: Color.black.opacity(0.3), radius: 18, x: 0, y: 10)
+            .shadow(color: Color.black.opacity(0.18), radius: 40, x: 0, y: 25)
         }
     }
 
@@ -595,10 +570,16 @@ struct ChatView: View {
 struct ChatView_Previews: PreviewProvider {
     static var previews: some View {
         let session = ChatSession()
-        ChatView(viewModel: ChatViewModel(chatSession: session))
+        let speechManager = SpeechInputManager()
+        let overlayVM = VoiceChatOverlayViewModel(
+            speechInputManager: speechManager,
+            audioManager: GlobalAudioManager.shared
+        )
+        return ChatView(viewModel: ChatViewModel(chatSession: session))
             .modelContainer(for: [ChatSession.self, ChatMessage.self, AppSettings.self], inMemory: true)
             .environmentObject(GlobalAudioManager.shared)
             .environmentObject(ChatSessionsViewModel())
-            .environmentObject(SpeechInputManager())
+            .environmentObject(speechManager)
+            .environmentObject(overlayVM)
     }
 }

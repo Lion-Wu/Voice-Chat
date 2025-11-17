@@ -20,65 +20,18 @@ struct ContentView: View {
     @EnvironmentObject var speechInputManager: SpeechInputManager
 
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
+    @StateObject private var voiceOverlayViewModel = VoiceChatOverlayViewModel(
+        speechInputManager: SpeechInputManager.shared,
+        audioManager: GlobalAudioManager.shared
+    )
 
     var body: some View {
         #if os(macOS)
-        ZStack {
-            AppBackgroundView()
-
-            NavigationSplitView(columnVisibility: $columnVisibility) {
-                SidebarView(
-                    onConversationTap: { conversation in
-                        selectConversation(conversation)
-                    },
-                    onOpenSettings: { openSettingsWindow() }
-                )
-            } detail: {
-                if let selectedSession = chatSessionsViewModel.selectedSession {
-                    ChatView(viewModel: chatSessionsViewModel.viewModel(for: selectedSession))
-                        .id(selectedSession.id)
-                } else {
-                    VStack(spacing: 12) {
-                        Image(systemName: "bubble.left.and.exclamationmark.bubble.right.fill")
-                            .font(.system(size: 42))
-                            .foregroundStyle(.secondary)
-                        Text("Select or start a chat")
-                            .font(.title3.weight(.semibold))
-                            .foregroundStyle(.secondary)
-                    }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .onAppear {
-                        ensureAtLeastOneSession()
-                    }
-                }
-            }
-            .toolbar {
-                ToolbarItem {
-                    Button(action: startNewConversation) {
-                        Label("New Chat", systemImage: "plus")
-                    }
-                    .labelStyle(.iconOnly)
-                    .help("New Chat")
-                    .disabled(!chatSessionsViewModel.canStartNewSession)
-                }
-            }
-            .onAppear {
-                chatSessionsViewModel.attach(context: modelContext)
-                settingsManager.attach(context: modelContext)
-                ensureAtLeastOneSession()
-            }
-        }
+        macContent
+            .environmentObject(voiceOverlayViewModel)
         #else
-        SideMenuContainerRepresentable()
-            .environmentObject(chatSessionsViewModel)
-            .environmentObject(audioManager)
-            .environmentObject(settingsManager)
-            .environmentObject(speechInputManager)
-        .onAppear {
-            chatSessionsViewModel.attach(context: modelContext)
-            settingsManager.attach(context: modelContext)
-            ensureAtLeastOneSession()
-        }
+        iosContent
+            .environmentObject(voiceOverlayViewModel)
         #endif
     }
 
@@ -113,6 +66,88 @@ struct ContentView: View {
         }
     }
     #endif
+}
+
+private extension ContentView {
+#if os(macOS)
+    @ViewBuilder
+    var macContent: some View {
+        ZStack {
+            AppBackgroundView()
+
+            NavigationSplitView(columnVisibility: $columnVisibility) {
+                SidebarView(
+                    onConversationTap: { conversation in
+                        selectConversation(conversation)
+                    },
+                    onOpenSettings: { openSettingsWindow() }
+                )
+            } detail: {
+                if let selectedSession = chatSessionsViewModel.selectedSession {
+                    ChatView(viewModel: chatSessionsViewModel.viewModel(for: selectedSession))
+                        .id(selectedSession.id)
+                } else {
+                    VStack(spacing: 12) {
+                        Image(systemName: "bubble.left.and.exclamationmark.bubble.right.fill")
+                            .font(.system(size: 42))
+                            .foregroundStyle(.secondary)
+                        Text("Select or start a chat")
+                            .font(.title3.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .onAppear {
+                        ensureAtLeastOneSession()
+                    }
+                }
+            }
+            .toolbar {
+                ToolbarItem {
+                    if !voiceOverlayViewModel.isPresented {
+                        Button(action: startNewConversation) {
+                            Label("New Chat", systemImage: "plus")
+                        }
+                        .labelStyle(.iconOnly)
+                        .help("New Chat")
+                        .disabled(!chatSessionsViewModel.canStartNewSession)
+                    }
+                }
+            }
+            .onAppear {
+                chatSessionsViewModel.attach(context: modelContext)
+                settingsManager.attach(context: modelContext)
+                ensureAtLeastOneSession()
+            }
+        }
+        .overlay(voiceOverlayLayer)
+    }
+#endif
+
+#if os(iOS) || os(tvOS)
+    @ViewBuilder
+    var iosContent: some View {
+        SideMenuContainerRepresentable()
+            .environmentObject(chatSessionsViewModel)
+            .environmentObject(audioManager)
+            .environmentObject(settingsManager)
+            .environmentObject(speechInputManager)
+            .overlay(voiceOverlayLayer)
+            .onAppear {
+                chatSessionsViewModel.attach(context: modelContext)
+                settingsManager.attach(context: modelContext)
+                ensureAtLeastOneSession()
+            }
+    }
+#endif
+
+    @ViewBuilder
+    private var voiceOverlayLayer: some View {
+        if voiceOverlayViewModel.isPresented {
+            RealtimeVoiceOverlayView(viewModel: voiceOverlayViewModel)
+                .transition(.opacity.combined(with: .scale))
+                .zIndex(2000)
+        }
+    }
 }
 
 struct ContentView_Previews: PreviewProvider {
