@@ -73,6 +73,17 @@ final class GlobalAudioManager: NSObject, ObservableObject, AVAudioPlayerDelegat
     // Queue for realtime mode to ensure only one network request is in-flight at a time.
     var pendingRealtimeIndexes: [Int] = []
 
+    // Dedicated URLSession for TTS requests so we can tune timeouts and cancellation without polluting shared state.
+    lazy var ttsSession: URLSession = {
+        let config = URLSessionConfiguration.ephemeral
+        config.timeoutIntervalForRequest = 60
+        config.timeoutIntervalForResource = 60
+        config.waitsForConnectivity = true
+        config.httpMaximumConnectionsPerHost = 2
+        config.requestCachePolicy = .reloadIgnoringLocalCacheData
+        return URLSession(configuration: config)
+    }()
+
     // MARK: - Entry (Full-text mode)
     func startProcessing(text: String) {
         currentGenerationID = UUID()

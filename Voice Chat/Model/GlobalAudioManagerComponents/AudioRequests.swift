@@ -14,8 +14,11 @@ extension GlobalAudioManager {
 
     // MARK: - URL Builder
     func constructTTSURL() -> URL? {
-        let addr = settingsManager.serverSettings.serverAddress
-        return URL(string: "\(addr)/tts")
+        let trimmed = settingsManager.serverSettings.serverAddress
+            .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        guard var comps = URLComponents(string: trimmed) else { return nil }
+        comps.path = comps.path.appending("/tts")
+        return comps.url
     }
 
     // MARK: - Request Queue (used only in full-text mode)
@@ -66,14 +69,19 @@ extension GlobalAudioManager {
         var req = URLRequest(url: url)
         req.httpMethod = "POST"
         req.timeoutInterval = 60
+        req.cachePolicy = .reloadIgnoringLocalCacheData
         req.addValue("application/json", forHTTPHeaderField: "Content-Type")
         req.httpBody = body
 
         let genAtRequest = self.currentGenerationID
 
-        let task = URLSession.shared.dataTask(with: req) { [weak self] data, resp, error in
+        var task: URLSessionDataTask?
+        task = ttsSession.dataTask(with: req) { [weak self, weak task] (data: Data?, resp: URLResponse?, error: Error?) in
             guard let self = self else { return }
             DispatchQueue.main.async {
+                if let task {
+                    self.dataTasks.removeAll(where: { $0 === task })
+                }
                 guard genAtRequest == self.currentGenerationID else { return }
 
                 defer {
@@ -94,10 +102,35 @@ extension GlobalAudioManager {
                     return
                 }
 
-                if let http = resp as? HTTPURLResponse, !(200...299).contains(http.statusCode) {
-                    let message = String(format: NSLocalizedString("TTS server error: %d", comment: "Shown when the TTS server returns a non-success status"), http.statusCode)
-                    self.errorMessage = message
-                    return
+                if let http = resp as? HTTPURLResponse {
+                    if !(200...299).contains(http.statusCode) {
+                        let preview = data.flatMap { String(data: $0, encoding: .utf8) }?
+                            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                        let message: String
+                        if preview.isEmpty {
+                            message = String(format: NSLocalizedString("TTS server error: %d", comment: "Shown when the TTS server returns a non-success status"), http.statusCode)
+                        } else {
+                            let snippet = preview.prefix(180)
+                            message = String(format: NSLocalizedString("TTS server error: %d (%@)", comment: "Shown when the TTS server returns a non-success status plus body"), http.statusCode, String(snippet))
+                        }
+                        self.errorMessage = message
+                        return
+                    }
+
+                    if let type = http.value(forHTTPHeaderField: "Content-Type")?.lowercased(),
+                       !type.contains("audio") && !type.contains("octet-stream") {
+                        let preview = data.flatMap { String(data: $0, encoding: .utf8) }?
+                            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                        let message: String
+                        if preview.isEmpty {
+                            message = NSLocalizedString("TTS response was not audio data.", comment: "Shown when TTS returns a non-audio MIME type")
+                        } else {
+                            let snippet = preview.prefix(180)
+                            message = String(format: NSLocalizedString("TTS response was not audio: %@", comment: "Shown when TTS returns non-audio body"), String(snippet))
+                        }
+                        self.errorMessage = message
+                        return
+                    }
                 }
 
                 guard let data = data, !data.isEmpty else {
@@ -116,10 +149,12 @@ extension GlobalAudioManager {
 
                 if index < self.audioChunks.count {
                     self.audioChunks[index] = data
-                    if let p = try? AVAudioPlayer(data: data) {
+                    do {
+                        let p = try AVAudioPlayer(data: data)
                         self.chunkDurations[index] = max(0, p.duration)
-                    } else {
+                    } catch {
                         self.chunkDurations[index] = 0
+                        self.errorMessage = NSLocalizedString("Received audio data could not be played.", comment: "Shown when AVAudioPlayer fails to read TTS audio data")
                     }
                     self.recalcTotalDuration()
                 }
@@ -160,7 +195,9 @@ extension GlobalAudioManager {
                 }
             }
         }
-        task.resume()
-        dataTasks.append(task)
+        if let task {
+            task.resume()
+            dataTasks.append(task)
+        }
     }
 }

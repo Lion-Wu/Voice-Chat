@@ -118,6 +118,14 @@ enum ChatNetworkError: Error {
 // MARK: - ChatService (Streaming)
 
 final class ChatService: NSObject, URLSessionDataDelegate, @unchecked Sendable {
+    private lazy var sessionQueue: OperationQueue = {
+        let queue = OperationQueue()
+        queue.name = "VoiceChat.ChatService"
+        queue.maxConcurrentOperationCount = 1
+        queue.qualityOfService = .userInitiated
+        return queue
+    }()
+
     private var session: URLSession?
     private var dataTask: URLSessionDataTask?
 
@@ -135,6 +143,7 @@ final class ChatService: NSObject, URLSessionDataDelegate, @unchecked Sendable {
 
     // SSE parsing buffer
     private var ssePartialLine: String = ""
+    private let maxBufferedSSEBytes = 512 * 1024
 
     // Watchdog configuration to cover long-running sessions (up to ~1 hour).
     private let firstTokenTimeout: TimeInterval = 3600        // Wait up to one hour for the first token.
@@ -146,6 +155,11 @@ final class ChatService: NSObject, URLSessionDataDelegate, @unchecked Sendable {
     // Cancel flag to ignore any residual deltas after stopping.
     private var isCancelled: Bool = false
 
+    // HTTP status/error accumulation for non-2xx responses.
+    private var httpStatusCode: Int?
+    private let errorBodyCaptureLimit = 32 * 1024
+    private var errorResponseData = Data()
+
     override init() {
         super.init()
         let configuration = URLSessionConfiguration.default
@@ -153,7 +167,7 @@ final class ChatService: NSObject, URLSessionDataDelegate, @unchecked Sendable {
         configuration.timeoutIntervalForRequest  = 3900   // Adds a few minutes of headroom beyond one hour.
         configuration.timeoutIntervalForResource = 3900
         configuration.httpMaximumConnectionsPerHost = 1
-        self.session = URLSession(configuration: configuration, delegate: self, delegateQueue: nil)
+        self.session = URLSession(configuration: configuration, delegate: self, delegateQueue: sessionQueue)
     }
 
     deinit { stopWatchdog() }
@@ -190,6 +204,7 @@ final class ChatService: NSObject, URLSessionDataDelegate, @unchecked Sendable {
 
         var request = URLRequest(url: apiURL)
         request.httpMethod = "POST"
+        request.cachePolicy = .reloadIgnoringLocalCacheData
         request.timeoutInterval = 3900 // Individual request timeout with extra buffer beyond one hour.
         request.addValue("application/json", forHTTPHeaderField: "Content-Type")
         request.addValue("text/event-stream", forHTTPHeaderField: "Accept")
@@ -227,6 +242,8 @@ final class ChatService: NSObject, URLSessionDataDelegate, @unchecked Sendable {
         ssePartialLine = ""
         streamStartAt = nil
         lastDeltaAt = nil
+        httpStatusCode = nil
+        errorResponseData.removeAll(keepingCapacity: true)
     }
 
     private func transformedMessagesForRequest(messages: [ChatMessage]) -> [[String: String]] {
@@ -242,11 +259,39 @@ final class ChatService: NSObject, URLSessionDataDelegate, @unchecked Sendable {
 
     // MARK: - URLSession Data Delegate
 
+    func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive response: URLResponse, completionHandler: @escaping (URLSession.ResponseDisposition) -> Void) {
+        if let http = response as? HTTPURLResponse {
+            httpStatusCode = http.statusCode
+            if !(200...299).contains(http.statusCode) {
+                errorResponseData.removeAll(keepingCapacity: true)
+            }
+        }
+        completionHandler(.allow)
+    }
+
     func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
         guard !isCancelled else { return }
 
+        if let status = httpStatusCode, !(200...299).contains(status) {
+            if errorResponseData.count < errorBodyCaptureLimit {
+                let remaining = errorBodyCaptureLimit - errorResponseData.count
+                errorResponseData.append(data.prefix(remaining))
+            }
+            return
+        }
+
         let chunk = String(decoding: data, as: UTF8.self)
         ssePartialLine += chunk
+
+        if ssePartialLine.utf8.count > maxBufferedSSEBytes {
+            isCancelled = true
+            dataTask.cancel()
+            stopWatchdog()
+            Task { @MainActor in
+                self.onError?(ChatNetworkError.serverError("Stream payload exceeded safety limit"))
+            }
+            return
+        }
 
         let lines = ssePartialLine.split(
             maxSplits: Int.max,
@@ -331,6 +376,19 @@ final class ChatService: NSObject, URLSessionDataDelegate, @unchecked Sendable {
 
     func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
         stopWatchdog()
+        if let status = httpStatusCode, !(200...299).contains(status) {
+            let preview = String(data: errorResponseData, encoding: .utf8)?
+                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            let message: String
+            if preview.isEmpty {
+                message = "HTTP \(status)"
+            } else {
+                let snippet = preview.prefix(400)
+                message = "HTTP \(status): \(snippet)"
+            }
+            Task { @MainActor in self.onError?(ChatNetworkError.serverError(message)) }
+            return
+        }
         if let error = error {
             Task { @MainActor in self.onError?(error) }
         } else {
