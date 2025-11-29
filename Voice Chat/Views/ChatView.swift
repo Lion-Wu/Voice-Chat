@@ -94,9 +94,14 @@ struct ChatView: View {
         return Array(orderedMessages.prefix(idx + 1))
     }
 
+    /// Height of the scrollable content excluding the spacer that keeps it clear of the floating input.
+    private var effectiveContentHeight: CGFloat {
+        max(0, contentHeight - messageListBottomInset)
+    }
+
     private var shouldAnchorBottom: Bool {
-        let availableHeight = max(0, viewportHeight - messageListBottomInset)
-        return contentHeight > (availableHeight + 1)
+        guard viewportHeight > 0 else { return false }
+        return effectiveContentHeight > (viewportHeight + 1)
     }
 
     private var messageListHorizontalPadding: CGFloat {
