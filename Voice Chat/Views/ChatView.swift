@@ -403,8 +403,38 @@ struct ChatView: View {
                     )
             )
             .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
-            .shadow(color: Color.black.opacity(0.3), radius: 18, x: 0, y: 10)
-            .shadow(color: Color.black.opacity(0.18), radius: 40, x: 0, y: 25)
+            .background(alignment: .bottom) {
+                RoundedRectangle(cornerRadius: 28, style: .continuous)
+                    .fill(.regularMaterial)
+                    .blur(radius: 26)
+                    .opacity(0.82)
+                    .padding(.horizontal, -18)
+                    .frame(height: 38)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 28, style: .continuous)
+                            .stroke(Color.white.opacity(0.18), lineWidth: 0.8)
+                            .blur(radius: 10)
+                            .blendMode(.plusLighter)
+                    )
+                    .overlay(
+                        LinearGradient(
+                            colors: [
+                                Color.white.opacity(0.16),
+                                Color.white.opacity(0.08),
+                                Color.white.opacity(0.16)
+                            ],
+                            startPoint: .leading,
+                            endPoint: .trailing
+                        )
+                        .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
+                        .blur(radius: 14)
+                    )
+                    .offset(y: 16)
+            }
+            .shadow(color: Color.black.opacity(0.22), radius: 12, x: 0, y: 12)
+            .shadow(color: Color.black.opacity(0.1), radius: 14, x: 10, y: 12)
+            .shadow(color: Color.black.opacity(0.1), radius: 14, x: -10, y: 12)
+            .shadow(color: Color.black.opacity(0.14), radius: 26, x: 0, y: 28)
         }
     }
 
