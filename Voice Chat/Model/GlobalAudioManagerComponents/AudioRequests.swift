@@ -33,7 +33,9 @@ extension GlobalAudioManager {
     func sendTTSRequest(for segmentText: String, index: Int) {
         guard !inFlightIndexes.contains(index) else { return }
         guard let url = constructTTSURL() else {
-            self.errorMessage = NSLocalizedString("Unable to construct TTS URL", comment: "Shown when the TTS endpoint URL cannot be built")
+            let address = settingsManager.serverSettings.serverAddress
+            let message = String(format: NSLocalizedString("Unable to construct TTS URL from %@", comment: "Shown when the TTS endpoint URL cannot be built"), address)
+            self.surfaceTTSIssue(message)
             return
         }
         inFlightIndexes.insert(index)
@@ -59,7 +61,7 @@ extension GlobalAudioManager {
         }
 
         guard let body = try? JSONSerialization.data(withJSONObject: params) else {
-            self.errorMessage = NSLocalizedString("Unable to serialize JSON", comment: "Shown when encoding the TTS request body fails")
+            self.surfaceTTSIssue(NSLocalizedString("Unable to serialize JSON", comment: "Shown when encoding the TTS request body fails"))
             inFlightIndexes.remove(index)
             // In realtime mode continue with the queue to avoid stalling.
             if isRealtimeMode { processRealtimeQueueIfNeeded() }
@@ -98,7 +100,7 @@ extension GlobalAudioManager {
                     if err.domain == NSURLErrorDomain && err.code == NSURLErrorCancelled {
                         return
                     }
-                    self.errorMessage = err.localizedDescription
+                    self.surfaceTTSIssue(self.formatTTSNetworkError(err))
                     return
                 }
 
@@ -113,7 +115,7 @@ extension GlobalAudioManager {
                             let snippet = preview.prefix(180)
                             message = String(format: NSLocalizedString("TTS server error: %d (%@)", comment: "Shown when the TTS server returns a non-success status plus body"), http.statusCode, String(snippet))
                         }
-                        self.errorMessage = message
+                        self.surfaceTTSIssue(message)
                         return
                     }
 
@@ -128,13 +130,13 @@ extension GlobalAudioManager {
                             let snippet = preview.prefix(180)
                             message = String(format: NSLocalizedString("TTS response was not audio: %@", comment: "Shown when TTS returns non-audio body"), String(snippet))
                         }
-                        self.errorMessage = message
+                        self.surfaceTTSIssue(message)
                         return
                     }
                 }
 
                 guard let data = data, !data.isEmpty else {
-                    self.errorMessage = NSLocalizedString("No data received", comment: "Shown when the TTS server returns an empty body")
+                    self.surfaceTTSIssue(NSLocalizedString("No data received", comment: "Shown when the TTS server returns an empty body"))
                     return
                 }
 
@@ -147,17 +149,17 @@ extension GlobalAudioManager {
                     }
                 }
 
-                if index < self.audioChunks.count {
-                    self.audioChunks[index] = data
-                    do {
-                        let p = try AVAudioPlayer(data: data)
-                        self.chunkDurations[index] = max(0, p.duration)
-                    } catch {
-                        self.chunkDurations[index] = 0
-                        self.errorMessage = NSLocalizedString("Received audio data could not be played.", comment: "Shown when AVAudioPlayer fails to read TTS audio data")
+                    if index < self.audioChunks.count {
+                        self.audioChunks[index] = data
+                        do {
+                            let p = try AVAudioPlayer(data: data)
+                            self.chunkDurations[index] = max(0, p.duration)
+                        } catch {
+                            self.chunkDurations[index] = 0
+                            self.surfaceTTSIssue(NSLocalizedString("Received audio data could not be played.", comment: "Shown when AVAudioPlayer fails to read TTS audio data"))
+                        }
+                        self.recalcTotalDuration()
                     }
-                    self.recalcTotalDuration()
-                }
 
                 if self.playbackFinished() {
                     self.finishPlayback()

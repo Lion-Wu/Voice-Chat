@@ -30,6 +30,7 @@ final class SideMenuContainerViewController: UIViewController {
     // Speech input manager reference used by embedded SwiftUI views.
     var speechInputManager: SpeechInputManager!
     var voiceOverlayViewModel: VoiceChatOverlayViewModel!
+    var errorCenter: AppErrorCenter!
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -50,6 +51,7 @@ final class SideMenuContainerViewController: UIViewController {
         )
         .environmentObject(chatSessionsViewModel)
         .environmentObject(voiceOverlayViewModel)
+        .environmentObject(errorCenter)
 
         let sidebarView: AnyView
         if #available(iOS 16, tvOS 16, *) {
@@ -89,6 +91,7 @@ final class SideMenuContainerViewController: UIViewController {
         // Pass along the shared speech input manager.
         .environmentObject(speechInputManager)
         .environmentObject(voiceOverlayViewModel)
+        .environmentObject(errorCenter)
 
         let mainVC = UIHostingController(rootView: mainView)
         self.mainHostingController = mainVC
@@ -193,6 +196,7 @@ struct SideMenuContainerRepresentable: UIViewControllerRepresentable {
     // Propagate the shared speech input manager into the UIKit container.
     @EnvironmentObject var speechInputManager: SpeechInputManager
     @EnvironmentObject var voiceOverlayViewModel: VoiceChatOverlayViewModel
+    @EnvironmentObject var errorCenter: AppErrorCenter
 
     func makeUIViewController(context: Context) -> SideMenuContainerViewController {
         let vc = SideMenuContainerViewController()
@@ -201,6 +205,7 @@ struct SideMenuContainerRepresentable: UIViewControllerRepresentable {
         vc.settingsManager = settingsManager
         vc.speechInputManager = speechInputManager
         vc.voiceOverlayViewModel = voiceOverlayViewModel
+        vc.errorCenter = errorCenter
         return vc
     }
 

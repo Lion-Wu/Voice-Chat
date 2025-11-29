@@ -15,6 +15,7 @@ struct Voice_ChatApp: App {
     @StateObject private var settingsManager = SettingsManager.shared
     @StateObject private var chatSessionsViewModel = ChatSessionsViewModel()
     @StateObject private var speechInputManager = SpeechInputManager.shared
+    @StateObject private var errorCenter = AppErrorCenter.shared
 
     var body: some Scene {
         WindowGroup {
@@ -23,10 +24,12 @@ struct Voice_ChatApp: App {
                 .environmentObject(settingsManager)
                 .environmentObject(chatSessionsViewModel)
                 .environmentObject(speechInputManager)
+                .environmentObject(errorCenter)
                 // Bind the SwiftData context so singletons can load persisted state before the UI needs it.
                 .background(ContextBinder()
                     .environmentObject(settingsManager)
                     .environmentObject(chatSessionsViewModel)
+                    .environmentObject(errorCenter)
                 )
         }
         .modelContainer(Self.sharedContainer)
@@ -35,9 +38,11 @@ struct Voice_ChatApp: App {
         Settings {
             SettingsView()
                 .environmentObject(settingsManager)
+                .environmentObject(errorCenter)
                 .background(ContextBinder()
                     .environmentObject(settingsManager)
                     .environmentObject(chatSessionsViewModel)
+                    .environmentObject(errorCenter)
                 )
         }
         // Reuse the same container instance to avoid creating parallel stores.

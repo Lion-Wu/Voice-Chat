@@ -148,7 +148,7 @@ extension GlobalAudioManager {
             return true
         } catch {
             let message = String(format: NSLocalizedString("Failed to start audio playback: %@", comment: "Shown when AVAudioPlayer fails to start"), error.localizedDescription)
-            self.errorMessage = message
+            self.surfaceTTSIssue(message, autoDismiss: 12)
             isBuffering = true
             startStallWatchdog()
             if isRealtimeMode {

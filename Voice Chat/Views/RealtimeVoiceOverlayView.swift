@@ -9,6 +9,7 @@ import SwiftUI
 
 struct RealtimeVoiceOverlayView: View {
     @ObservedObject var viewModel: VoiceChatOverlayViewModel
+    @EnvironmentObject var errorCenter: AppErrorCenter
     @Environment(\.colorScheme) private var colorScheme
 
     /// Optional callback so the parent can react when the overlay is dismissed.
@@ -99,25 +100,20 @@ struct RealtimeVoiceOverlayView: View {
             }
             .frame(maxWidth: .infinity)
         }
-        .alert(
-            Text("Speech Error"),
-            isPresented: Binding(
-                get: { viewModel.showErrorAlert },
-                set: { newValue in
-                    if !newValue {
+        .overlay(alignment: .bottom) {
+            if !errorCenter.notices.isEmpty {
+                ErrorNoticeStack(
+                    notices: errorCenter.notices,
+                    onDismiss: { notice in
+                        errorCenter.dismiss(notice)
                         viewModel.dismissErrorMessage()
                     }
-                }
-            ),
-            actions: {
-                Button("OK", role: .cancel) {
-                    viewModel.dismissErrorMessage()
-                }
-            },
-            message: {
-                Text(viewModel.errorMessage ?? "Unknown error")
+                )
+                // Keep it behind the language picker / controls.
+                .padding(.bottom, 12)
+                .zIndex(0)
             }
-        )
+        }
         .onChange(of: viewModel.state) { _, newState in
             targetScale = circleTargetScale(for: newState)
         }

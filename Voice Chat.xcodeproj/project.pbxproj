@@ -13,6 +13,9 @@
 		B4A629592B59617A006125B5 /* ChatViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B4A629582B59617A006125B5 /* ChatViewModel.swift */; };
 		B4E916D52B4BDBD900E49A6B /* ChatModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B4E916D42B4BDBD900E49A6B /* ChatModel.swift */; };
 		B4E916DF2B4BF0E500E49A6B /* VoiceViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B4E916DE2B4BF0E500E49A6B /* VoiceViewModel.swift */; };
+		FDFE0A012F12340000000001 /* AppErrorCenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = FDFE0A002F12340000000001 /* AppErrorCenter.swift */; };
+		FDFE0A032F12340000000001 /* ErrorNoticeStack.swift in Sources */ = {isa = PBXBuildFile; fileRef = FDFE0A022F12340000000001 /* ErrorNoticeStack.swift */; };
+		FDFE0A052F123C0000000001 /* ServerReachabilityMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = FDFE0A042F123C0000000001 /* ServerReachabilityMonitor.swift */; };
 		C4442FE0C1135115CFA62BDD /* AppChrome.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4570041CD56B63DCA44B5C0 /* AppChrome.swift */; };
 		FD0577A52CB626FD009FC45C /* SettingsViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD0577A42CB626FD009FC45C /* SettingsViewModel.swift */; };
 		FD0B94DF2CD9080700DBFA1D /* ChatSessionsViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD0B94DE2CD9080700DBFA1D /* ChatSessionsViewModel.swift */; };
@@ -63,6 +66,9 @@
 		B4A629582B59617A006125B5 /* ChatViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatViewModel.swift; sourceTree = "<group>"; };
 		B4E916D42B4BDBD900E49A6B /* ChatModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatModel.swift; sourceTree = "<group>"; };
 		B4E916DE2B4BF0E500E49A6B /* VoiceViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceViewModel.swift; sourceTree = "<group>"; };
+		FDFE0A002F12340000000001 /* AppErrorCenter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppErrorCenter.swift; sourceTree = "<group>"; };
+		FDFE0A022F12340000000001 /* ErrorNoticeStack.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ErrorNoticeStack.swift; sourceTree = "<group>"; };
+		FDFE0A042F123C0000000001 /* ServerReachabilityMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ServerReachabilityMonitor.swift; sourceTree = "<group>"; };
 		D4570041CD56B63DCA44B5C0 /* AppChrome.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppChrome.swift; sourceTree = "<group>"; };
 		FD0577A42CB626FD009FC45C /* SettingsViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = SettingsViewModel.swift; path = "Voice Chat/ViewModel/SettingsViewModel.swift"; sourceTree = SOURCE_ROOT; };
 		FD0B94DD2CD8E63500DBFA1D /* Voice Chat.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = "Voice Chat.entitlements"; sourceTree = "<group>"; };
@@ -183,6 +189,8 @@
 				FD0B94E02CD9082600DBFA1D /* ChatSession.swift */,
 				FD0B94E62CD90A2500DBFA1D /* ChatMessage.swift */,
 				B4E916D42B4BDBD900E49A6B /* ChatModel.swift */,
+				FDFE0A002F12340000000001 /* AppErrorCenter.swift */,
+				FDFE0A042F123C0000000001 /* ServerReachabilityMonitor.swift */,
 				FD6E97242CA92C840086C234 /* SettingsModel.swift */,
 				FD40D5752CA876010064E732 /* GlobalAudioManager.swift */,
 				FDA8D9452E7F12E10012B42F /* GlobalAudioManagerComponents */,
@@ -216,6 +224,7 @@
 				FDA8D92F2E7F0EF50012B42F /* LayoutHelpers.swift */,
 				FDA8D9312E7F0F150012B42F /* AutoSizingTextEditor.swift */,
 				FDA8D9332E7F0F260012B42F /* LoadingViews.swift */,
+				FDFE0A022F12340000000001 /* ErrorNoticeStack.swift */,
 				FDA8D9352E7F0F360012B42F /* VoiceMessageView.swift */,
 				FDA8D9372E7F0F520012B42F /* FullScreenComposer.swift */,
 			);
@@ -330,6 +339,7 @@
 				FDA8D9302E7F0EF50012B42F /* LayoutHelpers.swift in Sources */,
 				B4E916D52B4BDBD900E49A6B /* ChatModel.swift in Sources */,
 				FD0C3AB22C9F38F2009095A1 /* SettingsView.swift in Sources */,
+				FDFE0A012F12340000000001 /* AppErrorCenter.swift in Sources */,
 				FD6E97252CA92C840086C234 /* SettingsModel.swift in Sources */,
 				FDA8D93E2E7F12190012B42F /* AVAudioDelegate.swift in Sources */,
 				FDA8D92C2E7F0ED00012B42F /* TailLinesText.swift in Sources */,
@@ -341,6 +351,7 @@
 				FD0B94DF2CD9080700DBFA1D /* ChatSessionsViewModel.swift in Sources */,
 				B329D65B2B394979000A17C9 /* Voice_ChatApp.swift in Sources */,
 				FDF714C52E7FC59000B62D71 /* RealtimeVoiceOverlayView.swift in Sources */,
+				FDFE0A052F123C0000000001 /* ServerReachabilityMonitor.swift in Sources */,
 				FDA8D9262E7F0E320012B42F /* BubbleBackground.swift in Sources */,
 				FDA8D9272E7F0E320012B42F /* ChatTheme.swift in Sources */,
 				FDA8D9282E7F0E320012B42F /* ChatView.swift in Sources */,
@@ -349,6 +360,7 @@
 				FDF714C32E7FC55300B62D71 /* VoiceChatOverlayViewModel.swift in Sources */,
 				FDA8D9292E7F0E320012B42F /* RichMarkdownView.swift in Sources */,
 				FDA8D92A2E7F0E320012B42F /* ThinkParts.swift in Sources */,
+				FDFE0A032F12340000000001 /* ErrorNoticeStack.swift in Sources */,
 				B4E916DF2B4BF0E500E49A6B /* VoiceViewModel.swift in Sources */,
 				FD40D5742CA875CC0064E732 /* ContentView.swift in Sources */,
 				FDA8D93A2E7F11F00012B42F /* AudioRequests.swift in Sources */,

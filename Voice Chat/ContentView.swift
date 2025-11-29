@@ -18,11 +18,14 @@ struct ContentView: View {
     @EnvironmentObject var settingsManager: SettingsManager
     @EnvironmentObject var chatSessionsViewModel: ChatSessionsViewModel
     @EnvironmentObject var speechInputManager: SpeechInputManager
+    @EnvironmentObject var errorCenter: AppErrorCenter
 
+    @StateObject private var reachabilityMonitor = ServerReachabilityMonitor.shared
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
     @StateObject private var voiceOverlayViewModel = VoiceChatOverlayViewModel(
         speechInputManager: SpeechInputManager.shared,
-        audioManager: GlobalAudioManager.shared
+        audioManager: GlobalAudioManager.shared,
+        errorCenter: AppErrorCenter.shared
     )
 
     var body: some View {
@@ -49,6 +52,12 @@ struct ContentView: View {
 
     private func startNewConversation() {
         chatSessionsViewModel.startNewSession()
+    }
+
+    private func runConnectivityChecks() {
+        Task {
+            await reachabilityMonitor.checkAll(settings: settingsManager)
+        }
     }
 
     #if os(macOS)
@@ -117,6 +126,16 @@ private extension ContentView {
                 chatSessionsViewModel.attach(context: modelContext)
                 settingsManager.attach(context: modelContext)
                 ensureAtLeastOneSession()
+                runConnectivityChecks()
+                reachabilityMonitor.startMonitoring(settings: settingsManager)
+            }
+            .onChange(of: settingsManager.serverSettings.serverAddress) { _, _ in
+                runConnectivityChecks()
+                reachabilityMonitor.startMonitoring(settings: settingsManager)
+            }
+            .onChange(of: settingsManager.chatSettings.apiURL) { _, _ in
+                runConnectivityChecks()
+                reachabilityMonitor.startMonitoring(settings: settingsManager)
             }
         }
         .overlay(voiceOverlayLayer)
@@ -131,11 +150,22 @@ private extension ContentView {
             .environmentObject(audioManager)
             .environmentObject(settingsManager)
             .environmentObject(speechInputManager)
+            .environmentObject(errorCenter)
             .overlay(voiceOverlayLayer)
             .onAppear {
                 chatSessionsViewModel.attach(context: modelContext)
                 settingsManager.attach(context: modelContext)
                 ensureAtLeastOneSession()
+                runConnectivityChecks()
+                reachabilityMonitor.startMonitoring(settings: settingsManager)
+            }
+            .onChange(of: settingsManager.serverSettings.serverAddress) { _, _ in
+                runConnectivityChecks()
+                reachabilityMonitor.startMonitoring(settings: settingsManager)
+            }
+            .onChange(of: settingsManager.chatSettings.apiURL) { _, _ in
+                runConnectivityChecks()
+                reachabilityMonitor.startMonitoring(settings: settingsManager)
             }
     }
 #endif
@@ -158,5 +188,6 @@ struct ContentView_Previews: PreviewProvider {
             .environmentObject(SettingsManager.shared)
             .environmentObject(ChatSessionsViewModel())
             .environmentObject(SpeechInputManager())
+            .environmentObject(AppErrorCenter.shared)
     }
 }

@@ -22,7 +22,7 @@ final class VoiceChatOverlayViewModel: ObservableObject {
     @Published var isPresented: Bool = false
     @Published private(set) var state: OverlayState = .listening
     @Published var selectedLanguage: SpeechInputManager.DictationLanguage
-    @Published private(set) var showErrorAlert: Bool = false
+    @Published private(set) var showErrorBanner: Bool = false
     @Published private(set) var errorMessage: String?
     @Published private(set) var inputLevel: Double = 0
     @Published private(set) var outputLevel: Double = 0
@@ -33,6 +33,7 @@ final class VoiceChatOverlayViewModel: ObservableObject {
 
     private let speechInputManager: SpeechInputManager
     private let audioManager: GlobalAudioManager
+    private let errorCenter: AppErrorCenter
     private var cancellables: Set<AnyCancellable> = []
     private var onRecognizedFinal: ((String) -> Void)?
     private var autoResumeEnabled = false
@@ -41,10 +42,12 @@ final class VoiceChatOverlayViewModel: ObservableObject {
 
     init(
         speechInputManager: SpeechInputManager,
-        audioManager: GlobalAudioManager
+        audioManager: GlobalAudioManager,
+        errorCenter: AppErrorCenter
     ) {
         self.speechInputManager = speechInputManager
         self.audioManager = audioManager
+        self.errorCenter = errorCenter
         self.selectedLanguage = speechInputManager.currentLanguage
         bindState()
     }
@@ -52,7 +55,7 @@ final class VoiceChatOverlayViewModel: ObservableObject {
     func presentSession(onFinal: @escaping (String) -> Void) {
         onRecognizedFinal = onFinal
         autoResumeEnabled = true
-        showErrorAlert = false
+        showErrorBanner = false
         errorMessage = nil
         withAnimation(overlayAnimation) {
             isPresented = true
@@ -67,7 +70,7 @@ final class VoiceChatOverlayViewModel: ObservableObject {
             isPresented = false
         }
         state = .listening
-        showErrorAlert = false
+        showErrorBanner = false
         errorMessage = nil
         cleanupSession()
     }
@@ -77,7 +80,7 @@ final class VoiceChatOverlayViewModel: ObservableObject {
     }
 
     func dismissErrorMessage() {
-        showErrorAlert = false
+        showErrorBanner = false
     }
 
     func updateLanguage(_ language: SpeechInputManager.DictationLanguage) {
@@ -226,9 +229,21 @@ final class VoiceChatOverlayViewModel: ObservableObject {
     }
 
     private func handleError(_ message: String) {
-        errorMessage = message
-        showErrorAlert = true
+        let trimmed = message.trimmingCharacters(in: .whitespacesAndNewlines)
+        errorMessage = trimmed
+        showErrorBanner = true
         state = .error(message)
         autoResumeEnabled = false
+        pushRealtimeVoiceError(trimmed)
+    }
+
+    private func pushRealtimeVoiceError(_ message: String) {
+        guard !message.isEmpty else { return }
+        errorCenter.publish(
+            title: NSLocalizedString("Realtime voice unavailable", comment: "Shown when realtime voice dictation/playback encounters an error"),
+            message: message,
+            category: .realtimeVoice,
+            autoDismiss: 12
+        )
     }
 }

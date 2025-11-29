@@ -117,3 +117,25 @@
 "No Chat Selected" = "未选择聊天";
 "Start a new conversation to begin talking." = "开始一个新的对话即可开始交流。";
 "Toggle chat list" = "切换聊天列表";
+
+"Text Generation Issue" = "文本生成问题";
+"Voice Playback Issue" = "语音播放问题";
+"Realtime Voice Issue" = "实时语音问题";
+"Text server unreachable" = "无法连接文本服务器";
+"TTS server unreachable" = "无法连接 TTS 服务器";
+"TTS server unavailable" = "TTS 服务器不可用";
+"Unable to construct TTS URL from %@" = "无法从 %@ 构造 TTS URL";
+"Unable to connect to the TTS server at %@" = "无法连接位于 %@ 的 TTS 服务器";
+"No internet connection for TTS requests." = "TTS 请求没有可用的网络连接。";
+"Connection to the TTS server was lost during playback." = "播放过程中与 TTS 服务器的连接中断。";
+"The TTS server did not respond in time." = "TTS 服务器未及时响应。";
+"Unable to reach the text server. Please check your connection or server settings." = "无法连接文本服务器。请检查网络或服务器设置。";
+"Realtime voice unavailable" = "实时语音不可用";
+"Could not connect to %@" = "无法连接到 %@";
+"You appear to be offline. Please check your internet connection." = "看起来已离线，请检查网络连接。";
+"The network connection was lost." = "网络连接已断开。";
+"The request timed out. The server may be offline or busy." = "请求超时，服务器可能离线或繁忙。";
+"TTS server error: %d (%@)" = "TTS 服务器错误：%d（%@）";
+"TTS response was not audio data." = "TTS 响应不是音频数据。";
+"TTS response was not audio: %@" = "TTS 响应不是音频：%@";
+"Received audio data could not be played." = "收到的音频数据无法播放。";

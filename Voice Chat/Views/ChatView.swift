@@ -51,6 +51,7 @@ struct ChatView: View {
     @EnvironmentObject var chatSessionsViewModel: ChatSessionsViewModel
     @EnvironmentObject var audioManager: GlobalAudioManager
     @EnvironmentObject var speechInputManager: SpeechInputManager
+    @EnvironmentObject var errorCenter: AppErrorCenter
     @ObservedObject var viewModel: ChatViewModel
     @State private var textFieldHeight: CGFloat = InputMetrics.defaultHeight
     @FocusState private var isInputFocused: Bool
@@ -116,6 +117,16 @@ struct ChatView: View {
 
     private var messageListBottomInset: CGFloat {
         floatingInputPanelHeight + 20
+    }
+
+    private var noticeBottomPadding: CGFloat {
+        // Keep the banner close to the composer while leaving a narrow gap.
+        max(8, messageListBottomInset - 22)
+    }
+
+    // Negative offset so the banner begins under the composer and reveals upward.
+    private var noticeHiddenOffset: CGFloat {
+        -(floatingInputPanelHeight / 1.8)
     }
 
     private var shouldDisplayAudioPlayer: Bool {
@@ -228,6 +239,21 @@ struct ChatView: View {
             }
             .padding(.horizontal, 16)
             .padding(.bottom, 14)
+        }
+        .overlay(alignment: .bottom) {
+            if !errorCenter.notices.isEmpty {
+                ErrorNoticeStack(
+                    notices: errorCenter.notices,
+                    onDismiss: { notice in
+                        errorCenter.dismiss(notice)
+                    }
+                )
+                // Start hidden behind the composer: offset up by composer height so it slides from under it.
+                .padding(.bottom, noticeBottomPadding)
+                .offset(y: noticeHiddenOffset)
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+                .zIndex(0)
+            }
         }
         .onAppear {
             onMessagesCountChange(visibleMessages.count)
@@ -573,7 +599,8 @@ struct ChatView_Previews: PreviewProvider {
         let speechManager = SpeechInputManager()
         let overlayVM = VoiceChatOverlayViewModel(
             speechInputManager: speechManager,
-            audioManager: GlobalAudioManager.shared
+            audioManager: GlobalAudioManager.shared,
+            errorCenter: AppErrorCenter.shared
         )
         return ChatView(viewModel: ChatViewModel(chatSession: session))
             .modelContainer(for: [ChatSession.self, ChatMessage.self, AppSettings.self], inMemory: true)
@@ -581,5 +608,6 @@ struct ChatView_Previews: PreviewProvider {
             .environmentObject(ChatSessionsViewModel())
             .environmentObject(speechManager)
             .environmentObject(overlayVM)
+            .environmentObject(AppErrorCenter.shared)
     }
 }

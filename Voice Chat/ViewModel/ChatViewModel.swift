@@ -21,6 +21,7 @@ class ChatViewModel: ObservableObject {
     // MARK: - Dependencies
     private let chatService = ChatService()
     private let settingsManager = SettingsManager.shared
+    private let reachability = ServerReachabilityMonitor.shared
 
     var onUpdate: (() -> Void)?
 
@@ -192,6 +193,28 @@ class ChatViewModel: ObservableObject {
         chatSession.messages.append(userMsg)
         if isPlaceholderTitle(chatSession.title) {
             chatSession.title = trimmedMessage
+        }
+
+        // Fail fast if we already know the text server is unreachable.
+        if reachability.isChatReachable == false {
+            userMessage = ""
+            isPriming = false
+            isLoading = false
+            sending = false
+            closeActiveAssistantMessageIfAny()
+            interruptedAssistantMessageID = nil
+
+            let errText = NSLocalizedString("Unable to reach the text server. Please check your connection or server settings.", comment: "Shown when sending a message while the text server is unreachable")
+            let err = ChatMessage(
+                content: "!error:\(errText)",
+                isUser: false,
+                isActive: false,
+                createdAt: Date(),
+                session: chatSession
+            )
+            chatSession.messages.append(err)
+            onUpdate?()
+            return
         }
 
         isPriming = true

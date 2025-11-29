@@ -54,6 +54,7 @@ final class GlobalAudioManager: NSObject, ObservableObject, AVAudioPlayerDelegat
 
     // MARK: - Config
     let settingsManager = SettingsManager.shared
+    private let errorCenter = AppErrorCenter.shared
     var mediaType: String = "wav"
 
     // MARK: - Constants
@@ -318,5 +319,37 @@ final class GlobalAudioManager: NSObject, ObservableObject, AVAudioPlayerDelegat
         guard !pendingRealtimeIndexes.isEmpty else { return }
         let next = pendingRealtimeIndexes.removeFirst()
         sendTTSRequest(for: textSegments[next], index: next)
+    }
+
+    // MARK: - Error surfacing
+
+    func surfaceTTSIssue(_ message: String, autoDismiss: TimeInterval = 10) {
+        let trimmed = message.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        errorMessage = trimmed
+        errorCenter.publish(
+            title: NSLocalizedString("TTS server unavailable", comment: "Shown when the TTS server cannot be reached or replied with an error"),
+            message: trimmed,
+            category: .tts,
+            autoDismiss: autoDismiss
+        )
+    }
+
+    func formatTTSNetworkError(_ error: NSError) -> String {
+        guard error.domain == NSURLErrorDomain else { return error.localizedDescription }
+        let address = settingsManager.serverSettings.serverAddress
+        let code = URLError.Code(rawValue: error.code)
+        switch code {
+        case .cannotConnectToHost, .cannotFindHost:
+            return String(format: NSLocalizedString("Unable to connect to the TTS server at %@", comment: "Shown when the TTS host cannot be reached"), address)
+        case .notConnectedToInternet:
+            return NSLocalizedString("No internet connection for TTS requests.", comment: "Shown when the device is offline and TTS cannot be reached")
+        case .networkConnectionLost:
+            return NSLocalizedString("Connection to the TTS server was lost during playback.", comment: "Shown when the TTS stream drops mid-playback")
+        case .timedOut:
+            return NSLocalizedString("The TTS server did not respond in time.", comment: "Shown when the TTS request times out")
+        default:
+            return error.localizedDescription
+        }
     }
 }
