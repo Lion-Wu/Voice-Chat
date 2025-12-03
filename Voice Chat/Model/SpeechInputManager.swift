@@ -5,6 +5,8 @@
 //  Created by Lion Wu on 2025/9/20.
 //
 
+#if os(iOS) || os(macOS)
+
 import Foundation
 import Combine
 
@@ -327,9 +329,11 @@ actor SpeechRecognizerWorker {
     func stop(fallbackFinalText: String = "",
               onFinalOnMain: (@Sendable (String) -> Void)? = nil) async {
 
-        // If no final result has been emitted, fall back to the last non-empty text.
+        // If no final result has been emitted, use the caller-provided fallback or the last non-empty text.
         if !didEmitFinal {
-            let candidate = lastNonEmptyText.trimmingCharacters(in: .whitespacesAndNewlines)
+            let trimmedFallback = fallbackFinalText.trimmingCharacters(in: .whitespacesAndNewlines)
+            let candidateSource = trimmedFallback.isEmpty ? lastNonEmptyText : trimmedFallback
+            let candidate = candidateSource.trimmingCharacters(in: .whitespacesAndNewlines)
             if let cb = onFinalOnMain, !candidate.isEmpty {
                 cb(candidate)
                 didEmitFinal = true
@@ -569,6 +573,42 @@ final class AudioTap: @unchecked Sendable {
         }
         amplitudeHandler?(rms)
     }
+}
+
+#endif
+
+#else
+
+import Foundation
+import Combine
+
+@MainActor
+final class SpeechInputManager: ObservableObject {
+    static let shared = SpeechInputManager()
+
+    enum DictationLanguage: String, CaseIterable, Identifiable {
+        case english = "en-US"
+        case simplifiedChinese = "zh-CN"
+        case traditionalChinese = "zh-TW"
+        case japanese = "ja-JP"
+
+        var id: String { rawValue }
+        var defaultDisplayName: String { "Unavailable" }
+        var locale: Locale { Locale(identifier: rawValue) }
+    }
+
+    @Published private(set) var isRecording: Bool = false
+    @Published var lastError: String? = NSLocalizedString("Speech input is not supported on this platform.", comment: "Shown when speech input is unavailable")
+    @Published var inputLevel: Double = 0
+    @Published var currentLanguage: DictationLanguage = .english
+
+    func startRecording(language: DictationLanguage? = nil,
+                        onPartial: @escaping @MainActor (String) -> Void,
+                        onFinal:   @escaping @MainActor (String) -> Void) async {
+        lastError = NSLocalizedString("Speech input is not supported on this platform.", comment: "Shown when speech input is unavailable")
+    }
+
+    nonisolated func stopRecording() {}
 }
 
 #endif

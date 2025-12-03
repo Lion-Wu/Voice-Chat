@@ -17,12 +17,40 @@ final class ChatSessionsViewModel: ObservableObject {
     // MARK: - Cached View Models
     private var viewModelCache: [UUID: ChatViewModel] = [:]
 
-    // MARK: - SwiftData
-    private var context: ModelContext?
+    // MARK: - Dependencies
+    private let settingsManager: SettingsManager
+    private let reachability: ServerReachabilityMonitor
+    private let audioManager: GlobalAudioManager
+    private let chatServiceFactory: (ChatServiceConfiguring) -> ChatStreamingService
+    private let repository: ChatSessionRepository
+    private var cachedChatConfiguration: ChatServiceConfiguration
+    private var configurationUpdateTask: Task<Void, Never>?
 
-    // MARK: - Save Throttle (to avoid excessive writes during streaming)
-    private var lastSaveTime: [UUID: Date] = [:]
-    private let throttleInterval: TimeInterval = 1.0
+    // MARK: - Init
+    init(
+        settingsManager: SettingsManager? = nil,
+        reachability: ServerReachabilityMonitor? = nil,
+        audioManager: GlobalAudioManager? = nil,
+        chatServiceFactory: @escaping (ChatServiceConfiguring) -> ChatStreamingService = { ChatService(configurationProvider: $0) },
+        repository: ChatSessionRepository? = nil
+    ) {
+        self.settingsManager = settingsManager ?? SettingsManager.shared
+        self.reachability = reachability ?? ServerReachabilityMonitor.shared
+        self.audioManager = audioManager ?? GlobalAudioManager.shared
+        self.chatServiceFactory = chatServiceFactory
+        self.repository = repository ?? SwiftDataChatSessionRepository()
+        self.cachedChatConfiguration = ChatServiceConfiguration(
+            apiBaseURL: self.settingsManager.chatSettings.apiURL,
+            modelIdentifier: self.settingsManager.chatSettings.selectedModel
+        )
+    }
+
+    private func currentChatConfiguration() -> ChatServiceConfiguration {
+        ChatServiceConfiguration(
+            apiBaseURL: settingsManager.chatSettings.apiURL,
+            modelIdentifier: settingsManager.chatSettings.selectedModel
+        )
+    }
 
     // MARK: - Derived
     var selectedSession: ChatSession? {
@@ -40,55 +68,94 @@ final class ChatSessionsViewModel: ObservableObject {
         return true
     }
 
+    // MARK: - Chat service configuration
+    func refreshChatConfigurationIfNeeded() {
+        ensureChatConfigurationCurrent()
+    }
+
+    private func ensureChatConfigurationCurrent() {
+        let latest = currentChatConfiguration()
+        guard latest != cachedChatConfiguration else { return }
+        cachedChatConfiguration = latest
+        configurationUpdateTask?.cancel()
+        configurationUpdateTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            // Defer to the next run loop tick to avoid publishing during a view update cycle.
+            self.viewModelCache.values.forEach { $0.updateChatConfiguration(latest) }
+        }
+    }
+
     // MARK: - View Model Access
     func viewModel(for session: ChatSession) -> ChatViewModel {
+        ensureChatConfigurationCurrent()
         if let cached = viewModelCache[session.id] {
             cached.attach(session: session)
             return cached
         }
-        let vm = ChatViewModel(chatSession: session)
+        let config = cachedChatConfiguration
+        let vm = ChatViewModel(
+            chatSession: session,
+            chatService: chatServiceFactory(config),
+            chatServiceFactory: chatServiceFactory,
+            settingsManager: settingsManager,
+            reachability: reachability,
+            audioManager: audioManager,
+            sessionPersistence: self
+        )
         viewModelCache[session.id] = vm
         return vm
     }
 
     // MARK: - Attach Context
     func attach(context: ModelContext) {
-        // Attach the context only once.
-        if self.context == nil {
-            self.context = context
-            loadChatSessions()
-        }
+        repository.attach(context: context)
+        loadChatSessions()
     }
 
     // MARK: - Session Ops
     func startNewSession() {
-        guard let context else { return }
-        let new = ChatSession(title: String(localized: "New Chat"))
-        context.insert(new)
-        do { try context.save() } catch { print("Save new session error: \(error)") }
-        viewModelCache[new.id] = ChatViewModel(chatSession: new)
-        refreshSessionsAndSelect(new.id)
+        ensureChatConfigurationCurrent()
+        guard let new = repository.createSession(title: String(localized: "New Chat")) else { return }
+        cacheViewModel(for: new)
+        persist(session: new, reason: .immediate)
+        selectedSessionID = new.id
+    }
+
+    private func cacheViewModel(for session: ChatSession) {
+        ensureChatConfigurationCurrent()
+        if let existing = viewModelCache[session.id] {
+            existing.attach(session: session)
+            viewModelCache[session.id] = existing
+            return
+        }
+
+        let config = cachedChatConfiguration
+        viewModelCache[session.id] = ChatViewModel(
+            chatSession: session,
+            chatService: chatServiceFactory(config),
+            chatServiceFactory: chatServiceFactory,
+            settingsManager: settingsManager,
+            reachability: reachability,
+            audioManager: audioManager,
+            sessionPersistence: self
+        )
     }
 
     func addSession(_ session: ChatSession) {
-        guard let context else { return }
-        // Insert the session if it is not yet associated with this context.
-        if session.modelContext == nil {
-            context.insert(session)
-        }
+        ensureChatConfigurationCurrent()
+        repository.ensureSessionTracked(session)
+        cacheViewModel(for: session)
         persist(session: session, reason: .immediate)
-        refreshSessionsAndSelect(session.id)
+        selectedSessionID = session.id
     }
 
     func deleteSession(at offsets: IndexSet) {
-        guard let context else { return }
         for index in offsets {
             let s = chatSessions[index]
             viewModelCache.removeValue(forKey: s.id)
-            context.delete(s) // SwiftData cascades to remove related messages.
+            repository.delete(s) // SwiftData cascades to remove related messages.
         }
-        do { try context.save() } catch { print("Delete error: \(error)") }
-        loadChatSessions()
+        loadChatSessions() // Keeps list in sync with persisted state.
         if !chatSessions.contains(where: { $0.id == selectedSessionID }) {
             selectedSessionID = chatSessions.first?.id
         }
@@ -98,51 +165,30 @@ final class ChatSessionsViewModel: ObservableObject {
     }
 
     // MARK: - Persistence (SwiftData)
-    enum PersistReason { case throttled, immediate }
-
-    func persist(session: ChatSession, reason: PersistReason = .throttled) {
-        guard let context else { return }
-        session.updatedAt = Date()
-
-        switch reason {
-        case .immediate:
-            do { try context.save() } catch { print("Immediate save error: \(error)") }
-        case .throttled:
-            let now = Date()
-            let last = lastSaveTime[session.id] ?? .distantPast
-            if now.timeIntervalSince(last) >= throttleInterval {
-                lastSaveTime[session.id] = now
-                do { try context.save() } catch { print("Throttled save error: \(error)") }
+    @discardableResult
+    func persist(session: ChatSession, reason: SessionPersistReason = .throttled) -> Bool {
+        let didPersist = repository.persist(session: session, reason: reason)
+        if didPersist {
+            Task { @MainActor [weak self] in
+                // Run after the current call stack to keep SwiftUI happy.
+                self?.updateInMemoryOrdering(with: session)
             }
         }
+        return didPersist
     }
 
     // MARK: - Fetch
     func loadChatSessions() {
-        guard let context else { return }
-        let descriptor = FetchDescriptor<ChatSession>(
-            predicate: nil,
-            sortBy: [SortDescriptor(\.updatedAt, order: .reverse)]
-        )
-        do {
-            let fetched = try context.fetch(descriptor)
-            chatSessions = fetched
-            pruneStaleViewModels(keeping: fetched)
-            if selectedSessionID == nil {
-                selectedSessionID = chatSessions.first?.id
-            }
-            if chatSessions.isEmpty {
-                startNewSession()
-            }
-        } catch {
-            print("Fetch sessions error: \(error)")
-            chatSessions = []
+        let fetched = repository.fetchSessions()
+        chatSessions = orderedSessions(fetched)
+        pruneStaleViewModels(keeping: fetched)
+        ensureChatConfigurationCurrent()
+        if selectedSessionID == nil {
+            selectedSessionID = chatSessions.first?.id
         }
-    }
-
-    private func refreshSessionsAndSelect(_ id: UUID?) {
-        loadChatSessions()
-        if let id { selectedSessionID = id }
+        if chatSessions.isEmpty {
+            startNewSession()
+        }
     }
 
     private func pruneStaleViewModels(keeping sessions: [ChatSession]) {
@@ -150,6 +196,41 @@ final class ChatSessionsViewModel: ObservableObject {
         let staleKeys = viewModelCache.keys.filter { !validIDs.contains($0) }
         for key in staleKeys {
             viewModelCache.removeValue(forKey: key)
+        }
+    }
+
+    private func updateInMemoryOrdering(with session: ChatSession) {
+        var updated = chatSessions
+        if let idx = updated.firstIndex(where: { $0.id == session.id }) {
+            updated[idx] = session
+        } else {
+            updated.append(session)
+        }
+
+        chatSessions = orderedSessions(updated)
+        if selectedSessionID == nil {
+            selectedSessionID = chatSessions.first?.id
+        }
+    }
+
+    private func orderedSessions(_ sessions: [ChatSession]) -> [ChatSession] {
+        sessions.sorted { lhs, rhs in
+            if lhs.updatedAt == rhs.updatedAt {
+                return lhs.createdAt > rhs.createdAt
+            }
+            return lhs.updatedAt > rhs.updatedAt
+        }
+    }
+}
+
+// MARK: - Persistence Bridge
+
+extension ChatSessionsViewModel: ChatSessionPersisting {
+    func ensureSessionTracked(_ session: ChatSession) {
+        if chatSessions.contains(where: { $0.id == session.id }) {
+            repository.ensureSessionTracked(session)
+        } else {
+            addSession(session)
         }
     }
 }

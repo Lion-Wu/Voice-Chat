@@ -262,15 +262,6 @@ struct ChatView: View {
         }
         .onAppear {
             onMessagesCountChange(visibleMessages.count)
-            viewModel.onUpdate = { [weak viewModel, weak chatSessionsViewModel] in
-                guard let vm = viewModel, let store = chatSessionsViewModel else { return }
-                if !store.chatSessions.contains(where: { $0.id == vm.chatSession.id }) {
-                    store.addSession(vm.chatSession)
-                } else {
-                    store.persist(session: vm.chatSession, reason: .throttled)
-                }
-                onMessagesCountChange(vm.chatSession.messages.count)
-            }
 #if os(macOS)
             registerReturnKeyMonitor()
 #endif
@@ -292,6 +283,9 @@ struct ChatView: View {
             if !showScrollToBottomButton {
                 scrollToBottom()
             }
+        }
+        .onChange(of: viewModel.chatSession.messages.count) { _, newValue in
+            onMessagesCountChange(newValue)
         }
     }
 

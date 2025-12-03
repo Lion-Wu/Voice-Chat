@@ -115,9 +115,37 @@ enum ChatNetworkError: Error {
     case timeout(String)
 }
 
+// MARK: - Configuration
+
+/// Provides chat API configuration without tying the service to a global singleton.
+protocol ChatServiceConfiguring {
+    var apiBaseURL: String { get }
+    var modelIdentifier: String { get }
+}
+
+/// Lightweight snapshot of chat configuration to avoid actor-hopping from main-actor singletons.
+struct ChatServiceConfiguration: ChatServiceConfiguring, Equatable {
+    let apiBaseURL: String
+    let modelIdentifier: String
+}
+
+// MARK: - Service Contracts
+
+@MainActor
+protocol ChatStreamingService: AnyObject {
+    var onDelta: (@MainActor (String) -> Void)? { get set }
+    var onError: (@MainActor (Error) -> Void)? { get set }
+    var onStreamFinished: (@MainActor () -> Void)? { get set }
+
+    func fetchStreamedData(messages: [ChatMessage])
+    func cancelStreaming()
+}
+
 // MARK: - ChatService (Streaming)
 
 final class ChatService: NSObject, URLSessionDataDelegate, @unchecked Sendable {
+    private let configurationProvider: ChatServiceConfiguring
+
     private lazy var sessionQueue: OperationQueue = {
         let queue = OperationQueue()
         queue.name = "VoiceChat.ChatService"
@@ -140,6 +168,7 @@ final class ChatService: NSObject, URLSessionDataDelegate, @unchecked Sendable {
     private var newFormatActive = false
     private var sentThinkOpen = false
     private var sentThinkClose = false
+    private var streamFinishedEmitted = false
 
     // SSE parsing buffer
     private var ssePartialLine: String = ""
@@ -160,7 +189,8 @@ final class ChatService: NSObject, URLSessionDataDelegate, @unchecked Sendable {
     private let errorBodyCaptureLimit = 32 * 1024
     private var errorResponseData = Data()
 
-    override init() {
+    init(configurationProvider: ChatServiceConfiguring) {
+        self.configurationProvider = configurationProvider
         super.init()
         let configuration = URLSessionConfiguration.default
         configuration.waitsForConnectivity = true
@@ -179,10 +209,12 @@ final class ChatService: NSObject, URLSessionDataDelegate, @unchecked Sendable {
         resetStreamState()
         isCancelled = false
 
-        let settings = SettingsManager.shared
-        let base = settings.chatSettings.apiURL
-        let model = settings.chatSettings.selectedModel
-        let apiURLString = "\(base)/v1/chat/completions"
+        let base = configurationProvider.apiBaseURL
+        let model = configurationProvider.modelIdentifier
+        guard let apiURLString = buildAPIURLString(base: base) else {
+            Task { @MainActor in self.onError?(ChatNetworkError.invalidURL) }
+            return
+        }
         self.startStreaming(apiURLString: apiURLString, model: model, messages: messages)
     }
 
@@ -239,6 +271,7 @@ final class ChatService: NSObject, URLSessionDataDelegate, @unchecked Sendable {
         newFormatActive = false
         sentThinkOpen = false
         sentThinkClose = false
+        streamFinishedEmitted = false
         ssePartialLine = ""
         streamStartAt = nil
         lastDeltaAt = nil
@@ -255,6 +288,13 @@ final class ChatService: NSObject, URLSessionDataDelegate, @unchecked Sendable {
                     "content": message.content
                 ]
             }
+    }
+
+    private func buildAPIURLString(base: String) -> String? {
+        var sanitized = base.trimmingCharacters(in: .whitespacesAndNewlines)
+        while sanitized.hasSuffix("/") { sanitized.removeLast() }
+        guard !sanitized.isEmpty else { return nil }
+        return "\(sanitized)/v1/chat/completions"
     }
 
     // MARK: - URLSession Data Delegate
@@ -318,7 +358,7 @@ final class ChatService: NSObject, URLSessionDataDelegate, @unchecked Sendable {
                     self.emitDelta("</think>")
                     self.sentThinkClose = true
                 }
-                Task { @MainActor in self.onStreamFinished?() }
+                emitStreamFinishedOnce()
                 stopWatchdog()
                 return
             }
@@ -392,7 +432,7 @@ final class ChatService: NSObject, URLSessionDataDelegate, @unchecked Sendable {
         if let error = error {
             Task { @MainActor in self.onError?(error) }
         } else {
-            Task { @MainActor in self.onStreamFinished?() }
+            emitStreamFinishedOnce()
         }
     }
 
@@ -434,4 +474,14 @@ final class ChatService: NSObject, URLSessionDataDelegate, @unchecked Sendable {
         watchdog?.invalidate()
         watchdog = nil
     }
+
+    private func emitStreamFinishedOnce() {
+        guard !streamFinishedEmitted else { return }
+        streamFinishedEmitted = true
+        Task { @MainActor in self.onStreamFinished?() }
+    }
 }
+
+// MARK: - Protocol Conformance
+
+extension ChatService: ChatStreamingService {}

@@ -8,7 +8,7 @@
 import Foundation
 
 @MainActor
-class ChatViewModel: ObservableObject {
+final class ChatViewModel: ObservableObject {
     // MARK: - Published State
     @Published var userMessage: String = ""
     @Published var isLoading: Bool = false
@@ -19,11 +19,13 @@ class ChatViewModel: ObservableObject {
     var isEditing: Bool { editingBaseMessageID != nil }
 
     // MARK: - Dependencies
-    private let chatService = ChatService()
-    private let settingsManager = SettingsManager.shared
-    private let reachability = ServerReachabilityMonitor.shared
-
-    var onUpdate: (() -> Void)?
+    private var chatService: ChatStreamingService
+    private let chatServiceFactory: (ChatServiceConfiguring) -> ChatStreamingService
+    private var chatConfiguration: ChatServiceConfiguration
+    private let settingsManager: SettingsManager
+    private let reachability: ServerReachabilityMonitor
+    private let audioManager: GlobalAudioManager
+    private weak var sessionPersistence: ChatSessionPersisting?
 
     private var sending = false
 
@@ -38,99 +40,33 @@ class ChatViewModel: ObservableObject {
     private var incSegmenter = IncrementalTextSegmenter()
 
     // MARK: - Init
-    init(chatSession: ChatSession) {
+    init(
+        chatSession: ChatSession,
+        chatService: ChatStreamingService? = nil,
+        chatServiceFactory: ((ChatServiceConfiguring) -> ChatStreamingService)? = nil,
+        settingsManager: SettingsManager? = nil,
+        reachability: ServerReachabilityMonitor? = nil,
+        audioManager: GlobalAudioManager? = nil,
+        sessionPersistence: ChatSessionPersisting? = nil
+    ) {
         self.chatSession = chatSession
+        let resolvedSettings = settingsManager ?? SettingsManager.shared
+        self.settingsManager = resolvedSettings
+        self.chatConfiguration = ChatServiceConfiguration(
+            apiBaseURL: resolvedSettings.chatSettings.apiURL,
+            modelIdentifier: resolvedSettings.chatSettings.selectedModel
+        )
+        self.chatServiceFactory = chatServiceFactory ?? { ChatService(configurationProvider: $0) }
+        self.chatService = chatService ?? self.chatServiceFactory(self.chatConfiguration)
+        self.reachability = reachability ?? ServerReachabilityMonitor.shared
+        self.audioManager = audioManager ?? GlobalAudioManager.shared
+        self.sessionPersistence = sessionPersistence
+
         if chatSession.messages.contains(where: { !$0.isUser && $0.isActive }) {
             self.isLoading = true
         }
 
-        // Deliver streaming deltas back on the main actor.
-        chatService.onDelta = { [weak self] piece in
-            guard let self = self else { return }
-            self.handleAssistantDelta(piece)
-
-            // Realtime narration: send body text segments to the audio manager as they become available.
-            if self.realtimeTTSActive {
-                let newSegments = self.incSegmenter.append(piece)
-                for seg in newSegments where !seg.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    GlobalAudioManager.shared.appendRealtimeSegment(seg)
-                }
-            }
-        }
-        chatService.onError = { [weak self] error in
-            guard let self = self else { return }
-            self.isPriming = false
-            self.isLoading = false
-            self.sending = false
-
-            if let id = self.currentAssistantMessageID,
-               let last = self.chatSession.messages.first(where: { $0.id == id }) {
-                last.isActive = false
-                self.interruptedAssistantMessageID = id
-            } else {
-                self.interruptedAssistantMessageID = nil
-            }
-            self.currentAssistantMessageID = nil
-
-            let err = ChatMessage(
-                content: "!error:\(error.localizedDescription)",
-                isUser: false,
-                isActive: false,
-                createdAt: Date(),
-                session: self.chatSession
-            )
-            self.chatSession.messages.append(err)
-            self.onUpdate?()
-
-            // If an error occurs during realtime playback, finish the stream gracefully.
-            if self.realtimeTTSActive {
-                GlobalAudioManager.shared.finishRealtimeStream()
-                self.realtimeTTSActive = false
-            }
-        }
-        chatService.onStreamFinished = { [weak self] in
-            guard let self = self else { return }
-
-            var candidateFullText: String?
-
-            if let id = self.currentAssistantMessageID,
-               let last = self.chatSession.messages.first(where: { $0.id == id }) {
-                last.isActive = false
-                candidateFullText = last.content
-            }
-
-            self.isPriming = false
-            self.isLoading = false
-            self.sending = false
-
-            if candidateFullText == nil {
-                let lastAssistant = self.chatSession.messages
-                    .filter { !$0.isUser && !$0.content.hasPrefix("!error:") }
-                    .sorted(by: { $0.createdAt < $1.createdAt })
-                    .last
-                candidateFullText = lastAssistant?.content
-            }
-
-            self.currentAssistantMessageID = nil
-            self.interruptedAssistantMessageID = nil
-
-            self.onUpdate?()
-
-            // When streaming ends, flush any remaining realtime buffer or fall back to auto playback.
-            if self.realtimeTTSActive {
-                let tails = self.incSegmenter.finalize()
-                for seg in tails where !seg.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    GlobalAudioManager.shared.appendRealtimeSegment(seg)
-                }
-                GlobalAudioManager.shared.finishRealtimeStream()
-                self.realtimeTTSActive = false
-            } else if self.settingsManager.voiceSettings.autoReadAfterGeneration {
-                let body = self.bodyTextForAutoRead(from: candidateFullText ?? "")
-                if !body.isEmpty {
-                    GlobalAudioManager.shared.startProcessing(text: body)
-                }
-            }
-        }
+        bindChatService(self.chatService)
     }
 
     // MARK: - Public API for the realtime overlay
@@ -138,7 +74,135 @@ class ChatViewModel: ObservableObject {
         enableRealtimeTTSNext = true
     }
 
+    // MARK: - Chat service wiring
+
+    private func bindChatService(_ service: ChatStreamingService) {
+        service.onDelta = { [weak self] piece in
+            guard let self = self else { return }
+            self.handleAssistantDelta(piece)
+
+            if self.realtimeTTSActive {
+                let newSegments = self.incSegmenter.append(piece)
+                for seg in newSegments where !seg.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    self.audioManager.appendRealtimeSegment(seg)
+                }
+            }
+        }
+
+        service.onError = { [weak self] error in
+            guard let self = self else { return }
+            self.handleChatServiceError(error)
+        }
+
+        service.onStreamFinished = { [weak self] in
+            guard let self = self else { return }
+            self.handleChatStreamFinished()
+        }
+
+        self.chatService = service
+    }
+
+    private func handleChatServiceError(_ error: Error) {
+        isPriming = false
+        isLoading = false
+        sending = false
+
+        if let id = currentAssistantMessageID,
+           let last = chatSession.messages.first(where: { $0.id == id }) {
+            last.isActive = false
+            interruptedAssistantMessageID = id
+        } else {
+            interruptedAssistantMessageID = nil
+        }
+        currentAssistantMessageID = nil
+
+        let err = ChatMessage(
+            content: "!error:\(error.localizedDescription)",
+            isUser: false,
+            isActive: false,
+            createdAt: Date(),
+            session: chatSession
+        )
+        chatSession.messages.append(err)
+        persistSession(reason: .immediate)
+
+        if realtimeTTSActive {
+            audioManager.finishRealtimeStream()
+            realtimeTTSActive = false
+        }
+    }
+
+    private func handleChatStreamFinished() {
+        var candidateFullText: String?
+
+        if let id = currentAssistantMessageID,
+           let last = chatSession.messages.first(where: { $0.id == id }) {
+            last.isActive = false
+            candidateFullText = last.content
+        }
+
+        isPriming = false
+        isLoading = false
+        sending = false
+
+        if candidateFullText == nil {
+            let lastAssistant = chatSession.messages
+                .filter { !$0.isUser && !$0.content.hasPrefix("!error:") }
+                .sorted(by: { $0.createdAt < $1.createdAt })
+                .last
+            candidateFullText = lastAssistant?.content
+        }
+
+        currentAssistantMessageID = nil
+        interruptedAssistantMessageID = nil
+
+        persistSession(reason: .immediate)
+
+        if realtimeTTSActive {
+            let tails = incSegmenter.finalize()
+            for seg in tails where !seg.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                audioManager.appendRealtimeSegment(seg)
+            }
+            audioManager.finishRealtimeStream()
+            realtimeTTSActive = false
+        } else if settingsManager.voiceSettings.autoReadAfterGeneration {
+            let body = bodyTextForAutoRead(from: candidateFullText ?? "")
+            if !body.isEmpty {
+                audioManager.startProcessing(text: body)
+            }
+        }
+    }
+
+    /// Rebuilds the chat streaming service when the API base URL or model changes.
+    func updateChatConfiguration(_ configuration: ChatServiceConfiguration) {
+        guard configuration != chatConfiguration else { return }
+
+        chatService.cancelStreaming()
+        closeActiveAssistantMessageIfAny()
+
+        if realtimeTTSActive {
+            audioManager.finishRealtimeStream()
+            realtimeTTSActive = false
+        }
+
+        if isPriming { isPriming = false }
+        if isLoading { isLoading = false }
+        if sending { sending = false }
+        interruptedAssistantMessageID = nil
+        incSegmenter.reset()
+
+        chatConfiguration = configuration
+        let newService = chatServiceFactory(configuration)
+        bindChatService(newService)
+        persistSession(reason: .immediate)
+    }
+
     // MARK: - Helpers (stable ordering & safe trimming)
+
+    private func persistSession(reason: SessionPersistReason = .throttled) {
+        sessionPersistence?.ensureSessionTracked(chatSession)
+        sessionPersistence?.persist(session: chatSession, reason: reason)
+    }
 
     /// Returns messages sorted by time while preserving insertion order for identical timestamps.
     private func chronologicalMessages() -> [ChatMessage] {
@@ -194,6 +258,7 @@ class ChatViewModel: ObservableObject {
         if isPlaceholderTitle(chatSession.title) {
             chatSession.title = trimmedMessage
         }
+        persistSession(reason: .immediate)
 
         // Fail fast if we already know the text server is unreachable.
         if reachability.isChatReachable == false {
@@ -213,7 +278,7 @@ class ChatViewModel: ObservableObject {
                 session: chatSession
             )
             chatSession.messages.append(err)
-            onUpdate?()
+            persistSession(reason: .immediate)
             return
         }
 
@@ -223,14 +288,14 @@ class ChatViewModel: ObservableObject {
         closeActiveAssistantMessageIfAny()
         interruptedAssistantMessageID = nil
         userMessage = ""
-        onUpdate?()
+        persistSession(reason: .immediate)
 
         // Determine whether this response should use realtime narration.
         realtimeTTSActive = enableRealtimeTTSNext
         enableRealtimeTTSNext = false
         if realtimeTTSActive {
             incSegmenter.reset()
-            GlobalAudioManager.shared.startRealtimeStream()
+            audioManager.startRealtimeStream()
         }
 
         let currentMessages = chronologicalMessages()
@@ -244,16 +309,17 @@ class ChatViewModel: ObservableObject {
         isPriming = false
         isLoading = false
         sending = false
-        onUpdate?()
+        persistSession(reason: .immediate)
 
         if realtimeTTSActive {
-            GlobalAudioManager.shared.finishRealtimeStream()
+            audioManager.finishRealtimeStream()
             realtimeTTSActive = false
         }
     }
 
     private func handleAssistantDelta(_ piece: String) {
         guard isPriming || isLoading || sending else { return }
+        objectWillChange.send()
 
         if isPriming { isPriming = false }
 
@@ -267,7 +333,7 @@ class ChatViewModel: ObservableObject {
         }
 
         isLoading = true
-        onUpdate?()
+        persistSession(reason: .throttled)
     }
 
     func regenerateSystemMessage(_ message: ChatMessage) {
@@ -278,7 +344,7 @@ class ChatViewModel: ObservableObject {
 
         guard !message.isUser else { return }
         trimMessages(startingAt: message, includeBoundary: true)
-        onUpdate?()
+        persistSession(reason: .immediate)
 
         let currentMessages = chronologicalMessages()
         isPriming = true
@@ -302,12 +368,13 @@ class ChatViewModel: ObservableObject {
         }
 
         interruptedAssistantMessageID = nil
+        persistSession(reason: .immediate)
 
         let currentMessages = chronologicalMessages()
         isPriming = true
         isLoading = true
         sending = true
-        onUpdate?()
+        persistSession(reason: .immediate)
 
         chatService.fetchStreamedData(messages: currentMessages)
     }

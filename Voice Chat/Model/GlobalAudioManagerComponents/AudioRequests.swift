@@ -94,6 +94,7 @@ extension GlobalAudioManager {
                         // Non-realtime mode continues with the next segment immediately.
                         self.sendNextSegment()
                     }
+                    self.concludeRealtimeIfIdle()
                 }
 
                 if let err = error as NSError? {

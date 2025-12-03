@@ -11,25 +11,21 @@ import SwiftData
 @main
 @MainActor
 struct Voice_ChatApp: App {
-    @StateObject private var audioManager = GlobalAudioManager.shared
-    @StateObject private var settingsManager = SettingsManager.shared
-    @StateObject private var chatSessionsViewModel = ChatSessionsViewModel()
-    @StateObject private var speechInputManager = SpeechInputManager.shared
-    @StateObject private var errorCenter = AppErrorCenter.shared
+    @StateObject private var appEnvironment = AppEnvironment()
 
     var body: some Scene {
         WindowGroup {
             ContentView()
-                .environmentObject(audioManager)
-                .environmentObject(settingsManager)
-                .environmentObject(chatSessionsViewModel)
-                .environmentObject(speechInputManager)
-                .environmentObject(errorCenter)
-                // Bind the SwiftData context so singletons can load persisted state before the UI needs it.
-                .background(ContextBinder()
-                    .environmentObject(settingsManager)
-                    .environmentObject(chatSessionsViewModel)
-                    .environmentObject(errorCenter)
+                .environmentObject(appEnvironment)
+                .environmentObject(appEnvironment.audioManager)
+                .environmentObject(appEnvironment.settingsManager)
+                .environmentObject(appEnvironment.chatSessionsViewModel)
+                .environmentObject(appEnvironment.speechInputManager)
+                .environmentObject(appEnvironment.errorCenter)
+                .environmentObject(appEnvironment.voiceOverlayViewModel)
+                // Bind the SwiftData context once for all shared dependencies.
+                .background(ModelContextBinder()
+                    .environmentObject(appEnvironment)
                 )
         }
         .modelContainer(Self.sharedContainer)
@@ -37,18 +33,17 @@ struct Voice_ChatApp: App {
         #if os(macOS)
         Settings {
             SettingsView()
-                .environmentObject(settingsManager)
-                .environmentObject(errorCenter)
-                .background(ContextBinder()
-                    .environmentObject(settingsManager)
-                    .environmentObject(chatSessionsViewModel)
-                    .environmentObject(errorCenter)
+                .environmentObject(appEnvironment)
+                .environmentObject(appEnvironment.settingsManager)
+                .environmentObject(appEnvironment.errorCenter)
+                .background(ModelContextBinder()
+                    .environmentObject(appEnvironment)
                 )
         }
         // Reuse the same container instance to avoid creating parallel stores.
         .modelContainer(Self.sharedContainer)
         .commands {
-            AppMenuCommands(chatSessionsViewModel)
+            AppMenuCommands(appEnvironment.chatSessionsViewModel)
         }
         #endif
     }
@@ -92,20 +87,3 @@ private struct AppMenuCommands: Commands {
     }
 }
 #endif
-
-/// Injects the SwiftData `ModelContext` into singletons and applies the active preset once the store is ready.
-private struct ContextBinder: View {
-    @Environment(\.modelContext) private var context
-    @EnvironmentObject var settingsManager: SettingsManager
-    @EnvironmentObject var chatSessionsViewModel: ChatSessionsViewModel
-
-    var body: some View {
-        Color.clear
-            .task {
-                settingsManager.attach(context: context)
-                chatSessionsViewModel.attach(context: context)
-                // Apply the persisted preset after the context becomes available.
-                await settingsManager.applyPresetOnLaunchIfNeeded()
-            }
-    }
-}

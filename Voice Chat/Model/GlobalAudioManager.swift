@@ -157,6 +157,7 @@ final class GlobalAudioManager: NSObject, ObservableObject, AVAudioPlayerDelegat
         guard isRealtimeMode else { return }
         realtimeFinalized = true
         // If every chunk has finished loading and playing, `finishPlayback()` will be triggered automatically.
+        concludeRealtimeIfIdle()
     }
 
     // MARK: - Play/Pause
@@ -319,6 +320,29 @@ final class GlobalAudioManager: NSObject, ObservableObject, AVAudioPlayerDelegat
         guard !pendingRealtimeIndexes.isEmpty else { return }
         let next = pendingRealtimeIndexes.removeFirst()
         sendTTSRequest(for: textSegments[next], index: next)
+    }
+
+    /// Ends realtime mode cleanly when no audio was produced or all work finished.
+    func concludeRealtimeIfIdle() {
+        guard isRealtimeMode, realtimeFinalized else { return }
+        let noPending = inFlightIndexes.isEmpty && pendingRealtimeIndexes.isEmpty
+        let hasAnyAudio = audioChunks.contains { $0 != nil }
+        guard noPending else { return }
+
+        if !hasAnyAudio {
+            stopAudioTimer()
+            stopStallWatchdog()
+            isLoading = false
+            isAudioPlaying = false
+            isShowingAudioPlayer = false
+            outputLevel = 0
+            return
+        }
+
+        if playbackFinished() {
+            isLoading = false
+            finishPlayback()
+        }
     }
 
     // MARK: - Error surfacing

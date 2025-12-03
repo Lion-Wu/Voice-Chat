@@ -19,45 +19,42 @@ struct ContentView: View {
     @EnvironmentObject var chatSessionsViewModel: ChatSessionsViewModel
     @EnvironmentObject var speechInputManager: SpeechInputManager
     @EnvironmentObject var errorCenter: AppErrorCenter
+    @EnvironmentObject var voiceOverlayViewModel: VoiceChatOverlayViewModel
 
-    @StateObject private var reachabilityMonitor = ServerReachabilityMonitor.shared
+    @StateObject private var appViewModel = AppViewModel()
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
-    @StateObject private var voiceOverlayViewModel = VoiceChatOverlayViewModel(
-        speechInputManager: SpeechInputManager.shared,
-        audioManager: GlobalAudioManager.shared,
-        errorCenter: AppErrorCenter.shared
-    )
 
     var body: some View {
         #if os(macOS)
         macContent
-            .environmentObject(voiceOverlayViewModel)
         #else
         iosContent
-            .environmentObject(voiceOverlayViewModel)
         #endif
     }
 
     // MARK: - Helpers
 
-    private func ensureAtLeastOneSession() {
-        if chatSessionsViewModel.chatSessions.isEmpty {
-            chatSessionsViewModel.startNewSession()
-        }
+    private func prepareOnAppear() {
+        appViewModel.handleAppear(
+            context: modelContext,
+            settingsManager: settingsManager,
+            chatSessionsViewModel: chatSessionsViewModel
+        )
+    }
+
+    private func handleServerChange() {
+        appViewModel.handleServerChange(
+            settingsManager: settingsManager,
+            chatSessionsViewModel: chatSessionsViewModel
+        )
     }
 
     private func selectConversation(_ session: ChatSession) {
-        chatSessionsViewModel.selectedSession = session
+        appViewModel.selectConversation(session, store: chatSessionsViewModel)
     }
 
     private func startNewConversation() {
-        chatSessionsViewModel.startNewSession()
-    }
-
-    private func runConnectivityChecks() {
-        Task {
-            await reachabilityMonitor.checkAll(settings: settingsManager)
-        }
+        appViewModel.startNewConversation(store: chatSessionsViewModel)
     }
 
     #if os(macOS)
@@ -105,9 +102,6 @@ private extension ContentView {
                             .foregroundStyle(.secondary)
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .onAppear {
-                        ensureAtLeastOneSession()
-                    }
                 }
             }
             .toolbar {
@@ -123,19 +117,16 @@ private extension ContentView {
                 }
             }
             .onAppear {
-                chatSessionsViewModel.attach(context: modelContext)
-                settingsManager.attach(context: modelContext)
-                ensureAtLeastOneSession()
-                runConnectivityChecks()
-                reachabilityMonitor.startMonitoring(settings: settingsManager)
+                prepareOnAppear()
             }
             .onChange(of: settingsManager.serverSettings.serverAddress) { _, _ in
-                runConnectivityChecks()
-                reachabilityMonitor.startMonitoring(settings: settingsManager)
+                handleServerChange()
             }
             .onChange(of: settingsManager.chatSettings.apiURL) { _, _ in
-                runConnectivityChecks()
-                reachabilityMonitor.startMonitoring(settings: settingsManager)
+                handleServerChange()
+            }
+            .onChange(of: settingsManager.chatSettings.selectedModel) { _, _ in
+                handleServerChange()
             }
         }
         .overlay(voiceOverlayLayer)
@@ -153,19 +144,16 @@ private extension ContentView {
             .environmentObject(errorCenter)
             .overlay(voiceOverlayLayer)
             .onAppear {
-                chatSessionsViewModel.attach(context: modelContext)
-                settingsManager.attach(context: modelContext)
-                ensureAtLeastOneSession()
-                runConnectivityChecks()
-                reachabilityMonitor.startMonitoring(settings: settingsManager)
+                prepareOnAppear()
             }
             .onChange(of: settingsManager.serverSettings.serverAddress) { _, _ in
-                runConnectivityChecks()
-                reachabilityMonitor.startMonitoring(settings: settingsManager)
+                handleServerChange()
             }
             .onChange(of: settingsManager.chatSettings.apiURL) { _, _ in
-                runConnectivityChecks()
-                reachabilityMonitor.startMonitoring(settings: settingsManager)
+                handleServerChange()
+            }
+            .onChange(of: settingsManager.chatSettings.selectedModel) { _, _ in
+                handleServerChange()
             }
     }
 #endif
@@ -182,12 +170,20 @@ private extension ContentView {
 
 struct ContentView_Previews: PreviewProvider {
     static var previews: some View {
-        ContentView()
+        let speechManager = SpeechInputManager()
+        let overlayVM = VoiceChatOverlayViewModel(
+            speechInputManager: speechManager,
+            audioManager: GlobalAudioManager.shared,
+            errorCenter: AppErrorCenter.shared
+        )
+
+        return ContentView()
             .modelContainer(for: [ChatSession.self, ChatMessage.self, AppSettings.self], inMemory: true)
             .environmentObject(GlobalAudioManager.shared)
             .environmentObject(SettingsManager.shared)
             .environmentObject(ChatSessionsViewModel())
-            .environmentObject(SpeechInputManager())
+            .environmentObject(speechManager)
             .environmentObject(AppErrorCenter.shared)
+            .environmentObject(overlayVM)
     }
 }
