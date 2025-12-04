@@ -10,7 +10,7 @@ import SwiftData
 
 // MARK: - Value Types (lightweight structures used by the UI)
 
-struct ServerSettings: Codable {
+struct ServerSettings: Codable, Equatable {
     var serverAddress: String
     var textLang: String
     // These legacy fields now live on `VoicePreset` but remain for backward compatibility.
@@ -19,18 +19,18 @@ struct ServerSettings: Codable {
     var promptLang: String
 }
 
-struct ModelSettings: Codable {
+struct ModelSettings: Codable, Equatable {
     var modelId: String
     var language: String
     var autoSplit: String
 }
 
-struct ChatSettings: Codable {
+struct ChatSettings: Codable, Equatable {
     var apiURL: String
     var selectedModel: String
 }
 
-struct VoiceSettings: Codable {
+struct VoiceSettings: Codable, Equatable {
     var enableStreaming: Bool
     /// Whether speech playback should start automatically when a response finishes.
     var autoReadAfterGeneration: Bool

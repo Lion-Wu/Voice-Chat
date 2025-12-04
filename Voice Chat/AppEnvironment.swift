@@ -8,6 +8,7 @@
 import Foundation
 import SwiftUI
 import SwiftData
+import Combine
 
 /// Central place to build and share app-scoped dependencies.
 @MainActor
@@ -20,7 +21,10 @@ final class AppEnvironment: ObservableObject {
     let voiceOverlayViewModel: VoiceChatOverlayViewModel
     let reachabilityMonitor: ServerReachabilityMonitor
 
+    private var cancellables: Set<AnyCancellable> = []
+    private var reachabilityTask: Task<Void, Never>?
     private var didBindModelContext = false
+    private var didStart = false
 
     init(
         audioManager: GlobalAudioManager? = nil,
@@ -45,6 +49,16 @@ final class AppEnvironment: ObservableObject {
         )
     }
 
+    /// Bootstraps the environment exactly once after SwiftData is available.
+    func start(with context: ModelContext) {
+        guard !didStart else { return }
+        didStart = true
+
+        bindModelContext(context)
+        observeSettingsChanges()
+        startReachabilityMonitoring()
+    }
+
     /// Bind the SwiftData model context once and hydrate singletons before UI usage.
     func bindModelContext(_ context: ModelContext) {
         guard !didBindModelContext else { return }
@@ -58,6 +72,38 @@ final class AppEnvironment: ObservableObject {
             await settingsManager.applyPresetOnLaunchIfNeeded()
         }
     }
+
+    // MARK: - Private helpers
+
+    private func observeSettingsChanges() {
+        settingsManager.$chatSettings
+            .removeDuplicates()
+            .sink { [weak self] _ in
+                guard let self else { return }
+                self.chatSessionsViewModel.refreshChatConfigurationIfNeeded()
+                self.kickReachabilityCheck()
+            }
+            .store(in: &cancellables)
+
+        settingsManager.$serverSettings
+            .removeDuplicates()
+            .sink { [weak self] _ in
+                self?.kickReachabilityCheck()
+            }
+            .store(in: &cancellables)
+    }
+
+    private func startReachabilityMonitoring() {
+        kickReachabilityCheck()
+        reachabilityMonitor.startMonitoring(settings: settingsManager)
+    }
+
+    private func kickReachabilityCheck() {
+        reachabilityTask?.cancel()
+        reachabilityTask = Task { [settingsManager, reachabilityMonitor] in
+            await reachabilityMonitor.checkAll(settings: settingsManager)
+        }
+    }
 }
 
 /// Lightweight helper view to inject the model context into the shared environment once.
@@ -68,7 +114,7 @@ struct ModelContextBinder: View {
     var body: some View {
         Color.clear
             .task {
-                appEnvironment.bindModelContext(modelContext)
+                appEnvironment.start(with: modelContext)
             }
     }
 }

@@ -12,8 +12,6 @@ import AppKit
 #endif
 
 struct ContentView: View {
-    @Environment(\.modelContext) private var modelContext
-
     @EnvironmentObject var audioManager: GlobalAudioManager
     @EnvironmentObject var settingsManager: SettingsManager
     @EnvironmentObject var chatSessionsViewModel: ChatSessionsViewModel
@@ -21,7 +19,6 @@ struct ContentView: View {
     @EnvironmentObject var errorCenter: AppErrorCenter
     @EnvironmentObject var voiceOverlayViewModel: VoiceChatOverlayViewModel
 
-    @StateObject private var appViewModel = AppViewModel()
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
 
     var body: some View {
@@ -33,29 +30,6 @@ struct ContentView: View {
     }
 
     // MARK: - Helpers
-
-    private func prepareOnAppear() {
-        appViewModel.handleAppear(
-            context: modelContext,
-            settingsManager: settingsManager,
-            chatSessionsViewModel: chatSessionsViewModel
-        )
-    }
-
-    private func handleServerChange() {
-        appViewModel.handleServerChange(
-            settingsManager: settingsManager,
-            chatSessionsViewModel: chatSessionsViewModel
-        )
-    }
-
-    private func selectConversation(_ session: ChatSession) {
-        appViewModel.selectConversation(session, store: chatSessionsViewModel)
-    }
-
-    private func startNewConversation() {
-        appViewModel.startNewConversation(store: chatSessionsViewModel)
-    }
 
     #if os(macOS)
     private func openSettingsWindow() {
@@ -84,7 +58,7 @@ private extension ContentView {
             NavigationSplitView(columnVisibility: $columnVisibility) {
                 SidebarView(
                     onConversationTap: { conversation in
-                        selectConversation(conversation)
+                        chatSessionsViewModel.selectedSession = conversation
                     },
                     onOpenSettings: { openSettingsWindow() }
                 )
@@ -107,7 +81,7 @@ private extension ContentView {
             .toolbar {
                 ToolbarItem {
                     if !voiceOverlayViewModel.isPresented {
-                        Button(action: startNewConversation) {
+                        Button(action: { chatSessionsViewModel.startNewSession() }) {
                             Label("New Chat", systemImage: "plus")
                         }
                         .labelStyle(.iconOnly)
@@ -115,18 +89,6 @@ private extension ContentView {
                         .disabled(!chatSessionsViewModel.canStartNewSession)
                     }
                 }
-            }
-            .onAppear {
-                prepareOnAppear()
-            }
-            .onChange(of: settingsManager.serverSettings.serverAddress) { _, _ in
-                handleServerChange()
-            }
-            .onChange(of: settingsManager.chatSettings.apiURL) { _, _ in
-                handleServerChange()
-            }
-            .onChange(of: settingsManager.chatSettings.selectedModel) { _, _ in
-                handleServerChange()
             }
         }
         .overlay(voiceOverlayLayer)
@@ -143,18 +105,6 @@ private extension ContentView {
             .environmentObject(speechInputManager)
             .environmentObject(errorCenter)
             .overlay(voiceOverlayLayer)
-            .onAppear {
-                prepareOnAppear()
-            }
-            .onChange(of: settingsManager.serverSettings.serverAddress) { _, _ in
-                handleServerChange()
-            }
-            .onChange(of: settingsManager.chatSettings.apiURL) { _, _ in
-                handleServerChange()
-            }
-            .onChange(of: settingsManager.chatSettings.selectedModel) { _, _ in
-                handleServerChange()
-            }
     }
 #endif
 
