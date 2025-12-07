@@ -16,9 +16,13 @@ import AppKit
 // MARK: - Equatable Rendering Helpers
 
 /// Wrapper that invalidates the view only when the equatable value changes.
+@MainActor
 private struct EquatableRender<Value: Equatable, Content: View>: View, Equatable {
-    static func == (lhs: EquatableRender<Value, Content>, rhs: EquatableRender<Value, Content>) -> Bool {
-        lhs.value == rhs.value
+    nonisolated static func == (lhs: EquatableRender<Value, Content>, rhs: EquatableRender<Value, Content>) -> Bool {
+        // Access the main-actor-isolated value under explicit isolation; safe because value is immutable.
+        MainActor.assumeIsolated {
+            lhs.value == rhs.value
+        }
     }
     let value: Value
     let content: () -> Content

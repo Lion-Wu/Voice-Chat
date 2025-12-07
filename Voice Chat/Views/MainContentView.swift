@@ -55,12 +55,10 @@ struct MainContentView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
-                    if !voiceOverlayViewModel.isPresented {
-                        Button(action: { onToggleSidebar() }) {
-                            Image(systemName: "sidebar.left")
-                        }
-                        .accessibilityLabel(Text("Toggle chat list"))
+                    Button(action: { onToggleSidebar() }) {
+                        Image(systemName: "sidebar.left")
                     }
+                    .accessibilityLabel(Text("Toggle chat list"))
                 }
 
                 ToolbarItem(placement: .topBarTrailing) {
