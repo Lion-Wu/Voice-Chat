@@ -15,6 +15,10 @@ struct IncrementalTextSegmenter {
 
     private var buffer: String = ""
     private var inThink: Bool = false
+    private var lastCharacter: Character?
+
+    private let openMarker = "<think>"
+    private let closeMarker = "</think>"
 
     // Heuristics: measure English by word count and CJK text by character count.
     private let maxCJKChars: Int = 80
@@ -28,6 +32,7 @@ struct IncrementalTextSegmenter {
     mutating func reset() {
         buffer = ""
         inThink = false
+        lastCharacter = nil
     }
 
     /// Appends a streaming delta and returns any completed, speakable segments.
@@ -39,14 +44,16 @@ struct IncrementalTextSegmenter {
 
         while i < delta.endIndex {
             // Handle entering and exiting `<think>` blocks.
-            if delta[i...].hasPrefix("<think>") {
+            if isStandaloneMarker(delta, at: i, marker: openMarker) {
                 inThink = true
-                i = delta.index(i, offsetBy: 7)
+                lastCharacter = delta[delta.index(i, offsetBy: openMarker.count - 1)]
+                i = delta.index(i, offsetBy: openMarker.count)
                 continue
             }
-            if delta[i...].hasPrefix("</think>") {
+            if isStandaloneMarker(delta, at: i, marker: closeMarker) {
                 inThink = false
-                i = delta.index(i, offsetBy: 8)
+                lastCharacter = delta[delta.index(i, offsetBy: closeMarker.count - 1)]
+                i = delta.index(i, offsetBy: closeMarker.count)
                 continue
             }
 
@@ -74,6 +81,7 @@ struct IncrementalTextSegmenter {
                 }
             }
 
+            lastCharacter = ch
             i = delta.index(after: i)
         }
 
@@ -89,6 +97,24 @@ struct IncrementalTextSegmenter {
     }
 
     // MARK: - Helpers
+
+    /// Checks whether a marker token appears alone on a line (aside from surrounding whitespace).
+    private func isStandaloneMarker(_ delta: String, at index: String.Index, marker: String) -> Bool {
+        guard delta[index...].hasPrefix(marker) else { return false }
+
+        let beforeChar: Character?
+        if index == delta.startIndex {
+            beforeChar = lastCharacter
+        } else {
+            beforeChar = delta[delta.index(before: index)]
+        }
+        let beforeIsLineBoundary = beforeChar == nil || beforeChar?.isNewline == true
+        guard beforeIsLineBoundary else { return false }
+
+        let afterIndex = delta.index(index, offsetBy: marker.count)
+        if afterIndex == delta.endIndex { return true }
+        return delta[afterIndex].isNewline
+    }
 
     /// Simple heuristic to decide when to force a split for English or CJK text.
     private func shouldForceSplit(_ text: String) -> Bool {

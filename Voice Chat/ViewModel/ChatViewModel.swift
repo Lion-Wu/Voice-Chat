@@ -7,6 +7,16 @@
 
 import Foundation
 
+private struct ActiveStreamTelemetry {
+    let streamID: UUID
+    let startedAt: Date
+    let modelIdentifier: String
+    let apiBaseURL: String
+    let promptMessageCount: Int
+    let promptCharacterCount: Int
+    var firstTokenAt: Date?
+}
+
 @MainActor
 final class ChatViewModel: ObservableObject {
     // MARK: - Published State
@@ -31,6 +41,9 @@ final class ChatViewModel: ObservableObject {
 
     private var currentAssistantMessageID: UUID?
     private var interruptedAssistantMessageID: UUID?
+    private var activeStreamTelemetry: ActiveStreamTelemetry?
+    private var pendingDeltaWriteBytes: Int = 0
+    private let deltaPersistThreshold: Int = 2048
 
     // Flag indicating whether the next request should enable realtime narration (set by the voice overlay).
     private var enableRealtimeTTSNext: Bool = false
@@ -103,24 +116,64 @@ final class ChatViewModel: ObservableObject {
     }
 
     private func handleChatServiceError(_ error: Error) {
+        let now = Date()
+        let telemetry = activeStreamTelemetry
+
         isPriming = false
         isLoading = false
         sending = false
 
-        if let id = currentAssistantMessageID,
-           let last = chatSession.messages.first(where: { $0.id == id }) {
-            last.isActive = false
-            interruptedAssistantMessageID = id
-        } else {
-            interruptedAssistantMessageID = nil
-        }
+        let interrupted = finalizeActiveAssistantMessage(
+            reason: "error",
+            finishedAt: now,
+            errorDescription: error.localizedDescription
+        )
+        interruptedAssistantMessageID = interrupted?.id
         currentAssistantMessageID = nil
+        pendingDeltaWriteBytes = 0
 
+        let firstTokenLatency: TimeInterval?
+        if let start = telemetry?.startedAt, let first = telemetry?.firstTokenAt {
+            firstTokenLatency = first.timeIntervalSince(start)
+        } else {
+            firstTokenLatency = nil
+        }
+
+        let streamDuration: TimeInterval?
+        if let start = telemetry?.startedAt {
+            streamDuration = now.timeIntervalSince(start)
+        } else {
+            streamDuration = nil
+        }
+
+        let generationDuration: TimeInterval?
+        if let first = telemetry?.firstTokenAt {
+            generationDuration = now.timeIntervalSince(first)
+        } else {
+            generationDuration = nil
+        }
+
+        let errContent = "!error:\(error.localizedDescription)"
         let err = ChatMessage(
-            content: "!error:\(error.localizedDescription)",
+            content: errContent,
             isUser: false,
             isActive: false,
-            createdAt: Date(),
+            createdAt: now,
+            modelIdentifier: telemetry?.modelIdentifier ?? chatConfiguration.modelIdentifier,
+            apiBaseURL: telemetry?.apiBaseURL ?? chatConfiguration.apiBaseURL,
+            requestID: telemetry?.streamID,
+            streamStartedAt: telemetry?.startedAt,
+            streamFirstTokenAt: telemetry?.firstTokenAt,
+            streamCompletedAt: now,
+            timeToFirstToken: firstTokenLatency,
+            streamDuration: streamDuration,
+            generationDuration: generationDuration,
+            deltaCount: 1,
+            characterCount: errContent.count,
+            promptMessageCount: telemetry?.promptMessageCount,
+            promptCharacterCount: telemetry?.promptCharacterCount,
+            finishReason: "error",
+            errorDescription: error.localizedDescription,
             session: chatSession
         )
         chatSession.messages.append(err)
@@ -133,13 +186,10 @@ final class ChatViewModel: ObservableObject {
     }
 
     private func handleChatStreamFinished() {
-        var candidateFullText: String?
-
-        if let id = currentAssistantMessageID,
-           let last = chatSession.messages.first(where: { $0.id == id }) {
-            last.isActive = false
-            candidateFullText = last.content
-        }
+        let finishedAt = Date()
+        let completedMessage = finalizeActiveAssistantMessage(reason: "completed", finishedAt: finishedAt)
+        var candidateFullText: String? = completedMessage?.content
+        pendingDeltaWriteBytes = 0
 
         isPriming = false
         isLoading = false
@@ -178,7 +228,8 @@ final class ChatViewModel: ObservableObject {
         guard configuration != chatConfiguration else { return }
 
         chatService.cancelStreaming()
-        closeActiveAssistantMessageIfAny()
+        finalizeActiveAssistantMessage(reason: "config-changed", finishedAt: Date())
+        currentAssistantMessageID = nil
 
         if realtimeTTSActive {
             audioManager.finishRealtimeStream()
@@ -194,6 +245,7 @@ final class ChatViewModel: ObservableObject {
         chatConfiguration = configuration
         let newService = chatServiceFactory(configuration)
         bindChatService(newService)
+        pendingDeltaWriteBytes = 0
         persistSession(reason: .immediate)
     }
 
@@ -202,6 +254,147 @@ final class ChatViewModel: ObservableObject {
     private func persistSession(reason: SessionPersistReason = .throttled) {
         sessionPersistence?.ensureSessionTracked(chatSession)
         sessionPersistence?.persist(session: chatSession, reason: reason)
+    }
+
+    // MARK: - Telemetry
+
+    private func recordStreamStart(using messages: [ChatMessage]) {
+        let eligibleMessages = messages.filter { !$0.content.hasPrefix("!error:") }
+        let promptCharacterCount = eligibleMessages.reduce(into: 0) { partial, msg in
+            partial += msg.content.count
+        }
+        pendingDeltaWriteBytes = 0
+
+        activeStreamTelemetry = ActiveStreamTelemetry(
+            streamID: UUID(),
+            startedAt: Date(),
+            modelIdentifier: chatConfiguration.modelIdentifier,
+            apiBaseURL: chatConfiguration.apiBaseURL,
+            promptMessageCount: eligibleMessages.count,
+            promptCharacterCount: promptCharacterCount,
+            firstTokenAt: nil
+        )
+    }
+
+    private func applyStreamMetadata(to message: ChatMessage, firstTokenTimestamp: Date) {
+        if var telemetry = activeStreamTelemetry {
+            if message.streamStartedAt == nil {
+                message.streamStartedAt = telemetry.startedAt
+            }
+            if message.modelIdentifier == nil {
+                message.modelIdentifier = telemetry.modelIdentifier
+            }
+            if message.apiBaseURL == nil {
+                message.apiBaseURL = telemetry.apiBaseURL
+            }
+            if message.requestID == nil {
+                message.requestID = telemetry.streamID
+            }
+            if message.promptMessageCount == nil {
+                message.promptMessageCount = telemetry.promptMessageCount
+            }
+            if message.promptCharacterCount == nil {
+                message.promptCharacterCount = telemetry.promptCharacterCount
+            }
+            if message.streamFirstTokenAt == nil {
+                message.streamFirstTokenAt = firstTokenTimestamp
+                telemetry.firstTokenAt = firstTokenTimestamp
+                activeStreamTelemetry = telemetry
+            }
+        } else {
+            if message.streamStartedAt == nil {
+                message.streamStartedAt = firstTokenTimestamp
+            }
+            if message.streamFirstTokenAt == nil {
+                message.streamFirstTokenAt = firstTokenTimestamp
+            }
+            if message.modelIdentifier == nil {
+                message.modelIdentifier = chatConfiguration.modelIdentifier
+            }
+            if message.apiBaseURL == nil {
+                message.apiBaseURL = chatConfiguration.apiBaseURL
+            }
+        }
+        if let start = message.streamStartedAt,
+           let first = message.streamFirstTokenAt,
+           message.timeToFirstToken == nil {
+            message.timeToFirstToken = first.timeIntervalSince(start)
+        }
+    }
+
+    private func bumpStreamCounters(for message: ChatMessage, delta: String) {
+        message.deltaCount += 1
+        message.characterCount += delta.count
+        maybePersistStreamDelta(delta.count)
+    }
+
+    private func maybePersistStreamDelta(_ addedChars: Int) {
+        pendingDeltaWriteBytes += addedChars
+        guard pendingDeltaWriteBytes >= deltaPersistThreshold else { return }
+        pendingDeltaWriteBytes = 0
+        persistSession(reason: .immediate)
+    }
+
+    @discardableResult
+    private func finalizeActiveAssistantMessage(reason: String, finishedAt: Date = Date(), errorDescription: String? = nil) -> ChatMessage? {
+        guard let id = currentAssistantMessageID ?? interruptedAssistantMessageID,
+              let message = chatSession.messages.first(where: { $0.id == id }) else {
+            activeStreamTelemetry = nil
+            return nil
+        }
+
+        message.isActive = false
+        if message.finishReason == nil {
+            message.finishReason = reason
+        }
+        if message.errorDescription == nil {
+            message.errorDescription = errorDescription
+        }
+
+        if message.streamStartedAt == nil {
+            message.streamStartedAt = activeStreamTelemetry?.startedAt ?? message.createdAt
+        }
+        if message.modelIdentifier == nil {
+            message.modelIdentifier = activeStreamTelemetry?.modelIdentifier ?? chatConfiguration.modelIdentifier
+        }
+        if message.apiBaseURL == nil {
+            message.apiBaseURL = activeStreamTelemetry?.apiBaseURL ?? chatConfiguration.apiBaseURL
+        }
+        if message.requestID == nil {
+            message.requestID = activeStreamTelemetry?.streamID ?? UUID()
+        }
+        if message.promptMessageCount == nil {
+            message.promptMessageCount = activeStreamTelemetry?.promptMessageCount
+        }
+        if message.promptCharacterCount == nil {
+            message.promptCharacterCount = activeStreamTelemetry?.promptCharacterCount
+        }
+        if message.streamFirstTokenAt == nil, let first = activeStreamTelemetry?.firstTokenAt {
+            message.streamFirstTokenAt = first
+        }
+        if let start = message.streamStartedAt,
+           let first = message.streamFirstTokenAt,
+           message.timeToFirstToken == nil {
+            message.timeToFirstToken = first.timeIntervalSince(start)
+        }
+        if message.streamCompletedAt == nil {
+            message.streamCompletedAt = finishedAt
+        }
+        if let start = message.streamStartedAt {
+            message.streamDuration = message.streamDuration ?? finishedAt.timeIntervalSince(start)
+        }
+        if let first = message.streamFirstTokenAt {
+            message.generationDuration = message.generationDuration ?? finishedAt.timeIntervalSince(first)
+        }
+        if message.deltaCount == 0 {
+            message.deltaCount = 1
+        }
+        if message.characterCount == 0 {
+            message.characterCount = message.content.count
+        }
+
+        activeStreamTelemetry = nil
+        return message
     }
 
     /// Returns messages sorted by time while preserving insertion order for identical timestamps.
@@ -232,14 +425,6 @@ final class ChatViewModel: ObservableObject {
         chatSession.messages.removeAll { !keepIDs.contains($0.id) }
     }
 
-    private func closeActiveAssistantMessageIfAny() {
-        if let id = currentAssistantMessageID,
-           let msg = chatSession.messages.first(where: { $0.id == id }) {
-            msg.isActive = false
-        }
-        currentAssistantMessageID = nil
-    }
-
     // MARK: - Intent
 
     func sendMessage() {
@@ -253,7 +438,15 @@ final class ChatViewModel: ObservableObject {
             editingBaseMessageID = nil
         }
 
-        let userMsg = ChatMessage(content: trimmedMessage, isUser: true, isActive: true, createdAt: Date(), session: chatSession)
+        let userMsg = ChatMessage(
+            content: trimmedMessage,
+            isUser: true,
+            isActive: true,
+            createdAt: Date(),
+            deltaCount: 1,
+            characterCount: trimmedMessage.count,
+            session: chatSession
+        )
         chatSession.messages.append(userMsg)
         if isPlaceholderTitle(chatSession.title) {
             chatSession.title = trimmedMessage
@@ -266,15 +459,25 @@ final class ChatViewModel: ObservableObject {
             isPriming = false
             isLoading = false
             sending = false
-            closeActiveAssistantMessageIfAny()
+            finalizeActiveAssistantMessage(reason: "aborted-before-send", finishedAt: Date())
             interruptedAssistantMessageID = nil
+            currentAssistantMessageID = nil
 
+            let now = Date()
             let errText = NSLocalizedString("Unable to reach the text server. Please check your connection or server settings.", comment: "Shown when sending a message while the text server is unreachable")
+            let errContent = "!error:\(errText)"
             let err = ChatMessage(
-                content: "!error:\(errText)",
+                content: errContent,
                 isUser: false,
                 isActive: false,
-                createdAt: Date(),
+                createdAt: now,
+                modelIdentifier: chatConfiguration.modelIdentifier,
+                apiBaseURL: chatConfiguration.apiBaseURL,
+                streamStartedAt: now,
+                streamCompletedAt: now,
+                deltaCount: 1,
+                characterCount: errContent.count,
+                finishReason: "unreachable",
                 session: chatSession
             )
             chatSession.messages.append(err)
@@ -285,8 +488,10 @@ final class ChatViewModel: ObservableObject {
         isPriming = true
         isLoading = true
         sending = true
-        closeActiveAssistantMessageIfAny()
+        finalizeActiveAssistantMessage(reason: "superseded", finishedAt: Date())
         interruptedAssistantMessageID = nil
+        currentAssistantMessageID = nil
+        pendingDeltaWriteBytes = 0
         userMessage = ""
         persistSession(reason: .immediate)
 
@@ -299,13 +504,18 @@ final class ChatViewModel: ObservableObject {
         }
 
         let currentMessages = chronologicalMessages()
+        recordStreamStart(using: currentMessages)
         chatService.fetchStreamedData(messages: currentMessages)
     }
 
     func cancelCurrentRequest() {
         guard sending || isLoading || isPriming else { return }
+        let finishedAt = Date()
         chatService.cancelStreaming()
-        closeActiveAssistantMessageIfAny()
+        finalizeActiveAssistantMessage(reason: "cancelled", finishedAt: finishedAt)
+        currentAssistantMessageID = nil
+        interruptedAssistantMessageID = nil
+        pendingDeltaWriteBytes = 0
         isPriming = false
         isLoading = false
         sending = false
@@ -322,16 +532,22 @@ final class ChatViewModel: ObservableObject {
         objectWillChange.send()
 
         if isPriming { isPriming = false }
+        let now = Date()
 
+        let message: ChatMessage
         if let id = currentAssistantMessageID,
-           let msg = chatSession.messages.first(where: { $0.id == id }) {
-            msg.content += piece
+           let existing = chatSession.messages.first(where: { $0.id == id }) {
+            existing.content += piece
+            message = existing
         } else {
-            let sys = ChatMessage(content: piece, isUser: false, isActive: true, createdAt: Date(), session: chatSession)
+            let sys = ChatMessage(content: piece, isUser: false, isActive: true, createdAt: now, session: chatSession)
             chatSession.messages.append(sys)
             currentAssistantMessageID = sys.id
+            message = sys
         }
 
+        applyStreamMetadata(to: message, firstTokenTimestamp: now)
+        bumpStreamCounters(for: message, delta: piece)
         isLoading = true
         persistSession(reason: .throttled)
     }
@@ -339,8 +555,10 @@ final class ChatViewModel: ObservableObject {
     func regenerateSystemMessage(_ message: ChatMessage) {
         guard !sending else { return }
         chatService.cancelStreaming()
-        closeActiveAssistantMessageIfAny()
+        finalizeActiveAssistantMessage(reason: "regenerate", finishedAt: Date())
+        currentAssistantMessageID = nil
         interruptedAssistantMessageID = nil
+        pendingDeltaWriteBytes = 0
 
         guard !message.isUser else { return }
         trimMessages(startingAt: message, includeBoundary: true)
@@ -350,13 +568,16 @@ final class ChatViewModel: ObservableObject {
         isPriming = true
         isLoading = true
         sending = true
+        recordStreamStart(using: currentMessages)
         chatService.fetchStreamedData(messages: currentMessages)
     }
 
     func retry(afterErrorMessage errorMessage: ChatMessage) {
         guard !sending else { return }
         chatService.cancelStreaming()
-        closeActiveAssistantMessageIfAny()
+        finalizeActiveAssistantMessage(reason: "retry", finishedAt: Date())
+        currentAssistantMessageID = nil
+        pendingDeltaWriteBytes = 0
 
         let ordered = chronologicalMessages()
         guard let errorIndex = ordered.firstIndex(where: { $0.id == errorMessage.id }) else { return }
@@ -376,6 +597,7 @@ final class ChatViewModel: ObservableObject {
         sending = true
         persistSession(reason: .immediate)
 
+        recordStreamStart(using: currentMessages)
         chatService.fetchStreamedData(messages: currentMessages)
     }
 
@@ -403,18 +625,16 @@ final class ChatViewModel: ObservableObject {
     // MARK: - Auto Read Helper
 
     private func bodyTextForAutoRead(from full: String) -> String {
-        let trimmed = full.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return "" }
-
-        if let start = trimmed.range(of: "<think>") {
-            if let end = trimmed.range(of: "</think>", range: start.upperBound..<trimmed.endIndex) {
-                let body = trimmed[end.upperBound...]
-                return String(body).trimmingCharacters(in: .whitespacesAndNewlines)
-            } else {
-                return ""
-            }
+        let parts = full.extractThinkParts()
+        let body = parts.body.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !body.isEmpty {
+            return body
         }
-        return trimmed
+        // If the model exposed a think section but no body yet, avoid reading anything aloud.
+        if parts.think != nil {
+            return ""
+        }
+        return full.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }
 

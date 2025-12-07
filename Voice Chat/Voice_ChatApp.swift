@@ -50,20 +50,24 @@ struct Voice_ChatApp: App {
 
     /// Shared SwiftData container used by both the main scene and the Settings window.
     private static let sharedContainer: ModelContainer = {
+        makeContainer()
+    }()
+
+    /// Builds a SwiftData container. Fail fast instead of silently falling back to in-memory storage.
+    private static func makeContainer() -> ModelContainer {
         let schema = Schema([
             ChatSession.self,
             ChatMessage.self,
             AppSettings.self,
             VoicePreset.self
         ])
-        // Use the default configuration so the system chooses an appropriate storage location.
         let config = ModelConfiguration()
         do {
             return try ModelContainer(for: schema, configurations: [config])
         } catch {
-            fatalError("Failed to create ModelContainer: \(error)")
+            fatalError("Failed to create persistent ModelContainer: \(error)")
         }
-    }()
+    }
 }
 
 #if os(macOS)

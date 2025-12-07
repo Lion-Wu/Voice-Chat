@@ -173,6 +173,8 @@ final class ChatService: NSObject, URLSessionDataDelegate, @unchecked Sendable {
     // SSE parsing buffer
     private var ssePartialLine: String = ""
     private let maxBufferedSSEBytes = 512 * 1024
+    private let thinkOpenLine = "<think>\n"
+    private let thinkCloseLine = "\n</think>\n"
 
     // Watchdog configuration to cover long-running sessions (up to ~1 hour).
     private let firstTokenTimeout: TimeInterval = 3600        // Wait up to one hour for the first token.
@@ -355,7 +357,7 @@ final class ChatService: NSObject, URLSessionDataDelegate, @unchecked Sendable {
 
             if payloadString == "[DONE]" {
                 if self.newFormatActive && self.sentThinkOpen && !self.sentThinkClose && !self.isLegacyThinkStream {
-                    self.emitDelta("</think>")
+                    self.emitDelta(thinkCloseLine)
                     self.sentThinkClose = true
                 }
                 emitStreamFinishedOnce()
@@ -391,7 +393,7 @@ final class ChatService: NSObject, URLSessionDataDelegate, @unchecked Sendable {
             if let r = delta.reasoning?.text, !r.isEmpty {
                 newFormatActive = true
                 if !isLegacyThinkStream && !sentThinkOpen {
-                    emitDelta("<think>")
+                    emitDelta(thinkOpenLine)
                     sentThinkOpen = true
                 }
                 emitDelta(r)
@@ -399,7 +401,7 @@ final class ChatService: NSObject, URLSessionDataDelegate, @unchecked Sendable {
 
             if !deltaText.isEmpty {
                 if newFormatActive && !isLegacyThinkStream && sentThinkOpen && !sentThinkClose {
-                    emitDelta("</think>")
+                    emitDelta(thinkCloseLine)
                     sentThinkClose = true
                 }
                 emitDelta(deltaText)
