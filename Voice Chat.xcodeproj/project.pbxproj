@@ -13,12 +13,9 @@
 		B4A629592B59617A006125B5 /* ChatViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B4A629582B59617A006125B5 /* ChatViewModel.swift */; };
 		B4E916D52B4BDBD900E49A6B /* ChatModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B4E916D42B4BDBD900E49A6B /* ChatModel.swift */; };
 		B4E916DF2B4BF0E500E49A6B /* VoiceViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B4E916DE2B4BF0E500E49A6B /* VoiceViewModel.swift */; };
-		FD0A0A102F123E0000000001 /* AppEnvironment.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD0A0A0F2F123E0000000001 /* AppEnvironment.swift */; };
-		FDFE0A012F12340000000001 /* AppErrorCenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = FDFE0A002F12340000000001 /* AppErrorCenter.swift */; };
-		FDFE0A032F12340000000001 /* ErrorNoticeStack.swift in Sources */ = {isa = PBXBuildFile; fileRef = FDFE0A022F12340000000001 /* ErrorNoticeStack.swift */; };
-		FDFE0A052F123C0000000001 /* ServerReachabilityMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = FDFE0A042F123C0000000001 /* ServerReachabilityMonitor.swift */; };
 		C4442FE0C1135115CFA62BDD /* AppChrome.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4570041CD56B63DCA44B5C0 /* AppChrome.swift */; };
 		FD0577A52CB626FD009FC45C /* SettingsViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD0577A42CB626FD009FC45C /* SettingsViewModel.swift */; };
+		FD0A0A102F123E0000000001 /* AppEnvironment.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD0A0A0F2F123E0000000001 /* AppEnvironment.swift */; };
 		FD0B94DF2CD9080700DBFA1D /* ChatSessionsViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD0B94DE2CD9080700DBFA1D /* ChatSessionsViewModel.swift */; };
 		FD0B94E12CD9082600DBFA1D /* ChatSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD0B94E02CD9082600DBFA1D /* ChatSession.swift */; };
 		FD0B94E32CD9095C00DBFA1D /* SidebarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD0B94E22CD9095C00DBFA1D /* SidebarView.swift */; };
@@ -57,6 +54,9 @@
 		FDF714C12E7FC54100B62D71 /* IncrementalTextSegmenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = FDF714C02E7FC54100B62D71 /* IncrementalTextSegmenter.swift */; };
 		FDF714C32E7FC55300B62D71 /* VoiceChatOverlayViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = FDF714C22E7FC55300B62D71 /* VoiceChatOverlayViewModel.swift */; };
 		FDF714C52E7FC59000B62D71 /* RealtimeVoiceOverlayView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FDF714C42E7FC59000B62D71 /* RealtimeVoiceOverlayView.swift */; };
+		FDFE0A012F12340000000001 /* AppErrorCenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = FDFE0A002F12340000000001 /* AppErrorCenter.swift */; };
+		FDFE0A032F12340000000001 /* ErrorNoticeStack.swift in Sources */ = {isa = PBXBuildFile; fileRef = FDFE0A022F12340000000001 /* ErrorNoticeStack.swift */; };
+		FDFE0A052F123C0000000001 /* ServerReachabilityMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = FDFE0A042F123C0000000001 /* ServerReachabilityMonitor.swift */; };
 		FDFFEEE12F20000000000001 /* ChatSessionRepository.swift in Sources */ = {isa = PBXBuildFile; fileRef = FDFFEEE02F20000000000001 /* ChatSessionRepository.swift */; };
 /* End PBXBuildFile section */
 
@@ -68,12 +68,9 @@
 		B4A629582B59617A006125B5 /* ChatViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatViewModel.swift; sourceTree = "<group>"; };
 		B4E916D42B4BDBD900E49A6B /* ChatModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatModel.swift; sourceTree = "<group>"; };
 		B4E916DE2B4BF0E500E49A6B /* VoiceViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceViewModel.swift; sourceTree = "<group>"; };
-		FD0A0A0F2F123E0000000001 /* AppEnvironment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppEnvironment.swift; sourceTree = "<group>"; };
-		FDFE0A002F12340000000001 /* AppErrorCenter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppErrorCenter.swift; sourceTree = "<group>"; };
-		FDFE0A022F12340000000001 /* ErrorNoticeStack.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ErrorNoticeStack.swift; sourceTree = "<group>"; };
-		FDFE0A042F123C0000000001 /* ServerReachabilityMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ServerReachabilityMonitor.swift; sourceTree = "<group>"; };
 		D4570041CD56B63DCA44B5C0 /* AppChrome.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppChrome.swift; sourceTree = "<group>"; };
 		FD0577A42CB626FD009FC45C /* SettingsViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = SettingsViewModel.swift; path = "Voice Chat/ViewModel/SettingsViewModel.swift"; sourceTree = SOURCE_ROOT; };
+		FD0A0A0F2F123E0000000001 /* AppEnvironment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppEnvironment.swift; sourceTree = "<group>"; };
 		FD0B94DD2CD8E63500DBFA1D /* Voice Chat.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = "Voice Chat.entitlements"; sourceTree = "<group>"; };
 		FD0B94DE2CD9080700DBFA1D /* ChatSessionsViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatSessionsViewModel.swift; sourceTree = "<group>"; };
 		FD0B94E02CD9082600DBFA1D /* ChatSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ChatSession.swift; path = "Voice Chat/Model/ChatSession.swift"; sourceTree = SOURCE_ROOT; };
@@ -112,10 +109,13 @@
 		FDB5FD0B2F0000010000001A /* Localizable.strings */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = Localizable.strings; path = "zh-Hans.lproj/Localizable.strings"; sourceTree = "<group>"; };
 		FDB5FD0C2F0000010000001A /* Localizable.strings */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = Localizable.strings; path = "zh-Hant.lproj/Localizable.strings"; sourceTree = "<group>"; };
 		FDB5FD0D2F0000010000001A /* Localizable.strings */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = Localizable.strings; path = ja.lproj/Localizable.strings; sourceTree = "<group>"; };
-		FDFFEEE02F20000000000001 /* ChatSessionRepository.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatSessionRepository.swift; sourceTree = "<group>"; };
 		FDF714C02E7FC54100B62D71 /* IncrementalTextSegmenter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IncrementalTextSegmenter.swift; sourceTree = "<group>"; };
 		FDF714C22E7FC55300B62D71 /* VoiceChatOverlayViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceChatOverlayViewModel.swift; sourceTree = "<group>"; };
 		FDF714C42E7FC59000B62D71 /* RealtimeVoiceOverlayView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RealtimeVoiceOverlayView.swift; sourceTree = "<group>"; };
+		FDFE0A002F12340000000001 /* AppErrorCenter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppErrorCenter.swift; sourceTree = "<group>"; };
+		FDFE0A022F12340000000001 /* ErrorNoticeStack.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ErrorNoticeStack.swift; sourceTree = "<group>"; };
+		FDFE0A042F123C0000000001 /* ServerReachabilityMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ServerReachabilityMonitor.swift; sourceTree = "<group>"; };
+		FDFFEEE02F20000000000001 /* ChatSessionRepository.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatSessionRepository.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -567,7 +567,7 @@
 				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
 				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = NO;
 				SWIFT_EMIT_LOC_STRINGS = YES;
-				SWIFT_VERSION = 5.0;
+				SWIFT_VERSION = 6.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
 			name = Debug;
@@ -618,7 +618,7 @@
 				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
 				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = NO;
 				SWIFT_EMIT_LOC_STRINGS = YES;
-				SWIFT_VERSION = 5.0;
+				SWIFT_VERSION = 6.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
 			name = Release;

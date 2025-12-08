@@ -180,15 +180,21 @@ final class SpeechInputManager: NSObject, ObservableObject {
     private func requestPermissions() async -> Bool {
         #if os(iOS) || os(macOS)
         let speechOK = await withCheckedContinuation { (cont: CheckedContinuation<Bool, Never>) in
-            SFSpeechRecognizer.requestAuthorization { status in
-                cont.resume(returning: status == .authorized)
+            // TCC may invoke the callback on a background queue; detach to avoid tripping
+            // main-actor isolation checks in Swift 6 and hop back only to resume.
+            Task.detached {
+                SFSpeechRecognizer.requestAuthorization { status in
+                    cont.resume(returning: status == .authorized)
+                }
             }
         }
 
         #if os(iOS)
         let micOK = await withCheckedContinuation { (cont: CheckedContinuation<Bool, Never>) in
-            AVAudioApplication.requestRecordPermission { ok in
-                cont.resume(returning: ok)
+            Task.detached {
+                AVAudioApplication.requestRecordPermission { ok in
+                    cont.resume(returning: ok)
+                }
             }
         }
         return speechOK && micOK
