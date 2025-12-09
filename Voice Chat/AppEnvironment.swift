@@ -20,6 +20,9 @@ final class AppEnvironment: ObservableObject {
     let errorCenter: AppErrorCenter
     let voiceOverlayViewModel: VoiceChatOverlayViewModel
     let reachabilityMonitor: ServerReachabilityMonitor
+#if os(macOS)
+    let realtimeVoiceWindowController: RealtimeVoiceWindowController
+#endif
 
     private var cancellables: Set<AnyCancellable> = []
     private var reachabilityTask: Task<Void, Never>?
@@ -47,6 +50,13 @@ final class AppEnvironment: ObservableObject {
             audioManager: self.audioManager,
             errorCenter: self.errorCenter
         )
+#if os(macOS)
+        self.realtimeVoiceWindowController = RealtimeVoiceWindowController(
+            overlayViewModel: self.voiceOverlayViewModel,
+            errorCenter: self.errorCenter
+        )
+#endif
+        bindRealtimeVoiceLock()
     }
 
     /// Bootstraps the environment exactly once after SwiftData is available.
@@ -103,6 +113,18 @@ final class AppEnvironment: ObservableObject {
         reachabilityTask = Task { [settingsManager, reachabilityMonitor] in
             await reachabilityMonitor.checkAll(settings: settingsManager)
         }
+    }
+
+    private func bindRealtimeVoiceLock() {
+        voiceOverlayViewModel.$isPresented
+            .combineLatest(audioManager.$isRealtimeMode)
+            .map { presented, realtime in presented || realtime }
+            .removeDuplicates()
+            .receive(on: RunLoop.main)
+            .sink { [weak self] active in
+                self?.chatSessionsViewModel.updateRealtimeVoiceLock(active)
+            }
+            .store(in: &cancellables)
     }
 }
 

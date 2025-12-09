@@ -85,10 +85,14 @@ final class VoiceChatOverlayViewModel: ObservableObject {
 
     func updateLanguage(_ language: SpeechInputManager.DictationLanguage) {
         guard selectedLanguage != language else { return }
-        selectedLanguage = language
-        speechInputManager.currentLanguage = language
-        if isPresented {
-            restartListening()
+        // Defer the publish to avoid mutating @Published properties during view updates.
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            self.selectedLanguage = language
+            self.speechInputManager.currentLanguage = language
+            if self.isPresented {
+                self.restartListening()
+            }
         }
     }
 

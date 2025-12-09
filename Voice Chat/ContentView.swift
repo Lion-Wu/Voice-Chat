@@ -12,6 +12,7 @@ import AppKit
 #endif
 
 struct ContentView: View {
+    @EnvironmentObject var appEnvironment: AppEnvironment
     @EnvironmentObject var audioManager: GlobalAudioManager
     @EnvironmentObject var settingsManager: SettingsManager
     @EnvironmentObject var chatSessionsViewModel: ChatSessionsViewModel
@@ -92,6 +93,13 @@ private extension ContentView {
             }
         }
         .overlay(voiceOverlayLayer)
+        .background {
+#if os(macOS)
+            WindowAccessor { window in
+                appEnvironment.realtimeVoiceWindowController.registerMainWindow(window)
+            }
+#endif
+        }
     }
 #endif
 
@@ -110,30 +118,55 @@ private extension ContentView {
 
     @ViewBuilder
     private var voiceOverlayLayer: some View {
+#if os(macOS)
+        EmptyView()
+#else
         if voiceOverlayViewModel.isPresented {
             RealtimeVoiceOverlayView(viewModel: voiceOverlayViewModel)
                 .transition(.opacity.combined(with: .scale))
                 .zIndex(2000)
         }
+#endif
     }
 }
 
 struct ContentView_Previews: PreviewProvider {
     static var previews: some View {
         let speechManager = SpeechInputManager()
-        let overlayVM = VoiceChatOverlayViewModel(
-            speechInputManager: speechManager,
+        let chatSessions = ChatSessionsViewModel()
+        let appEnvironment = AppEnvironment(
             audioManager: GlobalAudioManager.shared,
+            settingsManager: SettingsManager.shared,
+            chatSessionsViewModel: chatSessions,
+            speechInputManager: speechManager,
             errorCenter: AppErrorCenter.shared
         )
 
         return ContentView()
             .modelContainer(for: [ChatSession.self, ChatMessage.self, AppSettings.self], inMemory: true)
-            .environmentObject(GlobalAudioManager.shared)
-            .environmentObject(SettingsManager.shared)
-            .environmentObject(ChatSessionsViewModel())
+            .environmentObject(appEnvironment)
+            .environmentObject(appEnvironment.audioManager)
+            .environmentObject(appEnvironment.settingsManager)
+            .environmentObject(chatSessions)
             .environmentObject(speechManager)
             .environmentObject(AppErrorCenter.shared)
-            .environmentObject(overlayVM)
+            .environmentObject(appEnvironment.voiceOverlayViewModel)
     }
 }
+
+#if os(macOS)
+/// Resolves the hosting NSWindow so we can coordinate visibility changes.
+private struct WindowAccessor: NSViewRepresentable {
+    var onResolve: (NSWindow?) -> Void
+
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView()
+        DispatchQueue.main.async { onResolve(view.window) }
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        DispatchQueue.main.async { onResolve(nsView.window) }
+    }
+}
+#endif

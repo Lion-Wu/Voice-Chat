@@ -13,6 +13,7 @@ final class ChatSessionsViewModel: ObservableObject {
     // MARK: - Published State
     @Published private(set) var chatSessions: [ChatSession] = []
     @Published var selectedSessionID: UUID? = nil
+    @Published private(set) var isRealtimeVoiceLocked: Bool = false
 
     // MARK: - Cached View Models
     private var viewModelCache: [UUID: ChatViewModel] = [:]
@@ -62,6 +63,7 @@ final class ChatSessionsViewModel: ObservableObject {
     }
 
     var canStartNewSession: Bool {
+        guard !isRealtimeVoiceLocked else { return false }
         if let s = selectedSession {
             return !s.messages.isEmpty
         }
@@ -114,6 +116,7 @@ final class ChatSessionsViewModel: ObservableObject {
 
     // MARK: - Session Ops
     func startNewSession() {
+        guard !isRealtimeVoiceLocked else { return }
         ensureChatConfigurationCurrent()
         guard let new = repository.createSession(title: String(localized: "New Chat")) else { return }
         cacheViewModel(for: new)
@@ -210,6 +213,12 @@ final class ChatSessionsViewModel: ObservableObject {
         chatSessions = orderedSessions(updated)
         if selectedSessionID == nil {
             selectedSessionID = chatSessions.first?.id
+        }
+    }
+
+    func updateRealtimeVoiceLock(_ active: Bool) {
+        if isRealtimeVoiceLocked != active {
+            isRealtimeVoiceLocked = active
         }
     }
 
