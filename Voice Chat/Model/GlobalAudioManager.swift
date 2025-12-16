@@ -8,7 +8,6 @@
 import Foundation
 import AVFoundation
 import Combine
-import NaturalLanguage
 import SwiftUI
 
 @MainActor
@@ -60,9 +59,8 @@ final class GlobalAudioManager: NSObject, ObservableObject, AVAudioPlayerDelegat
     // MARK: - Constants
     let endEpsilon: TimeInterval = 0.03
 
-    // MARK: - Lightweight caches (perf)
-    let langCache = NSCache<NSString, NSString>()
-    let wordCountCache = NSCache<NSString, NSNumber>()
+    // MARK: - Helpers
+    private let segmentationWorker = TextSegmentationWorker.shared
 
     // Regenerated for every playback cycle to invalidate stale callbacks after cancellation.
     var currentGenerationID = UUID()
@@ -88,6 +86,7 @@ final class GlobalAudioManager: NSObject, ObservableObject, AVAudioPlayerDelegat
     // MARK: - Entry (Full-text mode)
     func startProcessing(text: String) {
         currentGenerationID = UUID()
+        let generationID = currentGenerationID
         isRealtimeMode = false
         realtimeFinalized = false
         pendingRealtimeIndexes.removeAll()
@@ -100,18 +99,30 @@ final class GlobalAudioManager: NSObject, ObservableObject, AVAudioPlayerDelegat
         isAudioPlaying = true
         currentTime = 0
 
-        let v = settingsManager.voiceSettings
-        textSegments = v.enableStreaming ? splitTextIntoMeaningfulSegments(text) : [text]
-
-        let n = textSegments.count
-        audioChunks = Array(repeating: nil, count: n)
-        chunkDurations = Array(repeating: 0, count: n)
+        textSegments = []
+        audioChunks = []
+        chunkDurations = []
         totalDuration = 0
-
         currentChunkIndex = 0
         currentPlayingIndex = 0
 
-        sendNextSegment()
+        let streamingEnabled = settingsManager.voiceSettings.enableStreaming
+        let worker = segmentationWorker
+
+        Task.detached(priority: .userInitiated) { [weak self] in
+            let segments: [String]
+            if streamingEnabled {
+                segments = await worker.splitTextIntoMeaningfulSegments(text)
+            } else {
+                segments = [text]
+            }
+
+            await MainActor.run { [weak self] in
+                guard let self else { return }
+                guard self.currentGenerationID == generationID else { return }
+                self.prepareSegmentsForPlayback(segments)
+            }
+        }
     }
 
     // MARK: - Realtime Pipeline
@@ -298,6 +309,23 @@ final class GlobalAudioManager: NSObject, ObservableObject, AVAudioPlayerDelegat
 
         lastObservedPlaybackTime = 0
         lastProgressTimestamp = Date()
+    }
+
+    private func prepareSegmentsForPlayback(_ segments: [String]) {
+        textSegments = segments
+        let count = segments.count
+        audioChunks = Array(repeating: nil, count: count)
+        chunkDurations = Array(repeating: 0, count: count)
+        totalDuration = 0
+        currentChunkIndex = 0
+        currentPlayingIndex = 0
+
+        guard !segments.isEmpty else {
+            isLoading = false
+            isAudioPlaying = false
+            return
+        }
+        sendNextSegment()
     }
 
     // MARK: - Realtime queue helpers (NEW)

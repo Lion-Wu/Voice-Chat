@@ -8,10 +8,12 @@
 import Foundation
 import NaturalLanguage
 
-@MainActor
-extension GlobalAudioManager {
+actor TextSegmentationWorker {
+    static let shared = TextSegmentationWorker()
 
-    // MARK: - Text Segmentation (unchanged behavior, optimized impl)
+    private let langCache = NSCache<NSString, NSString>()
+    private let wordCountCache = NSCache<NSString, NSNumber>()
+
     func splitTextIntoMeaningfulSegments(_ rawText: String) -> [String] {
         let targetMinSec: Double = 5.0
         let targetMaxSec: Double = 10.0
@@ -98,8 +100,7 @@ extension GlobalAudioManager {
         return cleaned
     }
 
-    // MARK: - Normalization (single pass, no regex loops)
-    func normalizeLinesAddingPause(_ text: String) -> String {
+    private func normalizeLinesAddingPause(_ text: String) -> String {
         var base = text
         base = base.replacingOccurrences(of: #"[ \t\u{00A0}]{2,}"#, with: " ", options: .regularExpression)
         let lines = base.split(whereSeparator: \.isNewline).map { String($0) }
@@ -131,8 +132,7 @@ extension GlobalAudioManager {
         return out.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    // MARK: - Language & counting helpers (cached)
-    func dominantLanguageCached(_ text: String) -> String {
+    private func dominantLanguageCached(_ text: String) -> String {
         let key = text as NSString
         if let v = langCache.object(forKey: key) { return v as String }
         let r = NLLanguageRecognizer()
@@ -142,11 +142,11 @@ extension GlobalAudioManager {
         return lang
     }
 
-    func isWordLanguage(_ lang: String) -> Bool {
+    private func isWordLanguage(_ lang: String) -> Bool {
         return !["ja","ko","zh-Hans","zh-Hant","zh"].contains(lang)
     }
 
-    func wordCountCached(_ text: String) -> Int {
+    private func wordCountCached(_ text: String) -> Int {
         let key = text as NSString
         if let v = wordCountCache.object(forKey: key) { return v.intValue }
         let t = NLTokenizer(unit: .word)
@@ -157,11 +157,11 @@ extension GlobalAudioManager {
         return c
     }
 
-    func countFor(_ text: String, lang: String) -> Int {
+    private func countFor(_ text: String, lang: String) -> Int {
         isWordLanguage(lang) ? wordCountCached(text) : text.count
     }
 
-    func estSeconds(_ text: String, lang: String, enWPS: Double, zhCPS: Double) -> Double {
+    private func estSeconds(_ text: String, lang: String, enWPS: Double, zhCPS: Double) -> Double {
         if isWordLanguage(lang) {
             return Double(wordCountCached(text)) / enWPS
         } else {
@@ -169,11 +169,11 @@ extension GlobalAudioManager {
         }
     }
 
-    func hardMax(for lang: String, maxWordLen: Int, maxCJKLen: Int) -> Int {
+    private func hardMax(for lang: String, maxWordLen: Int, maxCJKLen: Int) -> Int {
         isWordLanguage(lang) ? maxWordLen : maxCJKLen
     }
 
-    func ensureTerminalPunctuation(_ text: String, lang: String) -> String {
+    private func ensureTerminalPunctuation(_ text: String, lang: String) -> String {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let last = trimmed.unicodeScalars.last else { return trimmed }
         let lastCh = Character(last)
@@ -186,7 +186,7 @@ extension GlobalAudioManager {
         return trimmed + (isWordLanguage(lang) ? "." : "。")
     }
 
-    func isCJKChar(_ scalarOpt: UnicodeScalar?) -> Bool {
+    private func isCJKChar(_ scalarOpt: UnicodeScalar?) -> Bool {
         guard let s = scalarOpt else { return false }
         switch s.value {
         case 0x4E00...0x9FFF,
@@ -202,13 +202,13 @@ extension GlobalAudioManager {
         }
     }
 
-    func splitOverlongSentence(_ sentence: String,
-                               lang: String,
-                               maxLen: Int,
-                               targetMinSec: Double,
-                               targetMaxSec: Double,
-                               enWPS: Double,
-                               zhCPS: Double) -> [String] {
+    private func splitOverlongSentence(_ sentence: String,
+                                       lang: String,
+                                       maxLen: Int,
+                                       targetMinSec: Double,
+                                       targetMaxSec: Double,
+                                       enWPS: Double,
+                                       zhCPS: Double) -> [String] {
         let midPunctPattern = #"[,，、;；:：]"#
         var parts = sentence.split(usingRegex: midPunctPattern)
         if parts.isEmpty { parts = [sentence] }
@@ -252,8 +252,7 @@ extension GlobalAudioManager {
         return finalPieces
     }
 
-    /// Uses `NLTokenizer(.word)` to force splitting on word boundaries.
-    func forceSplitByWordBoundary(_ text: String, lang: String, maxLen: Int) -> [String] {
+    private func forceSplitByWordBoundary(_ text: String, lang: String, maxLen: Int) -> [String] {
         var pieces: [String] = []
         let tokenizer = NLTokenizer(unit: .word)
         tokenizer.string = text
@@ -276,7 +275,7 @@ extension GlobalAudioManager {
         return pieces
     }
 
-    func needsSpaceBetween(_ a: String, _ b: String) -> Bool {
+    private func needsSpaceBetween(_ a: String, _ b: String) -> Bool {
         let aLast = a.unicodeScalars.last
         let bFirst = b.unicodeScalars.first
         let aCJK = isCJKChar(aLast)

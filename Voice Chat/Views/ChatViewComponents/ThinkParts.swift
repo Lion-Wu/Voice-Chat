@@ -15,6 +15,10 @@ struct ThinkParts {
 
 extension String {
     func extractThinkParts() -> ThinkParts {
+        guard self.contains("<think>") else {
+            return ThinkParts(think: nil, isClosed: true, body: self)
+        }
+
         let lines = self.components(separatedBy: .newlines)
         guard let startIdx = lines.firstIndex(where: { $0.trimmingCharacters(in: .whitespacesAndNewlines) == "<think>" }) else {
             return ThinkParts(think: nil, isClosed: true, body: self)

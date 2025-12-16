@@ -12,6 +12,7 @@ struct VoiceMessageView: View {
     @EnvironmentObject var audioManager: GlobalAudioManager
 
     let showActionButtons: Bool
+    let contentFingerprint: ContentFingerprint
     let onSelectText: (String) -> Void
     let onRegenerate: (ChatMessage) -> Void
     let onEditUserMessage: (ChatMessage) -> Void
@@ -43,6 +44,7 @@ struct VoiceMessageView: View {
             thinkFontSize: thinkFontSize,
             thinkFont: thinkFont,
             showActionButtons: showActionButtons,
+            contentFingerprint: contentFingerprint,
             onCopy: { copyToClipboard(message.content.extractThinkParts().body) },
             onRegenerate: { onRegenerate(message) },
             onReadAloud: { audioManager.startProcessing(text: message.content.extractThinkParts().body) }
@@ -153,13 +155,15 @@ struct SystemTextBubble: View {
     let thinkFontSize: CGFloat
     let thinkFont: Font
     let showActionButtons: Bool
+    let contentFingerprint: ContentFingerprint
 
     let onCopy: () -> Void
     let onRegenerate: () -> Void
     let onReadAloud: () -> Void
+    private let renderCache = MessageRenderCache.shared
 
     var body: some View {
-        let parts = message.content.extractThinkParts()
+        let parts = renderCache.thinkParts(for: message.id, content: message.content, fingerprint: contentFingerprint)
 
         let thinkView = Group {
             if let think = parts.think {

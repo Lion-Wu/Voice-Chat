@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import Combine
 
 private struct ActiveStreamTelemetry {
     let streamID: UUID
@@ -19,6 +20,11 @@ private struct ActiveStreamTelemetry {
 
 @MainActor
 final class ChatViewModel: ObservableObject {
+    struct MessageContentUpdate: Sendable {
+        let messageID: UUID
+        let fingerprint: ContentFingerprint
+    }
+
     // MARK: - Published State
     @Published var userMessage: String = ""
     @Published var isLoading: Bool = false
@@ -51,6 +57,14 @@ final class ChatViewModel: ObservableObject {
     private var realtimeTTSActive: Bool = false
     // Incremental segmenter that ignores `<think>` sections and splits on punctuation.
     private var incSegmenter = IncrementalTextSegmenter()
+    // Cached ordering to avoid repeated O(n log n) sorts when rendering long sessions.
+    private var orderedMessagesCache: [ChatMessage] = []
+    private var orderedMessagesCacheCount: Int = -1
+    private var streamingAssistantMessageID: UUID?
+    private var streamingAssistantFingerprint: ContentFingerprint?
+
+    // Emits content fingerprint updates (e.g., streaming deltas) to drive targeted UI refreshes.
+    let messageContentDidChange = PassthroughSubject<MessageContentUpdate, Never>()
 
     // MARK: - Init
     init(
@@ -394,12 +408,21 @@ final class ChatViewModel: ObservableObject {
         }
 
         activeStreamTelemetry = nil
+        if streamingAssistantMessageID == message.id {
+            streamingAssistantMessageID = nil
+            streamingAssistantFingerprint = nil
+        }
         return message
     }
 
     /// Returns messages sorted by time while preserving insertion order for identical timestamps.
     private func chronologicalMessages() -> [ChatMessage] {
-        chatSession.messages
+        let count = chatSession.messages.count
+        if count == orderedMessagesCacheCount && !orderedMessagesCache.isEmpty {
+            return orderedMessagesCache
+        }
+
+        let sorted = chatSession.messages
             .enumerated()
             .sorted { lhs, rhs in
                 if lhs.element.createdAt == rhs.element.createdAt {
@@ -408,6 +431,15 @@ final class ChatViewModel: ObservableObject {
                 return lhs.element.createdAt < rhs.element.createdAt
             }
             .map(\.element)
+
+        orderedMessagesCache = sorted
+        orderedMessagesCacheCount = count
+        return sorted
+    }
+
+    /// Exposes the cached chronological ordering for UI rendering.
+    func orderedMessagesCached() -> [ChatMessage] {
+        chronologicalMessages()
     }
 
     /// Removes the boundary message (if requested) and everything that chronologically follows it.
@@ -535,21 +567,32 @@ final class ChatViewModel: ObservableObject {
         let now = Date()
 
         let message: ChatMessage
+        let fingerprint: ContentFingerprint
         if let id = currentAssistantMessageID,
            let existing = chatSession.messages.first(where: { $0.id == id }) {
+            let previousFingerprint = (streamingAssistantMessageID == existing.id) ? streamingAssistantFingerprint : nil
             existing.content += piece
             message = existing
+            if let previousFingerprint {
+                fingerprint = previousFingerprint.appending(piece)
+            } else {
+                fingerprint = ContentFingerprint.make(existing.content)
+            }
         } else {
             let sys = ChatMessage(content: piece, isUser: false, isActive: true, createdAt: now, session: chatSession)
             chatSession.messages.append(sys)
             currentAssistantMessageID = sys.id
             message = sys
+            fingerprint = ContentFingerprint.make(piece)
         }
+        streamingAssistantMessageID = message.id
+        streamingAssistantFingerprint = fingerprint
 
         applyStreamMetadata(to: message, firstTokenTimestamp: now)
         bumpStreamCounters(for: message, delta: piece)
         isLoading = true
         persistSession(reason: .throttled)
+        messageContentDidChange.send(.init(messageID: message.id, fingerprint: fingerprint))
     }
 
     func regenerateSystemMessage(_ message: ChatMessage) {
@@ -619,6 +662,8 @@ final class ChatViewModel: ObservableObject {
         guard chatSession.id == newSession.id else { return }
         if chatSession !== newSession {
             chatSession = newSession
+            orderedMessagesCache = []
+            orderedMessagesCacheCount = -1
         }
     }
 

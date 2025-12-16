@@ -175,6 +175,7 @@ final class ChatService: NSObject, URLSessionDataDelegate, @unchecked Sendable {
     private let maxBufferedSSEBytes = 512 * 1024
     private let thinkOpenLine = "<think>\n"
     private let thinkCloseLine = "\n</think>\n"
+    private let decoder = JSONDecoder()
 
     // Watchdog configuration to cover long-running sessions (up to ~1 hour).
     private let firstTokenTimeout: TimeInterval = 3600        // Wait up to one hour for the first token.
@@ -366,7 +367,7 @@ final class ChatService: NSObject, URLSessionDataDelegate, @unchecked Sendable {
             }
 
             guard let jsonData = payloadString.data(using: String.Encoding.utf8) else { continue }
-            if let decoded = try? JSONDecoder().decode(ChatCompletionChunk.self, from: jsonData) {
+            if let decoded = try? decoder.decode(ChatCompletionChunk.self, from: jsonData) {
                 self.handleDecodedChunk(decoded)
             }
         }

@@ -8,6 +8,7 @@
 import SwiftUI
 import Foundation
 import SwiftData
+import Combine
 
 #if os(macOS)
 import AppKit
@@ -27,15 +28,6 @@ private struct EquatableRender<Value: Equatable, Content: View>: View, Equatable
     let value: Value
     let content: () -> Content
     var body: some View { content() }
-}
-
-/// Lightweight fingerprint used to compare message content without scanning the entire string.
-private struct ContentFingerprint: Equatable {
-    let utf16Count: Int
-    let hash: Int
-    static func make(_ s: String) -> ContentFingerprint {
-        .init(utf16Count: s.utf16.count, hash: s.hashValue)
-    }
 }
 
 /// Equatable key for message rendering that keeps only UI-relevant fields.
@@ -71,6 +63,14 @@ struct ChatView: View {
     @State private var bottomAnchorMaxY: CGFloat = 0
     @State private var showScrollToBottomButton: Bool = false
     @State private var scrollProxy: ScrollViewProxy?
+    @State private var visibleMessages: [ChatMessage] = []
+    @State private var fingerprintCache: [UUID: ContentFingerprint] = [:]
+    @State private var lastReportedVisibleCount: Int = 0
+    @State private var lastReportedSessionID: UUID? = nil
+    @State private var isHydratingSession: Bool = false
+    @State private var hydrationTask: Task<Void, Never>?
+    @State private var pendingRefreshAfterHydration: Bool = false
+    @State private var refreshGeneration = UUID()
 
 #if os(macOS)
     @State private var returnKeyMonitor: Any?
@@ -84,18 +84,6 @@ struct ChatView: View {
     init(viewModel: ChatViewModel, onMessagesCountChange: @escaping (Int) -> Void = { _ in }) {
         self.viewModel = viewModel
         self.onMessagesCountChange = onMessagesCountChange
-    }
-
-    private var orderedMessages: [ChatMessage] {
-        viewModel.chatSession.messages.sorted { $0.createdAt < $1.createdAt }
-    }
-
-    private var visibleMessages: [ChatMessage] {
-        guard let baseID = viewModel.editingBaseMessageID,
-              let idx = orderedMessages.firstIndex(where: { $0.id == baseID }) else {
-            return orderedMessages
-        }
-        return Array(orderedMessages.prefix(idx + 1))
     }
 
     /// Height of the scrollable content excluding the spacer that keeps it clear of the floating input.
@@ -146,6 +134,196 @@ struct ChatView: View {
         viewModel.userMessage.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
+    private func refreshVisibleMessages(hydrating: Bool = false) {
+        let token = UUID()
+        refreshGeneration = token
+
+        if hydrating {
+            beginHydration(token: token)
+            return
+        }
+
+        if hydrationTask != nil || isHydratingSession {
+            pendingRefreshAfterHydration = true
+            return
+        }
+        pendingRefreshAfterHydration = false
+
+        let ordered = viewModel.orderedMessagesCached()
+        let newVisible: [ChatMessage]
+        if let baseID = viewModel.editingBaseMessageID,
+           let idx = ordered.firstIndex(where: { $0.id == baseID }) {
+            newVisible = Array(ordered.prefix(idx + 1))
+        } else {
+            newVisible = ordered
+        }
+
+        updateVisibleMessages(newVisible, token: token)
+    }
+
+    private func beginHydration(token: UUID) {
+        hydrationTask?.cancel()
+        let ordered = viewModel.orderedMessagesCached()
+        let target: [ChatMessage]
+        if let baseID = viewModel.editingBaseMessageID,
+           let idx = ordered.firstIndex(where: { $0.id == baseID }) {
+            target = Array(ordered.prefix(idx + 1))
+        } else {
+            target = ordered
+        }
+
+        isHydratingSession = true
+        visibleMessages.removeAll(keepingCapacity: true)
+        fingerprintCache.removeAll(keepingCapacity: true)
+        MessageRenderCache.shared.clear()
+
+        let snapshots = target.map { ($0.id, $0.content) }
+        let fingerprintTask = Task.detached(priority: .userInitiated) {
+            Self.buildFingerprints(from: snapshots)
+        }
+
+        hydrationTask = Task { @MainActor [target, snapshots, fingerprintTask, token] in
+            let chunkSize = 48
+            var idx = 0
+
+            while idx < target.count {
+                if Task.isCancelled || token != refreshGeneration { break }
+                let upper = min(idx + chunkSize, target.count)
+                let slice = target[idx..<upper]
+                visibleMessages.append(contentsOf: slice)
+                idx = upper
+                if target.count > chunkSize {
+                    await Task.yield()
+                }
+            }
+
+            let shouldApply = !Task.isCancelled && token == refreshGeneration
+
+            if !shouldApply {
+                fingerprintTask.cancel()
+            } else {
+                let fingerprints = await fingerprintTask.value
+                guard token == refreshGeneration else { return }
+                let liveUpdates = fingerprintCache
+                fingerprintCache = fingerprints.merging(liveUpdates) { _, newer in newer }
+                finalizeVisibleState(targetCount: target.count)
+                prewarmThinkParts(for: snapshots)
+            }
+
+            isHydratingSession = false
+            hydrationTask = nil
+
+            if pendingRefreshAfterHydration {
+                pendingRefreshAfterHydration = false
+                refreshVisibleMessages()
+            }
+        }
+    }
+
+    private func updateVisibleMessages(_ newVisible: [ChatMessage], token: UUID) {
+        let newVisibleCopy = newVisible
+        let visibleIDs = Set(newVisibleCopy.map(\.id))
+        let missing = newVisibleCopy
+            .filter { fingerprintCache[$0.id] == nil }
+            .map { ($0.id, $0.content) }
+
+        if missing.isEmpty {
+            fingerprintCache = pruneFingerprints(fingerprintCache, keepingOnly: visibleIDs)
+            visibleMessages = newVisibleCopy
+            finalizeVisibleState(targetCount: newVisibleCopy.count)
+            return
+        }
+
+        Task { @MainActor [missing, newVisibleCopy, visibleIDs, token] in
+            let newFingerprints = await Task.detached(priority: .userInitiated) {
+                Self.buildFingerprints(from: missing)
+            }.value
+            guard token == refreshGeneration else { return }
+
+            var merged = pruneFingerprints(fingerprintCache, keepingOnly: visibleIDs)
+            for (id, fp) in newFingerprints {
+                if merged[id] == nil {
+                    merged[id] = fp
+                }
+            }
+            fingerprintCache = merged
+            visibleMessages = newVisibleCopy
+            finalizeVisibleState(targetCount: newVisibleCopy.count)
+        }
+    }
+
+    private func pruneFingerprints(_ cache: [UUID: ContentFingerprint], keepingOnly visibleIDs: Set<UUID>) -> [UUID: ContentFingerprint] {
+        var out: [UUID: ContentFingerprint] = [:]
+        out.reserveCapacity(min(cache.count, visibleIDs.count))
+        for id in visibleIDs {
+            if let fp = cache[id] {
+                out[id] = fp
+            }
+        }
+        return out
+    }
+
+    private func finalizeVisibleState(targetCount: Int) {
+        let sessionID = viewModel.chatSession.id
+        let shouldReport = (targetCount != lastReportedVisibleCount) || (sessionID != lastReportedSessionID)
+        lastReportedVisibleCount = targetCount
+        if shouldReport {
+            lastReportedSessionID = sessionID
+            onMessagesCountChange(targetCount)
+        }
+    }
+
+    private func prewarmThinkParts(for snapshots: [(UUID, String)]) {
+        let enriched = snapshots.compactMap { entry -> (UUID, String, ContentFingerprint)? in
+            guard let fp = fingerprintCache[entry.0] else { return nil }
+            return (entry.0, entry.1, fp)
+        }
+        guard !enriched.isEmpty else { return }
+
+        Task.detached(priority: .utility) {
+            MessageRenderCache.shared.prewarmThinkParts(enriched)
+        }
+    }
+
+    private func applyContentFingerprintUpdate(_ update: ChatViewModel.MessageContentUpdate) {
+        if hydrationTask != nil || isHydratingSession {
+            pendingRefreshAfterHydration = true
+        }
+        fingerprintCache[update.messageID] = update.fingerprint
+    }
+
+    nonisolated private static func buildFingerprints(from snapshots: [(UUID, String)]) -> [UUID: ContentFingerprint] {
+        var map: [UUID: ContentFingerprint] = [:]
+        map.reserveCapacity(snapshots.count)
+        for snap in snapshots {
+            map[snap.0] = ContentFingerprint.make(snap.1)
+        }
+        return map
+    }
+
+    private func updateContentHeightIfNeeded(_ newHeight: CGFloat) {
+        let cleaned = max(0, newHeight)
+        if abs(cleaned - contentHeight) > 0.5 {
+            contentHeight = cleaned
+            updateScrollToBottomVisibility()
+        }
+    }
+
+    private func updateViewportHeightIfNeeded(_ newHeight: CGFloat) {
+        let cleaned = max(0, newHeight)
+        if abs(cleaned - viewportHeight) > 0.5 {
+            viewportHeight = cleaned
+            updateScrollToBottomVisibility()
+        }
+    }
+
+    private func updateBottomAnchorIfNeeded(_ newValue: CGFloat) {
+        if abs(newValue - bottomAnchorMaxY) > 0.5 {
+            bottomAnchorMaxY = newValue
+            updateScrollToBottomVisibility()
+        }
+    }
+
     var body: some View {
         ZStack(alignment: .top) {
 
@@ -154,7 +332,9 @@ struct ChatView: View {
 
                 // Conversation content area
                 Group {
-                    if !voiceOverlayVM.isPresented {
+                    if isHydratingSession {
+                        conversationLoadingPlaceholder
+                    } else if !voiceOverlayVM.isPresented {
                         GeometryReader { outerGeo in
                             ScrollViewReader { proxy in
                                 ScrollView {
@@ -164,18 +344,9 @@ struct ChatView: View {
                                 .background(
                                     Color.clear.preference(key: ViewportHeightKey.self, value: outerGeo.size.height)
                                 )
-                                .onPreferenceChange(ContentHeightKey.self) {
-                                    contentHeight = $0
-                                    updateScrollToBottomVisibility()
-                                }
-                                .onPreferenceChange(ViewportHeightKey.self) {
-                                    viewportHeight = $0
-                                    updateScrollToBottomVisibility()
-                                }
-                                .onPreferenceChange(BottomAnchorKey.self) { value in
-                                    bottomAnchorMaxY = value
-                                    updateScrollToBottomVisibility()
-                                }
+                                .onPreferenceChange(ContentHeightKey.self, perform: updateContentHeightIfNeeded)
+                                .onPreferenceChange(ViewportHeightKey.self, perform: updateViewportHeightIfNeeded)
+                                .onPreferenceChange(BottomAnchorKey.self, perform: updateBottomAnchorIfNeeded)
                                 .defaultScrollAnchor(shouldAnchorBottom ? .bottom : .top)
                                 .scrollDismissesKeyboard(.interactively)
                                 .onTapGesture { isInputFocused = false }
@@ -265,7 +436,7 @@ struct ChatView: View {
             }
         }
         .onAppear {
-            onMessagesCountChange(visibleMessages.count)
+            refreshVisibleMessages(hydrating: true)
 #if os(macOS)
             registerReturnKeyMonitor()
 #endif
@@ -274,6 +445,10 @@ struct ChatView: View {
 #if os(macOS)
             unregisterReturnKeyMonitor()
 #endif
+            hydrationTask?.cancel()
+            hydrationTask = nil
+            isHydratingSession = false
+            pendingRefreshAfterHydration = false
         }
 
 #if os(iOS) || os(tvOS)
@@ -283,13 +458,23 @@ struct ChatView: View {
             }
         }
 #endif
+        .onReceive(viewModel.messageContentDidChange) { update in
+            applyContentFingerprintUpdate(update)
+        }
+        .onChange(of: viewModel.chatSession.id) { _, _ in
+            MessageRenderCache.shared.clear()
+            refreshVisibleMessages(hydrating: true)
+        }
+        .onChange(of: viewModel.chatSession.messages.count) { _, _ in
+            refreshVisibleMessages()
+        }
+        .onChange(of: viewModel.editingBaseMessageID) { _, _ in
+            refreshVisibleMessages()
+        }
         .onChange(of: visibleMessages.count) { _, _ in
             if !showScrollToBottomButton {
                 scrollToBottom()
             }
-        }
-        .onChange(of: viewModel.chatSession.messages.count) { _, newValue in
-            onMessagesCountChange(newValue)
         }
     }
 
@@ -530,18 +715,20 @@ struct ChatView: View {
                 let showButtons = !(viewModel.isLoading && (visibleMessages.last?.id == message.id))
 
                 // Skip re-rendering when the message content and state have not changed.
+                let fingerprint = fingerprintCache[message.id] ?? ContentFingerprint.make(message.content)
                 let key = VoiceMessageEqKey(
                     id: message.id,
                     isUser: message.isUser,
                     isActive: message.isActive,
                     showActionButtons: showButtons,
-                    contentFP: .make(message.content)
+                    contentFP: fingerprint
                 )
 
                 EquatableRender(value: key) {
                     VoiceMessageView(
                         message: message,
                         showActionButtons: showButtons,
+                        contentFingerprint: fingerprint,
                         onSelectText: { showSelectTextSheet(with: $0) },
                         onRegenerate: { viewModel.regenerateSystemMessage($0) },
                         onEditUserMessage: { msg in
@@ -621,6 +808,14 @@ struct ChatView: View {
             viewModel.userMessage = text
             viewModel.sendMessage()
         }
+    }
+
+    private var conversationLoadingPlaceholder: some View {
+        VStack(spacing: 18) {
+            AssistantAlignedLoadingBubble()
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .padding(.top, 40)
     }
 }
 

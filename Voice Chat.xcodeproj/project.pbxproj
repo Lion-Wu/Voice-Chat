@@ -49,6 +49,8 @@
 		FDA8D9442E7F12AA0012B42F /* TextSegmentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = FDA8D9432E7F12AA0012B42F /* TextSegmentation.swift */; };
 		FDA8D9472E7F13050012B42F /* SafeArray.swift in Sources */ = {isa = PBXBuildFile; fileRef = FDA8D9462E7F13050012B42F /* SafeArray.swift */; };
 		FDA8D9492E7F13340012B42F /* RegexSplitString.swift in Sources */ = {isa = PBXBuildFile; fileRef = FDA8D9482E7F13340012B42F /* RegexSplitString.swift */; };
+		FDAFF0012F90000000000001 /* ContentFingerprint.swift in Sources */ = {isa = PBXBuildFile; fileRef = FDAFF0002F90000000000001 /* ContentFingerprint.swift */; };
+		FDAFF0032F90000000000001 /* MessageRenderCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = FDAFF0022F90000000000001 /* MessageRenderCache.swift */; };
 		FDB5FD112F0000010000001A /* Localizable.strings in Resources */ = {isa = PBXBuildFile; fileRef = FDB5FD102F0000010000001A /* Localizable.strings */; };
 		FDC41A9B2E5CA24700735BF1 /* MarkdownUI in Frameworks */ = {isa = PBXBuildFile; productRef = FDC41A9A2E5CA24700735BF1 /* MarkdownUI */; };
 		FDF0B0022F8F000000000001 /* RealtimeVoiceWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = FDF0B0012F8F000000000001 /* RealtimeVoiceWindowController.swift */; };
@@ -99,6 +101,8 @@
 		FDA8D9332E7F0F260012B42F /* LoadingViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LoadingViews.swift; sourceTree = "<group>"; };
 		FDA8D9352E7F0F360012B42F /* VoiceMessageView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceMessageView.swift; sourceTree = "<group>"; };
 		FDA8D9372E7F0F520012B42F /* FullScreenComposer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FullScreenComposer.swift; sourceTree = "<group>"; };
+		FDAFF0002F90000000000001 /* ContentFingerprint.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentFingerprint.swift; sourceTree = "<group>"; };
+		FDAFF0022F90000000000001 /* MessageRenderCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessageRenderCache.swift; sourceTree = "<group>"; };
 		FDA8D9392E7F11F00012B42F /* AudioRequests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioRequests.swift; sourceTree = "<group>"; };
 		FDA8D93B2E7F12040012B42F /* AudioPlayback.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioPlayback.swift; sourceTree = "<group>"; };
 		FDA8D93D2E7F12190012B42F /* AVAudioDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AVAudioDelegate.swift; sourceTree = "<group>"; };
@@ -236,6 +240,8 @@
 				FDFE0A022F12340000000001 /* ErrorNoticeStack.swift */,
 				FDA8D9352E7F0F360012B42F /* VoiceMessageView.swift */,
 				FDA8D9372E7F0F520012B42F /* FullScreenComposer.swift */,
+				FDAFF0002F90000000000001 /* ContentFingerprint.swift */,
+				FDAFF0022F90000000000001 /* MessageRenderCache.swift */,
 			);
 			path = ChatViewComponents;
 			sourceTree = "<group>";
@@ -361,6 +367,7 @@
 				FDA8D9362E7F0F360012B42F /* VoiceMessageView.swift in Sources */,
 				FD0B94DF2CD9080700DBFA1D /* ChatSessionsViewModel.swift in Sources */,
 				B329D65B2B394979000A17C9 /* Voice_ChatApp.swift in Sources */,
+				FDAFF0012F90000000000001 /* ContentFingerprint.swift in Sources */,
 				FDF714C52E7FC59000B62D71 /* RealtimeVoiceOverlayView.swift in Sources */,
 				FDFE0A052F123C0000000001 /* ServerReachabilityMonitor.swift in Sources */,
 				FDA8D9262E7F0E320012B42F /* BubbleBackground.swift in Sources */,
@@ -372,6 +379,7 @@
 				FDA8D9292E7F0E320012B42F /* RichMarkdownView.swift in Sources */,
 				FDA8D92A2E7F0E320012B42F /* ThinkParts.swift in Sources */,
 				FDFE0A032F12340000000001 /* ErrorNoticeStack.swift in Sources */,
+				FDAFF0032F90000000000001 /* MessageRenderCache.swift in Sources */,
 				B4E916DF2B4BF0E500E49A6B /* VoiceViewModel.swift in Sources */,
 				FD40D5742CA875CC0064E732 /* ContentView.swift in Sources */,
 				FDF0B0022F8F000000000001 /* RealtimeVoiceWindowController.swift in Sources */,
