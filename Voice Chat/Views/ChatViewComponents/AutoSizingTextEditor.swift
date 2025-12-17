@@ -52,7 +52,8 @@ struct AutoSizingTextEditor: NSViewRepresentable {
     func updateNSView(_ nsView: NSScrollView, context: Context) {
         guard let tv = context.coordinator.textView else { return }
         if tv.string != text { tv.string = text }
-        let used = tv.layoutManager?.usedRect(for: tv.textContainer!) ?? .zero
+        guard let textContainer = tv.textContainer else { return }
+        let used = tv.layoutManager?.usedRect(for: textContainer) ?? .zero
         let lineH = tv.layoutManager?.defaultLineHeight(for: tv.font ?? .systemFont(ofSize: 17)) ?? 18
         let maxH = CGFloat(maxLines) * lineH + 18
         let newH = min(maxH, max(lineH, used.height + 18))
@@ -81,7 +82,8 @@ struct AutoSizingTextEditor: NSViewRepresentable {
         func textDidChange(_ notification: Notification) {
             guard let tv = notification.object as? NSTextView else { return }
             parent.text = tv.string
-            let used = tv.layoutManager?.usedRect(for: tv.textContainer!) ?? .zero
+            guard let textContainer = tv.textContainer else { return }
+            let used = tv.layoutManager?.usedRect(for: textContainer) ?? .zero
             let lineH = tv.layoutManager?.defaultLineHeight(for: tv.font ?? .systemFont(ofSize: 17)) ?? 18
             let maxH = CGFloat(parent.maxLines) * lineH + 18
             let newH = min(maxH, max(lineH, used.height + 18))

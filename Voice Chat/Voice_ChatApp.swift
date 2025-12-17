@@ -53,7 +53,7 @@ struct Voice_ChatApp: App {
         makeContainer()
     }()
 
-    /// Builds a SwiftData container. Fail fast instead of silently falling back to in-memory storage.
+    /// Builds a SwiftData container, falling back to in-memory storage if the persistent store fails.
     private static func makeContainer() -> ModelContainer {
         let schema = Schema([
             ChatSession.self,
@@ -61,11 +61,18 @@ struct Voice_ChatApp: App {
             AppSettings.self,
             VoicePreset.self
         ])
-        let config = ModelConfiguration()
         do {
-            return try ModelContainer(for: schema, configurations: [config])
+            return try ModelContainer(for: schema, configurations: [ModelConfiguration()])
         } catch {
-            fatalError("Failed to create persistent ModelContainer: \(error)")
+            // Avoid crashing the entire app if the persistent store cannot be created (e.g., corruption,
+            // permission issues, or an incompatible schema). Fall back to an in-memory store so the UI
+            // can still launch and the user can fix settings/export data.
+            print("SwiftData persistent store init failed, falling back to in-memory: \(error)")
+            do {
+                return try ModelContainer(for: schema, configurations: [.init(isStoredInMemoryOnly: true)])
+            } catch {
+                fatalError("Failed to create any ModelContainer: \(error)")
+            }
         }
     }
 }

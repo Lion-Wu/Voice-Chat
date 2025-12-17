@@ -414,7 +414,10 @@ final class SettingsManager: ObservableObject {
 
         // Build URLs while being tolerant of trailing slashes in `serverAddress`.
         func buildURL(_ path: String, weightsPath: String) -> URL? {
-            let base = serverSettings.serverAddress.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+            let raw = serverSettings.serverAddress.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !raw.isEmpty else { return nil }
+            let normalized = raw.contains("://") ? raw : "http://\(raw)"
+            let base = normalized.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
             var comps = URLComponents(string: base + path)
             comps?.queryItems = [URLQueryItem(name: "weights_path", value: weightsPath)]
             return comps?.url

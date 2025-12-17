@@ -14,10 +14,21 @@ extension GlobalAudioManager {
 
     // MARK: - URL Builder
     func constructTTSURL() -> URL? {
-        let trimmed = settingsManager.serverSettings.serverAddress
-            .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-        guard var comps = URLComponents(string: trimmed) else { return nil }
-        comps.path = comps.path.appending("/tts")
+        let raw = settingsManager.serverSettings.serverAddress
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !raw.isEmpty else { return nil }
+
+        let normalized: String
+        if raw.contains("://") {
+            normalized = raw
+        } else {
+            normalized = "http://\(raw)"
+        }
+
+        guard var comps = URLComponents(string: normalized) else { return nil }
+        var path = comps.path
+        while path.hasSuffix("/") { path.removeLast() }
+        comps.path = path + "/tts"
         return comps.url
     }
 
@@ -150,17 +161,17 @@ extension GlobalAudioManager {
                     }
                 }
 
-                    if index < self.audioChunks.count {
-                        self.audioChunks[index] = data
-                        do {
-                            let p = try AVAudioPlayer(data: data)
-                            self.chunkDurations[index] = max(0, p.duration)
-                        } catch {
-                            self.chunkDurations[index] = 0
-                            self.surfaceTTSIssue(NSLocalizedString("Received audio data could not be played.", comment: "Shown when AVAudioPlayer fails to read TTS audio data"))
-                        }
-                        self.recalcTotalDuration()
+                if index < self.audioChunks.count {
+                    self.audioChunks[index] = data
+                    do {
+                        let p = try AVAudioPlayer(data: data)
+                        self.chunkDurations[index] = max(0, p.duration)
+                    } catch {
+                        self.chunkDurations[index] = 0
+                        self.surfaceTTSIssue(NSLocalizedString("Received audio data could not be played.", comment: "Shown when AVAudioPlayer fails to read TTS audio data"))
                     }
+                    self.recalcTotalDuration()
+                }
 
                 if self.playbackFinished() {
                     self.finishPlayback()
@@ -169,21 +180,17 @@ extension GlobalAudioManager {
 
                 if index == self.currentPlayingIndex {
                     let shouldAutoplay = self.isRealtimeMode ? true : self.isAudioPlaying
-                    let didStart = self.playAudioChunk(at: index,
-                                                       fromTime: self.seekTime,
-                                                       shouldPlay: shouldAutoplay)
-                    if self.isRealtimeMode {
-                        self.isLoading = !didStart
-                        self.isAudioPlaying = didStart
-                    } else {
-                        self.isLoading = false
-                    }
-                    self.seekTime = nil
-                } else if self.isBuffering && index == self.currentPlayingIndex {
-                    let shouldAutoplay = self.isRealtimeMode ? true : self.isAudioPlaying
-                    let didStart = self.playAudioChunk(at: index,
-                                                       fromTime: self.seekTime ?? self.currentTime,
-                                                       shouldPlay: shouldAutoplay)
+                    let resumeTime: TimeInterval? = {
+                        if let seek = self.seekTime { return seek }
+                        return self.isBuffering ? self.currentTime : nil
+                    }()
+
+                    let didStart = self.playAudioChunk(
+                        at: index,
+                        fromTime: resumeTime,
+                        shouldPlay: shouldAutoplay
+                    )
+
                     if self.isRealtimeMode {
                         self.isLoading = !didStart
                         self.isAudioPlaying = didStart

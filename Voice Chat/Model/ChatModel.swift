@@ -146,21 +146,17 @@ protocol ChatStreamingService: AnyObject {
 final class ChatService: NSObject, URLSessionDataDelegate, @unchecked Sendable {
     private let configurationProvider: ChatServiceConfiguring
 
-    private lazy var sessionQueue: OperationQueue = {
-        let queue = OperationQueue()
-        queue.name = "VoiceChat.ChatService"
-        queue.maxConcurrentOperationCount = 1
-        queue.qualityOfService = .userInitiated
-        return queue
-    }()
+    private let stateQueue: DispatchQueue
+    private let sessionQueue: OperationQueue
+    private let delegateProxy: DelegateProxy
 
     private var session: URLSession?
     private var dataTask: URLSessionDataTask?
 
     /// Callbacks are explicitly constrained to run on the main actor.
-    var onDelta: (@MainActor (String) -> Void)?
-    var onError: (@MainActor (Error) -> Void)?
-    var onStreamFinished: (@MainActor () -> Void)?
+    @MainActor var onDelta: (@MainActor (String) -> Void)?
+    @MainActor var onError: (@MainActor (Error) -> Void)?
+    @MainActor var onStreamFinished: (@MainActor () -> Void)?
 
     // Reasoning / body state tracking
     private var isLegacyThinkStream = false
@@ -182,7 +178,7 @@ final class ChatService: NSObject, URLSessionDataDelegate, @unchecked Sendable {
     private let silentGapTimeout: TimeInterval  = 3600        // Allow up to one hour of silence between tokens.
     private var streamStartAt: Date?
     private var lastDeltaAt: Date?
-    private var watchdog: Timer?
+    private var watchdog: DispatchSourceTimer?
 
     // Cancel flag to ignore any residual deltas after stopping.
     private var isCancelled: Bool = false
@@ -192,46 +188,89 @@ final class ChatService: NSObject, URLSessionDataDelegate, @unchecked Sendable {
     private let errorBodyCaptureLimit = 32 * 1024
     private var errorResponseData = Data()
 
+    private final class DelegateProxy: NSObject, URLSessionDataDelegate, @unchecked Sendable {
+        weak var owner: ChatService?
+
+        func urlSession(
+            _ session: URLSession,
+            dataTask: URLSessionDataTask,
+            didReceive response: URLResponse,
+            completionHandler: @escaping (URLSession.ResponseDisposition) -> Void
+        ) {
+            owner?.urlSession(session, dataTask: dataTask, didReceive: response, completionHandler: completionHandler)
+        }
+
+        func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
+            owner?.urlSession(session, dataTask: dataTask, didReceive: data)
+        }
+
+        func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
+            owner?.urlSession(session, task: task, didCompleteWithError: error)
+        }
+    }
+
     init(configurationProvider: ChatServiceConfiguring) {
         self.configurationProvider = configurationProvider
+        self.stateQueue = DispatchQueue(label: "VoiceChat.ChatService.state", qos: .userInitiated)
+        let queue = OperationQueue()
+        queue.name = "VoiceChat.ChatService.session"
+        queue.maxConcurrentOperationCount = 1
+        queue.qualityOfService = .userInitiated
+        queue.underlyingQueue = self.stateQueue
+        self.sessionQueue = queue
+        self.delegateProxy = DelegateProxy()
         super.init()
+        self.delegateProxy.owner = self
         let configuration = URLSessionConfiguration.default
         configuration.waitsForConnectivity = true
         configuration.timeoutIntervalForRequest  = 3900   // Adds a few minutes of headroom beyond one hour.
         configuration.timeoutIntervalForResource = 3900
         configuration.httpMaximumConnectionsPerHost = 1
-        self.session = URLSession(configuration: configuration, delegate: self, delegateQueue: sessionQueue)
+        self.session = URLSession(configuration: configuration, delegate: delegateProxy, delegateQueue: sessionQueue)
     }
 
-    deinit { stopWatchdog() }
+    deinit {
+        session?.invalidateAndCancel()
+        stopWatchdog()
+    }
 
     /// Called on the main actor to avoid crossing actor boundaries with SwiftData models.
     @MainActor
     func fetchStreamedData(messages: [ChatMessage]) {
-        dataTask?.cancel()
-        resetStreamState()
-        isCancelled = false
-
         let base = configurationProvider.apiBaseURL
         let model = configurationProvider.modelIdentifier
         guard let apiURLString = buildAPIURLString(base: base) else {
-            Task { @MainActor in self.onError?(ChatNetworkError.invalidURL) }
+            onError?(ChatNetworkError.invalidURL)
             return
         }
-        self.startStreaming(apiURLString: apiURLString, model: model, messages: messages)
+
+        let payload = transformedMessagesForRequest(messages: messages)
+        stateQueue.async { [weak self] in
+            guard let self else { return }
+            self.dataTask?.cancel()
+            self.dataTask = nil
+            self.stopWatchdog()
+            self.resetStreamState()
+            self.isCancelled = false
+            self.startStreaming(apiURLString: apiURLString, model: model, messagePayload: payload)
+        }
     }
 
     /// Cancels the current streaming request.
+    @MainActor
     func cancelStreaming() {
-        isCancelled = true
-        dataTask?.cancel()
-        dataTask = nil
-        stopWatchdog()
-        resetStreamState()
+        stateQueue.async { [weak self] in
+            guard let self else { return }
+            self.isCancelled = true
+            self.dataTask?.cancel()
+            self.dataTask = nil
+            self.stopWatchdog()
+            self.resetStreamState()
+        }
     }
 
     /// Builds the request and starts the URLSession stream (non-async helper).
-    private func startStreaming(apiURLString: String, model: String, messages: [ChatMessage]) {
+    private func startStreaming(apiURLString: String, model: String, messagePayload: [[String: String]]) {
         guard let apiURL = URL(string: apiURLString) else {
             Task { @MainActor in self.onError?(ChatNetworkError.invalidURL) }
             return
@@ -249,7 +288,7 @@ final class ChatService: NSObject, URLSessionDataDelegate, @unchecked Sendable {
         let requestBody: [String: Any] = [
             "model": model,
             "stream": true,
-            "messages": transformedMessagesForRequest(messages: messages)
+            "messages": messagePayload
         ]
 
         do {
@@ -295,14 +334,37 @@ final class ChatService: NSObject, URLSessionDataDelegate, @unchecked Sendable {
 
     private func buildAPIURLString(base: String) -> String? {
         var sanitized = base.trimmingCharacters(in: .whitespacesAndNewlines)
-        while sanitized.hasSuffix("/") { sanitized.removeLast() }
         guard !sanitized.isEmpty else { return nil }
-        return "\(sanitized)/v1/chat/completions"
+
+        if !sanitized.contains("://") {
+            sanitized = "http://\(sanitized)"
+        }
+        while sanitized.hasSuffix("/") { sanitized.removeLast() }
+
+        guard var comps = URLComponents(string: sanitized) else { return nil }
+        var path = comps.path
+        while path.hasSuffix("/") { path.removeLast() }
+
+        if path.hasSuffix("/v1/chat/completions") {
+            // Keep as-is.
+        } else if path.hasSuffix("/v1/chat") {
+            comps.path = path + "/completions"
+        } else if path.hasSuffix("/v1") {
+            comps.path = path + "/chat/completions"
+        } else {
+            comps.path = path + "/v1/chat/completions"
+        }
+
+        return comps.url?.absoluteString
     }
 
     // MARK: - URLSession Data Delegate
 
     func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive response: URLResponse, completionHandler: @escaping (URLSession.ResponseDisposition) -> Void) {
+        guard let currentTask = self.dataTask, dataTask === currentTask else {
+            completionHandler(.cancel)
+            return
+        }
         if let http = response as? HTTPURLResponse {
             httpStatusCode = http.statusCode
             if !(200...299).contains(http.statusCode) {
@@ -313,6 +375,7 @@ final class ChatService: NSObject, URLSessionDataDelegate, @unchecked Sendable {
     }
 
     func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
+        guard let currentTask = self.dataTask, dataTask === currentTask else { return }
         guard !isCancelled else { return }
 
         if let status = httpStatusCode, !(200...299).contains(status) {
@@ -418,7 +481,13 @@ final class ChatService: NSObject, URLSessionDataDelegate, @unchecked Sendable {
     }
 
     func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
+        guard let currentTask = self.dataTask, task === currentTask else { return }
         stopWatchdog()
+        dataTask = nil
+
+        if isCancelled {
+            return
+        }
         if let status = httpStatusCode, !(200...299).contains(status) {
             let preview = String(data: errorResponseData, encoding: .utf8)?
                 .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
@@ -432,18 +501,28 @@ final class ChatService: NSObject, URLSessionDataDelegate, @unchecked Sendable {
             Task { @MainActor in self.onError?(ChatNetworkError.serverError(message)) }
             return
         }
+
+        if let nsError = error as NSError?,
+           nsError.domain == NSURLErrorDomain,
+           nsError.code == NSURLErrorCancelled {
+            return
+        }
+
         if let error = error {
             Task { @MainActor in self.onError?(error) }
-        } else {
-            emitStreamFinishedOnce()
+            return
         }
+
+        emitStreamFinishedOnce()
     }
 
 // MARK: - Watchdog (reports errors after long waits)
 
     private func startWatchdog() {
         stopWatchdog()
-        watchdog = Timer.scheduledTimer(withTimeInterval: 5.0, repeats: true) { [weak self] _ in
+        let timer = DispatchSource.makeTimerSource(queue: stateQueue)
+        timer.schedule(deadline: .now() + 5.0, repeating: 5.0, leeway: .seconds(1))
+        timer.setEventHandler { [weak self] in
             guard let self else { return }
             guard !self.isCancelled else { return }
             let now = Date()
@@ -467,14 +546,12 @@ final class ChatService: NSObject, URLSessionDataDelegate, @unchecked Sendable {
                 }
             }
         }
-        if let w = watchdog {
-            w.tolerance = 1.0
-            RunLoop.current.add(w, forMode: .common)
-        }
+        watchdog = timer
+        timer.resume()
     }
 
     private func stopWatchdog() {
-        watchdog?.invalidate()
+        watchdog?.cancel()
         watchdog = nil
     }
 

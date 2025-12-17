@@ -99,7 +99,9 @@ func computeTailVisualLines(text: String, width: CGFloat, lines: Int, font: Plat
         let chunk = ns.substring(with: range) as NSString
 
         let attrs: [CFString: Any] = [kCTFontAttributeName: font.ctFont]
-        let attrStr = CFAttributedStringCreate(nil, chunk as CFString, attrs as CFDictionary)!
+        guard let attrStr = CFAttributedStringCreate(nil, chunk as CFString, attrs as CFDictionary) else {
+            return lastResult
+        }
         let framesetter = CTFramesetterCreateWithAttributedString(attrStr)
 
         let path = CGMutablePath()

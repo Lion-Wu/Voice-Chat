@@ -18,20 +18,18 @@ import AppKit
 
 /// Wrapper that invalidates the view only when the equatable value changes.
 @MainActor
-private struct EquatableRender<Value: Equatable, Content: View>: View, Equatable {
+private struct EquatableRender<Value: Equatable & Sendable, Content: View>: View, Equatable {
     nonisolated static func == (lhs: EquatableRender<Value, Content>, rhs: EquatableRender<Value, Content>) -> Bool {
-        // Access the main-actor-isolated value under explicit isolation; safe because value is immutable.
-        MainActor.assumeIsolated {
-            lhs.value == rhs.value
-        }
+        lhs.value == rhs.value
     }
-    let value: Value
+
+    nonisolated let value: Value
     let content: () -> Content
     var body: some View { content() }
 }
 
 /// Equatable key for message rendering that keeps only UI-relevant fields.
-private struct VoiceMessageEqKey: Equatable {
+private struct VoiceMessageEqKey: Equatable, Sendable {
     let id: UUID
     let isUser: Bool
     let isActive: Bool

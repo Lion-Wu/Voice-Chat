@@ -191,6 +191,7 @@ final class ChatViewModel: ObservableObject {
             session: chatSession
         )
         chatSession.messages.append(err)
+        invalidateOrderedMessagesCache()
         persistSession(reason: .immediate)
 
         if realtimeTTSActive {
@@ -268,6 +269,11 @@ final class ChatViewModel: ObservableObject {
     private func persistSession(reason: SessionPersistReason = .throttled) {
         sessionPersistence?.ensureSessionTracked(chatSession)
         sessionPersistence?.persist(session: chatSession, reason: reason)
+    }
+
+    private func invalidateOrderedMessagesCache() {
+        orderedMessagesCache = []
+        orderedMessagesCacheCount = -1
     }
 
     // MARK: - Telemetry
@@ -455,6 +461,7 @@ final class ChatViewModel: ObservableObject {
         }
 
         chatSession.messages.removeAll { !keepIDs.contains($0.id) }
+        invalidateOrderedMessagesCache()
     }
 
     // MARK: - Intent
@@ -480,6 +487,7 @@ final class ChatViewModel: ObservableObject {
             session: chatSession
         )
         chatSession.messages.append(userMsg)
+        invalidateOrderedMessagesCache()
         if isPlaceholderTitle(chatSession.title) {
             chatSession.title = trimmedMessage
         }
@@ -513,6 +521,7 @@ final class ChatViewModel: ObservableObject {
                 session: chatSession
             )
             chatSession.messages.append(err)
+            invalidateOrderedMessagesCache()
             persistSession(reason: .immediate)
             return
         }
@@ -581,6 +590,7 @@ final class ChatViewModel: ObservableObject {
         } else {
             let sys = ChatMessage(content: piece, isUser: false, isActive: true, createdAt: now, session: chatSession)
             chatSession.messages.append(sys)
+            invalidateOrderedMessagesCache()
             currentAssistantMessageID = sys.id
             message = sys
             fingerprint = ContentFingerprint.make(piece)
@@ -662,8 +672,7 @@ final class ChatViewModel: ObservableObject {
         guard chatSession.id == newSession.id else { return }
         if chatSession !== newSession {
             chatSession = newSession
-            orderedMessagesCache = []
-            orderedMessagesCacheCount = -1
+            invalidateOrderedMessagesCache()
         }
     }
 
