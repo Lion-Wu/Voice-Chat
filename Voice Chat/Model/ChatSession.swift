@@ -17,6 +17,7 @@ final class ChatSession {
     var title: String
     var createdAt: Date
     var updatedAt: Date
+    var activeRootMessageID: UUID?
 
     // MARK: - Relation
     @Relationship(deleteRule: .cascade) var messages: [ChatMessage]
@@ -27,6 +28,7 @@ final class ChatSession {
         self.title = title
         self.createdAt = Date()
         self.updatedAt = Date()
+        self.activeRootMessageID = nil
         self.messages = []
     }
 }

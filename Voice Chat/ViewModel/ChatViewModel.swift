@@ -25,6 +25,10 @@ final class ChatViewModel: ObservableObject {
         let fingerprint: ContentFingerprint
     }
 
+    private enum PendingBranchRestore {
+        case message(parentID: UUID, previousChildID: UUID?)
+    }
+
     // MARK: - Published State
     @Published var userMessage: String = ""
     @Published var isLoading: Bool = false
@@ -57,14 +61,20 @@ final class ChatViewModel: ObservableObject {
     private var realtimeTTSActive: Bool = false
     // Incremental segmenter that ignores `<think>` sections and splits on punctuation.
     private var incSegmenter = IncrementalTextSegmenter()
-    // Cached ordering to avoid repeated O(n log n) sorts when rendering long sessions.
-    private var orderedMessagesCache: [ChatMessage] = []
-    private var orderedMessagesCacheCount: Int = -1
+    // Cached active-branch chain to avoid repeated traversals when rendering long sessions.
+    private var branchMessagesCache: [ChatMessage] = []
+    private var branchMessagesCacheCount: Int = -1
+    // Cached message lookup for fast ID -> message mapping.
+    private var messageLookupCache: [UUID: ChatMessage] = [:]
+    private var messageLookupCacheCount: Int = -1
     private var streamingAssistantMessageID: UUID?
     private var streamingAssistantFingerprint: ContentFingerprint?
+    private var pendingAssistantParentMessageID: UUID?
+    private var pendingBranchRestore: PendingBranchRestore?
 
     // Emits content fingerprint updates (e.g., streaming deltas) to drive targeted UI refreshes.
     let messageContentDidChange = PassthroughSubject<MessageContentUpdate, Never>()
+    let branchDidChange = PassthroughSubject<Void, Never>()
 
     // MARK: - Init
     init(
@@ -89,9 +99,7 @@ final class ChatViewModel: ObservableObject {
         self.audioManager = audioManager ?? GlobalAudioManager.shared
         self.sessionPersistence = sessionPersistence
 
-        if chatSession.messages.contains(where: { !$0.isUser && $0.isActive }) {
-            self.isLoading = true
-        }
+        ensureMessageTreeInitializedIfNeeded()
 
         bindChatService(self.chatService)
     }
@@ -190,8 +198,19 @@ final class ChatViewModel: ObservableObject {
             errorDescription: error.localizedDescription,
             session: chatSession
         )
+        if let interrupted {
+            err.parentMessage = interrupted
+            interrupted.activeChildMessageID = err.id
+        } else if let parentID = pendingAssistantParentMessageID,
+                  let parent = messageLookup()[parentID] {
+            err.parentMessage = parent
+            parent.activeChildMessageID = err.id
+        }
         chatSession.messages.append(err)
-        invalidateOrderedMessagesCache()
+        invalidateCachesAfterMessageMutation()
+        pendingAssistantParentMessageID = nil
+        pendingBranchRestore = nil
+        branchDidChange.send(())
         persistSession(reason: .immediate)
 
         if realtimeTTSActive {
@@ -220,6 +239,8 @@ final class ChatViewModel: ObservableObject {
 
         currentAssistantMessageID = nil
         interruptedAssistantMessageID = nil
+        pendingAssistantParentMessageID = nil
+        pendingBranchRestore = nil
 
         persistSession(reason: .immediate)
 
@@ -271,9 +292,19 @@ final class ChatViewModel: ObservableObject {
         sessionPersistence?.persist(session: chatSession, reason: reason)
     }
 
-    private func invalidateOrderedMessagesCache() {
-        orderedMessagesCache = []
-        orderedMessagesCacheCount = -1
+    private func invalidateBranchMessagesCache() {
+        branchMessagesCache = []
+        branchMessagesCacheCount = -1
+    }
+
+    private func invalidateMessageLookupCache() {
+        messageLookupCache = [:]
+        messageLookupCacheCount = -1
+    }
+
+    private func invalidateCachesAfterMessageMutation() {
+        invalidateBranchMessagesCache()
+        invalidateMessageLookupCache()
     }
 
     // MARK: - Telemetry
@@ -421,47 +452,314 @@ final class ChatViewModel: ObservableObject {
         return message
     }
 
-    /// Returns messages sorted by time while preserving insertion order for identical timestamps.
-    private func chronologicalMessages() -> [ChatMessage] {
+    private func messageLookup() -> [UUID: ChatMessage] {
         let count = chatSession.messages.count
-        if count == orderedMessagesCacheCount && !orderedMessagesCache.isEmpty {
-            return orderedMessagesCache
+        if count == messageLookupCacheCount && !messageLookupCache.isEmpty {
+            return messageLookupCache
         }
 
-        let sorted = chatSession.messages
-            .enumerated()
-            .sorted { lhs, rhs in
-                if lhs.element.createdAt == rhs.element.createdAt {
-                    return lhs.offset < rhs.offset
-                }
-                return lhs.element.createdAt < rhs.element.createdAt
+        var lookup: [UUID: ChatMessage] = [:]
+        lookup.reserveCapacity(count)
+        for message in chatSession.messages {
+            lookup[message.id] = message
+        }
+
+        messageLookupCache = lookup
+        messageLookupCacheCount = count
+        return lookup
+    }
+
+    private func stableMessageOrder(_ lhs: ChatMessage, _ rhs: ChatMessage) -> Bool {
+        if lhs.createdAt == rhs.createdAt {
+            return lhs.id.uuidString < rhs.id.uuidString
+        }
+        return lhs.createdAt < rhs.createdAt
+    }
+
+    private func rootCandidatesSorted() -> [ChatMessage] {
+        chatSession.messages
+            .filter { $0.parentMessage == nil }
+            .sorted(by: stableMessageOrder)
+    }
+
+    private func activeRootMessage() -> ChatMessage? {
+        let lookup = messageLookup()
+        if let id = chatSession.activeRootMessageID,
+           let root = lookup[id] {
+            return root
+        }
+
+        if let fallback = rootCandidatesSorted().first {
+            chatSession.activeRootMessageID = fallback.id
+            persistSession(reason: .immediate)
+            return fallback
+        }
+
+        // Data corruption fallback: break any cycles by promoting the oldest message to a root.
+        guard let fallback = chatSession.messages.sorted(by: stableMessageOrder).first else { return nil }
+        if fallback.parentMessage != nil {
+            fallback.parentMessage = nil
+        }
+        chatSession.activeRootMessageID = fallback.id
+        invalidateBranchMessagesCache()
+        persistSession(reason: .immediate)
+        return fallback
+    }
+
+    private func activeBranchMessages() -> [ChatMessage] {
+        let count = chatSession.messages.count
+        if count == branchMessagesCacheCount && !branchMessagesCache.isEmpty {
+            return branchMessagesCache
+        }
+
+        guard let root = activeRootMessage() else { return [] }
+        let lookup = messageLookup()
+
+        var out: [ChatMessage] = []
+        out.reserveCapacity(min(64, count))
+
+        var visited = Set<UUID>()
+        var current: ChatMessage? = root
+        while let message = current, visited.insert(message.id).inserted {
+            out.append(message)
+            guard let nextID = message.activeChildMessageID,
+                  let next = lookup[nextID] else {
+                break
             }
-            .map(\.element)
-
-        orderedMessagesCache = sorted
-        orderedMessagesCacheCount = count
-        return sorted
-    }
-
-    /// Exposes the cached chronological ordering for UI rendering.
-    func orderedMessagesCached() -> [ChatMessage] {
-        chronologicalMessages()
-    }
-
-    /// Removes the boundary message (if requested) and everything that chronologically follows it.
-    private func trimMessages(startingAt boundary: ChatMessage, includeBoundary: Bool) {
-        let ordered = chronologicalMessages()
-        guard let boundaryIndex = ordered.firstIndex(where: { $0.id == boundary.id }) else { return }
-
-        let keepCount = includeBoundary ? boundaryIndex : boundaryIndex + 1
-        let keepIDs = Set(ordered.prefix(keepCount).map(\.id))
-
-        if keepCount == ordered.count {
-            return
+            current = next
         }
 
-        chatSession.messages.removeAll { !keepIDs.contains($0.id) }
-        invalidateOrderedMessagesCache()
+        branchMessagesCache = out
+        branchMessagesCacheCount = count
+        return out
+    }
+
+    /// Exposes the cached active branch chain for UI rendering.
+    func orderedMessagesCached() -> [ChatMessage] {
+        activeBranchMessages()
+    }
+
+    private func ensureMessageTreeInitializedIfNeeded() {
+        guard !chatSession.messages.isEmpty else { return }
+        guard !sending else { return }
+
+        var didMutate = false
+        var didMutateBranch = false
+
+        // Ensure all messages are associated with the current session (legacy data can have nil / stale links).
+        for message in chatSession.messages {
+            if message.session?.id != chatSession.id {
+                message.session = chatSession
+                didMutate = true
+            }
+        }
+
+        let messages = chatSession.messages
+        var lookup: [UUID: ChatMessage] = [:]
+        lookup.reserveCapacity(messages.count)
+        for message in messages {
+            lookup[message.id] = message
+        }
+
+        // Drop parent pointers that point outside this session (or to self).
+        for message in messages {
+            if let parent = message.parentMessage {
+                if parent.id == message.id || lookup[parent.id] == nil {
+                    message.parentMessage = nil
+                    didMutate = true
+                    didMutateBranch = true
+                }
+            }
+        }
+
+        // Break any parent cycles so we always have at least one root.
+        for message in messages {
+            var visited = Set<UUID>()
+            var current: ChatMessage? = message
+            while let cur = current {
+                if !visited.insert(cur.id).inserted {
+                    if cur.parentMessage != nil {
+                        cur.parentMessage = nil
+                        didMutate = true
+                        didMutateBranch = true
+                    }
+                    break
+                }
+
+                guard let parent = cur.parentMessage else { break }
+                if lookup[parent.id] == nil {
+                    cur.parentMessage = nil
+                    didMutate = true
+                    didMutateBranch = true
+                    break
+                }
+                current = parent
+            }
+        }
+
+        // Legacy migration: sessions that predate branching stored messages linearly without parent pointers.
+        if !messages.contains(where: { $0.parentMessage != nil }) {
+            var orderIndex: [UUID: Int] = [:]
+            orderIndex.reserveCapacity(messages.count)
+            for (idx, message) in messages.enumerated() {
+                orderIndex[message.id] = idx
+            }
+
+            let ordered = messages.sorted { lhs, rhs in
+                if lhs.createdAt == rhs.createdAt {
+                    let leftIndex = orderIndex[lhs.id] ?? 0
+                    let rightIndex = orderIndex[rhs.id] ?? 0
+                    if leftIndex == rightIndex {
+                        return lhs.id.uuidString < rhs.id.uuidString
+                    }
+                    return leftIndex < rightIndex
+                }
+                return lhs.createdAt < rhs.createdAt
+            }
+            if let first = ordered.first, chatSession.activeRootMessageID != first.id {
+                chatSession.activeRootMessageID = first.id
+                didMutate = true
+                didMutateBranch = true
+            }
+
+            if ordered.count >= 2 {
+                for idx in 1..<ordered.count {
+                    let prev = ordered[idx - 1]
+                    let cur = ordered[idx]
+                    if cur.parentMessage?.id != prev.id {
+                        cur.parentMessage = prev
+                        didMutate = true
+                        didMutateBranch = true
+                    }
+                    if prev.activeChildMessageID != cur.id {
+                        prev.activeChildMessageID = cur.id
+                        didMutate = true
+                        didMutateBranch = true
+                    }
+                }
+                if let last = ordered.last, last.activeChildMessageID != nil {
+                    last.activeChildMessageID = nil
+                    didMutate = true
+                    didMutateBranch = true
+                }
+            }
+        }
+
+        // Ensure we always have a valid root selection.
+        var roots = messages.filter { $0.parentMessage == nil }.sorted(by: stableMessageOrder)
+        if roots.isEmpty, let fallback = messages.sorted(by: stableMessageOrder).first {
+            fallback.parentMessage = nil
+            roots = [fallback]
+            didMutate = true
+            didMutateBranch = true
+        }
+
+        if let activeID = chatSession.activeRootMessageID,
+           let active = lookup[activeID] {
+            if active.parentMessage != nil {
+                var visited = Set<UUID>()
+                var cursor = active
+                while let parent = cursor.parentMessage,
+                      visited.insert(cursor.id).inserted {
+                    cursor = parent
+                }
+                if chatSession.activeRootMessageID != cursor.id {
+                    chatSession.activeRootMessageID = cursor.id
+                    didMutate = true
+                    didMutateBranch = true
+                }
+            }
+        } else if let fallback = roots.first {
+            chatSession.activeRootMessageID = fallback.id
+            didMutate = true
+            didMutateBranch = true
+        }
+
+        // Ensure activeChildMessageID always points at an actual child if children exist.
+        var childrenByParent: [UUID: [ChatMessage]] = [:]
+        childrenByParent.reserveCapacity(messages.count)
+        for message in messages {
+            if let parent = message.parentMessage {
+                childrenByParent[parent.id, default: []].append(message)
+            }
+        }
+
+        for parent in messages {
+            let children = childrenByParent[parent.id, default: []].sorted(by: stableMessageOrder)
+            guard !children.isEmpty else {
+                if parent.activeChildMessageID != nil {
+                    parent.activeChildMessageID = nil
+                    didMutate = true
+                    didMutateBranch = true
+                }
+                continue
+            }
+
+            if let activeChildID = parent.activeChildMessageID,
+               children.contains(where: { $0.id == activeChildID }) {
+                continue
+            }
+
+            if let fallback = children.last, parent.activeChildMessageID != fallback.id {
+                parent.activeChildMessageID = fallback.id
+                didMutate = true
+                didMutateBranch = true
+            }
+        }
+
+        // If the app was terminated mid-stream, assistant messages may have been persisted as active.
+        if finalizeDanglingActiveAssistantMessagesIfNeeded() {
+            didMutate = true
+        }
+
+        guard didMutate else { return }
+
+        // Only refresh branch rendering if the branch structure changed.
+        if didMutateBranch {
+            invalidateBranchMessagesCache()
+            branchDidChange.send(())
+        }
+        invalidateMessageLookupCache()
+        persistSession(reason: .immediate)
+    }
+
+    @discardableResult
+    private func finalizeDanglingActiveAssistantMessagesIfNeeded(now: Date = Date()) -> Bool {
+        guard !sending else { return false }
+        var didChange = false
+
+        for message in chatSession.messages where !message.isUser && message.isActive {
+            message.isActive = false
+            if message.finishReason == nil {
+                message.finishReason = "interrupted"
+            }
+            if message.streamStartedAt == nil {
+                message.streamStartedAt = message.createdAt
+            }
+            if message.streamCompletedAt == nil {
+                message.streamCompletedAt = now
+            }
+            if let start = message.streamStartedAt, message.streamDuration == nil {
+                message.streamDuration = now.timeIntervalSince(start)
+            }
+            if let first = message.streamFirstTokenAt, message.generationDuration == nil {
+                message.generationDuration = now.timeIntervalSince(first)
+            }
+            if message.deltaCount == 0 {
+                message.deltaCount = 1
+            }
+            if message.characterCount == 0 {
+                message.characterCount = message.content.count
+            }
+            didChange = true
+        }
+
+        if didChange {
+            isPriming = false
+            isLoading = false
+            sending = false
+        }
+        return didChange
     }
 
     // MARK: - Intent
@@ -471,23 +769,37 @@ final class ChatViewModel: ObservableObject {
         guard !trimmedMessage.isEmpty else { return }
         guard !sending else { return }
 
+        ensureMessageTreeInitializedIfNeeded()
+
+        let parentMessage: ChatMessage?
         if let baseID = editingBaseMessageID,
            let base = chatSession.messages.first(where: { $0.id == baseID }) {
-            trimMessages(startingAt: base, includeBoundary: true)
+            parentMessage = base.parentMessage
             editingBaseMessageID = nil
+        } else {
+            parentMessage = activeBranchMessages().last
         }
 
+        let now = Date()
         let userMsg = ChatMessage(
             content: trimmedMessage,
             isUser: true,
             isActive: true,
-            createdAt: Date(),
+            createdAt: now,
             deltaCount: 1,
             characterCount: trimmedMessage.count,
             session: chatSession
         )
+        userMsg.parentMessage = parentMessage
+        if let parentMessage {
+            parentMessage.activeChildMessageID = userMsg.id
+        } else {
+            chatSession.activeRootMessageID = userMsg.id
+        }
         chatSession.messages.append(userMsg)
-        invalidateOrderedMessagesCache()
+        invalidateCachesAfterMessageMutation()
+        branchDidChange.send(())
+        pendingBranchRestore = nil
         if isPlaceholderTitle(chatSession.title) {
             chatSession.title = trimmedMessage
         }
@@ -502,8 +814,9 @@ final class ChatViewModel: ObservableObject {
             finalizeActiveAssistantMessage(reason: "aborted-before-send", finishedAt: Date())
             interruptedAssistantMessageID = nil
             currentAssistantMessageID = nil
+            pendingAssistantParentMessageID = nil
+            pendingBranchRestore = nil
 
-            let now = Date()
             let errText = NSLocalizedString("Unable to reach the text server. Please check your connection or server settings.", comment: "Shown when sending a message while the text server is unreachable")
             let errContent = "!error:\(errText)"
             let err = ChatMessage(
@@ -520,8 +833,11 @@ final class ChatViewModel: ObservableObject {
                 finishReason: "unreachable",
                 session: chatSession
             )
+            err.parentMessage = userMsg
+            userMsg.activeChildMessageID = err.id
             chatSession.messages.append(err)
-            invalidateOrderedMessagesCache()
+            invalidateCachesAfterMessageMutation()
+            branchDidChange.send(())
             persistSession(reason: .immediate)
             return
         }
@@ -532,6 +848,7 @@ final class ChatViewModel: ObservableObject {
         finalizeActiveAssistantMessage(reason: "superseded", finishedAt: Date())
         interruptedAssistantMessageID = nil
         currentAssistantMessageID = nil
+        pendingAssistantParentMessageID = userMsg.id
         pendingDeltaWriteBytes = 0
         userMessage = ""
         persistSession(reason: .immediate)
@@ -544,7 +861,7 @@ final class ChatViewModel: ObservableObject {
             audioManager.startRealtimeStream()
         }
 
-        let currentMessages = chronologicalMessages()
+        let currentMessages = activeBranchMessages()
         recordStreamStart(using: currentMessages)
         chatService.fetchStreamedData(messages: currentMessages)
     }
@@ -554,8 +871,21 @@ final class ChatViewModel: ObservableObject {
         let finishedAt = Date()
         chatService.cancelStreaming()
         finalizeActiveAssistantMessage(reason: "cancelled", finishedAt: finishedAt)
+
+        if currentAssistantMessageID == nil,
+           let restore = pendingBranchRestore {
+            if case let .message(parentID, previousChildID) = restore,
+               let parent = messageLookup()[parentID] {
+                parent.activeChildMessageID = previousChildID
+            }
+            invalidateBranchMessagesCache()
+            branchDidChange.send(())
+        }
+
         currentAssistantMessageID = nil
         interruptedAssistantMessageID = nil
+        pendingAssistantParentMessageID = nil
+        pendingBranchRestore = nil
         pendingDeltaWriteBytes = 0
         isPriming = false
         isLoading = false
@@ -589,8 +919,24 @@ final class ChatViewModel: ObservableObject {
             }
         } else {
             let sys = ChatMessage(content: piece, isUser: false, isActive: true, createdAt: now, session: chatSession)
+            let parent: ChatMessage?
+            if let parentID = pendingAssistantParentMessageID,
+               let resolved = messageLookup()[parentID] {
+                parent = resolved
+                pendingAssistantParentMessageID = nil
+            } else {
+                parent = activeBranchMessages().last
+            }
+            if let parent {
+                sys.parentMessage = parent
+                parent.activeChildMessageID = sys.id
+            } else {
+                chatSession.activeRootMessageID = sys.id
+            }
             chatSession.messages.append(sys)
-            invalidateOrderedMessagesCache()
+            invalidateCachesAfterMessageMutation()
+            pendingBranchRestore = nil
+            branchDidChange.send(())
             currentAssistantMessageID = sys.id
             message = sys
             fingerprint = ContentFingerprint.make(piece)
@@ -607,17 +953,26 @@ final class ChatViewModel: ObservableObject {
 
     func regenerateSystemMessage(_ message: ChatMessage) {
         guard !sending else { return }
+        ensureMessageTreeInitializedIfNeeded()
         chatService.cancelStreaming()
         finalizeActiveAssistantMessage(reason: "regenerate", finishedAt: Date())
         currentAssistantMessageID = nil
         interruptedAssistantMessageID = nil
+        pendingAssistantParentMessageID = nil
         pendingDeltaWriteBytes = 0
 
         guard !message.isUser else { return }
-        trimMessages(startingAt: message, includeBoundary: true)
+        guard let parent = message.parentMessage else { return }
+
         persistSession(reason: .immediate)
 
-        let currentMessages = chronologicalMessages()
+        pendingBranchRestore = .message(parentID: parent.id, previousChildID: parent.activeChildMessageID)
+        parent.activeChildMessageID = nil
+        invalidateBranchMessagesCache()
+        branchDidChange.send(())
+
+        pendingAssistantParentMessageID = parent.id
+        let currentMessages = activeBranchMessages()
         isPriming = true
         isLoading = true
         sending = true
@@ -627,31 +982,47 @@ final class ChatViewModel: ObservableObject {
 
     func retry(afterErrorMessage errorMessage: ChatMessage) {
         guard !sending else { return }
+        ensureMessageTreeInitializedIfNeeded()
         chatService.cancelStreaming()
         finalizeActiveAssistantMessage(reason: "retry", finishedAt: Date())
         currentAssistantMessageID = nil
+        interruptedAssistantMessageID = nil
+        pendingAssistantParentMessageID = nil
         pendingDeltaWriteBytes = 0
 
-        let ordered = chronologicalMessages()
-        guard let errorIndex = ordered.firstIndex(where: { $0.id == errorMessage.id }) else { return }
-        let priorMessages = ordered.prefix(errorIndex)
-        if let precedingUser = priorMessages.last(where: { $0.isUser }) {
-            trimMessages(startingAt: precedingUser, includeBoundary: false)
-        } else {
-            trimMessages(startingAt: errorMessage, includeBoundary: true)
-        }
+        let active = activeBranchMessages()
+        guard let errorIndex = active.firstIndex(where: { $0.id == errorMessage.id }) else { return }
+        let priorMessages = active.prefix(errorIndex)
+        guard let precedingUser = priorMessages.last(where: { $0.isUser }) else { return }
 
-        interruptedAssistantMessageID = nil
         persistSession(reason: .immediate)
 
-        let currentMessages = chronologicalMessages()
+        pendingBranchRestore = .message(parentID: precedingUser.id, previousChildID: precedingUser.activeChildMessageID)
+        precedingUser.activeChildMessageID = nil
+        invalidateBranchMessagesCache()
+        branchDidChange.send(())
+
+        pendingAssistantParentMessageID = precedingUser.id
+        let currentMessages = activeBranchMessages()
         isPriming = true
         isLoading = true
         sending = true
-        persistSession(reason: .immediate)
 
         recordStreamStart(using: currentMessages)
         chatService.fetchStreamedData(messages: currentMessages)
+    }
+
+    func switchToMessageVersion(_ message: ChatMessage) {
+        guard !sending else { return }
+        ensureMessageTreeInitializedIfNeeded()
+        if let parent = message.parentMessage {
+            parent.activeChildMessageID = message.id
+        } else {
+            chatSession.activeRootMessageID = message.id
+        }
+        invalidateBranchMessagesCache()
+        branchDidChange.send(())
+        persistSession(reason: .immediate)
     }
 
     // MARK: - Editing
@@ -672,7 +1043,8 @@ final class ChatViewModel: ObservableObject {
         guard chatSession.id == newSession.id else { return }
         if chatSession !== newSession {
             chatSession = newSession
-            invalidateOrderedMessagesCache()
+            invalidateCachesAfterMessageMutation()
+            ensureMessageTreeInitializedIfNeeded()
         }
     }
 

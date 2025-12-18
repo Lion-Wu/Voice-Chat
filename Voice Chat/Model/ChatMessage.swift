@@ -13,6 +13,9 @@ final class ChatMessage {
     // MARK: - Identity
     var id: UUID
 
+    // MARK: - Branching
+    var activeChildMessageID: UUID?
+
     // MARK: - Content
     var content: String
     var isUser: Bool
@@ -38,6 +41,8 @@ final class ChatMessage {
 
     // MARK: - Relation
     @Relationship(inverse: \ChatSession.messages) var session: ChatSession?
+    @Relationship(inverse: \ChatMessage.childMessages) var parentMessage: ChatMessage?
+    @Relationship var childMessages: [ChatMessage]
 
     // MARK: - Init
     init(
@@ -45,6 +50,7 @@ final class ChatMessage {
         isUser: Bool,
         isActive: Bool = true,
         createdAt: Date = Date(),
+        activeChildMessageID: UUID? = nil,
         modelIdentifier: String? = nil,
         apiBaseURL: String? = nil,
         requestID: UUID? = nil,
@@ -60,9 +66,12 @@ final class ChatMessage {
         promptCharacterCount: Int? = nil,
         finishReason: String? = nil,
         errorDescription: String? = nil,
-        session: ChatSession? = nil
+        session: ChatSession? = nil,
+        parentMessage: ChatMessage? = nil,
+        childMessages: [ChatMessage] = []
     ) {
         self.id = UUID()
+        self.activeChildMessageID = activeChildMessageID
         self.content = content
         self.isUser = isUser
         self.isActive = isActive
@@ -83,5 +92,7 @@ final class ChatMessage {
         self.finishReason = finishReason
         self.errorDescription = errorDescription
         self.session = session
+        self.parentMessage = parentMessage
+        self.childMessages = childMessages
     }
 }

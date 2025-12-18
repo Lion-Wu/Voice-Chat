@@ -34,6 +34,7 @@ private struct VoiceMessageEqKey: Equatable, Sendable {
     let isUser: Bool
     let isActive: Bool
     let showActionButtons: Bool
+    let branchControlsEnabled: Bool
     let contentFP: ContentFingerprint
 }
 
@@ -459,6 +460,9 @@ struct ChatView: View {
         .onReceive(viewModel.messageContentDidChange) { update in
             applyContentFingerprintUpdate(update)
         }
+        .onReceive(viewModel.branchDidChange) {
+            refreshVisibleMessages()
+        }
         .onChange(of: viewModel.chatSession.id) { _, _ in
             MessageRenderCache.shared.clear()
             refreshVisibleMessages(hydrating: true)
@@ -707,6 +711,8 @@ struct ChatView: View {
 
     @ViewBuilder
     private func messageListCore() -> some View {
+        let branchControlsEnabled = !(viewModel.isLoading || viewModel.isPriming || viewModel.isEditing)
+
         VStack(spacing: 12) {
             ForEach(visibleMessages) { message in
                 // Hide action buttons while the newest message is still streaming.
@@ -719,6 +725,7 @@ struct ChatView: View {
                     isUser: message.isUser,
                     isActive: message.isActive,
                     showActionButtons: showButtons,
+                    branchControlsEnabled: branchControlsEnabled,
                     contentFP: fingerprint
                 )
 
@@ -726,6 +733,7 @@ struct ChatView: View {
                     VoiceMessageView(
                         message: message,
                         showActionButtons: showButtons,
+                        branchControlsEnabled: branchControlsEnabled,
                         contentFingerprint: fingerprint,
                         onSelectText: { showSelectTextSheet(with: $0) },
                         onRegenerate: { viewModel.regenerateSystemMessage($0) },
@@ -733,6 +741,7 @@ struct ChatView: View {
                             viewModel.beginEditUserMessage(msg)
                             isInputFocused = true
                         },
+                        onSwitchVersion: { viewModel.switchToMessageVersion($0) },
                         onRetry: { errMsg in
                             viewModel.retry(afterErrorMessage: errMsg)
                         }

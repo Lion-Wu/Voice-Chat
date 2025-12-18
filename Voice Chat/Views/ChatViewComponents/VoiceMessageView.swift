@@ -12,20 +12,22 @@ struct VoiceMessageView: View {
     @EnvironmentObject var audioManager: GlobalAudioManager
 
     let showActionButtons: Bool
+    let branchControlsEnabled: Bool
     let contentFingerprint: ContentFingerprint
     let onSelectText: (String) -> Void
     let onRegenerate: (ChatMessage) -> Void
     let onEditUserMessage: (ChatMessage) -> Void
+    let onSwitchVersion: (ChatMessage) -> Void
     let onRetry: (ChatMessage) -> Void
 
     private let thinkPreviewLines: Int = 6
     private let thinkFontSize: CGFloat = 14
     private let thinkFont: Font = .system(size: 14, design: .monospaced)
 
+    @ViewBuilder
     var body: some View {
-        // Special handling for error bubbles.
         if message.content.hasPrefix("!error:") {
-            return AnyView(
+            VStack(alignment: .leading, spacing: 4) {
                 HStack {
                     ErrorBubbleView(text: String(message.content.dropFirst("!error:".count)).trimmingCharacters(in: .whitespacesAndNewlines)) {
                         onRetry(message)
@@ -33,12 +35,13 @@ struct VoiceMessageView: View {
                     .frame(maxWidth: contentMaxWidthForAssistant(), alignment: .center)
                     .frame(maxWidth: .infinity, alignment: .center)
                 }
-                .padding(.vertical, 4)
-                .padding(.horizontal, 8)
-            )
-        }
 
-        let systemTextBubble = SystemTextBubble(
+                systemBranchControls
+            }
+            .padding(.vertical, 4)
+            .padding(.horizontal, 8)
+        } else {
+            let systemTextBubble = SystemTextBubble(
             message: message,
             thinkPreviewLines: thinkPreviewLines,
             thinkFontSize: thinkFontSize,
@@ -50,16 +53,21 @@ struct VoiceMessageView: View {
             onReadAloud: { audioManager.startProcessing(text: message.content.extractThinkParts().body) }
         )
 
-        return AnyView(
             HStack(alignment: .top) {
                 if message.isUser { Spacer(minLength: 40) } else { Spacer(minLength: 0) }
 
                 if message.isUser {
-                    UserTextBubble(text: message.content)
+                    VStack(alignment: .trailing, spacing: 4) {
+                        UserTextBubble(text: message.content)
                         .transition(.opacity.combined(with: .scale(scale: 0.98)))
+                        userBranchControls
+                    }
                 } else {
-                    systemTextBubble
-                        .transition(.opacity.combined(with: .scale(scale: 0.98)))
+                    VStack(alignment: .leading, spacing: 4) {
+                        systemTextBubble
+                            .transition(.opacity.combined(with: .scale(scale: 0.98)))
+                        systemBranchControls
+                    }
                 }
 
                 Spacer(minLength: 0)
@@ -72,7 +80,7 @@ struct VoiceMessageView: View {
                 onEditUserMessage: onEditUserMessage,
                 copyToClipboard: copyToClipboard
             ))
-        )
+        }
     }
 
     private func copyToClipboard(_ text: String) {
@@ -82,6 +90,90 @@ struct VoiceMessageView: View {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(text, forType: .string)
         #endif
+    }
+
+    private func versionsForCurrentMessage() -> [ChatMessage] {
+        let candidates: [ChatMessage]
+        if let parent = message.parentMessage {
+            let direct = parent.childMessages.filter { $0.isUser == message.isUser }
+            if !direct.isEmpty {
+                candidates = direct
+            } else if let session = message.session {
+                let parentID = parent.id
+                candidates = session.messages.filter { candidate in
+                    guard candidate.isUser == message.isUser else { return false }
+                    return candidate.parentMessage?.id == parentID
+                }
+            } else {
+                candidates = [message]
+            }
+        } else if let session = message.session {
+            candidates = session.messages.filter { $0.parentMessage == nil && $0.isUser == message.isUser }
+        } else {
+            candidates = [message]
+        }
+
+        var versions = candidates
+        if !versions.contains(where: { $0.id == message.id }) {
+            versions.append(message)
+        }
+
+        return versions.sorted { lhs, rhs in
+            if lhs.createdAt == rhs.createdAt {
+                return lhs.id.uuidString < rhs.id.uuidString
+            }
+            return lhs.createdAt < rhs.createdAt
+        }
+    }
+
+    @ViewBuilder
+    private var userBranchControls: some View {
+        let versions = versionsForCurrentMessage()
+        if versions.count > 1,
+           let idx = versions.firstIndex(where: { $0.id == message.id }) {
+            MessageBranchControls(
+                currentIndex: idx + 1,
+                totalCount: versions.count,
+                isEnabled: branchControlsEnabled,
+                canGoPrevious: idx > 0,
+                canGoNext: idx < (versions.count - 1),
+                onPrevious: {
+                    guard idx > 0 else { return }
+                    onSwitchVersion(versions[idx - 1])
+                },
+                onNext: {
+                    guard idx < (versions.count - 1) else { return }
+                    onSwitchVersion(versions[idx + 1])
+                }
+            )
+            .frame(maxWidth: contentMaxWidthForUser(), alignment: .trailing)
+            .frame(maxWidth: .infinity, alignment: .trailing)
+        }
+    }
+
+    @ViewBuilder
+    private var systemBranchControls: some View {
+        let versions = versionsForCurrentMessage()
+        if versions.count > 1,
+           let idx = versions.firstIndex(where: { $0.id == message.id }) {
+            MessageBranchControls(
+                currentIndex: idx + 1,
+                totalCount: versions.count,
+                isEnabled: branchControlsEnabled,
+                canGoPrevious: idx > 0,
+                canGoNext: idx < (versions.count - 1),
+                onPrevious: {
+                    guard idx > 0 else { return }
+                    onSwitchVersion(versions[idx - 1])
+                },
+                onNext: {
+                    guard idx < (versions.count - 1) else { return }
+                    onSwitchVersion(versions[idx + 1])
+                }
+            )
+            .frame(maxWidth: contentMaxWidthForAssistant(), alignment: .leading)
+            .frame(maxWidth: .infinity, alignment: .center)
+        }
     }
 }
 
@@ -105,6 +197,45 @@ struct UserContextMenuModifier: ViewModifier {
         } else {
             content
         }
+    }
+}
+
+struct MessageBranchControls: View {
+    let currentIndex: Int
+    let totalCount: Int
+    let isEnabled: Bool
+    let canGoPrevious: Bool
+    let canGoNext: Bool
+    let onPrevious: () -> Void
+    let onNext: () -> Void
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Button {
+                onPrevious()
+            } label: {
+                Text("←")
+                    .font(.caption2.weight(.semibold))
+            }
+            .buttonStyle(.plain)
+            .disabled(!isEnabled || !canGoPrevious)
+
+            Text("\(currentIndex)/\(totalCount)")
+                .font(.caption2.weight(.semibold))
+                .monospacedDigit()
+
+            Button {
+                onNext()
+            } label: {
+                Text("→")
+                    .font(.caption2.weight(.semibold))
+            }
+            .buttonStyle(.plain)
+            .disabled(!isEnabled || !canGoNext)
+        }
+        .foregroundStyle(.secondary)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Version \(currentIndex) of \(totalCount)")
     }
 }
 
