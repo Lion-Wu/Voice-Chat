@@ -110,9 +110,20 @@ struct SidebarView: View {
         isRenaming = true
     }
 
+    private func selectDraftSession() {
+        guard chatSessionsViewModel.canStartNewSession else { return }
+        let draft = chatSessionsViewModel.draftSession
+        chatSessionsViewModel.selectedSession = draft
+        onConversationTap(draft)
+    }
+
     @ViewBuilder
     private var macSidebar: some View {
         List(selection: $chatSessionsViewModel.selectedSessionID) {
+            Section {
+                macDraftRow
+                    .tag(chatSessionsViewModel.draftSession.id)
+            }
             Section(header: Text("Chats")) {
                 if filteredSessions.isEmpty {
                     Text(String(format: NSLocalizedString("No chats match \"%@\"", comment: ""), searchText))
@@ -148,6 +159,10 @@ struct SidebarView: View {
             iosSearchHeader
 
             List(selection: $chatSessionsViewModel.selectedSessionID) {
+                Section {
+                    iosDraftRow
+                        .tag(chatSessionsViewModel.draftSession.id)
+                }
                 Section(LocalizedStringKey("Chats")) {
                     if filteredSessions.isEmpty {
                         ContentUnavailableView(
@@ -250,6 +265,19 @@ struct SidebarView: View {
         return "Fresh conversation"
     }
 
+    private var macDraftRow: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "plus.circle.fill")
+                .foregroundStyle(.secondary)
+            Text("New Chat")
+                .font(.headline)
+            Spacer()
+        }
+        .padding(.vertical, 4)
+        .contentShape(Rectangle())
+        .onTapGesture { selectDraftSession() }
+    }
+
     private func macSessionRow(_ session: ChatSession) -> some View {
         HStack {
             VStack(alignment: .leading, spacing: 2) {
@@ -269,6 +297,19 @@ struct SidebarView: View {
             chatSessionsViewModel.selectedSession = session
             onConversationTap(session)
         }
+    }
+
+    private var iosDraftRow: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "plus.circle.fill")
+                .foregroundStyle(.secondary)
+            Text("New Chat")
+                .font(.body.weight(.semibold))
+            Spacer()
+        }
+        .padding(.vertical, 6)
+        .contentShape(Rectangle())
+        .onTapGesture { selectDraftSession() }
     }
 
     private func iosSessionRow(_ session: ChatSession) -> some View {

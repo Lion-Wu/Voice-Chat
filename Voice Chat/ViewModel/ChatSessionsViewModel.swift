@@ -12,6 +12,7 @@ import SwiftData
 final class ChatSessionsViewModel: ObservableObject {
     // MARK: - Published State
     @Published private(set) var chatSessions: [ChatSession] = []
+    @Published private(set) var draftSession: ChatSession = ChatSession()
     @Published var selectedSessionID: UUID? = nil
     @Published private(set) var isRealtimeVoiceLocked: Bool = false
 
@@ -57,17 +58,19 @@ final class ChatSessionsViewModel: ObservableObject {
     var selectedSession: ChatSession? {
         get {
             guard let id = selectedSessionID else { return nil }
-            return chatSessions.first(where: { $0.id == id })
+            if let session = chatSessions.first(where: { $0.id == id }) {
+                return session
+            }
+            if id == draftSession.id {
+                return draftSession
+            }
+            return nil
         }
         set { selectedSessionID = newValue?.id }
     }
 
     var canStartNewSession: Bool {
-        guard !isRealtimeVoiceLocked else { return false }
-        if let s = selectedSession {
-            return !s.messages.isEmpty
-        }
-        return true
+        !isRealtimeVoiceLocked
     }
 
     // MARK: - Chat service configuration
@@ -117,11 +120,7 @@ final class ChatSessionsViewModel: ObservableObject {
     // MARK: - Session Ops
     func startNewSession() {
         guard !isRealtimeVoiceLocked else { return }
-        ensureChatConfigurationCurrent()
-        guard let new = repository.createSession(title: String(localized: "New Chat")) else { return }
-        cacheViewModel(for: new)
-        persist(session: new, reason: .immediate)
-        selectedSessionID = new.id
+        selectedSessionID = draftSession.id
     }
 
     private func cacheViewModel(for session: ChatSession) {
@@ -159,22 +158,18 @@ final class ChatSessionsViewModel: ObservableObject {
             repository.delete(s) // SwiftData cascades to remove related messages.
         }
         loadChatSessions() // Keeps list in sync with persisted state.
-        if !chatSessions.contains(where: { $0.id == selectedSessionID }) {
-            selectedSessionID = chatSessions.first?.id
-        }
-        if chatSessions.isEmpty {
-            startNewSession()
-        }
     }
 
     // MARK: - Persistence (SwiftData)
     @discardableResult
     func persist(session: ChatSession, reason: SessionPersistReason = .throttled) -> Bool {
+        guard shouldPersist(session) else { return false }
         let didPersist = repository.persist(session: session, reason: reason)
         if didPersist {
             Task { @MainActor [weak self] in
                 // Run after the current call stack to keep SwiftUI happy.
                 self?.updateInMemoryOrdering(with: session)
+                self?.promoteDraftIfNeeded(session)
             }
         }
         return didPersist
@@ -186,16 +181,11 @@ final class ChatSessionsViewModel: ObservableObject {
         chatSessions = orderedSessions(fetched)
         pruneStaleViewModels(keeping: fetched)
         ensureChatConfigurationCurrent()
-        if selectedSessionID == nil {
-            selectedSessionID = chatSessions.first?.id
-        }
-        if chatSessions.isEmpty {
-            startNewSession()
-        }
+        ensureValidSelection()
     }
 
     private func pruneStaleViewModels(keeping sessions: [ChatSession]) {
-        let validIDs = Set(sessions.map(\.id))
+        let validIDs = Set(sessions.map(\.id)).union([draftSession.id])
         let staleKeys = viewModelCache.keys.filter { !validIDs.contains($0) }
         for key in staleKeys {
             viewModelCache.removeValue(forKey: key)
@@ -211,9 +201,7 @@ final class ChatSessionsViewModel: ObservableObject {
         }
 
         chatSessions = orderedSessions(updated)
-        if selectedSessionID == nil {
-            selectedSessionID = chatSessions.first?.id
-        }
+        ensureValidSelection()
     }
 
     func updateRealtimeVoiceLock(_ active: Bool) {
@@ -230,12 +218,38 @@ final class ChatSessionsViewModel: ObservableObject {
             return lhs.updatedAt > rhs.updatedAt
         }
     }
+
+    private func shouldPersist(_ session: ChatSession) -> Bool {
+        if session.id == draftSession.id {
+            return !session.messages.isEmpty
+        }
+        return true
+    }
+
+    private func promoteDraftIfNeeded(_ session: ChatSession) {
+        guard session.id == draftSession.id else { return }
+        draftSession = ChatSession()
+    }
+
+    private func ensureValidSelection() {
+        if let selectedID = selectedSessionID {
+            if selectedID == draftSession.id {
+                return
+            }
+            if !chatSessions.contains(where: { $0.id == selectedID }) {
+                selectedSessionID = chatSessions.first?.id ?? draftSession.id
+            }
+        } else {
+            selectedSessionID = chatSessions.first?.id ?? draftSession.id
+        }
+    }
 }
 
 // MARK: - Persistence Bridge
 
 extension ChatSessionsViewModel: ChatSessionPersisting {
     func ensureSessionTracked(_ session: ChatSession) {
+        guard shouldPersist(session) else { return }
         if chatSessions.contains(where: { $0.id == session.id }) {
             repository.ensureSessionTracked(session)
         } else {

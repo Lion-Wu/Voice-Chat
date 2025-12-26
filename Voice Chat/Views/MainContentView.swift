@@ -45,9 +45,6 @@ struct MainContentView: View {
                                 .foregroundStyle(.secondary)
                         }
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .task {
-                            chatSessionsViewModel.startNewSession()
-                        }
                     }
                 }
             }
@@ -69,11 +66,6 @@ struct MainContentView: View {
                     .accessibilityLabel("New Chat")
                     .disabled(!chatSessionsViewModel.canStartNewSession)
                 }
-            }
-        }
-        .onAppear {
-            if chatSessionsViewModel.chatSessions.isEmpty {
-                chatSessionsViewModel.startNewSession()
             }
         }
     }
