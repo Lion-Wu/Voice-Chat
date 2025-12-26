@@ -24,8 +24,7 @@ struct MainContentView: View {
     var body: some View {
         NavigationStack {
             ZStack {
-                Color(uiColor: .systemBackground)
-                    .ignoresSafeArea()
+                AppBackgroundView()
 
                 Group {
                     if let selectedSession = chatSessionsViewModel.selectedSession {
@@ -61,7 +60,6 @@ struct MainContentView: View {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button(action: { chatSessionsViewModel.startNewSession() }) {
                         Image(systemName: "plus")
-                            .font(.title2.weight(.semibold))
                     }
                     .accessibilityLabel("New Chat")
                     .disabled(!chatSessionsViewModel.canStartNewSession)

@@ -37,6 +37,7 @@ final class SideMenuContainerViewController: UIViewController {
         configureHierarchy()
         configureConstraints()
         configureGestures()
+        configureKeyboardHandling()
     }
 
     private func configureHierarchy() {
@@ -121,8 +122,7 @@ final class SideMenuContainerViewController: UIViewController {
             mainView.widthAnchor.constraint(equalTo: view.widthAnchor)
         ]
 
-        let keyboardGuide = view.keyboardLayoutGuide
-        mainBottomConstraint = mainView.bottomAnchor.constraint(equalTo: keyboardGuide.topAnchor)
+        mainBottomConstraint = mainView.bottomAnchor.constraint(equalTo: view.bottomAnchor)
         mainConstraints.append(mainBottomConstraint)
 
         NSLayoutConstraint.activate(mainConstraints)
@@ -134,6 +134,35 @@ final class SideMenuContainerViewController: UIViewController {
         let panGesture = UIPanGestureRecognizer(target: self, action: #selector(handlePanGesture(_:)))
         panGesture.delegate = self
         view.addGestureRecognizer(panGesture)
+    }
+
+    private func configureKeyboardHandling() {
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleKeyboardFrame(_:)),
+            name: UIResponder.keyboardWillChangeFrameNotification,
+            object: nil
+        )
+    }
+
+    @objc
+    private func handleKeyboardFrame(_ notification: Notification) {
+        guard let userInfo = notification.userInfo,
+              let endFrameValue = userInfo[UIResponder.keyboardFrameEndUserInfoKey] as? NSValue else {
+            return
+        }
+
+        let endFrame = endFrameValue.cgRectValue
+        let endFrameInView = view.convert(endFrame, from: view.window)
+        let overlap = max(0, view.bounds.maxY - endFrameInView.minY)
+        mainBottomConstraint.constant = -overlap
+
+        let duration = userInfo[UIResponder.keyboardAnimationDurationUserInfoKey] as? Double ?? 0.25
+        let curveRaw = userInfo[UIResponder.keyboardAnimationCurveUserInfoKey] as? UInt ?? UIView.AnimationOptions.curveEaseInOut.rawValue
+        let options = UIView.AnimationOptions(rawValue: curveRaw << 16)
+        UIView.animate(withDuration: duration, delay: 0, options: options) {
+            self.view.layoutIfNeeded()
+        }
     }
 
     private func presentSettings() {
@@ -179,6 +208,10 @@ final class SideMenuContainerViewController: UIViewController {
         default:
             break
         }
+    }
+
+    deinit {
+        NotificationCenter.default.removeObserver(self)
     }
 }
 

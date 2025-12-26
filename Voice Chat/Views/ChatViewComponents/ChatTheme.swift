@@ -86,10 +86,17 @@ enum ChatTheme {
 // MARK: - Input Layout Constants
 
 enum InputMetrics {
+    #if os(iOS) || os(tvOS)
+    static let outerV: CGFloat = 5
+    static let outerH: CGFloat = 8
+    static let innerTop: CGFloat = 6
+    static let innerBottom: CGFloat = 6
+#else
     static let outerV: CGFloat = 6
     static let outerH: CGFloat = 12
     static let innerTop: CGFloat = 7
     static let innerBottom: CGFloat = 7
+#endif
     static let innerLeading: CGFloat = 4
     static let innerTrailing: CGFloat = 4
     static let baseLineHeight: CGFloat = 21

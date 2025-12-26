@@ -108,11 +108,27 @@ struct ChatView: View {
     }
 
     private var floatingInputPanelHeight: CGFloat {
-        floatingInputButtonHeight + 16
+        floatingInputButtonHeight + composerOuterVerticalPadding * 2
+    }
+
+    private var composerBottomPadding: CGFloat {
+        #if os(iOS) || os(tvOS)
+        return 26
+        #else
+        return 14
+        #endif
+    }
+
+    private var composerOuterVerticalPadding: CGFloat {
+        #if os(iOS) || os(tvOS)
+        return 6
+        #else
+        return 8
+        #endif
     }
 
     private var messageListBottomInset: CGFloat {
-        floatingInputPanelHeight + 20
+        return floatingInputPanelHeight + composerBottomPadding + 6
     }
 
     private var noticeBottomPadding: CGFloat {
@@ -405,19 +421,23 @@ struct ChatView: View {
         .navigationTitle(viewModel.chatSession.title)
         #endif
         .overlay(alignment: .bottom) {
-            VStack(spacing: 12) {
-                if showScrollToBottomButton {
-                    scrollToBottomButton
-                        .transition(
-                            .move(edge: .bottom)
-                                .combined(with: .opacity)
-                        )
-                }
+            ZStack(alignment: .bottom) {
+                composerShadowShelf
 
-                floatingInputPanel
+                VStack(spacing: 12) {
+                    if showScrollToBottomButton {
+                        scrollToBottomButton
+                            .transition(
+                                .move(edge: .bottom)
+                                    .combined(with: .opacity)
+                            )
+                    }
+
+                    floatingInputPanel
+                }
+                .padding(.horizontal, 16)
+                .padding(.bottom, composerBottomPadding)
             }
-            .padding(.horizontal, 16)
-            .padding(.bottom, 14)
         }
         .overlay(alignment: .bottom) {
             if !errorCenter.notices.isEmpty {
@@ -434,6 +454,10 @@ struct ChatView: View {
                 .zIndex(0)
             }
         }
+        #if os(iOS) || os(tvOS)
+        .ignoresSafeArea(.container, edges: .bottom)
+        .ignoresSafeArea(.keyboard, edges: .bottom)
+        #endif
         .onAppear {
             refreshVisibleMessages(hydrating: true)
 #if os(macOS)
@@ -571,8 +595,8 @@ struct ChatView: View {
 
                 floatingTrailingButton
             }
-            .padding(.vertical, 8)
-            .padding(.leading, 14)
+            .padding(.vertical, composerOuterVerticalPadding)
+            .padding(.leading, 10)
             .padding(.trailing, 10)
             .frame(maxWidth: .infinity)
             .background(
@@ -691,6 +715,27 @@ struct ChatView: View {
         return 40
         #else
         return 34
+        #endif
+    }
+
+    @ViewBuilder
+    private var composerShadowShelf: some View {
+        #if os(iOS) || os(tvOS)
+        let shadowColor = Color.black.opacity(0.18)
+        LinearGradient(
+            colors: [
+                shadowColor,
+                shadowColor.opacity(0.08),
+                .clear
+            ],
+            startPoint: .bottom,
+            endPoint: .top
+        )
+        .frame(maxWidth: .infinity)
+        .frame(height: composerBottomPadding + 16)
+        .allowsHitTesting(false)
+        #else
+        EmptyView()
         #endif
     }
 

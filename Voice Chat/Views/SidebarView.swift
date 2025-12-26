@@ -155,8 +155,8 @@ struct SidebarView: View {
     }
 
     private var iosSidebar: some View {
-        VStack(spacing: 8) {
-            iosSearchHeader
+        ZStack {
+            AppBackgroundView()
 
             List(selection: $chatSessionsViewModel.selectedSessionID) {
                 Section {
@@ -201,11 +201,24 @@ struct SidebarView: View {
             #else
             .listStyle(.plain)
             #endif
-            #if os(iOS) || os(tvOS)
-            .safeAreaInset(edge: .bottom) { iosSettingsFooter }
-            #endif
         }
+        .safeAreaInset(edge: .top, spacing: 0) { iosSearchHeaderContainer }
+        #if os(iOS) || os(tvOS)
+        .safeAreaInset(edge: .bottom) { iosSettingsFooter }
+        #endif
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private var iosSearchHeaderContainer: some View {
+        VStack(spacing: 0) {
+            iosSearchHeader
+        }
+        .frame(maxWidth: .infinity)
+        .background(.ultraThinMaterial)
+        .overlay(alignment: .bottom) {
+            Divider()
+                .overlay(ChatTheme.separator)
+        }
     }
 
     private var iosSearchHeader: some View {
@@ -234,10 +247,16 @@ struct SidebarView: View {
         .padding(.vertical, 10)
         .background(
             RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .fill(PlatformColor.elevatedFill)
+                .fill(.thinMaterial)
         )
-        .padding(.horizontal, 12)
-        .padding(.top, 12)
+        .overlay(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .stroke(ChatTheme.subtleStroke.opacity(0.6), lineWidth: 0.8)
+        )
+        .shadow(color: Color.black.opacity(0.06), radius: 10, x: 0, y: 6)
+        .padding(.horizontal, 16)
+        .padding(.top, 6)
+        .padding(.bottom, 8)
     }
 
     private func sessionInitials(_ session: ChatSession) -> String {
@@ -371,7 +390,7 @@ struct SidebarView: View {
             .buttonStyle(.plain)
             .padding(.horizontal, 16)
         }
-        .padding(.vertical, 12)
+        .padding(.vertical, 8)
         .background(.thinMaterial)
     }
     #endif

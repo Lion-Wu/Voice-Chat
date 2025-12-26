@@ -9,9 +9,35 @@ import SwiftUI
 
 /// Shared gradient background that keeps the app visually consistent with Apple HIG guidance.
 struct AppBackgroundView: View {
+    @Environment(\.colorScheme) private var colorScheme
+
     var body: some View {
+        #if os(iOS) || os(tvOS)
+        let highlightOpacity: Double = colorScheme == .dark ? 0.08 : 0.32
+        LinearGradient(
+            colors: [
+                PlatformColor.systemBackground,
+                PlatformColor.secondaryBackground
+            ],
+            startPoint: .topLeading,
+            endPoint: .bottomTrailing
+        )
+        .overlay(
+            RadialGradient(
+                colors: [
+                    Color.white.opacity(highlightOpacity),
+                    Color.clear
+                ],
+                center: .topLeading,
+                startRadius: 0,
+                endRadius: 420
+            )
+        )
+        .ignoresSafeArea()
+        #else
         PlatformColor.systemBackground
             .ignoresSafeArea()
+        #endif
     }
 }
 

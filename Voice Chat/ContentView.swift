@@ -106,13 +106,17 @@ private extension ContentView {
 #if os(iOS) || os(tvOS)
     @ViewBuilder
     var iosContent: some View {
-        SideMenuContainerRepresentable()
-            .environmentObject(chatSessionsViewModel)
-            .environmentObject(audioManager)
-            .environmentObject(settingsManager)
-            .environmentObject(speechInputManager)
-            .environmentObject(errorCenter)
-            .overlay(voiceOverlayLayer)
+        ZStack {
+            AppBackgroundView()
+            SideMenuContainerRepresentable()
+                .environmentObject(chatSessionsViewModel)
+                .environmentObject(audioManager)
+                .environmentObject(settingsManager)
+                .environmentObject(speechInputManager)
+                .environmentObject(errorCenter)
+                .ignoresSafeArea()
+            voiceOverlayLayer
+        }
     }
 #endif
 
