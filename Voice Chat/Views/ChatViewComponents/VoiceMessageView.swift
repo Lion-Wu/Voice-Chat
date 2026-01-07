@@ -300,9 +300,7 @@ struct SystemTextBubble: View {
             if let think = parts.think {
                 if parts.isClosed {
                     DisclosureGroup(isExpanded: $showThink) {
-                        Text(think)
-                            .font(thinkFont)
-                            .foregroundColor(.secondary)
+                        RichMarkdownView(markdown: think)
                             .frame(maxWidth: contentMaxWidthForAssistant(), alignment: .leading)
                             .padding(.top, 4)
                     } label: {
@@ -318,17 +316,15 @@ struct SystemTextBubble: View {
                     }
                     .padding(.vertical, 4)
                     .padding(.horizontal, 4)
-                    .frame(maxWidth: contentMaxWidthForAssistant(), alignment: .leading)
                     .bubbleStyle(
                         isUser: false,
                         contentPadding: EdgeInsets(top: 6, leading: 10, bottom: 6, trailing: 10)
                     )
+                    .frame(maxWidth: contentMaxWidthForAssistant(), alignment: .leading)
                 } else {
                     VStack(alignment: .leading, spacing: 6) {
                         DisclosureGroup(isExpanded: $showThink) {
-                            Text(think)
-                                .font(thinkFont)
-                                .foregroundColor(.secondary)
+                            RichMarkdownView(markdown: think)
                                 .frame(maxWidth: contentMaxWidthForAssistant(), alignment: .leading)
                                 .padding(.top, 4)
                         } label: {
@@ -355,11 +351,11 @@ struct SystemTextBubble: View {
                     }
                     .padding(.vertical, 4)
                     .padding(.horizontal, 4)
-                    .frame(maxWidth: contentMaxWidthForAssistant())
                     .bubbleStyle(
                         isUser: false,
                         contentPadding: EdgeInsets(top: 6, leading: 10, bottom: 6, trailing: 10)
                     )
+                    .frame(maxWidth: contentMaxWidthForAssistant(), alignment: .leading)
                 }
             }
         }

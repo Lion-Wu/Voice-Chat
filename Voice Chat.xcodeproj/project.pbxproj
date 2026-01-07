@@ -7,13 +7,22 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		127355D0ADD6A6B0D5494FD8 /* MarkdownAttachmentsCore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9E3106DB55A775AF7BE384A /* MarkdownAttachmentsCore.swift */; };
+		2C90EB6374B89DA85430464C /* MarkdownStyle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 221380AED73400A2E5CF1BF5 /* MarkdownStyle.swift */; };
+		5C865DE17CD6A6FA07787148 /* MarkdownAttachments.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7AEA24E21CCE3BFA49920260 /* MarkdownAttachments.swift */; };
+		AE2A1D0A31C597D5386EF5B3 /* MarkdownTextCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2B1C505F6C6E82CEFFD96AAE /* MarkdownTextCoordinator.swift */; };
+		B0013EBDCC58A5723A3B434D /* MarkdownUtilities.swift in Sources */ = {isa = PBXBuildFile; fileRef = CFA25ED1E52CB2CA427EFFE1 /* MarkdownUtilities.swift */; };
 		B329D65B2B394979000A17C9 /* Voice_ChatApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = B329D65A2B394979000A17C9 /* Voice_ChatApp.swift */; };
 		B329D65F2B39497A000A17C9 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = B329D65E2B39497A000A17C9 /* Assets.xcassets */; };
 		B329D6622B39497A000A17C9 /* Preview Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = B329D6612B39497A000A17C9 /* Preview Assets.xcassets */; };
 		B4A629592B59617A006125B5 /* ChatViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B4A629582B59617A006125B5 /* ChatViewModel.swift */; };
 		B4E916D52B4BDBD900E49A6B /* ChatModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B4E916D42B4BDBD900E49A6B /* ChatModel.swift */; };
 		B4E916DF2B4BF0E500E49A6B /* VoiceViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B4E916DE2B4BF0E500E49A6B /* VoiceViewModel.swift */; };
+		B62024477293B49C915D33FD /* MarkdownAttachmentViewsUIKit.swift in Sources */ = {isa = PBXBuildFile; fileRef = E412283226A67A4F5019F147 /* MarkdownAttachmentViewsUIKit.swift */; };
+		C0F1447A06E3F50BC2585521 /* MarkdownAttachmentViewsAppKit.swift in Sources */ = {isa = PBXBuildFile; fileRef = 27E86C1B8F2522CFBCEA84C5 /* MarkdownAttachmentViewsAppKit.swift */; };
 		C4442FE0C1135115CFA62BDD /* AppChrome.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4570041CD56B63DCA44B5C0 /* AppChrome.swift */; };
+		D66C517B8B2A28EEC0566BFE /* MarkdownTextView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9FD5410AC9490AAD00A24145 /* MarkdownTextView.swift */; };
+		EE43A506B09B5C0111462EB7 /* MarkdownAttributedStringRenderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6D65F433F37BABBAEEFE71C5 /* MarkdownAttributedStringRenderer.swift */; };
 		FD0577A52CB626FD009FC45C /* SettingsViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD0577A42CB626FD009FC45C /* SettingsViewModel.swift */; };
 		FD0A0A102F123E0000000001 /* AppEnvironment.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD0A0A0F2F123E0000000001 /* AppEnvironment.swift */; };
 		FD0B94DF2CD9080700DBFA1D /* ChatSessionsViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD0B94DE2CD9080700DBFA1D /* ChatSessionsViewModel.swift */; };
@@ -27,6 +36,7 @@
 		FD40D5722CA871120064E732 /* AudioPlayerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD40D5712CA871120064E732 /* AudioPlayerView.swift */; };
 		FD40D5742CA875CC0064E732 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD40D5732CA875CC0064E732 /* ContentView.swift */; };
 		FD40D5762CA876010064E732 /* GlobalAudioManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD40D5752CA876010064E732 /* GlobalAudioManager.swift */; };
+		FD423AE02F07B7C10016D0B4 /* Markdown in Frameworks */ = {isa = PBXBuildFile; productRef = FD423ADF2F07B7C10016D0B4 /* Markdown */; };
 		FD6E97252CA92C840086C234 /* SettingsModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD6E97242CA92C840086C234 /* SettingsModel.swift */; };
 		FD7228652E7EBE22005BF261 /* SpeechInputManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD7228642E7EBE22005BF261 /* SpeechInputManager.swift */; };
 		FD7AF1B42CD896B900A5080B /* BlurView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD7AF1B32CD896B900A5080B /* BlurView.swift */; };
@@ -52,7 +62,6 @@
 		FDAFF0012F90000000000001 /* ContentFingerprint.swift in Sources */ = {isa = PBXBuildFile; fileRef = FDAFF0002F90000000000001 /* ContentFingerprint.swift */; };
 		FDAFF0032F90000000000001 /* MessageRenderCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = FDAFF0022F90000000000001 /* MessageRenderCache.swift */; };
 		FDB5FD112F0000010000001A /* Localizable.strings in Resources */ = {isa = PBXBuildFile; fileRef = FDB5FD102F0000010000001A /* Localizable.strings */; };
-		FDC41A9B2E5CA24700735BF1 /* MarkdownUI in Frameworks */ = {isa = PBXBuildFile; productRef = FDC41A9A2E5CA24700735BF1 /* MarkdownUI */; };
 		FDF0B0022F8F000000000001 /* RealtimeVoiceWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = FDF0B0012F8F000000000001 /* RealtimeVoiceWindowController.swift */; };
 		FDF714C12E7FC54100B62D71 /* IncrementalTextSegmenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = FDF714C02E7FC54100B62D71 /* IncrementalTextSegmenter.swift */; };
 		FDF714C32E7FC55300B62D71 /* VoiceChatOverlayViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = FDF714C22E7FC55300B62D71 /* VoiceChatOverlayViewModel.swift */; };
@@ -64,6 +73,12 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		221380AED73400A2E5CF1BF5 /* MarkdownStyle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownStyle.swift; sourceTree = "<group>"; };
+		27E86C1B8F2522CFBCEA84C5 /* MarkdownAttachmentViewsAppKit.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownAttachmentViewsAppKit.swift; sourceTree = "<group>"; };
+		2B1C505F6C6E82CEFFD96AAE /* MarkdownTextCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownTextCoordinator.swift; sourceTree = "<group>"; };
+		6D65F433F37BABBAEEFE71C5 /* MarkdownAttributedStringRenderer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownAttributedStringRenderer.swift; sourceTree = "<group>"; };
+		7AEA24E21CCE3BFA49920260 /* MarkdownAttachments.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownAttachments.swift; sourceTree = "<group>"; };
+		9FD5410AC9490AAD00A24145 /* MarkdownTextView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownTextView.swift; sourceTree = "<group>"; };
 		B329D6572B394979000A17C9 /* Voice Chat.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Voice Chat.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		B329D65A2B394979000A17C9 /* Voice_ChatApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Voice_ChatApp.swift; sourceTree = "<group>"; };
 		B329D65E2B39497A000A17C9 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
@@ -71,7 +86,10 @@
 		B4A629582B59617A006125B5 /* ChatViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatViewModel.swift; sourceTree = "<group>"; };
 		B4E916D42B4BDBD900E49A6B /* ChatModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatModel.swift; sourceTree = "<group>"; };
 		B4E916DE2B4BF0E500E49A6B /* VoiceViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceViewModel.swift; sourceTree = "<group>"; };
+		B9E3106DB55A775AF7BE384A /* MarkdownAttachmentsCore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownAttachmentsCore.swift; sourceTree = "<group>"; };
+		CFA25ED1E52CB2CA427EFFE1 /* MarkdownUtilities.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownUtilities.swift; sourceTree = "<group>"; };
 		D4570041CD56B63DCA44B5C0 /* AppChrome.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppChrome.swift; sourceTree = "<group>"; };
+		E412283226A67A4F5019F147 /* MarkdownAttachmentViewsUIKit.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownAttachmentViewsUIKit.swift; sourceTree = "<group>"; };
 		FD0577A42CB626FD009FC45C /* SettingsViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = SettingsViewModel.swift; path = "Voice Chat/ViewModel/SettingsViewModel.swift"; sourceTree = SOURCE_ROOT; };
 		FD0A0A0F2F123E0000000001 /* AppEnvironment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppEnvironment.swift; sourceTree = "<group>"; };
 		FD0B94DD2CD8E63500DBFA1D /* Voice Chat.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = "Voice Chat.entitlements"; sourceTree = "<group>"; };
@@ -101,8 +119,6 @@
 		FDA8D9332E7F0F260012B42F /* LoadingViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LoadingViews.swift; sourceTree = "<group>"; };
 		FDA8D9352E7F0F360012B42F /* VoiceMessageView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceMessageView.swift; sourceTree = "<group>"; };
 		FDA8D9372E7F0F520012B42F /* FullScreenComposer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FullScreenComposer.swift; sourceTree = "<group>"; };
-		FDAFF0002F90000000000001 /* ContentFingerprint.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentFingerprint.swift; sourceTree = "<group>"; };
-		FDAFF0022F90000000000001 /* MessageRenderCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessageRenderCache.swift; sourceTree = "<group>"; };
 		FDA8D9392E7F11F00012B42F /* AudioRequests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioRequests.swift; sourceTree = "<group>"; };
 		FDA8D93B2E7F12040012B42F /* AudioPlayback.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioPlayback.swift; sourceTree = "<group>"; };
 		FDA8D93D2E7F12190012B42F /* AVAudioDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AVAudioDelegate.swift; sourceTree = "<group>"; };
@@ -110,6 +126,8 @@
 		FDA8D9432E7F12AA0012B42F /* TextSegmentation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextSegmentation.swift; sourceTree = "<group>"; };
 		FDA8D9462E7F13050012B42F /* SafeArray.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SafeArray.swift; sourceTree = "<group>"; };
 		FDA8D9482E7F13340012B42F /* RegexSplitString.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RegexSplitString.swift; sourceTree = "<group>"; };
+		FDAFF0002F90000000000001 /* ContentFingerprint.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentFingerprint.swift; sourceTree = "<group>"; };
+		FDAFF0022F90000000000001 /* MessageRenderCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessageRenderCache.swift; sourceTree = "<group>"; };
 		FDB5FD0A2F0000010000001A /* Localizable.strings */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = Localizable.strings; path = en.lproj/Localizable.strings; sourceTree = "<group>"; };
 		FDB5FD0B2F0000010000001A /* Localizable.strings */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = Localizable.strings; path = "zh-Hans.lproj/Localizable.strings"; sourceTree = "<group>"; };
 		FDB5FD0C2F0000010000001A /* Localizable.strings */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = Localizable.strings; path = "zh-Hant.lproj/Localizable.strings"; sourceTree = "<group>"; };
@@ -129,13 +147,30 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				FDC41A9B2E5CA24700735BF1 /* MarkdownUI in Frameworks */,
+				FD423AE02F07B7C10016D0B4 /* Markdown in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		032DDEF99FB25D8E3404C02B /* RichMarkdownComponents */ = {
+			isa = PBXGroup;
+			children = (
+				FDA8D9232E7F0E320012B42F /* RichMarkdownView.swift */,
+				9FD5410AC9490AAD00A24145 /* MarkdownTextView.swift */,
+				2B1C505F6C6E82CEFFD96AAE /* MarkdownTextCoordinator.swift */,
+				221380AED73400A2E5CF1BF5 /* MarkdownStyle.swift */,
+				6D65F433F37BABBAEEFE71C5 /* MarkdownAttributedStringRenderer.swift */,
+				B9E3106DB55A775AF7BE384A /* MarkdownAttachmentsCore.swift */,
+				E412283226A67A4F5019F147 /* MarkdownAttachmentViewsUIKit.swift */,
+				27E86C1B8F2522CFBCEA84C5 /* MarkdownAttachmentViewsAppKit.swift */,
+				7AEA24E21CCE3BFA49920260 /* MarkdownAttachments.swift */,
+				CFA25ED1E52CB2CA427EFFE1 /* MarkdownUtilities.swift */,
+			);
+			path = RichMarkdownComponents;
+			sourceTree = "<group>";
+		};
 		B329D64E2B394979000A17C9 = {
 			isa = PBXGroup;
 			children = (
@@ -230,7 +265,7 @@
 			children = (
 				FDA8D9202E7F0E320012B42F /* BubbleBackground.swift */,
 				FDA8D9212E7F0E320012B42F /* ChatTheme.swift */,
-				FDA8D9232E7F0E320012B42F /* RichMarkdownView.swift */,
+				032DDEF99FB25D8E3404C02B /* RichMarkdownComponents */,
 				FDA8D9242E7F0E320012B42F /* ThinkParts.swift */,
 				FDA8D92B2E7F0ED00012B42F /* TailLinesText.swift */,
 				FDA8D92D2E7F0EE30012B42F /* PreferenceKeys.swift */,
@@ -309,7 +344,7 @@
 			);
 			mainGroup = B329D64E2B394979000A17C9;
 			packageReferences = (
-				FDC41A992E5CA24700735BF1 /* XCRemoteSwiftPackageReference "swift-markdown-ui" */,
+				FD423ADE2F07B7C10016D0B4 /* XCRemoteSwiftPackageReference "swift-markdown" */,
 			);
 			productRefGroup = B329D6582B394979000A17C9 /* Products */;
 			projectDirPath = "";
@@ -377,6 +412,15 @@
 				FDA8D9382E7F0F520012B42F /* FullScreenComposer.swift in Sources */,
 				FDF714C32E7FC55300B62D71 /* VoiceChatOverlayViewModel.swift in Sources */,
 				FDA8D9292E7F0E320012B42F /* RichMarkdownView.swift in Sources */,
+				D66C517B8B2A28EEC0566BFE /* MarkdownTextView.swift in Sources */,
+				AE2A1D0A31C597D5386EF5B3 /* MarkdownTextCoordinator.swift in Sources */,
+				2C90EB6374B89DA85430464C /* MarkdownStyle.swift in Sources */,
+				EE43A506B09B5C0111462EB7 /* MarkdownAttributedStringRenderer.swift in Sources */,
+				127355D0ADD6A6B0D5494FD8 /* MarkdownAttachmentsCore.swift in Sources */,
+				B62024477293B49C915D33FD /* MarkdownAttachmentViewsUIKit.swift in Sources */,
+				C0F1447A06E3F50BC2585521 /* MarkdownAttachmentViewsAppKit.swift in Sources */,
+				5C865DE17CD6A6FA07787148 /* MarkdownAttachments.swift in Sources */,
+				B0013EBDCC58A5723A3B434D /* MarkdownUtilities.swift in Sources */,
 				FDA8D92A2E7F0E320012B42F /* ThinkParts.swift in Sources */,
 				FDFE0A032F12340000000001 /* ErrorNoticeStack.swift in Sources */,
 				FDAFF0032F90000000000001 /* MessageRenderCache.swift in Sources */,
@@ -659,21 +703,21 @@
 /* End XCConfigurationList section */
 
 /* Begin XCRemoteSwiftPackageReference section */
-		FDC41A992E5CA24700735BF1 /* XCRemoteSwiftPackageReference "swift-markdown-ui" */ = {
+		FD423ADE2F07B7C10016D0B4 /* XCRemoteSwiftPackageReference "swift-markdown" */ = {
 			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/gonzalezreal/swift-markdown-ui";
+			repositoryURL = "https://github.com/swiftlang/swift-markdown";
 			requirement = {
-				branch = main;
-				kind = branch;
+				kind = upToNextMajorVersion;
+				minimumVersion = 0.7.3;
 			};
 		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
-		FDC41A9A2E5CA24700735BF1 /* MarkdownUI */ = {
+		FD423ADF2F07B7C10016D0B4 /* Markdown */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = FDC41A992E5CA24700735BF1 /* XCRemoteSwiftPackageReference "swift-markdown-ui" */;
-			productName = MarkdownUI;
+			package = FD423ADE2F07B7C10016D0B4 /* XCRemoteSwiftPackageReference "swift-markdown" */;
+			productName = Markdown;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};
