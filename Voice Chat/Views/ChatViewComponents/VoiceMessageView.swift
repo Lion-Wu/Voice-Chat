@@ -13,6 +13,7 @@ struct VoiceMessageView: View {
 
     let showActionButtons: Bool
     let branchControlsEnabled: Bool
+    let developerModeEnabled: Bool
     let contentFingerprint: ContentFingerprint
     let onSelectText: (String) -> Void
     let onRegenerate: (ChatMessage) -> Void
@@ -47,6 +48,7 @@ struct VoiceMessageView: View {
             thinkFontSize: thinkFontSize,
             thinkFont: thinkFont,
             showActionButtons: showActionButtons,
+            developerModeEnabled: developerModeEnabled,
             contentFingerprint: contentFingerprint,
             onCopy: { copyToClipboard(message.content.extractThinkParts().body) },
             onRegenerate: { onRegenerate(message) },
@@ -281,11 +283,13 @@ struct ErrorBubbleView: View {
 struct SystemTextBubble: View {
     @Bindable var message: ChatMessage
     @State private var showThink = false
+    @State private var isShowingMessageDetails = false
 
     let thinkPreviewLines: Int
     let thinkFontSize: CGFloat
     let thinkFont: Font
     let showActionButtons: Bool
+    let developerModeEnabled: Bool
     let contentFingerprint: ContentFingerprint
 
     let onCopy: () -> Void
@@ -411,6 +415,21 @@ struct SystemTextBubble: View {
                     }
                     .buttonStyle(.plain)
                     .foregroundStyle(.secondary)
+
+                    if developerModeEnabled {
+                        Button { isShowingMessageDetails = true } label: {
+                            Image(systemName: "info.circle")
+                                #if os(macOS)
+                                .font(.system(size: 12, weight: .semibold))
+                                #else
+                                .font(.system(size: 16, weight: .semibold))
+                                #endif
+                                .padding(2)
+                                .accessibilityLabel("Details")
+                        }
+                        .buttonStyle(.plain)
+                        .foregroundStyle(.secondary)
+                    }
                 }
                 .frame(maxWidth: contentMaxWidthForAssistant(), alignment: .leading)
                 .transition(.opacity.combined(with: .move(edge: .top)))
@@ -419,6 +438,9 @@ struct SystemTextBubble: View {
         .tint(ChatTheme.accent)
         .frame(maxWidth: .infinity, alignment: .center)
         .textSelection(.enabled)
+        .sheet(isPresented: $isShowingMessageDetails) {
+            MessageDetailsView(message: message)
+        }
     }
 }
 
