@@ -36,6 +36,7 @@ private struct VoiceMessageEqKey: Equatable, Sendable {
     let showActionButtons: Bool
     let branchControlsEnabled: Bool
     let contentFP: ContentFingerprint
+    let developerModeEnabled: Bool
 }
 
 private enum ScrollTarget: Hashable {
@@ -47,6 +48,7 @@ struct ChatView: View {
     @EnvironmentObject var audioManager: GlobalAudioManager
     @EnvironmentObject var speechInputManager: SpeechInputManager
     @EnvironmentObject var errorCenter: AppErrorCenter
+    @EnvironmentObject var settingsManager: SettingsManager
     @ObservedObject var viewModel: ChatViewModel
     @State private var textFieldHeight: CGFloat = InputMetrics.defaultHeight
     @FocusState private var isInputFocused: Bool
@@ -757,6 +759,7 @@ struct ChatView: View {
     @ViewBuilder
     private func messageListCore() -> some View {
         let branchControlsEnabled = !(viewModel.isLoading || viewModel.isPriming || viewModel.isEditing)
+        let developerModeEnabled = settingsManager.developerModeEnabled
 
         VStack(spacing: 12) {
             ForEach(visibleMessages) { message in
@@ -771,7 +774,8 @@ struct ChatView: View {
                     isActive: message.isActive,
                     showActionButtons: showButtons,
                     branchControlsEnabled: branchControlsEnabled,
-                    contentFP: fingerprint
+                    contentFP: fingerprint,
+                    developerModeEnabled: developerModeEnabled
                 )
 
                 EquatableRender(value: key) {
@@ -779,6 +783,7 @@ struct ChatView: View {
                         message: message,
                         showActionButtons: showButtons,
                         branchControlsEnabled: branchControlsEnabled,
+                        developerModeEnabled: developerModeEnabled,
                         contentFingerprint: fingerprint,
                         onSelectText: { showSelectTextSheet(with: $0) },
                         onRegenerate: { viewModel.regenerateSystemMessage($0) },
@@ -885,6 +890,7 @@ struct ChatView_Previews: PreviewProvider {
         return ChatView(viewModel: ChatViewModel(chatSession: session))
             .modelContainer(for: [ChatSession.self, ChatMessage.self, AppSettings.self], inMemory: true)
             .environmentObject(GlobalAudioManager.shared)
+            .environmentObject(SettingsManager.shared)
             .environmentObject(ChatSessionsViewModel())
             .environmentObject(speechManager)
             .environmentObject(overlayVM)

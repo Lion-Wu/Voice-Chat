@@ -50,6 +50,7 @@ struct SettingsView: View {
                     presetSection()
                     voiceOutputSection()
                     chatSection()
+                    developerSection()
                 }
                 .navigationBarTitle("Settings", displayMode: .inline)
                 .toolbar {
@@ -85,6 +86,7 @@ struct SettingsView: View {
             macModelPresetTab
             macVoiceOutputTab
             macChatServerTab
+            macDeveloperTab
         }
         .scenePadding()
     }
@@ -126,6 +128,16 @@ struct SettingsView: View {
         .formStyle(.grouped)
         .tabItem {
             Label("Chat Server", systemImage: "message.and.waveform.fill")
+        }
+    }
+
+    private var macDeveloperTab: some View {
+        Form {
+            developerSection(hideHeader: true)
+        }
+        .formStyle(.grouped)
+        .tabItem {
+            Label("Developer", systemImage: "ladybug")
         }
     }
 #endif
@@ -410,6 +422,25 @@ struct SettingsView: View {
                 EmptyView()
             } else {
                 sectionHeader("Chat Server Settings")
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func developerSection(hideHeader: Bool = false) -> some View {
+        Section {
+            Toggle(
+                "Developer Mode",
+                isOn: Binding(
+                    get: { settingsManager.developerModeEnabled },
+                    set: { settingsManager.updateDeveloperModeEnabled($0) }
+                )
+            )
+        } header: {
+            if hideHeader {
+                EmptyView()
+            } else {
+                sectionHeader("Developer")
             }
         }
     }

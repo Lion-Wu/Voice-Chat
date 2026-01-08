@@ -94,6 +94,7 @@ final class AppSettings {
 
     var enableStreaming: Bool
     var autoReadAfterGeneration: Bool?
+    var developerModeEnabled: Bool?
 
     // Currently selected preset identifier (optional when nothing is selected).
     var selectedPresetID: UUID?
@@ -111,6 +112,7 @@ final class AppSettings {
         selectedModel: String = "",
         enableStreaming: Bool = true,
         autoReadAfterGeneration: Bool = false,
+        developerModeEnabled: Bool = false,
         selectedPresetID: UUID? = nil
     ) {
         self.id = UUID()
@@ -126,6 +128,7 @@ final class AppSettings {
         self.selectedModel = selectedModel
         self.enableStreaming = enableStreaming
         self.autoReadAfterGeneration = autoReadAfterGeneration
+        self.developerModeEnabled = developerModeEnabled
         self.selectedPresetID = selectedPresetID
     }
 }
@@ -141,6 +144,7 @@ final class SettingsManager: ObservableObject {
     @Published var modelSettings: ModelSettings
     @Published var chatSettings: ChatSettings
     @Published var voiceSettings: VoiceSettings
+    @Published var developerModeEnabled: Bool
 
     // Preset list and selection state.
     @Published private(set) var presets: [VoicePreset] = []
@@ -153,6 +157,7 @@ final class SettingsManager: ObservableObject {
 
     private var context: ModelContext?
     private var entity: AppSettings?
+    private var pendingDeveloperModeEnabled: Bool?
 
     // Used to gate one-time work performed at launch.
     private var didApplyOnLaunch = false
@@ -169,6 +174,7 @@ final class SettingsManager: ObservableObject {
         self.modelSettings = ModelSettings(modelId: "", language: "auto", autoSplit: "cut0")
         self.chatSettings = ChatSettings(apiURL: "http://localhost:1234", selectedModel: "")
         self.voiceSettings = VoiceSettings(enableStreaming: true, autoReadAfterGeneration: false)
+        self.developerModeEnabled = false
     }
 
     // SwiftData context injected from the app or root view.
@@ -176,6 +182,12 @@ final class SettingsManager: ObservableObject {
         guard self.context == nil else { return }
         self.context = context
         loadFromStore()
+        if let pending = pendingDeveloperModeEnabled {
+            developerModeEnabled = pending
+            entity?.developerModeEnabled = pending
+            try? context.save()
+            pendingDeveloperModeEnabled = nil
+        }
         loadPresetsFromStore()
         ensureDefaultPresetIfNeeded()
         // Keep the in-memory preset selection aligned with persisted data.
@@ -203,6 +215,11 @@ final class SettingsManager: ObservableObject {
             try? context.save()
         }
 
+        if e.developerModeEnabled == nil {
+            e.developerModeEnabled = false
+            try? context.save()
+        }
+
         self.serverSettings = ServerSettings(
             serverAddress: e.serverAddress,
             textLang: e.textLang,
@@ -220,6 +237,7 @@ final class SettingsManager: ObservableObject {
             enableStreaming: e.enableStreaming,
             autoReadAfterGeneration: e.autoReadAfterGeneration ?? false
         )
+        self.developerModeEnabled = e.developerModeEnabled ?? false
         self.selectedPresetID = e.selectedPresetID
     }
 
@@ -290,6 +308,15 @@ final class SettingsManager: ObservableObject {
         voiceSettings.enableStreaming = enableStreaming
         voiceSettings.autoReadAfterGeneration = autoReadAfterGeneration
         saveVoiceSettings()
+    }
+
+    func updateDeveloperModeEnabled(_ enabled: Bool) {
+        developerModeEnabled = enabled
+        guard entity != nil, context != nil else {
+            pendingDeveloperModeEnabled = enabled
+            return
+        }
+        saveDeveloperModeEnabled()
     }
 
     // MARK: - Preset CRUD
@@ -387,6 +414,12 @@ final class SettingsManager: ObservableObject {
         guard let e = entity, let context else { return }
         e.enableStreaming = voiceSettings.enableStreaming
         e.autoReadAfterGeneration = voiceSettings.autoReadAfterGeneration
+        try? context.save()
+    }
+
+    func saveDeveloperModeEnabled() {
+        guard let e = entity, let context else { return }
+        e.developerModeEnabled = developerModeEnabled
         try? context.save()
     }
 
