@@ -51,7 +51,6 @@
 		FDA8D9322E7F0F150012B42F /* AutoSizingTextEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = FDA8D9312E7F0F150012B42F /* AutoSizingTextEditor.swift */; };
 		FDA8D9342E7F0F260012B42F /* LoadingViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = FDA8D9332E7F0F260012B42F /* LoadingViews.swift */; };
 		FDA8D9362E7F0F360012B42F /* VoiceMessageView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FDA8D9352E7F0F360012B42F /* VoiceMessageView.swift */; };
-		FDD6A0B12F1D000100000001 /* MessageDetailsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FDD6A0B02F1D000100000001 /* MessageDetailsView.swift */; };
 		FDA8D9382E7F0F520012B42F /* FullScreenComposer.swift in Sources */ = {isa = PBXBuildFile; fileRef = FDA8D9372E7F0F520012B42F /* FullScreenComposer.swift */; };
 		FDA8D93A2E7F11F00012B42F /* AudioRequests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FDA8D9392E7F11F00012B42F /* AudioRequests.swift */; };
 		FDA8D93C2E7F12040012B42F /* AudioPlayback.swift in Sources */ = {isa = PBXBuildFile; fileRef = FDA8D93B2E7F12040012B42F /* AudioPlayback.swift */; };
@@ -63,6 +62,7 @@
 		FDAFF0012F90000000000001 /* ContentFingerprint.swift in Sources */ = {isa = PBXBuildFile; fileRef = FDAFF0002F90000000000001 /* ContentFingerprint.swift */; };
 		FDAFF0032F90000000000001 /* MessageRenderCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = FDAFF0022F90000000000001 /* MessageRenderCache.swift */; };
 		FDB5FD112F0000010000001A /* Localizable.strings in Resources */ = {isa = PBXBuildFile; fileRef = FDB5FD102F0000010000001A /* Localizable.strings */; };
+		FDD6A0B12F1D000100000001 /* MessageDetailsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FDD6A0B02F1D000100000001 /* MessageDetailsView.swift */; };
 		FDF0B0022F8F000000000001 /* RealtimeVoiceWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = FDF0B0012F8F000000000001 /* RealtimeVoiceWindowController.swift */; };
 		FDF714C12E7FC54100B62D71 /* IncrementalTextSegmenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = FDF714C02E7FC54100B62D71 /* IncrementalTextSegmenter.swift */; };
 		FDF714C32E7FC55300B62D71 /* VoiceChatOverlayViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = FDF714C22E7FC55300B62D71 /* VoiceChatOverlayViewModel.swift */; };
@@ -119,7 +119,6 @@
 		FDA8D9312E7F0F150012B42F /* AutoSizingTextEditor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AutoSizingTextEditor.swift; sourceTree = "<group>"; };
 		FDA8D9332E7F0F260012B42F /* LoadingViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LoadingViews.swift; sourceTree = "<group>"; };
 		FDA8D9352E7F0F360012B42F /* VoiceMessageView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceMessageView.swift; sourceTree = "<group>"; };
-		FDD6A0B02F1D000100000001 /* MessageDetailsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessageDetailsView.swift; sourceTree = "<group>"; };
 		FDA8D9372E7F0F520012B42F /* FullScreenComposer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FullScreenComposer.swift; sourceTree = "<group>"; };
 		FDA8D9392E7F11F00012B42F /* AudioRequests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioRequests.swift; sourceTree = "<group>"; };
 		FDA8D93B2E7F12040012B42F /* AudioPlayback.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioPlayback.swift; sourceTree = "<group>"; };
@@ -134,6 +133,7 @@
 		FDB5FD0B2F0000010000001A /* Localizable.strings */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = Localizable.strings; path = "zh-Hans.lproj/Localizable.strings"; sourceTree = "<group>"; };
 		FDB5FD0C2F0000010000001A /* Localizable.strings */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = Localizable.strings; path = "zh-Hant.lproj/Localizable.strings"; sourceTree = "<group>"; };
 		FDB5FD0D2F0000010000001A /* Localizable.strings */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = Localizable.strings; path = ja.lproj/Localizable.strings; sourceTree = "<group>"; };
+		FDD6A0B02F1D000100000001 /* MessageDetailsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessageDetailsView.swift; sourceTree = "<group>"; };
 		FDF0B0012F8F000000000001 /* RealtimeVoiceWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RealtimeVoiceWindowController.swift; sourceTree = "<group>"; };
 		FDF714C02E7FC54100B62D71 /* IncrementalTextSegmenter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IncrementalTextSegmenter.swift; sourceTree = "<group>"; };
 		FDF714C22E7FC55300B62D71 /* VoiceChatOverlayViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceChatOverlayViewModel.swift; sourceTree = "<group>"; };
