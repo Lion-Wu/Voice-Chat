@@ -251,11 +251,6 @@ final class ChatViewModel: ObservableObject {
             }
             audioManager.finishRealtimeStream()
             realtimeTTSActive = false
-        } else if settingsManager.voiceSettings.autoReadAfterGeneration {
-            let body = bodyTextForAutoRead(from: candidateFullText ?? "")
-            if !body.isEmpty {
-                audioManager.startProcessing(text: body)
-            }
         }
     }
 
@@ -1048,20 +1043,6 @@ final class ChatViewModel: ObservableObject {
         }
     }
 
-    // MARK: - Auto Read Helper
-
-    private func bodyTextForAutoRead(from full: String) -> String {
-        let parts = full.extractThinkParts()
-        let body = parts.body.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !body.isEmpty {
-            return body
-        }
-        // If the model exposed a think section but no body yet, avoid reading anything aloud.
-        if parts.think != nil {
-            return ""
-        }
-        return full.trimmingCharacters(in: .whitespacesAndNewlines)
-    }
 }
 
 private func isPlaceholderTitle(_ title: String) -> Bool {
