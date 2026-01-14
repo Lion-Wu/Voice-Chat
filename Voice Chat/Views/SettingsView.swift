@@ -342,7 +342,6 @@ struct SettingsView: View {
         Section {
             #if os(macOS)
             Toggle("Enable Streaming", isOn: $viewModel.enableStreaming)
-            Toggle("Auto Read After Generation", isOn: $viewModel.autoReadAfterGeneration)
             LabeledContent("Split Method") {
                 Picker("", selection: $viewModel.autoSplit) {
                     Text("cut0: No Split").tag("cut0")
@@ -357,7 +356,6 @@ struct SettingsView: View {
             }
             #else
             Toggle("Enable Streaming", isOn: $viewModel.enableStreaming)
-            Toggle("Auto Read After Generation", isOn: $viewModel.autoReadAfterGeneration)
             Picker("Split Method", selection: $viewModel.autoSplit) {
                 Text("cut0: No Split").tag("cut0")
                 Text("cut1: every 4 sentences").tag("cut1")
