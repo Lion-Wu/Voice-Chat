@@ -1043,6 +1043,7 @@ final class ChatViewModel: ObservableObject {
         }
     }
 
+}
 
 private func isPlaceholderTitle(_ title: String) -> Bool {
     let locales = [
