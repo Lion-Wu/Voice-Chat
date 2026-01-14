@@ -31,7 +31,6 @@ class SettingsViewModel: ObservableObject {
             }
         }
     }
-    @Published var autoReadAfterGeneration: Bool { didSet { saveVoiceSettings() } }
 
     @Published var autoSplit: String { didSet { saveModelSettings() } }
     @Published var modelId: String { didSet { saveModelSettings() } }
@@ -83,7 +82,6 @@ class SettingsViewModel: ObservableObject {
 
         let v = settingsManager.voiceSettings
         enableStreaming = v.enableStreaming
-        autoReadAfterGeneration = v.autoReadAfterGeneration
 
         let m = settingsManager.modelSettings
         autoSplit = m.autoSplit
@@ -116,8 +114,7 @@ class SettingsViewModel: ObservableObject {
 
     func saveVoiceSettings() {
         settingsManager.updateVoiceSettings(
-            enableStreaming: enableStreaming,
-            autoReadAfterGeneration: autoReadAfterGeneration
+            enableStreaming: enableStreaming
         )
     }
 

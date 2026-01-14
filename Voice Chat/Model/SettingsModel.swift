@@ -32,8 +32,6 @@ struct ChatSettings: Codable, Equatable {
 
 struct VoiceSettings: Codable, Equatable {
     var enableStreaming: Bool
-    /// Whether speech playback should start automatically when a response finishes.
-    var autoReadAfterGeneration: Bool
 }
 
 // MARK: - Preset Entity (SwiftData)
@@ -93,7 +91,6 @@ final class AppSettings {
     var selectedModel: String
 
     var enableStreaming: Bool
-    var autoReadAfterGeneration: Bool?
     var developerModeEnabled: Bool?
 
     // Currently selected preset identifier (optional when nothing is selected).
@@ -111,7 +108,6 @@ final class AppSettings {
         apiURL: String = "http://localhost:1234",
         selectedModel: String = "",
         enableStreaming: Bool = true,
-        autoReadAfterGeneration: Bool = false,
         developerModeEnabled: Bool = false,
         selectedPresetID: UUID? = nil
     ) {
@@ -127,7 +123,6 @@ final class AppSettings {
         self.apiURL = apiURL
         self.selectedModel = selectedModel
         self.enableStreaming = enableStreaming
-        self.autoReadAfterGeneration = autoReadAfterGeneration
         self.developerModeEnabled = developerModeEnabled
         self.selectedPresetID = selectedPresetID
     }
@@ -173,7 +168,7 @@ final class SettingsManager: ObservableObject {
         )
         self.modelSettings = ModelSettings(modelId: "", language: "auto", autoSplit: "cut0")
         self.chatSettings = ChatSettings(apiURL: "http://localhost:1234", selectedModel: "")
-        self.voiceSettings = VoiceSettings(enableStreaming: true, autoReadAfterGeneration: false)
+        self.voiceSettings = VoiceSettings(enableStreaming: true)
         self.developerModeEnabled = false
     }
 
@@ -210,11 +205,6 @@ final class SettingsManager: ObservableObject {
 
         guard let e = self.entity else { return }
 
-        if e.autoReadAfterGeneration == nil {
-            e.autoReadAfterGeneration = false
-            try? context.save()
-        }
-
         if e.developerModeEnabled == nil {
             e.developerModeEnabled = false
             try? context.save()
@@ -233,10 +223,7 @@ final class SettingsManager: ObservableObject {
         self.chatSettings = ChatSettings(
             apiURL: e.apiURL, selectedModel: e.selectedModel
         )
-        self.voiceSettings = VoiceSettings(
-            enableStreaming: e.enableStreaming,
-            autoReadAfterGeneration: e.autoReadAfterGeneration ?? false
-        )
+        self.voiceSettings = VoiceSettings(enableStreaming: e.enableStreaming)
         self.developerModeEnabled = e.developerModeEnabled ?? false
         self.selectedPresetID = e.selectedPresetID
     }
@@ -304,9 +291,8 @@ final class SettingsManager: ObservableObject {
         saveChatSettings()
     }
 
-    func updateVoiceSettings(enableStreaming: Bool, autoReadAfterGeneration: Bool) {
+    func updateVoiceSettings(enableStreaming: Bool) {
         voiceSettings.enableStreaming = enableStreaming
-        voiceSettings.autoReadAfterGeneration = autoReadAfterGeneration
         saveVoiceSettings()
     }
 
@@ -413,7 +399,6 @@ final class SettingsManager: ObservableObject {
     func saveVoiceSettings() {
         guard let e = entity, let context else { return }
         e.enableStreaming = voiceSettings.enableStreaming
-        e.autoReadAfterGeneration = voiceSettings.autoReadAfterGeneration
         try? context.save()
     }
 
