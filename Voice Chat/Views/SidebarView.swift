@@ -24,7 +24,7 @@ struct SidebarView: View {
     @State private var pendingDeleteSingleIndex: Int?
 
     private var filteredSessions: [ChatSession] {
-        let keyword = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let keyword = searchKeyword
         guard !keyword.isEmpty else { return chatSessionsViewModel.chatSessions }
         return chatSessionsViewModel.chatSessions.filter { session in
             let titleMatch = session.title.localizedCaseInsensitiveContains(keyword)
@@ -33,6 +33,10 @@ struct SidebarView: View {
             }
             return titleMatch || messageMatch
         }
+    }
+
+    private var searchKeyword: String {
+        searchText.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     var body: some View {
@@ -165,12 +169,21 @@ struct SidebarView: View {
                 }
                 Section(LocalizedStringKey("Chats")) {
                     if filteredSessions.isEmpty {
-                        ContentUnavailableView(
-                            LocalizedStringKey("No Results"),
-                            systemImage: "magnifyingglass",
-                            description: Text("Try a different chat name.")
-                        )
-                        .listRowBackground(Color.clear)
+                        if searchKeyword.isEmpty {
+                            ContentUnavailableView(
+                                LocalizedStringKey("Select or start a chat"),
+                                systemImage: "text.bubble",
+                                description: Text("Start a new conversation to begin talking.")
+                            )
+                            .listRowBackground(Color.clear)
+                        } else {
+                            ContentUnavailableView(
+                                LocalizedStringKey("No Results"),
+                                systemImage: "magnifyingglass",
+                                description: Text("Try a different chat name.")
+                            )
+                            .listRowBackground(Color.clear)
+                        }
                     } else {
                         ForEach(filteredSessions) { session in
                             iosSessionRow(session)
