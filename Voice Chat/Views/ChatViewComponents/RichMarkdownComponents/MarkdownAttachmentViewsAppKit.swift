@@ -20,6 +20,8 @@ final class MarkdownCodeBlockView: NSView {
     private var code: String
     private var codeAttributed: NSAttributedString
     private var estimatedCodeTextSize: CGSize
+    private var measuredMaxLineWidth: CGFloat = 0
+    private var hasMeasuredMaxLineWidth: Bool = false
     private var languageText: String
     private var copyText: String
     private var appliedContentVersion: UInt64 = 0
@@ -108,6 +110,8 @@ final class MarkdownCodeBlockView: NSView {
         codeTextView.layoutManager?.usesFontLeading = true
         codeTextView.textStorage?.setAttributedString(codeAttributed)
         scrollView.documentView = codeTextView
+
+        updateMeasuredMaxLineWidth(reset: true, changedCharacterRange: nil)
     }
 
     required init?(coder: NSCoder) {
@@ -148,9 +152,10 @@ final class MarkdownCodeBlockView: NSView {
         let newLen = codeAttributed.length
         guard newLen != oldLen || self.code != code else { return }
 
+        let shouldAppend = newLen > oldLen && code.hasPrefix(self.code)
         if let storage = codeTextView.textStorage {
             storage.beginEditing()
-            if newLen > oldLen, code.hasPrefix(self.code) {
+            if shouldAppend {
                 let delta = codeAttributed.attributedSubstring(from: NSRange(location: oldLen, length: newLen - oldLen))
                 if delta.length > 0 {
                     storage.append(delta)
@@ -177,6 +182,12 @@ final class MarkdownCodeBlockView: NSView {
             layoutManager.invalidateLayout(forCharacterRange: range, actualCharacterRange: nil)
             layoutManager.ensureLayout(forCharacterRange: range)
             layoutManager.invalidateDisplay(forCharacterRange: range)
+
+            if shouldAppend {
+                updateMeasuredMaxLineWidth(reset: false, changedCharacterRange: range)
+            } else {
+                updateMeasuredMaxLineWidth(reset: true, changedCharacterRange: nil)
+            }
         }
 
         codeTextView.needsDisplay = true
@@ -214,10 +225,12 @@ final class MarkdownCodeBlockView: NSView {
         copyButton.frame = layout.copyFrame
         scrollView.frame = layout.scrollFrame
         if let textContainer = codeTextView.textContainer {
-            let target = CGSize(width: layout.contentWidth, height: layout.codeFrame.height)
             let current = textContainer.containerSize
-            if abs(current.width - target.width) > 0.5 || abs(current.height - target.height) > 0.5 {
-                textContainer.containerSize = target
+            let minWidth = max(10_000, layout.contentWidth)
+            let targetWidth = max(current.width, minWidth)
+            let targetHeight = layout.codeFrame.height
+            if abs(current.width - targetWidth) > 0.5 || abs(current.height - targetHeight) > 0.5 {
+                textContainer.containerSize = CGSize(width: targetWidth, height: targetHeight)
             }
         }
         codeTextView.frame = layout.codeFrame
@@ -267,7 +280,8 @@ final class MarkdownCodeBlockView: NSView {
         let codeTextSize = estimatedCodeTextSize
         let codeHeight = max(codeTextSize.height, lineHeight(for: style.codeFont))
         let viewportCodeWidth = max(1, viewportContentWidth - codePadding.width * 2)
-        let contentWidth = max(viewportCodeWidth, codeTextSize.width)
+        let measuredWidth = hasMeasuredMaxLineWidth ? ceil(measuredMaxLineWidth + 1) : 0
+        let contentWidth = max(viewportCodeWidth, measuredWidth)
         let scrollFrame = CGRect(
             x: border + codePadding.width,
             y: border + headerHeight + codePadding.height,
@@ -296,6 +310,43 @@ final class MarkdownCodeBlockView: NSView {
 
     private func lineHeight(for font: MarkdownPlatformFont) -> CGFloat {
         NSLayoutManager().defaultLineHeight(for: font)
+    }
+
+    private func updateMeasuredMaxLineWidth(reset: Bool, changedCharacterRange: NSRange?) {
+        guard let layoutManager = codeTextView.layoutManager else { return }
+        guard let textContainer = codeTextView.textContainer else { return }
+
+        if reset {
+            measuredMaxLineWidth = 0
+            hasMeasuredMaxLineWidth = false
+        }
+
+        if changedCharacterRange == nil {
+            layoutManager.ensureLayout(for: textContainer)
+        }
+
+        let glyphRange: NSRange = {
+            if let changedCharacterRange {
+                return layoutManager.glyphRange(forCharacterRange: changedCharacterRange, actualCharacterRange: nil)
+            }
+            return NSRange(location: 0, length: layoutManager.numberOfGlyphs)
+        }()
+
+        guard glyphRange.length > 0 else {
+            hasMeasuredMaxLineWidth = true
+            return
+        }
+
+        let glyphEnd = NSMaxRange(glyphRange)
+        var glyphIndex = glyphRange.location
+        while glyphIndex < glyphEnd {
+            var lineGlyphRange = NSRange()
+            let usedRect = layoutManager.lineFragmentUsedRect(forGlyphAt: glyphIndex, effectiveRange: &lineGlyphRange)
+            measuredMaxLineWidth = max(measuredMaxLineWidth, usedRect.maxX)
+            let nextIndex = NSMaxRange(lineGlyphRange)
+            glyphIndex = nextIndex > glyphIndex ? nextIndex : glyphIndex + 1
+        }
+        hasMeasuredMaxLineWidth = true
     }
 }
 
