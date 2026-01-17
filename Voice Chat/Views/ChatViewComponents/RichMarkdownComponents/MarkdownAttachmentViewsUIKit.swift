@@ -436,37 +436,67 @@ private final class MarkdownTableView: UIView {
 	            rows = nextRows
 	            updateRowContent(at: lastIndex)
 
-	            if let priorLayout,
-	               let oldLastRowHeight,
-	               priorLayout.columnWidths.count == columnCount,
-	               priorLayout.rowHeights.count == rows.count {
-	                let newLastRowHeight = measureRowHeight(rows[lastIndex], columnWidths: priorLayout.columnWidths)
-	                let heightDelta = newLastRowHeight - oldLastRowHeight
-	                var updatedHeights = priorLayout.rowHeights
-	                updatedHeights[lastIndex] = newLastRowHeight
-	                cachedLayout = Layout(
-	                    tableSize: CGSize(width: priorLayout.tableSize.width, height: priorLayout.tableSize.height + heightDelta),
-	                    contentWidth: priorLayout.contentWidth,
-	                    columnWidths: priorLayout.columnWidths,
-	                    rowHeights: updatedHeights,
-	                    rowSeparatorWidth: priorLayout.rowSeparatorWidth,
-	                    columnGap: priorLayout.columnGap
-	                )
+		            if let priorLayout,
+		               let oldLastRowHeight,
+		               priorLayout.columnWidths.count == columnCount,
+		               priorLayout.rowHeights.count == rows.count {
+		                let paddingX = style.cellPadding.width
+		                let maxCellTextWidth = max(80, min(cachedWidth * 0.8, 360))
+		                let maxColumnWidth = maxCellTextWidth + paddingX * 2
+		                let emptyCell = NSAttributedString(string: "", attributes: [.font: style.baseFont])
+		                let lastRow = rows[lastIndex]
 
-	                if laidOutRowCount == rows.count {
-	                    let startY = max(0, priorLayout.tableSize.height - (oldLastRowHeight + priorLayout.rowSeparatorWidth))
-	                    laidOutRowCount = lastIndex
-	                    laidOutContentHeight = startY
-	                } else {
-	                    laidOutRowCount = 0
-	                    laidOutContentHeight = 0
-	                    laidOutContentWidth = 0
-	                    laidOutColumnWidths.removeAll(keepingCapacity: false)
-	                }
-	            } else {
-	                cachedLayout = nil
-	                laidOutRowCount = 0
-	                laidOutContentHeight = 0
+		                var updatedColumnWidths = priorLayout.columnWidths
+		                for column in 0..<columnCount {
+		                    guard updatedColumnWidths[column] < maxColumnWidth - 0.5 else { continue }
+		                    let cell = column < lastRow.cells.count ? lastRow.cells[column] : emptyCell
+		                    let size = measureAttributedText(cell, width: .greatestFiniteMagnitude)
+		                    let desiredTextWidth = min(size.width, maxCellTextWidth)
+		                    let desiredColumnWidth = desiredTextWidth + paddingX * 2
+		                    if desiredColumnWidth > updatedColumnWidths[column] + 0.5 {
+		                        updatedColumnWidths[column] = desiredColumnWidth
+		                    }
+		                }
+
+		                let totalColumnGap = priorLayout.columnGap * CGFloat(max(0, columnCount - 1))
+		                let updatedContentWidth = updatedColumnWidths.reduce(0, +) + totalColumnGap
+		                let newLastRowHeight = measureRowHeight(rows[lastIndex], columnWidths: updatedColumnWidths)
+		                let heightDelta = newLastRowHeight - oldLastRowHeight
+		                var updatedHeights = priorLayout.rowHeights
+		                updatedHeights[lastIndex] = newLastRowHeight
+		                let viewportWidth = min(cachedWidth, updatedContentWidth)
+		                cachedLayout = Layout(
+		                    tableSize: CGSize(width: viewportWidth, height: priorLayout.tableSize.height + heightDelta),
+		                    contentWidth: updatedContentWidth,
+		                    columnWidths: updatedColumnWidths,
+		                    rowHeights: updatedHeights,
+		                    rowSeparatorWidth: priorLayout.rowSeparatorWidth,
+		                    columnGap: priorLayout.columnGap
+		                )
+
+		                let needsFullRelayout =
+		                    abs(updatedContentWidth - priorLayout.contentWidth) > 0.5 ||
+		                    !columnWidthsApproximatelyEqual(updatedColumnWidths, priorLayout.columnWidths)
+
+		                if needsFullRelayout {
+		                    laidOutRowCount = 0
+		                    laidOutContentHeight = 0
+		                    laidOutContentWidth = 0
+		                    laidOutColumnWidths.removeAll(keepingCapacity: false)
+		                } else if laidOutRowCount == rows.count {
+		                    let startY = max(0, priorLayout.tableSize.height - (oldLastRowHeight + priorLayout.rowSeparatorWidth))
+		                    laidOutRowCount = lastIndex
+		                    laidOutContentHeight = startY
+		                } else {
+		                    laidOutRowCount = 0
+		                    laidOutContentHeight = 0
+		                    laidOutContentWidth = 0
+		                    laidOutColumnWidths.removeAll(keepingCapacity: false)
+		                }
+		            } else {
+		                cachedLayout = nil
+		                laidOutRowCount = 0
+		                laidOutContentHeight = 0
 	                laidOutContentWidth = 0
 	                laidOutColumnWidths.removeAll(keepingCapacity: false)
 	            }
@@ -736,22 +766,37 @@ private final class MarkdownTableView: UIView {
         }
     }
 
-    private func extendLayout(with appendedRows: [MarkdownTableRow]) -> Layout? {
-        guard let existing = cachedLayout else { return nil }
-        guard abs(cachedWidth) > 0.5 else { return nil }
-        guard columnCount > 0 else { return nil }
+	    private func extendLayout(with appendedRows: [MarkdownTableRow]) -> Layout? {
+	        guard let existing = cachedLayout else { return nil }
+	        guard abs(cachedWidth) > 0.5 else { return nil }
+	        guard columnCount > 0 else { return nil }
+	        guard existing.columnWidths.count == columnCount else { return nil }
 
-        let rowSeparator = existing.rowSeparatorWidth
-        let columnGap = existing.columnGap
-        let paddingX = style.cellPadding.width
-        let paddingY = style.cellPadding.height
+	        let rowSeparator = existing.rowSeparatorWidth
+	        let columnGap = existing.columnGap
+	        let paddingX = style.cellPadding.width
+	        let paddingY = style.cellPadding.height
+	        let maxCellTextWidth = max(80, min(cachedWidth * 0.8, 360))
+	        let maxColumnWidth = maxCellTextWidth + paddingX * 2
 
-        let emptyCell = NSAttributedString(string: "", attributes: [.font: style.baseFont])
-        let columnWidths = existing.columnWidths
-        let minRowHeight = style.baseFont.lineHeight
-        var rowHeights = existing.rowHeights
-        rowHeights.reserveCapacity(rows.count)
-        var appendedHeightsSum: CGFloat = 0
+	        let emptyCell = NSAttributedString(string: "", attributes: [.font: style.baseFont])
+	        var columnWidths = existing.columnWidths
+	        for row in appendedRows {
+	            for column in 0..<columnCount {
+	                guard columnWidths[column] < maxColumnWidth - 0.5 else { continue }
+	                let cell = column < row.cells.count ? row.cells[column] : emptyCell
+	                let size = measureAttributedText(cell, width: .greatestFiniteMagnitude)
+	                let desiredTextWidth = min(size.width, maxCellTextWidth)
+	                let desiredColumnWidth = desiredTextWidth + paddingX * 2
+	                if desiredColumnWidth > columnWidths[column] + 0.5 {
+	                    columnWidths[column] = desiredColumnWidth
+	                }
+	            }
+	        }
+	        let minRowHeight = style.baseFont.lineHeight
+	        var rowHeights = existing.rowHeights
+	        rowHeights.reserveCapacity(rows.count)
+	        var appendedHeightsSum: CGFloat = 0
         for row in appendedRows {
             var rowHeight: CGFloat = 0
             for column in 0..<columnCount {
@@ -761,15 +806,16 @@ private final class MarkdownTableView: UIView {
                 rowHeight = max(rowHeight, max(size.height, minRowHeight))
             }
             let finalHeight = rowHeight + paddingY * 2
-            rowHeights.append(finalHeight)
-            appendedHeightsSum += finalHeight
-        }
+	            rowHeights.append(finalHeight)
+	            appendedHeightsSum += finalHeight
+	        }
 
-        let tableWidth = existing.contentWidth
-        let tableHeight = existing.tableSize.height + appendedHeightsSum + rowSeparator * CGFloat(appendedRows.count)
-        let viewportWidth = min(cachedWidth, tableWidth)
-        return Layout(
-            tableSize: CGSize(width: viewportWidth, height: tableHeight),
+	        let totalColumnGap = columnGap * CGFloat(max(0, columnCount - 1))
+	        let tableWidth = columnWidths.reduce(0, +) + totalColumnGap
+	        let tableHeight = existing.tableSize.height + appendedHeightsSum + rowSeparator * CGFloat(appendedRows.count)
+	        let viewportWidth = min(cachedWidth, tableWidth)
+	        return Layout(
+	            tableSize: CGSize(width: viewportWidth, height: tableHeight),
             contentWidth: tableWidth,
             columnWidths: columnWidths,
             rowHeights: rowHeights,
