@@ -14,6 +14,12 @@ final class MarkdownCodeBlockView: NSView {
         let contentWidth: CGFloat
     }
 
+    private enum MeasurementSizing {
+        static let initialContainerWidth: CGFloat = 10_000
+        static let maxContainerWidth: CGFloat = 10_000_000
+        static let widthCapThreshold: CGFloat = 1
+    }
+
     override var isFlipped: Bool { true }
 
     private let style: MarkdownCodeBlockStyle
@@ -101,7 +107,7 @@ final class MarkdownCodeBlockView: NSView {
         codeTextView.textContainer?.lineBreakMode = .byClipping
         codeTextView.textContainer?.widthTracksTextView = false
         codeTextView.textContainer?.heightTracksTextView = false
-        codeTextView.textContainer?.containerSize = CGSize(width: 10_000, height: 10_000_000)
+        codeTextView.textContainer?.containerSize = CGSize(width: MeasurementSizing.initialContainerWidth, height: 10_000_000)
         codeTextView.isHorizontallyResizable = true
         codeTextView.isVerticallyResizable = false
         codeTextView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
@@ -319,9 +325,16 @@ final class MarkdownCodeBlockView: NSView {
         if reset {
             measuredMaxLineWidth = 0
             hasMeasuredMaxLineWidth = false
+            let currentSize = textContainer.containerSize
+            let baselineWidth = MeasurementSizing.initialContainerWidth
+            if abs(currentSize.width - baselineWidth) > 0.5 {
+                textContainer.containerSize = CGSize(width: baselineWidth, height: currentSize.height)
+            }
         }
 
-        if changedCharacterRange == nil {
+        if let changedCharacterRange {
+            layoutManager.ensureLayout(forCharacterRange: changedCharacterRange)
+        } else {
             layoutManager.ensureLayout(for: textContainer)
         }
 
@@ -337,14 +350,36 @@ final class MarkdownCodeBlockView: NSView {
             return
         }
 
+        let containerWidth = textContainer.containerSize.width
+        var localMaxX: CGFloat = 0
         let glyphEnd = NSMaxRange(glyphRange)
         var glyphIndex = glyphRange.location
         while glyphIndex < glyphEnd {
             var lineGlyphRange = NSRange()
             let usedRect = layoutManager.lineFragmentUsedRect(forGlyphAt: glyphIndex, effectiveRange: &lineGlyphRange)
-            measuredMaxLineWidth = max(measuredMaxLineWidth, usedRect.maxX)
+            let resolvedMaxX: CGFloat
+            if usedRect.maxX >= containerWidth - MeasurementSizing.widthCapThreshold {
+                let bounds = layoutManager.boundingRect(forGlyphRange: lineGlyphRange, in: textContainer)
+                resolvedMaxX = bounds.maxX
+            } else {
+                resolvedMaxX = usedRect.maxX
+            }
+            localMaxX = max(localMaxX, resolvedMaxX)
             let nextIndex = NSMaxRange(lineGlyphRange)
             glyphIndex = nextIndex > glyphIndex ? nextIndex : glyphIndex + 1
+        }
+
+        measuredMaxLineWidth = max(measuredMaxLineWidth, localMaxX)
+        measuredMaxLineWidth = min(measuredMaxLineWidth, MeasurementSizing.maxContainerWidth - 1)
+
+        let requiredWidth = max(MeasurementSizing.initialContainerWidth, ceil(measuredMaxLineWidth + 1))
+        let currentWidth = textContainer.containerSize.width
+        if requiredWidth > currentWidth + 0.5 {
+            let grownWidth = max(requiredWidth, currentWidth * 1.25)
+            let clampedWidth = min(grownWidth, MeasurementSizing.maxContainerWidth)
+            if clampedWidth > currentWidth + 0.5 {
+                textContainer.containerSize = CGSize(width: clampedWidth, height: textContainer.containerSize.height)
+            }
         }
         hasMeasuredMaxLineWidth = true
     }

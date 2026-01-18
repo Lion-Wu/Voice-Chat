@@ -1088,12 +1088,14 @@ final class MarkdownRuleAttachment: MarkdownAttachment, @unchecked Sendable {
             MarkdownAttachmentViewProviderRegistry.registerIfNeeded()
             allowsTextAttachmentView = true
             fileType = Self.viewProviderFileType
+            if contents == nil { contents = Data() }
         }
         #elseif os(macOS)
         if #available(macOS 12.0, *) {
             MarkdownAttachmentViewProviderRegistry.registerIfNeeded()
             allowsTextAttachmentView = true
             fileType = Self.viewProviderFileType
+            if contents == nil { contents = Data() }
         }
         #endif
     }
