@@ -175,3 +175,17 @@
 "Time To First Token" = "Time To First Token";
 "Stream Duration" = "Stream Duration";
 "Generation Duration" = "Generation Duration";
+
+"System Prompt" = "System Prompt";
+"Normal Mode Preset" = "Normal Mode Preset";
+"Voice Mode Preset" = "Voice Mode Preset";
+"Edit Prompt Preset" = "Edit Prompt Preset";
+"New Prompt Preset" = "New Prompt Preset";
+"Delete this prompt preset?" = "Delete this prompt preset?";
+"Prompt preset name" = "Prompt preset name";
+"Normal Prompt" = "Normal Prompt";
+"Voice Prompt" = "Voice Prompt";
+"Used for normal chat mode" = "Used for normal chat mode";
+"Used for voice chat mode" = "Used for voice chat mode";
+"Add prompt preset" = "Add prompt preset";
+"Delete selected prompt preset" = "Delete selected prompt preset";

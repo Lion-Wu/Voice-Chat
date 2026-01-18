@@ -21,6 +21,8 @@ struct SettingsView: View {
 
     // Preset deletion confirmation state
     @State private var showDeletePresetAlert = false
+    @State private var showDeleteNormalPromptPresetAlert = false
+    @State private var showDeleteVoicePromptPresetAlert = false
 
     @EnvironmentObject var settingsManager: SettingsManager
     @Environment(\.dismiss) private var dismiss
@@ -50,6 +52,7 @@ struct SettingsView: View {
                     presetSection()
                     voiceOutputSection()
                     chatSection()
+                    systemPromptSection()
                     developerSection()
                 }
                 .navigationBarTitle("Settings", displayMode: .inline)
@@ -75,6 +78,20 @@ struct SettingsView: View {
             } message: {
                 Text("This action cannot be undone.")
             }
+            .alert("Delete this prompt preset?",
+                   isPresented: $showDeleteNormalPromptPresetAlert) {
+                Button("Delete", role: .destructive) { viewModel.deleteSelectedNormalSystemPromptPreset() }
+                Button("Cancel", role: .cancel) { }
+            } message: {
+                Text("This action cannot be undone.")
+            }
+            .alert("Delete this prompt preset?",
+                   isPresented: $showDeleteVoicePromptPresetAlert) {
+                Button("Delete", role: .destructive) { viewModel.deleteSelectedVoiceSystemPromptPreset() }
+                Button("Cancel", role: .cancel) { }
+            } message: {
+                Text("This action cannot be undone.")
+            }
     }
 
     // MARK: - Sections
@@ -86,6 +103,7 @@ struct SettingsView: View {
             macModelPresetTab
             macVoiceOutputTab
             macChatServerTab
+            macSystemPromptTab
             macDeveloperTab
         }
         .scenePadding()
@@ -128,6 +146,16 @@ struct SettingsView: View {
         .formStyle(.grouped)
         .tabItem {
             Label("Chat Server", systemImage: "message.and.waveform.fill")
+        }
+    }
+
+    private var macSystemPromptTab: some View {
+        Form {
+            systemPromptSection(hideHeader: true)
+        }
+        .formStyle(.grouped)
+        .tabItem {
+            Label("System Prompt", systemImage: "text.bubble.fill")
         }
     }
 
@@ -443,6 +471,176 @@ struct SettingsView: View {
         }
     }
 
+    @ViewBuilder
+    private func systemPromptSection(hideHeader _: Bool = false) -> some View {
+        normalSystemPromptSection
+        voiceSystemPromptSection
+    }
+
+    private var normalSystemPromptSection: some View {
+        Section {
+            #if os(macOS)
+            LabeledContent("Normal Mode Preset") {
+                Picker("", selection: $viewModel.selectedNormalSystemPromptPresetID) {
+                    ForEach(viewModel.normalSystemPromptPresetList) { p in
+                        Text(p.name).tag(Optional.some(p.id))
+                    }
+                }
+                .labelsHidden()
+            }
+
+            HStack {
+                Spacer()
+                HStack(spacing: 8) {
+                    Button {
+                        viewModel.addNormalSystemPromptPreset()
+                    } label: {
+                        Label("Add", systemImage: "plus.circle.fill")
+                            .foregroundStyle(.blue)
+                    }
+                    .buttonStyle(.plain)
+                    .controlSize(.small)
+                    .help("Add prompt preset")
+
+                    Button(role: .destructive) {
+                        showDeleteNormalPromptPresetAlert = true
+                    } label: {
+                        Label("Delete", systemImage: "trash")
+                            .foregroundStyle(.red)
+                    }
+                    .buttonStyle(.plain)
+                    .controlSize(.small)
+                    .help("Delete selected prompt preset")
+                    .disabled(viewModel.normalSystemPromptPresetList.count <= 1 || viewModel.selectedNormalSystemPromptPresetID == nil)
+                }
+            }
+            #else
+            Picker("Normal Mode Preset", selection: $viewModel.selectedNormalSystemPromptPresetID) {
+                ForEach(viewModel.normalSystemPromptPresetList) { p in
+                    Text(p.name).tag(Optional.some(p.id))
+                }
+            }
+            .pickerStyle(.menu)
+
+            HStack(spacing: 16) {
+                Button {
+                    viewModel.addNormalSystemPromptPreset()
+                } label: {
+                    Label("Add", systemImage: "plus.circle.fill")
+                        .foregroundStyle(.blue)
+                }
+                .buttonStyle(.plain)
+                .contentShape(Rectangle())
+
+                Button(role: .destructive) {
+                    showDeleteNormalPromptPresetAlert = true
+                } label: {
+                    Label("Delete", systemImage: "trash")
+                        .foregroundStyle(.red)
+                }
+                .buttonStyle(.plain)
+                .contentShape(Rectangle())
+                .disabled(viewModel.normalSystemPromptPresetList.count <= 1 || viewModel.selectedNormalSystemPromptPresetID == nil)
+            }
+            #endif
+
+            LabeledTextField(
+                label: "Preset Name",
+                placeholder: "Prompt preset name",
+                text: $viewModel.normalSystemPromptPresetName
+            )
+            LabeledTextEditor(
+                label: "Normal Prompt",
+                placeholder: "Used for normal chat mode",
+                text: $viewModel.normalSystemPromptPrompt
+            )
+        } header: {
+            sectionHeader("Normal Mode Preset")
+        }
+    }
+
+    private var voiceSystemPromptSection: some View {
+        Section {
+            #if os(macOS)
+            LabeledContent("Voice Mode Preset") {
+                Picker("", selection: $viewModel.selectedVoiceSystemPromptPresetID) {
+                    ForEach(viewModel.voiceSystemPromptPresetList) { p in
+                        Text(p.name).tag(Optional.some(p.id))
+                    }
+                }
+                .labelsHidden()
+            }
+
+            HStack {
+                Spacer()
+                HStack(spacing: 8) {
+                    Button {
+                        viewModel.addVoiceSystemPromptPreset()
+                    } label: {
+                        Label("Add", systemImage: "plus.circle.fill")
+                            .foregroundStyle(.blue)
+                    }
+                    .buttonStyle(.plain)
+                    .controlSize(.small)
+                    .help("Add prompt preset")
+
+                    Button(role: .destructive) {
+                        showDeleteVoicePromptPresetAlert = true
+                    } label: {
+                        Label("Delete", systemImage: "trash")
+                            .foregroundStyle(.red)
+                    }
+                    .buttonStyle(.plain)
+                    .controlSize(.small)
+                    .help("Delete selected prompt preset")
+                    .disabled(viewModel.voiceSystemPromptPresetList.count <= 1 || viewModel.selectedVoiceSystemPromptPresetID == nil)
+                }
+            }
+            #else
+            Picker("Voice Mode Preset", selection: $viewModel.selectedVoiceSystemPromptPresetID) {
+                ForEach(viewModel.voiceSystemPromptPresetList) { p in
+                    Text(p.name).tag(Optional.some(p.id))
+                }
+            }
+            .pickerStyle(.menu)
+
+            HStack(spacing: 16) {
+                Button {
+                    viewModel.addVoiceSystemPromptPreset()
+                } label: {
+                    Label("Add", systemImage: "plus.circle.fill")
+                        .foregroundStyle(.blue)
+                }
+                .buttonStyle(.plain)
+                .contentShape(Rectangle())
+
+                Button(role: .destructive) {
+                    showDeleteVoicePromptPresetAlert = true
+                } label: {
+                    Label("Delete", systemImage: "trash")
+                        .foregroundStyle(.red)
+                }
+                .buttonStyle(.plain)
+                .contentShape(Rectangle())
+                .disabled(viewModel.voiceSystemPromptPresetList.count <= 1 || viewModel.selectedVoiceSystemPromptPresetID == nil)
+            }
+            #endif
+
+            LabeledTextField(
+                label: "Preset Name",
+                placeholder: "Prompt preset name",
+                text: $viewModel.voiceSystemPromptPresetName
+            )
+            LabeledTextEditor(
+                label: "Voice Prompt",
+                placeholder: "Used for voice chat mode",
+                text: $viewModel.voiceSystemPromptPrompt
+            )
+        } header: {
+            sectionHeader("Voice Mode Preset")
+        }
+    }
+
 #if os(macOS)
     private func updateWindowSizeIfNeeded(_ newSize: CGSize) {
         guard newSize.width > 0, newSize.height > 0 else { return }
@@ -554,6 +752,50 @@ struct LabeledTextField: View {
                 .foregroundColor(.secondary)
             TextField(LocalizedStringKey(placeholder), text: $text)
                 .textInputAutocapitalization(.never)
+        }
+        #endif
+    }
+}
+
+// MARK: - LabeledTextEditor
+
+struct LabeledTextEditor: View {
+    var label: String
+    var placeholder: String
+    @Binding var text: String
+
+    var body: some View {
+        #if os(macOS)
+        LabeledContent(LocalizedStringKey(label)) {
+            TextEditor(text: $text)
+                .font(.body)
+                .frame(minHeight: 120)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 6)
+                        .stroke(Color.secondary.opacity(0.25), lineWidth: 1)
+                )
+                .background(Color(NSColor.textBackgroundColor))
+        }
+        #else
+        VStack(alignment: .leading, spacing: 6) {
+            Text(LocalizedStringKey(label))
+                .font(.subheadline)
+                .foregroundColor(.secondary)
+            TextEditor(text: $text)
+                .frame(minHeight: 120)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8)
+                        .stroke(Color.secondary.opacity(0.25), lineWidth: 1)
+                )
+                .background(Color(.secondarySystemBackground))
+                .overlay(alignment: .topLeading) {
+                    if text.isEmpty {
+                        Text(LocalizedStringKey(placeholder))
+                            .foregroundColor(.secondary)
+                            .padding(.top, 10)
+                            .padding(.leading, 6)
+                    }
+                }
         }
         #endif
     }

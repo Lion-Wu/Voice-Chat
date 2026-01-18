@@ -137,7 +137,7 @@ protocol ChatStreamingService: AnyObject {
     var onError: (@MainActor (Error) -> Void)? { get set }
     var onStreamFinished: (@MainActor () -> Void)? { get set }
 
-    func fetchStreamedData(messages: [ChatMessage])
+    func fetchStreamedData(messages: [ChatMessage], developerPrompt: String?)
     func cancelStreaming()
 }
 
@@ -236,7 +236,7 @@ final class ChatService: NSObject, URLSessionDataDelegate, @unchecked Sendable {
 
     /// Called on the main actor to avoid crossing actor boundaries with SwiftData models.
     @MainActor
-    func fetchStreamedData(messages: [ChatMessage]) {
+    func fetchStreamedData(messages: [ChatMessage], developerPrompt: String?) {
         let base = configurationProvider.apiBaseURL
         let model = configurationProvider.modelIdentifier
         guard let apiURLString = buildAPIURLString(base: base) else {
@@ -244,7 +244,7 @@ final class ChatService: NSObject, URLSessionDataDelegate, @unchecked Sendable {
             return
         }
 
-        let payload = transformedMessagesForRequest(messages: messages)
+        let payload = transformedMessagesForRequest(messages: messages, developerPrompt: developerPrompt)
         stateQueue.async { [weak self] in
             guard let self else { return }
             self.dataTask?.cancel()
@@ -321,15 +321,25 @@ final class ChatService: NSObject, URLSessionDataDelegate, @unchecked Sendable {
         errorResponseData.removeAll(keepingCapacity: true)
     }
 
-    private func transformedMessagesForRequest(messages: [ChatMessage]) -> [[String: String]] {
-        messages
+    private func transformedMessagesForRequest(messages: [ChatMessage], developerPrompt: String?) -> [[String: String]] {
+        var payload: [[String: String]] = []
+        if let prompt = developerPrompt?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !prompt.isEmpty {
+            payload.append([
+                "role": "developer",
+                "content": prompt
+            ])
+        }
+
+        payload.append(contentsOf: messages
             .filter { !$0.content.hasPrefix("!error:") }
             .map { message in
                 [
                     "role": message.isUser ? "user" : "assistant",
                     "content": message.content
                 ]
-            }
+            })
+        return payload
     }
 
     private func buildAPIURLString(base: String) -> String? {

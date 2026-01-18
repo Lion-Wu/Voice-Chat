@@ -109,6 +109,15 @@ final class ChatViewModel: ObservableObject {
         enableRealtimeTTSNext = true
     }
 
+    // MARK: - Developer prompt
+
+    private func resolvedDeveloperPrompt(isVoiceMode: Bool) -> String? {
+        let preset = isVoiceMode ? settingsManager.selectedVoiceSystemPromptPreset : settingsManager.selectedNormalSystemPromptPreset
+        let raw = isVoiceMode ? preset?.voicePrompt : preset?.normalPrompt
+        let trimmed = raw?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
     // MARK: - Chat service wiring
 
     private func bindChatService(_ service: ChatStreamingService) {
@@ -858,7 +867,8 @@ final class ChatViewModel: ObservableObject {
 
         let currentMessages = activeBranchMessages()
         recordStreamStart(using: currentMessages)
-        chatService.fetchStreamedData(messages: currentMessages)
+        let developerPrompt = resolvedDeveloperPrompt(isVoiceMode: realtimeTTSActive || audioManager.isRealtimeMode)
+        chatService.fetchStreamedData(messages: currentMessages, developerPrompt: developerPrompt)
     }
 
     func cancelCurrentRequest() {
@@ -972,7 +982,8 @@ final class ChatViewModel: ObservableObject {
         isLoading = true
         sending = true
         recordStreamStart(using: currentMessages)
-        chatService.fetchStreamedData(messages: currentMessages)
+        let developerPrompt = resolvedDeveloperPrompt(isVoiceMode: audioManager.isRealtimeMode)
+        chatService.fetchStreamedData(messages: currentMessages, developerPrompt: developerPrompt)
     }
 
     func retry(afterErrorMessage errorMessage: ChatMessage) {
@@ -1004,7 +1015,8 @@ final class ChatViewModel: ObservableObject {
         sending = true
 
         recordStreamStart(using: currentMessages)
-        chatService.fetchStreamedData(messages: currentMessages)
+        let developerPrompt = resolvedDeveloperPrompt(isVoiceMode: audioManager.isRealtimeMode)
+        chatService.fetchStreamedData(messages: currentMessages, developerPrompt: developerPrompt)
     }
 
     func switchToMessageVersion(_ message: ChatMessage) {

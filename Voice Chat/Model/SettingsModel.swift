@@ -71,6 +71,41 @@ final class VoicePreset {
     }
 }
 
+// MARK: - System Prompt Preset Entity (SwiftData)
+
+@Model
+final class SystemPromptPreset {
+    var id: UUID
+    var name: String
+
+    /// Which mode this preset belongs to ("normal" / "voice").
+    /// Nil means the preset was created before mode separation was introduced.
+    var mode: String?
+
+    /// Prompt used for normal (text) chat requests.
+    var normalPrompt: String
+    /// Prompt used for voice (realtime) chat requests.
+    var voicePrompt: String
+
+    var createdAt: Date
+    var updatedAt: Date
+
+    init(
+        name: String,
+        mode: String? = nil,
+        normalPrompt: String = "",
+        voicePrompt: String = ""
+    ) {
+        self.id = UUID()
+        self.name = name
+        self.mode = mode
+        self.normalPrompt = normalPrompt
+        self.voicePrompt = voicePrompt
+        self.createdAt = Date()
+        self.updatedAt = Date()
+    }
+}
+
 // MARK: - SwiftData Entity (single-row table storing global settings)
 
 @Model
@@ -96,6 +131,13 @@ final class AppSettings {
     // Currently selected preset identifier (optional when nothing is selected).
     var selectedPresetID: UUID?
 
+    // Legacy (v1): single selected system prompt preset identifier.
+    var selectedSystemPromptPresetID: UUID?
+
+    // v2: separate selections for normal/voice chat modes.
+    var selectedNormalSystemPromptPresetID: UUID?
+    var selectedVoiceSystemPromptPresetID: UUID?
+
     init(
         serverAddress: String = "http://127.0.0.1:9880",
         textLang: String = "auto",
@@ -109,7 +151,10 @@ final class AppSettings {
         selectedModel: String = "",
         enableStreaming: Bool = true,
         developerModeEnabled: Bool = false,
-        selectedPresetID: UUID? = nil
+        selectedPresetID: UUID? = nil,
+        selectedSystemPromptPresetID: UUID? = nil,
+        selectedNormalSystemPromptPresetID: UUID? = nil,
+        selectedVoiceSystemPromptPresetID: UUID? = nil
     ) {
         self.id = UUID()
         self.serverAddress = serverAddress
@@ -125,6 +170,9 @@ final class AppSettings {
         self.enableStreaming = enableStreaming
         self.developerModeEnabled = developerModeEnabled
         self.selectedPresetID = selectedPresetID
+        self.selectedSystemPromptPresetID = selectedSystemPromptPresetID
+        self.selectedNormalSystemPromptPresetID = selectedNormalSystemPromptPresetID
+        self.selectedVoiceSystemPromptPresetID = selectedVoiceSystemPromptPresetID
     }
 }
 
@@ -133,6 +181,11 @@ final class AppSettings {
 @MainActor
 final class SettingsManager: ObservableObject {
     static let shared = SettingsManager()
+
+    private enum SystemPromptPresetMode {
+        static let normal = "normal"
+        static let voice = "voice"
+    }
 
     // Legacy settings still read from the old structure.
     @Published var serverSettings: ServerSettings
@@ -145,6 +198,27 @@ final class SettingsManager: ObservableObject {
     @Published private(set) var presets: [VoicePreset] = []
     @Published private(set) var selectedPresetID: UUID?
     var selectedPreset: VoicePreset? { presets.first { $0.id == selectedPresetID } }
+
+    // System prompt preset list and selection state.
+    @Published private(set) var systemPromptPresets: [SystemPromptPreset] = []
+    @Published private(set) var selectedNormalSystemPromptPresetID: UUID?
+    @Published private(set) var selectedVoiceSystemPromptPresetID: UUID?
+
+    var selectedNormalSystemPromptPreset: SystemPromptPreset? {
+        systemPromptPresets.first { $0.id == selectedNormalSystemPromptPresetID }
+    }
+
+    var selectedVoiceSystemPromptPreset: SystemPromptPreset? {
+        systemPromptPresets.first { $0.id == selectedVoiceSystemPromptPresetID }
+    }
+
+    var normalSystemPromptPresets: [SystemPromptPreset] {
+        systemPromptPresets.filter { $0.mode == SystemPromptPresetMode.normal }
+    }
+
+    var voiceSystemPromptPresets: [SystemPromptPreset] {
+        systemPromptPresets.filter { $0.mode == SystemPromptPresetMode.voice }
+    }
 
     // Tracks whether a preset is being applied and the last error, if any.
     @Published private(set) var isApplyingPreset: Bool = false
@@ -185,8 +259,14 @@ final class SettingsManager: ObservableObject {
         }
         loadPresetsFromStore()
         ensureDefaultPresetIfNeeded()
+        loadSystemPromptPresetsFromStore()
+        migrateLegacySystemPromptPresetsIfNeeded()
+        ensureDefaultSystemPromptPresetsForModesIfNeeded()
         // Keep the in-memory preset selection aligned with persisted data.
         self.selectedPresetID = self.entity?.selectedPresetID ?? self.presets.first?.id
+        ensureSystemPromptSelectionsAreValid()
+        self.selectedNormalSystemPromptPresetID = self.entity?.selectedNormalSystemPromptPresetID ?? self.selectedNormalSystemPromptPresetID
+        self.selectedVoiceSystemPromptPresetID = self.entity?.selectedVoiceSystemPromptPresetID ?? self.selectedVoiceSystemPromptPresetID
     }
 
     // MARK: - Load persisted settings
@@ -226,6 +306,8 @@ final class SettingsManager: ObservableObject {
         self.voiceSettings = VoiceSettings(enableStreaming: e.enableStreaming)
         self.developerModeEnabled = e.developerModeEnabled ?? false
         self.selectedPresetID = e.selectedPresetID
+        self.selectedNormalSystemPromptPresetID = e.selectedNormalSystemPromptPresetID
+        self.selectedVoiceSystemPromptPresetID = e.selectedVoiceSystemPromptPresetID
     }
 
     private func loadPresetsFromStore() {
@@ -236,6 +318,16 @@ final class SettingsManager: ObservableObject {
         )
         let fetched = (try? context.fetch(descriptor)) ?? []
         self.presets = fetched
+    }
+
+    private func loadSystemPromptPresetsFromStore() {
+        guard let context else { return }
+        let descriptor = FetchDescriptor<SystemPromptPreset>(
+            predicate: nil,
+            sortBy: [SortDescriptor(\.updatedAt, order: .reverse)]
+        )
+        let fetched = (try? context.fetch(descriptor)) ?? []
+        self.systemPromptPresets = fetched
     }
 
     private func ensureDefaultPresetIfNeeded() {
@@ -263,6 +355,171 @@ final class SettingsManager: ObservableObject {
                 try? context.save()
                 self.selectedPresetID = e.selectedPresetID
             }
+        }
+    }
+
+    private func migrateLegacySystemPromptPresetsIfNeeded() {
+        guard let context, let e = entity else { return }
+        guard !systemPromptPresets.isEmpty else { return }
+
+        func trimmed(_ text: String) -> String {
+            text.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+
+        var didChange = false
+        var voiceCloneByOriginalID: [UUID: UUID] = [:]
+
+        for preset in systemPromptPresets {
+            let mode = trimmed(preset.mode ?? "")
+            let normal = trimmed(preset.normalPrompt)
+            let voice = trimmed(preset.voicePrompt)
+
+            if mode == SystemPromptPresetMode.normal {
+                if !voice.isEmpty {
+                    preset.voicePrompt = ""
+                    didChange = true
+                }
+                continue
+            }
+
+            if mode == SystemPromptPresetMode.voice {
+                if !normal.isEmpty {
+                    preset.normalPrompt = ""
+                    didChange = true
+                }
+                continue
+            }
+
+            // Legacy preset (no/unknown mode): split or classify.
+            if !normal.isEmpty && !voice.isEmpty {
+                let voiceClone = SystemPromptPreset(
+                    name: preset.name,
+                    mode: SystemPromptPresetMode.voice,
+                    normalPrompt: "",
+                    voicePrompt: voice
+                )
+                voiceClone.createdAt = preset.createdAt
+                voiceClone.updatedAt = preset.updatedAt
+                context.insert(voiceClone)
+                voiceCloneByOriginalID[preset.id] = voiceClone.id
+
+                preset.mode = SystemPromptPresetMode.normal
+                preset.normalPrompt = normal
+                preset.voicePrompt = ""
+                didChange = true
+                continue
+            }
+
+            if !voice.isEmpty {
+                preset.mode = SystemPromptPresetMode.voice
+                preset.normalPrompt = ""
+                preset.voicePrompt = voice
+                didChange = true
+                continue
+            }
+
+            // Default to normal for empty/normal-only presets.
+            preset.mode = SystemPromptPresetMode.normal
+            preset.normalPrompt = normal
+            preset.voicePrompt = ""
+            didChange = true
+        }
+
+        // Migration: if only the legacy selection exists, populate both new selections.
+        if e.selectedNormalSystemPromptPresetID == nil,
+           e.selectedVoiceSystemPromptPresetID == nil,
+           let legacy = e.selectedSystemPromptPresetID {
+            e.selectedNormalSystemPromptPresetID = legacy
+            e.selectedVoiceSystemPromptPresetID = legacy
+            didChange = true
+        }
+
+        // If the voice selection pointed at an old combined preset that was split, map it to the voice clone.
+        if let voiceSelection = e.selectedVoiceSystemPromptPresetID,
+           let mapped = voiceCloneByOriginalID[voiceSelection] {
+            e.selectedVoiceSystemPromptPresetID = mapped
+            didChange = true
+        }
+
+        if didChange {
+            try? context.save()
+            loadSystemPromptPresetsFromStore()
+        }
+    }
+
+    private func ensureDefaultSystemPromptPresetsForModesIfNeeded() {
+        guard let context else { return }
+        var didChange = false
+
+        if normalSystemPromptPresets.isEmpty {
+            let def = SystemPromptPreset(
+                name: String(localized: "Default"),
+                mode: SystemPromptPresetMode.normal
+            )
+            context.insert(def)
+            didChange = true
+        }
+
+        if voiceSystemPromptPresets.isEmpty {
+            let def = SystemPromptPreset(
+                name: String(localized: "Default"),
+                mode: SystemPromptPresetMode.voice
+            )
+            context.insert(def)
+            didChange = true
+        }
+
+        if didChange {
+            try? context.save()
+            loadSystemPromptPresetsFromStore()
+        }
+    }
+
+    private func ensureSystemPromptSelectionsAreValid() {
+        guard let context, let e = entity else { return }
+        guard let normalFallback = normalSystemPromptPresets.first?.id else { return }
+        guard let voiceFallback = voiceSystemPromptPresets.first?.id else { return }
+
+        let byID: [UUID: SystemPromptPreset] = Dictionary(uniqueKeysWithValues: systemPromptPresets.map { ($0.id, $0) })
+        var didChange = false
+
+        let legacySelection = e.selectedSystemPromptPresetID
+
+        let desiredNormal = selectedNormalSystemPromptPresetID
+            ?? e.selectedNormalSystemPromptPresetID
+            ?? legacySelection
+        if let desiredNormal,
+           let preset = byID[desiredNormal],
+           preset.mode == SystemPromptPresetMode.normal {
+            selectedNormalSystemPromptPresetID = desiredNormal
+            e.selectedNormalSystemPromptPresetID = desiredNormal
+        } else {
+            selectedNormalSystemPromptPresetID = normalFallback
+            e.selectedNormalSystemPromptPresetID = normalFallback
+            didChange = true
+        }
+
+        let desiredVoice = selectedVoiceSystemPromptPresetID
+            ?? e.selectedVoiceSystemPromptPresetID
+            ?? legacySelection
+        if let desiredVoice,
+           let preset = byID[desiredVoice],
+           preset.mode == SystemPromptPresetMode.voice {
+            selectedVoiceSystemPromptPresetID = desiredVoice
+            e.selectedVoiceSystemPromptPresetID = desiredVoice
+        } else {
+            selectedVoiceSystemPromptPresetID = voiceFallback
+            e.selectedVoiceSystemPromptPresetID = voiceFallback
+            didChange = true
+        }
+
+        if e.selectedSystemPromptPresetID == nil {
+            e.selectedSystemPromptPresetID = selectedNormalSystemPromptPresetID
+            didChange = true
+        }
+
+        if didChange {
+            try? context.save()
         }
     }
 
@@ -367,6 +624,100 @@ final class SettingsManager: ObservableObject {
         e.selectedPresetID = id
         try? context.save()
         if apply { Task { await self.applySelectedPreset() } }
+    }
+
+    // MARK: - System prompt preset CRUD
+
+    func createNormalSystemPromptPreset(name: String = String(localized: "New Prompt Preset")) -> SystemPromptPreset? {
+        createSystemPromptPreset(mode: SystemPromptPresetMode.normal, name: name)
+    }
+
+    func createVoiceSystemPromptPreset(name: String = String(localized: "New Prompt Preset")) -> SystemPromptPreset? {
+        createSystemPromptPreset(mode: SystemPromptPresetMode.voice, name: name)
+    }
+
+    private func createSystemPromptPreset(mode: String, name: String) -> SystemPromptPreset? {
+        guard let context else { return nil }
+        let preset = SystemPromptPreset(name: name, mode: mode, normalPrompt: "", voicePrompt: "")
+        context.insert(preset)
+        try? context.save()
+        loadSystemPromptPresetsFromStore()
+        return preset
+    }
+
+    func deleteSystemPromptPreset(_ id: UUID) {
+        guard let context else { return }
+        if let target = systemPromptPresets.first(where: { $0.id == id }) {
+            context.delete(target)
+            try? context.save()
+            loadSystemPromptPresetsFromStore()
+            ensureDefaultSystemPromptPresetsForModesIfNeeded()
+            ensureSystemPromptSelectionsAreValid()
+        }
+    }
+
+    func updateNormalSystemPromptPreset(
+        id: UUID,
+        name: String? = nil,
+        prompt: String? = nil
+    ) {
+        guard let context else { return }
+        guard let preset = systemPromptPresets.first(where: { $0.id == id }) else { return }
+        preset.mode = SystemPromptPresetMode.normal
+        if let name { preset.name = name }
+        if let prompt { preset.normalPrompt = prompt }
+        preset.voicePrompt = ""
+        preset.updatedAt = Date()
+        try? context.save()
+        loadSystemPromptPresetsFromStore()
+    }
+
+    func updateVoiceSystemPromptPreset(
+        id: UUID,
+        name: String? = nil,
+        prompt: String? = nil
+    ) {
+        guard let context else { return }
+        guard let preset = systemPromptPresets.first(where: { $0.id == id }) else { return }
+        preset.mode = SystemPromptPresetMode.voice
+        if let name { preset.name = name }
+        if let prompt { preset.voicePrompt = prompt }
+        preset.normalPrompt = ""
+        preset.updatedAt = Date()
+        try? context.save()
+        loadSystemPromptPresetsFromStore()
+    }
+
+    func updateSystemPromptPreset(
+        id: UUID,
+        name: String? = nil,
+        normalPrompt: String? = nil,
+        voicePrompt: String? = nil
+    ) {
+        guard let context else { return }
+        guard let preset = systemPromptPresets.first(where: { $0.id == id }) else { return }
+        if let name { preset.name = name }
+        if let normalPrompt { preset.normalPrompt = normalPrompt }
+        if let voicePrompt { preset.voicePrompt = voicePrompt }
+        preset.updatedAt = Date()
+        try? context.save()
+        loadSystemPromptPresetsFromStore()
+    }
+
+    func selectNormalSystemPromptPreset(_ id: UUID?) {
+        guard let context, let e = entity else { return }
+        if selectedNormalSystemPromptPresetID == id { return }
+        selectedNormalSystemPromptPresetID = id
+        e.selectedNormalSystemPromptPresetID = id
+        try? context.save()
+    }
+
+    func selectVoiceSystemPromptPreset(_ id: UUID?) {
+        guard let context, let e = entity else { return }
+        if selectedVoiceSystemPromptPresetID == id { return }
+        selectedVoiceSystemPromptPresetID = id
+        e.selectedVoiceSystemPromptPresetID = id
+        try? context.save()
     }
 
     // MARK: - Persist legacy settings

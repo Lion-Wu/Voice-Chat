@@ -179,3 +179,17 @@
 "Time To First Token" = "首 Token 延遲";
 "Stream Duration" = "串流耗時";
 "Generation Duration" = "生成耗時";
+
+"System Prompt" = "系統提示詞";
+"Normal Mode Preset" = "一般模式預設";
+"Voice Mode Preset" = "語音模式預設";
+"Edit Prompt Preset" = "編輯提示詞預設";
+"New Prompt Preset" = "新提示詞預設";
+"Delete this prompt preset?" = "要刪除此提示詞預設嗎？";
+"Prompt preset name" = "提示詞預設名稱";
+"Normal Prompt" = "一般模式提示詞";
+"Voice Prompt" = "語音模式提示詞";
+"Used for normal chat mode" = "用於一般聊天模式";
+"Used for voice chat mode" = "用於語音聊天模式";
+"Add prompt preset" = "新增提示詞預設";
+"Delete selected prompt preset" = "刪除選取的提示詞預設";

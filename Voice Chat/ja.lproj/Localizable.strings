@@ -179,3 +179,17 @@
 "Time To First Token" = "初回トークンまでの時間";
 "Stream Duration" = "ストリーム時間";
 "Generation Duration" = "生成時間";
+
+"System Prompt" = "システムプロンプト";
+"Normal Mode Preset" = "通常モードのプリセット";
+"Voice Mode Preset" = "音声モードのプリセット";
+"Edit Prompt Preset" = "プロンプトプリセットを編集";
+"New Prompt Preset" = "新規プロンプトプリセット";
+"Delete this prompt preset?" = "このプロンプトプリセットを削除しますか？";
+"Prompt preset name" = "プロンプトプリセット名";
+"Normal Prompt" = "通常プロンプト";
+"Voice Prompt" = "音声プロンプト";
+"Used for normal chat mode" = "通常チャットモードで使用";
+"Used for voice chat mode" = "音声チャットモードで使用";
+"Add prompt preset" = "プロンプトプリセットを追加";
+"Delete selected prompt preset" = "選択したプロンプトプリセットを削除";
