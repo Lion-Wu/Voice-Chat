@@ -59,7 +59,8 @@ struct Voice_ChatApp: App {
             ChatSession.self,
             ChatMessage.self,
             AppSettings.self,
-            VoicePreset.self
+            VoicePreset.self,
+            SystemPromptPreset.self
         ])
         do {
             return try ModelContainer(for: schema, configurations: [ModelConfiguration()])

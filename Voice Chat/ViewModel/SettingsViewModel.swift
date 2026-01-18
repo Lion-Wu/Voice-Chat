@@ -60,12 +60,43 @@ class SettingsViewModel: ObservableObject {
     @Published var presetGPTWeightsPath: String = "" { didSet { savePresetFields() } }
     @Published var presetSoVITSWeightsPath: String = "" { didSet { savePresetFields() } }
 
+    // MARK: - System prompt presets (normal / voice are separate)
+
+    @Published var normalSystemPromptPresetList: [PresetSummary] = []
+    @Published var selectedNormalSystemPromptPresetID: UUID? {
+        didSet {
+            if !suppressNormalSystemPromptDidSet {
+                SettingsManager.shared.selectNormalSystemPromptPreset(selectedNormalSystemPromptPresetID)
+                loadSelectedNormalSystemPromptPresetFields()
+            }
+        }
+    }
+    @Published var normalSystemPromptPresetName: String = "" { didSet { saveSelectedNormalSystemPromptPresetName() } }
+    @Published var normalSystemPromptPrompt: String = "" { didSet { saveSelectedNormalSystemPromptPresetPrompt() } }
+
+    @Published var voiceSystemPromptPresetList: [PresetSummary] = []
+    @Published var selectedVoiceSystemPromptPresetID: UUID? {
+        didSet {
+            if !suppressVoiceSystemPromptDidSet {
+                SettingsManager.shared.selectVoiceSystemPromptPreset(selectedVoiceSystemPromptPresetID)
+                loadSelectedVoiceSystemPromptPresetFields()
+            }
+        }
+    }
+    @Published var voiceSystemPromptPresetName: String = "" { didSet { saveSelectedVoiceSystemPromptPresetName() } }
+    @Published var voiceSystemPromptPrompt: String = "" { didSet { saveSelectedVoiceSystemPromptPresetPrompt() } }
+
     // MARK: - Dependency
     private let settingsManager = SettingsManager.shared
 
     // Avoid recursive didSet triggers when swapping presets.
     private var suppressPresetDidSet = false
     private var suppressSavePreset = false
+
+    private var suppressNormalSystemPromptDidSet = false
+    private var suppressSaveNormalSystemPrompt = false
+    private var suppressVoiceSystemPromptDidSet = false
+    private var suppressSaveVoiceSystemPrompt = false
 
     // MARK: - Init
     init() {
@@ -90,6 +121,8 @@ class SettingsViewModel: ObservableObject {
 
         reloadPresetListAndSelection()
         loadSelectedPresetFields()
+
+        reloadSystemPromptPresetListsAndSelections()
     }
 
     // MARK: - Persist legacy settings
@@ -190,5 +223,106 @@ class SettingsViewModel: ObservableObject {
 
     func applySelectedPresetNow() {
         Task { await settingsManager.applySelectedPreset() }
+    }
+
+    // MARK: - System prompt preset helpers
+
+    func reloadSystemPromptPresetListsAndSelections() {
+        normalSystemPromptPresetList = settingsManager.normalSystemPromptPresets.map { .init(id: $0.id, name: $0.name) }
+        voiceSystemPromptPresetList = settingsManager.voiceSystemPromptPresets.map { .init(id: $0.id, name: $0.name) }
+
+        suppressNormalSystemPromptDidSet = true
+        selectedNormalSystemPromptPresetID = settingsManager.selectedNormalSystemPromptPresetID
+        suppressNormalSystemPromptDidSet = false
+        loadSelectedNormalSystemPromptPresetFields()
+
+        suppressVoiceSystemPromptDidSet = true
+        selectedVoiceSystemPromptPresetID = settingsManager.selectedVoiceSystemPromptPresetID
+        suppressVoiceSystemPromptDidSet = false
+        loadSelectedVoiceSystemPromptPresetFields()
+    }
+
+    func loadSelectedNormalSystemPromptPresetFields() {
+        guard let id = settingsManager.selectedNormalSystemPromptPresetID,
+              let p = settingsManager.normalSystemPromptPresets.first(where: { $0.id == id }) else {
+            normalSystemPromptPresetName = ""
+            normalSystemPromptPrompt = ""
+            return
+        }
+        suppressSaveNormalSystemPrompt = true
+        normalSystemPromptPresetName = p.name
+        normalSystemPromptPrompt = p.normalPrompt
+        suppressSaveNormalSystemPrompt = false
+    }
+
+    func loadSelectedVoiceSystemPromptPresetFields() {
+        guard let id = settingsManager.selectedVoiceSystemPromptPresetID,
+              let p = settingsManager.voiceSystemPromptPresets.first(where: { $0.id == id }) else {
+            voiceSystemPromptPresetName = ""
+            voiceSystemPromptPrompt = ""
+            return
+        }
+        suppressSaveVoiceSystemPrompt = true
+        voiceSystemPromptPresetName = p.name
+        voiceSystemPromptPrompt = p.voicePrompt
+        suppressSaveVoiceSystemPrompt = false
+    }
+
+    private func saveSelectedNormalSystemPromptPresetName() {
+        guard !suppressSaveNormalSystemPrompt,
+              let id = settingsManager.selectedNormalSystemPromptPresetID else { return }
+        settingsManager.updateNormalSystemPromptPreset(id: id, name: normalSystemPromptPresetName)
+        if let idx = normalSystemPromptPresetList.firstIndex(where: { $0.id == id }) {
+            normalSystemPromptPresetList[idx].name = normalSystemPromptPresetName
+        }
+    }
+
+    private func saveSelectedNormalSystemPromptPresetPrompt() {
+        guard !suppressSaveNormalSystemPrompt,
+              let id = settingsManager.selectedNormalSystemPromptPresetID else { return }
+        settingsManager.updateNormalSystemPromptPreset(id: id, prompt: normalSystemPromptPrompt)
+    }
+
+    private func saveSelectedVoiceSystemPromptPresetName() {
+        guard !suppressSaveVoiceSystemPrompt,
+              let id = settingsManager.selectedVoiceSystemPromptPresetID else { return }
+        settingsManager.updateVoiceSystemPromptPreset(id: id, name: voiceSystemPromptPresetName)
+        if let idx = voiceSystemPromptPresetList.firstIndex(where: { $0.id == id }) {
+            voiceSystemPromptPresetList[idx].name = voiceSystemPromptPresetName
+        }
+    }
+
+    private func saveSelectedVoiceSystemPromptPresetPrompt() {
+        guard !suppressSaveVoiceSystemPrompt,
+              let id = settingsManager.selectedVoiceSystemPromptPresetID else { return }
+        settingsManager.updateVoiceSystemPromptPreset(id: id, prompt: voiceSystemPromptPrompt)
+    }
+
+    func addNormalSystemPromptPreset() {
+        if let p = settingsManager.createNormalSystemPromptPreset() {
+            reloadSystemPromptPresetListsAndSelections()
+            SettingsManager.shared.selectNormalSystemPromptPreset(p.id)
+            reloadSystemPromptPresetListsAndSelections()
+        }
+    }
+
+    func deleteSelectedNormalSystemPromptPreset() {
+        guard let id = settingsManager.selectedNormalSystemPromptPresetID else { return }
+        settingsManager.deleteSystemPromptPreset(id)
+        reloadSystemPromptPresetListsAndSelections()
+    }
+
+    func addVoiceSystemPromptPreset() {
+        if let p = settingsManager.createVoiceSystemPromptPreset() {
+            reloadSystemPromptPresetListsAndSelections()
+            SettingsManager.shared.selectVoiceSystemPromptPreset(p.id)
+            reloadSystemPromptPresetListsAndSelections()
+        }
+    }
+
+    func deleteSelectedVoiceSystemPromptPreset() {
+        guard let id = settingsManager.selectedVoiceSystemPromptPresetID else { return }
+        settingsManager.deleteSystemPromptPreset(id)
+        reloadSystemPromptPresetListsAndSelections()
     }
 }
