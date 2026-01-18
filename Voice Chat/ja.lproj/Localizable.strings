@@ -109,6 +109,7 @@
 "Waiting for connection" = "接続待機中";
 "Unable to set up audio session: %@" = "オーディオセッションを設定できませんでした: %@";
 "Search Chats" = "チャットを検索";
+"No chats yet" = "チャット履歴はありません";
 "No chats match \"%@\"" = "「%@」に一致するチャットはありません";
 "No Results" = "結果なし";
 "Try a different chat name." = "別のチャット名を試してください。";

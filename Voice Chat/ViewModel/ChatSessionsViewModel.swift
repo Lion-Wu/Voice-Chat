@@ -45,6 +45,7 @@ final class ChatSessionsViewModel: ObservableObject {
             apiBaseURL: self.settingsManager.chatSettings.apiURL,
             modelIdentifier: self.settingsManager.chatSettings.selectedModel
         )
+        self.selectedSessionID = draftSession.id
     }
 
     private func currentChatConfiguration() -> ChatServiceConfiguration {

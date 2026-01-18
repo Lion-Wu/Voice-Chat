@@ -109,6 +109,7 @@
 "Waiting for connection" = "等待连接";
 "Unable to set up audio session: %@" = "无法设置音频会话：%@";
 "Search Chats" = "搜索聊天";
+"No chats yet" = "暂无历史聊天";
 "No chats match \"%@\"" = "没有与“%@”匹配的聊天";
 "No Results" = "没有结果";
 "Try a different chat name." = "尝试不同的聊天名称。";
