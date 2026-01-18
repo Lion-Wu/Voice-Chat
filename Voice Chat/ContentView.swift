@@ -64,20 +64,9 @@ private extension ContentView {
                     onOpenSettings: { openSettingsWindow() }
                 )
             } detail: {
-                if let selectedSession = chatSessionsViewModel.selectedSession {
-                    ChatView(viewModel: chatSessionsViewModel.viewModel(for: selectedSession))
-                        .id(selectedSession.id)
-                } else {
-                    VStack(spacing: 12) {
-                        Image(systemName: "bubble.left.and.exclamationmark.bubble.right.fill")
-                            .font(.system(size: 42))
-                            .foregroundStyle(.secondary)
-                        Text("Select or start a chat")
-                            .font(.title3.weight(.semibold))
-                            .foregroundStyle(.secondary)
-                    }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                }
+                let activeSession = chatSessionsViewModel.selectedSession ?? chatSessionsViewModel.draftSession
+                ChatView(viewModel: chatSessionsViewModel.viewModel(for: activeSession))
+                    .id(activeSession.id)
             }
             .toolbar {
                 ToolbarItem {

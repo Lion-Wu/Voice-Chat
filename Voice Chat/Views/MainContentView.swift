@@ -18,7 +18,7 @@ struct MainContentView: View {
     let onToggleSidebar: () -> Void
 
     private var selectedSessionTitle: String {
-        chatSessionsViewModel.selectedSession?.title ?? "Voice Chat"
+        (chatSessionsViewModel.selectedSession ?? chatSessionsViewModel.draftSession).title
     }
 
     var body: some View {
@@ -26,26 +26,9 @@ struct MainContentView: View {
             ZStack {
                 AppBackgroundView()
 
-                Group {
-                    if let selectedSession = chatSessionsViewModel.selectedSession {
-                        ChatView(
-                            viewModel: chatSessionsViewModel.viewModel(for: selectedSession)
-                        )
-                        .id(selectedSession.id)
-                    } else {
-                        VStack(spacing: 12) {
-                            Image(systemName: "bubble.left.and.bubble.right")
-                                .font(.system(size: 48))
-                                .foregroundStyle(.secondary)
-                            Text("No Chat Selected")
-                                .font(.title3.weight(.semibold))
-                            Text("Start a new conversation to begin talking.")
-                                .font(.subheadline)
-                                .foregroundStyle(.secondary)
-                        }
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    }
-                }
+                let activeSession = chatSessionsViewModel.selectedSession ?? chatSessionsViewModel.draftSession
+                ChatView(viewModel: chatSessionsViewModel.viewModel(for: activeSession))
+                    .id(activeSession.id)
             }
             .navigationTitle(selectedSessionTitle)
             .navigationBarTitleDisplayMode(.inline)

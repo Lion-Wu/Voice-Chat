@@ -127,6 +127,7 @@
 "Waiting for connection" = "Waiting for connection";
 "Unable to set up audio session: %@" = "Unable to set up audio session: %@";
 "Search Chats" = "Search Chats";
+"No chats yet" = "No chats yet";
 "No chats match \"%@\"" = "No chats match \"%@\"";
 "No Results" = "No Results";
 "Try a different chat name." = "Try a different chat name.";

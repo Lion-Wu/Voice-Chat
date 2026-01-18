@@ -130,8 +130,13 @@ struct SidebarView: View {
             }
             Section(header: Text("Chats")) {
                 if filteredSessions.isEmpty {
-                    Text(String(format: NSLocalizedString("No chats match \"%@\"", comment: ""), searchText))
-                        .foregroundStyle(.secondary)
+                    if searchKeyword.isEmpty {
+                        Text("No chats yet")
+                            .foregroundStyle(.secondary)
+                    } else {
+                        Text(String(format: NSLocalizedString("No chats match \"%@\"", comment: ""), searchKeyword))
+                            .foregroundStyle(.secondary)
+                    }
                 } else {
                     ForEach(filteredSessions) { session in
                         macSessionRow(session)
@@ -171,7 +176,7 @@ struct SidebarView: View {
                     if filteredSessions.isEmpty {
                         if searchKeyword.isEmpty {
                             ContentUnavailableView(
-                                LocalizedStringKey("Select or start a chat"),
+                                LocalizedStringKey("No chats yet"),
                                 systemImage: "text.bubble",
                                 description: Text("Start a new conversation to begin talking.")
                             )
