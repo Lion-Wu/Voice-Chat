@@ -10,20 +10,25 @@ import Combine
 
 @MainActor
 class SettingsViewModel: ObservableObject {
+    private var cancellables: Set<AnyCancellable> = []
+    private var suppressLegacySaves = false
+    private var didSyncAfterStoreLoad = false
+
     // MARK: - Legacy settings
-    @Published var serverAddress: String { didSet { saveServerSettings() } }
-    @Published var textLang: String { didSet { saveServerSettings() } }
+    @Published var serverAddress: String { didSet { if !suppressLegacySaves { saveServerSettings() } } }
+    @Published var textLang: String { didSet { if !suppressLegacySaves { saveServerSettings() } } }
 
     // The following legacy fields now live on presets; we keep them for compatibility.
-    @Published var refAudioPath_legacy: String { didSet { saveServerSettings() } }
-    @Published var promptText_legacy: String { didSet { saveServerSettings() } }
-    @Published var promptLang_legacy: String { didSet { saveServerSettings() } }
+    @Published var refAudioPath_legacy: String { didSet { if !suppressLegacySaves { saveServerSettings() } } }
+    @Published var promptText_legacy: String { didSet { if !suppressLegacySaves { saveServerSettings() } } }
+    @Published var promptLang_legacy: String { didSet { if !suppressLegacySaves { saveServerSettings() } } }
 
-    @Published var apiURL: String { didSet { saveChatSettings() } }
-    @Published var selectedModel: String { didSet { saveChatSettings() } }
+    @Published var apiURL: String { didSet { if !suppressLegacySaves { saveChatSettings() } } }
+    @Published var selectedModel: String { didSet { if !suppressLegacySaves { saveChatSettings() } } }
 
     @Published var enableStreaming: Bool {
         didSet {
+            guard !suppressLegacySaves else { return }
             saveVoiceSettings()
             if enableStreaming {
                 // Force `cut0` when streaming is enabled.
@@ -32,9 +37,9 @@ class SettingsViewModel: ObservableObject {
         }
     }
 
-    @Published var autoSplit: String { didSet { saveModelSettings() } }
-    @Published var modelId: String { didSet { saveModelSettings() } }
-    @Published var language: String { didSet { saveModelSettings() } }
+    @Published var autoSplit: String { didSet { if !suppressLegacySaves { saveModelSettings() } } }
+    @Published var modelId: String { didSet { if !suppressLegacySaves { saveModelSettings() } } }
+    @Published var language: String { didSet { if !suppressLegacySaves { saveModelSettings() } } }
 
     // MARK: - Preset bindings for the UI
     struct PresetSummary: Identifiable, Equatable {
@@ -100,29 +105,67 @@ class SettingsViewModel: ObservableObject {
 
     // MARK: - Init
     init() {
+        // Seed values from the current in-memory state. A later SwiftData attach may update the manager,
+        // so we also listen for the first post-load signal and resync.
+        serverAddress = ""
+        textLang = ""
+        refAudioPath_legacy = ""
+        promptText_legacy = ""
+        promptLang_legacy = "auto"
+
+        apiURL = ""
+        selectedModel = ""
+
+        enableStreaming = true
+
+        autoSplit = "cut0"
+        modelId = ""
+        language = "auto"
+
+        refreshFromSettingsManager()
+        bindInitialStoreSync()
+    }
+
+    func refreshFromSettingsManager() {
         let s = settingsManager.serverSettings
+        let c = settingsManager.chatSettings
+        let v = settingsManager.voiceSettings
+        let m = settingsManager.modelSettings
+
+        suppressLegacySaves = true
         serverAddress = s.serverAddress
         textLang = s.textLang
         refAudioPath_legacy = s.refAudioPath
         promptText_legacy = s.promptText
         promptLang_legacy = s.promptLang
 
-        let c = settingsManager.chatSettings
         apiURL = c.apiURL
         selectedModel = c.selectedModel
 
-        let v = settingsManager.voiceSettings
         enableStreaming = v.enableStreaming
 
-        let m = settingsManager.modelSettings
         autoSplit = m.autoSplit
         modelId = m.modelId
         language = m.language
+        suppressLegacySaves = false
 
         reloadPresetListAndSelection()
         loadSelectedPresetFields()
-
         reloadSystemPromptPresetListsAndSelections()
+    }
+
+    private func bindInitialStoreSync() {
+        settingsManager.$presets
+            .receive(on: RunLoop.main)
+            .sink { [weak self] presets in
+                guard let self else { return }
+                guard !self.didSyncAfterStoreLoad else { return }
+                // Presets are only loaded from SwiftData after the model context is attached.
+                guard !presets.isEmpty else { return }
+                self.didSyncAfterStoreLoad = true
+                self.refreshFromSettingsManager()
+            }
+            .store(in: &cancellables)
     }
 
     // MARK: - Persist legacy settings
@@ -169,6 +212,9 @@ class SettingsViewModel: ObservableObject {
     }
 
     func loadSelectedPresetFields() {
+        suppressSavePreset = true
+        defer { suppressSavePreset = false }
+
         guard let id = settingsManager.selectedPresetID,
               let p = settingsManager.presets.first(where: { $0.id == id }) else {
             presetName = ""
@@ -179,14 +225,13 @@ class SettingsViewModel: ObservableObject {
             presetSoVITSWeightsPath = ""
             return
         }
-        suppressSavePreset = true
+
         presetName = p.name
         presetRefAudioPath = p.refAudioPath
         presetPromptText = p.promptText
         presetPromptLang = p.promptLang
         presetGPTWeightsPath = p.gptWeightsPath
         presetSoVITSWeightsPath = p.sovitsWeightsPath
-        suppressSavePreset = false
     }
 
     private func savePresetFields() {
@@ -243,29 +288,33 @@ class SettingsViewModel: ObservableObject {
     }
 
     func loadSelectedNormalSystemPromptPresetFields() {
+        suppressSaveNormalSystemPrompt = true
+        defer { suppressSaveNormalSystemPrompt = false }
+
         guard let id = settingsManager.selectedNormalSystemPromptPresetID,
               let p = settingsManager.normalSystemPromptPresets.first(where: { $0.id == id }) else {
             normalSystemPromptPresetName = ""
             normalSystemPromptPrompt = ""
             return
         }
-        suppressSaveNormalSystemPrompt = true
+
         normalSystemPromptPresetName = p.name
         normalSystemPromptPrompt = p.normalPrompt
-        suppressSaveNormalSystemPrompt = false
     }
 
     func loadSelectedVoiceSystemPromptPresetFields() {
+        suppressSaveVoiceSystemPrompt = true
+        defer { suppressSaveVoiceSystemPrompt = false }
+
         guard let id = settingsManager.selectedVoiceSystemPromptPresetID,
               let p = settingsManager.voiceSystemPromptPresets.first(where: { $0.id == id }) else {
             voiceSystemPromptPresetName = ""
             voiceSystemPromptPrompt = ""
             return
         }
-        suppressSaveVoiceSystemPrompt = true
+
         voiceSystemPromptPresetName = p.name
         voiceSystemPromptPrompt = p.voicePrompt
-        suppressSaveVoiceSystemPrompt = false
     }
 
     private func saveSelectedNormalSystemPromptPresetName() {
