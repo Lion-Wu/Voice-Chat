@@ -222,19 +222,48 @@ final class MarkdownCodeBlockAttachment: MarkdownAttachment, @unchecked Sendable
         let copyTextRect: CGRect
     }
 
-    let code: String
+    private(set) var code: String
     override var plainText: String { code }
     override var supportsHorizontalScroll: Bool { true }
     let languageLabel: String
     let copyLabel: String
     let style: MarkdownCodeBlockStyle
-    let codeAttributed: NSAttributedString
+
+    private struct EstimatedCodeMetrics {
+        var lineCount: Int
+        var currentLineUnits: Int
+        var maxLineUnits: Int
+    }
+
+    private enum EstimatedSizing {
+        static let tabWidthUnits: Int = 4
+        static let nonASCIIWidthUnits: Int = 2
+    }
+
+    private let estimatedCharWidth: CGFloat
+    private let estimatedLineHeight: CGFloat
+    private let estimatedLineSpacing: CGFloat
+    private var estimatedMetrics: EstimatedCodeMetrics
+
+    private let codeAttributes: [NSAttributedString.Key: Any]
+    private let codeAttributedStorage: NSMutableAttributedString
+    var codeAttributed: NSAttributedString { codeAttributedStorage }
+    var estimatedCodeTextSize: CGSize {
+        let width = CGFloat(estimatedMetrics.maxLineUnits) * estimatedCharWidth
+        let lines = max(1, estimatedMetrics.lineCount)
+        let height = CGFloat(lines) * estimatedLineHeight + CGFloat(max(0, lines - 1)) * estimatedLineSpacing
+        return CGSize(width: ceil(width), height: ceil(height))
+    }
     private var horizontalScrollOffset: CGFloat = 0
     private var horizontalScrollRange: CGFloat = 0
     private var cachedImage: MarkdownPlatformImage?
     private var cachedSize: CGSize = .zero
     private var cachedWidth: CGFloat = 0
     private var lastLayout: Layout?
+
+    #if os(macOS)
+    weak var hostedView: MarkdownCodeBlockView?
+    #endif
 
     private static let viewProviderFileType = MarkdownAttachmentFileTypes.viewBacked
 
@@ -273,14 +302,22 @@ final class MarkdownCodeBlockAttachment: MarkdownAttachment, @unchecked Sendable
         let paragraph = NSMutableParagraphStyle()
         paragraph.lineBreakMode = .byClipping
         paragraph.lineSpacing = 2
-        self.codeAttributed = NSAttributedString(
-            string: code,
-            attributes: [
-                .font: style.codeFont,
-                .foregroundColor: style.textColor,
-                .paragraphStyle: paragraph
-            ]
-        )
+        let fontMeasurementAttributes: [NSAttributedString.Key: Any] = [.font: style.codeFont]
+        let measuredCharWidth = ("0" as NSString).size(withAttributes: fontMeasurementAttributes).width
+        self.estimatedCharWidth = max(1, measuredCharWidth)
+        #if os(iOS) || os(tvOS) || os(watchOS)
+        self.estimatedLineHeight = style.codeFont.lineHeight
+        #elseif os(macOS)
+        self.estimatedLineHeight = NSLayoutManager().defaultLineHeight(for: style.codeFont)
+        #endif
+        self.estimatedLineSpacing = paragraph.lineSpacing
+        self.estimatedMetrics = Self.estimateMetrics(for: code)
+        self.codeAttributes = [
+            .font: style.codeFont,
+            .foregroundColor: style.textColor,
+            .paragraphStyle: paragraph
+        ]
+        self.codeAttributedStorage = NSMutableAttributedString(string: code, attributes: self.codeAttributes)
         super.init(data: nil, ofType: nil)
         self.maxWidth = maxWidth
         #if os(iOS) || os(tvOS) || os(macOS)
@@ -307,10 +344,43 @@ final class MarkdownCodeBlockAttachment: MarkdownAttachment, @unchecked Sendable
             codePadding: CGSize(width: 14, height: 12),
             headerPadding: CGSize(width: 12, height: 6)
         )
-        self.codeAttributed = NSAttributedString(string: "")
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.lineBreakMode = .byClipping
+        paragraph.lineSpacing = 2
+        let fontMeasurementAttributes: [NSAttributedString.Key: Any] = [.font: style.codeFont]
+        let measuredCharWidth = ("0" as NSString).size(withAttributes: fontMeasurementAttributes).width
+        self.estimatedCharWidth = max(1, measuredCharWidth)
+        #if os(iOS) || os(tvOS) || os(watchOS)
+        self.estimatedLineHeight = style.codeFont.lineHeight
+        #elseif os(macOS)
+        self.estimatedLineHeight = NSLayoutManager().defaultLineHeight(for: style.codeFont)
+        #endif
+        self.estimatedLineSpacing = paragraph.lineSpacing
+        self.estimatedMetrics = EstimatedCodeMetrics(lineCount: 1, currentLineUnits: 0, maxLineUnits: 0)
+        self.codeAttributes = [
+            .font: style.codeFont,
+            .foregroundColor: style.textColor,
+            .paragraphStyle: paragraph
+        ]
+        self.codeAttributedStorage = NSMutableAttributedString(string: "", attributes: self.codeAttributes)
         super.init(coder: coder)
         #if os(iOS) || os(tvOS) || os(macOS)
         configureTextAttachmentViewIfAvailable()
+        #endif
+    }
+
+    #if os(macOS)
+    @MainActor
+    #endif
+    func appendCode(_ delta: String) {
+        guard !delta.isEmpty else { return }
+        code.append(contentsOf: delta)
+        codeAttributedStorage.append(NSAttributedString(string: delta, attributes: codeAttributes))
+        Self.ingest(delta: delta, into: &estimatedMetrics)
+        contentVersion &+= 1
+        invalidateForContentChange()
+        #if os(macOS)
+        hostedView?.applyUpdate(from: self)
         #endif
     }
 
@@ -320,6 +390,17 @@ final class MarkdownCodeBlockAttachment: MarkdownAttachment, @unchecked Sendable
         cachedWidth = 0
         lastLayout = nil
         horizontalScrollOffset = 0
+        horizontalScrollRange = 0
+        #if !os(macOS)
+        setAttachmentImage(nil)
+        #endif
+    }
+
+    private func invalidateForContentChange() {
+        cachedImage = nil
+        cachedSize = .zero
+        cachedWidth = 0
+        lastLayout = nil
         horizontalScrollRange = 0
         #if !os(macOS)
         setAttachmentImage(nil)
@@ -457,7 +538,7 @@ final class MarkdownCodeBlockAttachment: MarkdownAttachment, @unchecked Sendable
         )
 
         let codeTextWidth = max(1, viewportContentWidth - codePadding.width * 2)
-        let codeTextSize = measureAttributed(codeAttributed, width: .greatestFiniteMagnitude)
+        let codeTextSize = estimatedCodeTextSize
         let contentWidth = max(viewportContentWidth, codeTextSize.width + codePadding.width * 2)
         let codeHeight = max(codeTextSize.height, lineHeight(for: style.codeFont))
         let codeRect = CGRect(
@@ -601,6 +682,32 @@ final class MarkdownCodeBlockAttachment: MarkdownAttachment, @unchecked Sendable
         measureAttributedText(text, width: width)
     }
 
+    private static func estimateMetrics(for code: String) -> EstimatedCodeMetrics {
+        var metrics = EstimatedCodeMetrics(lineCount: 1, currentLineUnits: 0, maxLineUnits: 0)
+        ingest(delta: code, into: &metrics)
+        return metrics
+    }
+
+    private static func ingest(delta: String, into metrics: inout EstimatedCodeMetrics) {
+        guard !delta.isEmpty else { return }
+        for scalar in delta.unicodeScalars {
+            switch scalar.value {
+            case 10: // \n
+                metrics.maxLineUnits = max(metrics.maxLineUnits, metrics.currentLineUnits)
+                metrics.lineCount += 1
+                metrics.currentLineUnits = 0
+            case 13: // \r
+                continue
+            case 9: // \t
+                metrics.currentLineUnits += EstimatedSizing.tabWidthUnits
+                metrics.maxLineUnits = max(metrics.maxLineUnits, metrics.currentLineUnits)
+            default:
+                metrics.currentLineUnits += scalar.isASCII ? 1 : EstimatedSizing.nonASCIIWidthUnits
+                metrics.maxLineUnits = max(metrics.maxLineUnits, metrics.currentLineUnits)
+            }
+        }
+    }
+
     private func lineHeight(for font: MarkdownPlatformFont) -> CGFloat {
         #if os(iOS) || os(tvOS) || os(watchOS)
         return font.lineHeight
@@ -642,7 +749,7 @@ final class MarkdownTableAttachment: MarkdownAttachment, @unchecked Sendable {
         let columnGap: CGFloat
     }
 
-    let rows: [MarkdownTableRow]
+    private(set) var rows: [MarkdownTableRow]
     override var plainText: String {
         rows.map { row in
             row.cells.map { extractPlainText(from: $0) }.joined(separator: "\t")
@@ -656,6 +763,10 @@ final class MarkdownTableAttachment: MarkdownAttachment, @unchecked Sendable {
     private var cachedSize: CGSize = .zero
     private var cachedWidth: CGFloat = 0
     private var lastLayout: TableLayout?
+
+    #if os(macOS)
+    weak var hostedView: MarkdownTableView?
+    #endif
 
     private static let viewProviderFileType = MarkdownAttachmentFileTypes.viewBacked
 
@@ -699,12 +810,52 @@ final class MarkdownTableAttachment: MarkdownAttachment, @unchecked Sendable {
         #endif
     }
 
+    #if os(macOS)
+    @MainActor
+    #endif
+    func appendRows(_ newRows: [MarkdownTableRow]) {
+        guard !newRows.isEmpty else { return }
+        rows.append(contentsOf: newRows)
+        contentVersion &+= 1
+        invalidateForContentChange()
+        #if os(macOS)
+        hostedView?.applyUpdate(from: self)
+        #endif
+    }
+
+    #if os(macOS)
+    @MainActor
+    #endif
+    func replaceLastRow(_ row: MarkdownTableRow) {
+        if rows.isEmpty {
+            rows = [row]
+        } else {
+            rows[rows.count - 1] = row
+        }
+        contentVersion &+= 1
+        invalidateForContentChange()
+        #if os(macOS)
+        hostedView?.applyUpdate(from: self)
+        #endif
+    }
+
     override func widthDidChange() {
         cachedImage = nil
         cachedSize = .zero
         cachedWidth = 0
         lastLayout = nil
         horizontalScrollOffset = 0
+        horizontalScrollRange = 0
+        #if !os(macOS)
+        setAttachmentImage(nil)
+        #endif
+    }
+
+    private func invalidateForContentChange() {
+        cachedImage = nil
+        cachedSize = .zero
+        cachedWidth = 0
+        lastLayout = nil
         horizontalScrollRange = 0
         #if !os(macOS)
         setAttachmentImage(nil)
@@ -937,12 +1088,14 @@ final class MarkdownRuleAttachment: MarkdownAttachment, @unchecked Sendable {
             MarkdownAttachmentViewProviderRegistry.registerIfNeeded()
             allowsTextAttachmentView = true
             fileType = Self.viewProviderFileType
+            if contents == nil { contents = Data() }
         }
         #elseif os(macOS)
         if #available(macOS 12.0, *) {
             MarkdownAttachmentViewProviderRegistry.registerIfNeeded()
             allowsTextAttachmentView = true
             fileType = Self.viewProviderFileType
+            if contents == nil { contents = Data() }
         }
         #endif
     }

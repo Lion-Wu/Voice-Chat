@@ -14,6 +14,7 @@
 class MarkdownAttachment: NSTextAttachment, @unchecked Sendable {
     var plainText: String { "" }
     var supportsHorizontalScroll: Bool { false }
+    var contentVersion: UInt64 = 0
     var maxWidth: CGFloat = 0 {
         didSet {
             if abs(oldValue - maxWidth) > 0.5 {

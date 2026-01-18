@@ -88,6 +88,9 @@ final class MarkdownUIKitTextView: UITextView {
     var onTraitChange: (() -> Void)?
     private var lastWidth: CGFloat = 0
     private var didInstallTraitObserver = false
+    private var cachedIntrinsicWidth: CGFloat = 0
+    private var cachedIntrinsicHeight: CGFloat = 0
+    private var needsIntrinsicRecalc: Bool = true
 
     override func layoutSubviews() {
         super.layoutSubviews()
@@ -95,16 +98,180 @@ final class MarkdownUIKitTextView: UITextView {
         disableTextDragAndDrop()
         #endif
         let width = bounds.width
+        updateTextContainerSize(for: width)
         if abs(width - lastWidth) > 0.5 {
             lastWidth = width
+            needsIntrinsicRecalc = true
             onLayout?(width)
+            invalidateIntrinsicContentSize()
         }
     }
 
     override var intrinsicContentSize: CGSize {
         let targetWidth = bounds.width > 0 ? bounds.width : UIScreen.main.bounds.width
-        let size = sizeThatFits(CGSize(width: targetWidth, height: .greatestFiniteMagnitude))
-        return CGSize(width: UIView.noIntrinsicMetric, height: ceil(size.height))
+        if needsIntrinsicRecalc || abs(targetWidth - cachedIntrinsicWidth) > 0.5 || cachedIntrinsicHeight <= 0.5 {
+            cachedIntrinsicWidth = targetWidth
+            cachedIntrinsicHeight = computeFullHeight(forWidth: targetWidth)
+            needsIntrinsicRecalc = false
+        }
+        return CGSize(width: UIView.noIntrinsicMetric, height: ceil(cachedIntrinsicHeight))
+    }
+
+    func markLayoutChanged(changedRange: NSRange?) {
+        let targetWidth = bounds.width > 0 ? bounds.width : UIScreen.main.bounds.width
+        updateTextContainerSize(for: targetWidth)
+        if abs(targetWidth - cachedIntrinsicWidth) > 0.5 {
+            cachedIntrinsicWidth = targetWidth
+            needsIntrinsicRecalc = true
+        }
+
+        if needsIntrinsicRecalc || cachedIntrinsicHeight <= 0.5 {
+            cachedIntrinsicHeight = computeFullHeight(forWidth: targetWidth)
+            needsIntrinsicRecalc = false
+            invalidateIntrinsicContentSize()
+            return
+        }
+
+        let insets = verticalInsets
+
+        #if os(iOS) || os(tvOS)
+        if #available(iOS 16.0, tvOS 16.0, *),
+           let textLayoutManager = self.textLayoutManager,
+           let documentRange = textLayoutManager.textContentManager?.documentRange,
+           let contentManager = textLayoutManager.textContentManager {
+            let storageLength = textStorage.length
+            let baseRange = clampRange(
+                changedRange ?? NSRange(location: 0, length: storageLength),
+                upperBound: storageLength
+            )
+            let start = max(0, baseRange.location)
+            let range = NSRange(location: start, length: max(0, storageLength - start))
+
+            if let textRange = makeTextRange(
+                range,
+                documentRange: documentRange,
+                contentManager: contentManager,
+                storageLength: storageLength
+            ) {
+                textLayoutManager.ensureLayout(for: textRange)
+            } else {
+                textLayoutManager.ensureLayout(for: documentRange)
+            }
+
+            cachedIntrinsicHeight = computeTextKit2Height(textLayoutManager, documentRange: documentRange) + insets
+            invalidateIntrinsicContentSize()
+            return
+        }
+        #endif
+
+        let layoutManager = self.layoutManager
+        let storageLength = textStorage.length
+        let resolvedRange = clampRange(changedRange ?? NSRange(location: 0, length: storageLength), upperBound: storageLength)
+        layoutManager.ensureLayout(forCharacterRange: resolvedRange)
+        let used = layoutManager.usedRect(for: textContainer)
+        cachedIntrinsicHeight = used.height + insets
+        invalidateIntrinsicContentSize()
+    }
+
+    private var verticalInsets: CGFloat {
+        textContainerInset.top + textContainerInset.bottom + contentInset.top + contentInset.bottom
+    }
+
+    private func updateTextContainerSize(for width: CGFloat) {
+        guard width > 1 else { return }
+        let horizontalInsets = textContainerInset.left + textContainerInset.right + contentInset.left + contentInset.right
+        let availableWidth = max(1, width - horizontalInsets)
+        let targetSize = CGSize(width: availableWidth, height: 10_000_000)
+        if textContainer.size != targetSize {
+            textContainer.size = targetSize
+        }
+    }
+
+    private func computeFullHeight(forWidth width: CGFloat) -> CGFloat {
+        updateTextContainerSize(for: width)
+        let insets = verticalInsets
+
+        #if os(iOS) || os(tvOS)
+        if #available(iOS 16.0, tvOS 16.0, *),
+           let textLayoutManager = self.textLayoutManager,
+           let documentRange = textLayoutManager.textContentManager?.documentRange {
+            textLayoutManager.ensureLayout(for: documentRange)
+            return computeTextKit2Height(textLayoutManager, documentRange: documentRange) + insets
+        }
+        #endif
+
+        layoutManager.ensureLayout(for: textContainer)
+        let used = layoutManager.usedRect(for: textContainer)
+        return used.height + insets
+    }
+
+	    @available(iOS 15.0, tvOS 15.0, *)
+	    private func computeTextKit2Height(
+	        _ textLayoutManager: NSTextLayoutManager,
+	        documentRange: NSTextRange
+	    ) -> CGFloat {
+	        var maxY: CGFloat = 0
+	        let options: NSTextLayoutFragment.EnumerationOptions = [.reverse, .ensuresLayout, .ensuresExtraLineFragment]
+	        _ = textLayoutManager.enumerateTextLayoutFragments(from: documentRange.endLocation, options: options) { fragment in
+	            maxY = fragment.layoutFragmentFrame.maxY
+	            return false
+	        }
+	        if maxY <= 0.5 {
+	            maxY = textLayoutManager.usageBoundsForTextContainer.height
+	        }
+	        return maxY
+	    }
+
+    @available(iOS 15.0, tvOS 15.0, *)
+    private func makeTextRange(
+        _ range: NSRange,
+        documentRange: NSTextRange,
+        contentManager: NSTextContentManager,
+        storageLength: Int
+    ) -> NSTextRange? {
+        let clamped = clampRange(range, upperBound: storageLength)
+        let startOffset = max(0, clamped.location)
+        let length = max(0, clamped.length)
+        let endOffset = min(storageLength, startOffset + length)
+
+        if startOffset == 0, endOffset == storageLength {
+            return documentRange
+        }
+
+        let startDistanceToStart = startOffset
+        let startDistanceToEnd = storageLength - startOffset
+        let useEndForStart = startDistanceToEnd < startDistanceToStart
+        let startAnchor = useEndForStart ? documentRange.endLocation : documentRange.location
+        let startAnchorOffset = useEndForStart ? startOffset - storageLength : startOffset
+        guard let startLocation = contentManager.location(startAnchor, offsetBy: startAnchorOffset) else {
+            return nil
+        }
+        if length == 0 {
+            return NSTextRange(location: startLocation)
+        }
+
+        let endLocation: any NSTextLocation
+        if endOffset == storageLength {
+            endLocation = documentRange.endLocation
+        } else {
+            let endDistanceToStart = endOffset
+            let endDistanceToEnd = storageLength - endOffset
+            let useEndForEnd = endDistanceToEnd < endDistanceToStart
+            let endAnchor = useEndForEnd ? documentRange.endLocation : documentRange.location
+            let endAnchorOffset = useEndForEnd ? endOffset - storageLength : endOffset
+            guard let resolvedEndLocation = contentManager.location(endAnchor, offsetBy: endAnchorOffset) else {
+                return nil
+            }
+            endLocation = resolvedEndLocation
+        }
+
+        return NSTextRange(location: startLocation, end: endLocation)
+    }
+
+    private func clampRange(_ range: NSRange, upperBound: Int) -> NSRange {
+        let start = Swift.max(0, Swift.min(range.location, upperBound))
+        let end = Swift.max(0, Swift.min(range.location + range.length, upperBound))
+        return NSRange(location: start, length: max(0, end - start))
     }
 
     deinit {
@@ -258,6 +425,9 @@ struct MarkdownTextView: NSViewRepresentable {
 final class MarkdownAppKitTextView: NSTextView {
     var onLayout: ((CGFloat) -> Void)?
     private var lastWidth: CGFloat = 0
+    private var cachedIntrinsicWidth: CGFloat = 0
+    private var cachedIntrinsicHeight: CGFloat = 0
+    private var needsIntrinsicRecalc: Bool = true
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
@@ -265,6 +435,7 @@ final class MarkdownAppKitTextView: NSTextView {
         updateContainerSize(for: width)
         if abs(width - lastWidth) > 0.5 {
             lastWidth = width
+            needsIntrinsicRecalc = true
             onLayout?(width)
             invalidateIntrinsicContentSize()
         }
@@ -276,6 +447,7 @@ final class MarkdownAppKitTextView: NSTextView {
         updateContainerSize(for: width)
         if abs(width - lastWidth) > 0.5 {
             lastWidth = width
+            needsIntrinsicRecalc = true
             onLayout?(width)
             invalidateIntrinsicContentSize()
         }
@@ -287,14 +459,14 @@ final class MarkdownAppKitTextView: NSTextView {
         updateContainerSize(for: width)
         if abs(width - lastWidth) > 0.5 {
             lastWidth = width
+            needsIntrinsicRecalc = true
             onLayout?(width)
             invalidateIntrinsicContentSize()
         }
     }
 
     override var intrinsicContentSize: NSSize {
-        let height = heightThatFits(width: bounds.width)
-        return NSSize(width: NSView.noIntrinsicMetric, height: height)
+        NSSize(width: NSView.noIntrinsicMetric, height: heightThatFits(width: bounds.width))
     }
 
     override func mouseDown(with event: NSEvent) {
@@ -353,11 +525,159 @@ final class MarkdownAppKitTextView: NSTextView {
     }
 
     func heightThatFits(width: CGFloat) -> CGFloat {
-        guard let layoutManager, let textContainer else { return super.intrinsicContentSize.height }
+        let resolvedWidth = width > 1 ? width : (lastWidth > 1 ? lastWidth : 320)
+        updateContainerSize(for: resolvedWidth)
+        if needsIntrinsicRecalc || abs(resolvedWidth - cachedIntrinsicWidth) > 0.5 || cachedIntrinsicHeight <= 0.5 {
+            cachedIntrinsicWidth = resolvedWidth
+            cachedIntrinsicHeight = computeFullHeight(forWidth: resolvedWidth)
+            needsIntrinsicRecalc = false
+        }
+        return ceil(cachedIntrinsicHeight)
+    }
+
+    func markLayoutChanged(changedRange: NSRange?) {
+        let targetWidth = bounds.width > 1 ? bounds.width : (lastWidth > 1 ? lastWidth : 320)
+        updateContainerSize(for: targetWidth)
+        if abs(targetWidth - cachedIntrinsicWidth) > 0.5 {
+            cachedIntrinsicWidth = targetWidth
+            needsIntrinsicRecalc = true
+        }
+
+        if needsIntrinsicRecalc || cachedIntrinsicHeight <= 0.5 {
+            cachedIntrinsicHeight = computeFullHeight(forWidth: targetWidth)
+            needsIntrinsicRecalc = false
+            invalidateIntrinsicContentSize()
+            return
+        }
+
+        let insets = verticalInsets
+
+        if #available(macOS 12.0, *),
+           let textLayoutManager = self.textLayoutManager,
+           let documentRange = textLayoutManager.textContentManager?.documentRange,
+           let contentManager = textLayoutManager.textContentManager {
+            let storageLength = textStorage?.length ?? 0
+            let baseRange = clampRange(
+                changedRange ?? NSRange(location: 0, length: storageLength),
+                upperBound: storageLength
+            )
+            let start = max(0, baseRange.location)
+            let range = NSRange(location: start, length: max(0, storageLength - start))
+            if let textRange = makeTextRange(
+                range,
+                documentRange: documentRange,
+                contentManager: contentManager,
+                storageLength: storageLength
+            ) {
+                textLayoutManager.ensureLayout(for: textRange)
+            } else {
+                textLayoutManager.ensureLayout(for: documentRange)
+            }
+            cachedIntrinsicHeight = computeTextKit2Height(textLayoutManager, documentRange: documentRange) + insets
+            invalidateIntrinsicContentSize()
+            return
+        }
+
+        if let layoutManager, let textContainer, let storage = self.textStorage {
+            let storageLength = storage.length
+            let baseRange = clampRange(changedRange ?? NSRange(location: 0, length: storageLength), upperBound: storageLength)
+            let start = max(0, baseRange.location)
+            let range = NSRange(location: start, length: max(0, storageLength - start))
+            layoutManager.ensureLayout(forCharacterRange: range)
+            let used = layoutManager.usedRect(for: textContainer)
+            cachedIntrinsicHeight = used.height + insets
+        }
+        invalidateIntrinsicContentSize()
+    }
+
+    private var verticalInsets: CGFloat {
+        textContainerInset.height * 2
+    }
+
+    private func computeFullHeight(forWidth width: CGFloat) -> CGFloat {
         updateContainerSize(for: width)
+        let insets = verticalInsets
+
+        if #available(macOS 12.0, *),
+           let textLayoutManager = self.textLayoutManager,
+           let documentRange = textLayoutManager.textContentManager?.documentRange {
+            textLayoutManager.ensureLayout(for: documentRange)
+            return computeTextKit2Height(textLayoutManager, documentRange: documentRange) + insets
+        }
+
+        guard let layoutManager, let textContainer else { return insets }
         layoutManager.ensureLayout(for: textContainer)
         let used = layoutManager.usedRect(for: textContainer)
-        return ceil(used.height + textContainerInset.height * 2)
+        return used.height + insets
+    }
+
+    @available(macOS 12.0, *)
+    private func computeTextKit2Height(
+        _ textLayoutManager: NSTextLayoutManager,
+        documentRange: NSTextRange
+    ) -> CGFloat {
+        var maxY: CGFloat = 0
+        let options: NSTextLayoutFragment.EnumerationOptions = [.reverse, .ensuresLayout, .ensuresExtraLineFragment]
+        _ = textLayoutManager.enumerateTextLayoutFragments(from: documentRange.endLocation, options: options) { fragment in
+            maxY = fragment.layoutFragmentFrame.maxY
+            return false
+        }
+        if maxY <= 0.5 {
+            maxY = textLayoutManager.usageBoundsForTextContainer.height
+        }
+        return maxY
+    }
+
+    @available(macOS 12.0, *)
+    private func makeTextRange(
+        _ range: NSRange,
+        documentRange: NSTextRange,
+        contentManager: NSTextContentManager,
+        storageLength: Int
+    ) -> NSTextRange? {
+        let clamped = clampRange(range, upperBound: storageLength)
+        let startOffset = max(0, clamped.location)
+        let length = max(0, clamped.length)
+        let endOffset = min(storageLength, startOffset + length)
+
+        if startOffset == 0, endOffset == storageLength {
+            return documentRange
+        }
+
+        let startDistanceToStart = startOffset
+        let startDistanceToEnd = storageLength - startOffset
+        let useEndForStart = startDistanceToEnd < startDistanceToStart
+        let startAnchor = useEndForStart ? documentRange.endLocation : documentRange.location
+        let startAnchorOffset = useEndForStart ? startOffset - storageLength : startOffset
+        guard let startLocation = contentManager.location(startAnchor, offsetBy: startAnchorOffset) else {
+            return nil
+        }
+        if length == 0 {
+            return NSTextRange(location: startLocation)
+        }
+
+        let endLocation: any NSTextLocation
+        if endOffset == storageLength {
+            endLocation = documentRange.endLocation
+        } else {
+            let endDistanceToStart = endOffset
+            let endDistanceToEnd = storageLength - endOffset
+            let useEndForEnd = endDistanceToEnd < endDistanceToStart
+            let endAnchor = useEndForEnd ? documentRange.endLocation : documentRange.location
+            let endAnchorOffset = useEndForEnd ? endOffset - storageLength : endOffset
+            guard let resolvedEndLocation = contentManager.location(endAnchor, offsetBy: endAnchorOffset) else {
+                return nil
+            }
+            endLocation = resolvedEndLocation
+        }
+
+        return NSTextRange(location: startLocation, end: endLocation)
+    }
+
+    private func clampRange(_ range: NSRange, upperBound: Int) -> NSRange {
+        let start = Swift.max(0, Swift.min(range.location, upperBound))
+        let end = Swift.max(0, Swift.min(range.location + range.length, upperBound))
+        return NSRange(location: start, length: max(0, end - start))
     }
 
     private func handleCopyClick(at point: CGPoint) -> Bool {
@@ -480,4 +800,3 @@ extension MarkdownTextCoordinator: UITextViewDelegate {
     }
 }
 #endif
-
