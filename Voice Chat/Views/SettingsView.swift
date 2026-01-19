@@ -21,6 +21,7 @@ struct SettingsView: View {
 
     // Preset deletion confirmation state
     @State private var showDeletePresetAlert = false
+    @State private var showDeleteChatServerPresetAlert = false
     @State private var showDeleteNormalPromptPresetAlert = false
     @State private var showDeleteVoicePromptPresetAlert = false
 
@@ -73,6 +74,13 @@ struct SettingsView: View {
             .alert("Delete this preset?",
                    isPresented: $showDeletePresetAlert) {
                 Button("Delete", role: .destructive) { viewModel.deleteCurrentPreset() }
+                Button("Cancel", role: .cancel) { }
+            } message: {
+                Text("This action cannot be undone.")
+            }
+            .alert("Delete this preset?",
+                   isPresented: $showDeleteChatServerPresetAlert) {
+                Button("Delete", role: .destructive) { viewModel.deleteSelectedChatServerPreset() }
                 Button("Cancel", role: .cancel) { }
             } message: {
                 Text("This action cannot be undone.")
@@ -405,9 +413,86 @@ struct SettingsView: View {
     @ViewBuilder
     private func chatSection(hideHeader: Bool = false) -> some View {
         Section {
+            #if os(macOS)
+            LabeledContent("Chat Preset") {
+                Picker("", selection: $viewModel.selectedChatServerPresetID) {
+                    ForEach(viewModel.chatServerPresetList) { p in
+                        Text(p.name).tag(Optional.some(p.id))
+                    }
+                }
+                .labelsHidden()
+            }
+
+            HStack {
+                Spacer()
+                HStack(spacing: 8) {
+                    Button {
+                        viewModel.addChatServerPreset()
+                    } label: {
+                        Label("Add", systemImage: "plus.circle.fill")
+                            .foregroundStyle(.blue)
+                    }
+                    .buttonStyle(.plain)
+                    .controlSize(.small)
+                    .help("Add preset")
+
+                    Button(role: .destructive) {
+                        showDeleteChatServerPresetAlert = true
+                    } label: {
+                        Label("Delete", systemImage: "trash")
+                            .foregroundStyle(.red)
+                    }
+                    .buttonStyle(.plain)
+                    .controlSize(.small)
+                    .help("Delete selected preset")
+                    .disabled(viewModel.chatServerPresetList.count <= 1 || viewModel.selectedChatServerPresetID == nil)
+                }
+            }
+            #else
+            Picker("Chat Preset", selection: $viewModel.selectedChatServerPresetID) {
+                ForEach(viewModel.chatServerPresetList) { p in
+                    Text(p.name).tag(Optional.some(p.id))
+                }
+            }
+            .pickerStyle(.menu)
+
+            HStack(spacing: 16) {
+                Button {
+                    viewModel.addChatServerPreset()
+                } label: {
+                    Label("Add", systemImage: "plus.circle.fill")
+                        .foregroundStyle(.blue)
+                }
+                .buttonStyle(.plain)
+                .contentShape(Rectangle())
+
+                Button(role: .destructive) {
+                    showDeleteChatServerPresetAlert = true
+                } label: {
+                    Label("Delete", systemImage: "trash")
+                        .foregroundStyle(.red)
+                }
+                .buttonStyle(.plain)
+                .contentShape(Rectangle())
+                .disabled(viewModel.chatServerPresetList.count <= 1 || viewModel.selectedChatServerPresetID == nil)
+            }
+            #endif
+
+            LabeledTextField(
+                label: "Preset Name",
+                placeholder: "Preset name",
+                text: $viewModel.chatServerPresetName
+            )
+
             LabeledTextField(label: "Chat API URL",
                              placeholder: "Enter chat API URL",
                              text: $viewModel.apiURL)
+
+            LabeledSecureField(
+                label: "Chat API Key",
+                placeholder: "Enter API key",
+                text: $viewModel.chatAPIKey
+            )
 
             if isLoadingModels {
                 HStack {
@@ -448,6 +533,9 @@ struct SettingsView: View {
             } else {
                 sectionHeader("Chat Server Settings")
             }
+        }
+        .onChange(of: viewModel.selectedChatServerPresetID) { _ in
+            fetchAvailableModels()
         }
     }
 
@@ -667,8 +755,7 @@ struct SettingsView: View {
             return
         }
 
-        let urlString = "\(viewModel.apiURL)/v1/models"
-        guard let url = URL(string: urlString) else {
+        guard let url = buildModelsURL(from: viewModel.apiURL) else {
             isLoadingModels = false
             chatServerErrorMessage = NSLocalizedString("Invalid API URL", comment: "Shown when the model list URL cannot be parsed")
             return
@@ -676,7 +763,12 @@ struct SettingsView: View {
 
         isLoadingModels = true
 
-        let request = URLRequest(url: url, timeoutInterval: 30)
+        var request = URLRequest(url: url, timeoutInterval: 30)
+        let rawKey = viewModel.chatAPIKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !rawKey.isEmpty {
+            let headerValue = rawKey.lowercased().hasPrefix("bearer ") ? rawKey : "Bearer \(rawKey)"
+            request.setValue(headerValue, forHTTPHeaderField: "Authorization")
+        }
         URLSession.shared.dataTask(with: request) { data, response, error in
             DispatchQueue.main.async {
                 self.isLoadingModels = false
@@ -708,6 +800,34 @@ struct SettingsView: View {
                 }
             }
         }.resume()
+    }
+
+    private func buildModelsURL(from base: String) -> URL? {
+        var sanitized = base.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !sanitized.isEmpty else { return nil }
+
+        if !sanitized.contains("://") {
+            sanitized = "http://\(sanitized)"
+        }
+        while sanitized.hasSuffix("/") { sanitized.removeLast() }
+
+        guard var comps = URLComponents(string: sanitized) else { return nil }
+        var path = comps.path
+        while path.hasSuffix("/") { path.removeLast() }
+
+        if path.hasSuffix("/v1/models") {
+            // Keep as-is.
+        } else if path.hasSuffix("/v1/chat/completions") {
+            comps.path = String(path.dropLast("/chat/completions".count)) + "/models"
+        } else if path.hasSuffix("/v1/chat") {
+            comps.path = String(path.dropLast("/chat".count)) + "/models"
+        } else if path.hasSuffix("/v1") {
+            comps.path = path + "/models"
+        } else {
+            comps.path = path + "/v1/models"
+        }
+
+        return comps.url
     }
 }
 
@@ -795,6 +915,35 @@ struct LabeledTextEditor: View {
                             .padding(.leading, 6)
                     }
                 }
+        }
+        #endif
+    }
+}
+
+// MARK: - LabeledSecureField
+
+struct LabeledSecureField: View {
+    var label: String
+    var placeholder: String
+    @Binding var text: String
+
+    var body: some View {
+        #if os(macOS)
+        LabeledContent(LocalizedStringKey(label)) {
+            SecureField("", text: $text)
+                .textFieldStyle(.roundedBorder)
+                .privacySensitive()
+                .frame(maxWidth: .infinity)
+        }
+        #else
+        VStack(alignment: .leading, spacing: 6) {
+            Text(LocalizedStringKey(label))
+                .font(.subheadline)
+                .foregroundColor(.secondary)
+            SecureField(LocalizedStringKey(placeholder), text: $text)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                .privacySensitive()
         }
         #endif
     }

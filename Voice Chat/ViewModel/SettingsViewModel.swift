@@ -25,6 +25,7 @@ class SettingsViewModel: ObservableObject {
 
     @Published var apiURL: String { didSet { if !suppressLegacySaves { saveChatSettings() } } }
     @Published var selectedModel: String { didSet { if !suppressLegacySaves { saveChatSettings() } } }
+    @Published var chatAPIKey: String { didSet { if !suppressLegacySaves { saveChatAPIKey() } } }
 
     @Published var enableStreaming: Bool {
         didSet {
@@ -46,6 +47,18 @@ class SettingsViewModel: ObservableObject {
         var id: UUID
         var name: String
     }
+
+    // MARK: - Chat server presets
+    @Published var chatServerPresetList: [PresetSummary] = []
+    @Published var selectedChatServerPresetID: UUID? {
+        didSet {
+            if !suppressChatServerPresetDidSet {
+                settingsManager.selectChatServerPreset(selectedChatServerPresetID)
+                refreshFromSettingsManager()
+            }
+        }
+    }
+    @Published var chatServerPresetName: String = "" { didSet { saveSelectedChatServerPresetName() } }
 
     @Published var presetList: [PresetSummary] = []
     @Published var selectedPresetID: UUID? {
@@ -95,6 +108,9 @@ class SettingsViewModel: ObservableObject {
     private let settingsManager = SettingsManager.shared
 
     // Avoid recursive didSet triggers when swapping presets.
+    private var suppressChatServerPresetDidSet = false
+    private var suppressSaveChatServerPreset = false
+
     private var suppressPresetDidSet = false
     private var suppressSavePreset = false
 
@@ -115,6 +131,7 @@ class SettingsViewModel: ObservableObject {
 
         apiURL = ""
         selectedModel = ""
+        chatAPIKey = ""
 
         enableStreaming = true
 
@@ -141,6 +158,7 @@ class SettingsViewModel: ObservableObject {
 
         apiURL = c.apiURL
         selectedModel = c.selectedModel
+        chatAPIKey = c.apiKey
 
         enableStreaming = v.enableStreaming
 
@@ -149,6 +167,7 @@ class SettingsViewModel: ObservableObject {
         language = m.language
         suppressLegacySaves = false
 
+        reloadChatServerPresetListAndSelection()
         reloadPresetListAndSelection()
         loadSelectedPresetFields()
         reloadSystemPromptPresetListsAndSelections()
@@ -188,6 +207,10 @@ class SettingsViewModel: ObservableObject {
         )
     }
 
+    func saveChatAPIKey() {
+        settingsManager.updateChatAPIKey(chatAPIKey)
+    }
+
     func saveVoiceSettings() {
         settingsManager.updateVoiceSettings(
             enableStreaming: enableStreaming
@@ -200,6 +223,50 @@ class SettingsViewModel: ObservableObject {
             language: language,
             autoSplit: autoSplit
         )
+    }
+
+    // MARK: - Chat server preset helpers
+
+    func reloadChatServerPresetListAndSelection() {
+        chatServerPresetList = settingsManager.chatServerPresets.map { .init(id: $0.id, name: $0.name) }
+        suppressChatServerPresetDidSet = true
+        selectedChatServerPresetID = settingsManager.selectedChatServerPresetID
+        suppressChatServerPresetDidSet = false
+        loadSelectedChatServerPresetFields()
+    }
+
+    func loadSelectedChatServerPresetFields() {
+        suppressSaveChatServerPreset = true
+        defer { suppressSaveChatServerPreset = false }
+
+        guard let id = settingsManager.selectedChatServerPresetID,
+              let p = settingsManager.chatServerPresets.first(where: { $0.id == id }) else {
+            chatServerPresetName = ""
+            return
+        }
+
+        chatServerPresetName = p.name
+    }
+
+    private func saveSelectedChatServerPresetName() {
+        guard !suppressSaveChatServerPreset,
+              let id = settingsManager.selectedChatServerPresetID else { return }
+        settingsManager.updateChatServerPreset(id: id, name: chatServerPresetName)
+        reloadChatServerPresetListAndSelection()
+    }
+
+    func addChatServerPreset() {
+        if let p = settingsManager.createChatServerPreset() {
+            reloadChatServerPresetListAndSelection()
+            settingsManager.selectChatServerPreset(p.id)
+            refreshFromSettingsManager()
+        }
+    }
+
+    func deleteSelectedChatServerPreset() {
+        guard let id = settingsManager.selectedChatServerPresetID else { return }
+        settingsManager.deleteChatServerPreset(id)
+        refreshFromSettingsManager()
     }
 
     // MARK: - Preset helpers

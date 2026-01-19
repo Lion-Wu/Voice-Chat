@@ -90,7 +90,10 @@
 "Traditional Chinese" = "繁体字中国語";
 "Japanese" = "日本語";
 "Chat API URL" = "チャット API URL";
+"Chat API Key" = "チャット API キー";
+"Chat Preset" = "チャットプリセット";
 "Enter chat API URL" = "チャット API URL を入力";
+"Enter API key" = "API キーを入力";
 "GPT weights path" = "GPT ウェイトパス";
 "Reference text (optional)" = "参考テキスト（任意）";
 "Save" = "保存";
@@ -179,7 +182,6 @@
 "Time To First Token" = "初回トークンまでの時間";
 "Stream Duration" = "ストリーム時間";
 "Generation Duration" = "生成時間";
-
 "System Prompt" = "システムプロンプト";
 "Normal Mode Preset" = "通常モードのプリセット";
 "Voice Mode Preset" = "音声モードのプリセット";

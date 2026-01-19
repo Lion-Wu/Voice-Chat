@@ -43,7 +43,8 @@ final class ChatSessionsViewModel: ObservableObject {
         self.repository = repository ?? SwiftDataChatSessionRepository()
         self.cachedChatConfiguration = ChatServiceConfiguration(
             apiBaseURL: self.settingsManager.chatSettings.apiURL,
-            modelIdentifier: self.settingsManager.chatSettings.selectedModel
+            modelIdentifier: self.settingsManager.chatSettings.selectedModel,
+            apiKey: self.settingsManager.chatSettings.apiKey
         )
         self.selectedSessionID = draftSession.id
     }
@@ -51,7 +52,8 @@ final class ChatSessionsViewModel: ObservableObject {
     private func currentChatConfiguration() -> ChatServiceConfiguration {
         ChatServiceConfiguration(
             apiBaseURL: settingsManager.chatSettings.apiURL,
-            modelIdentifier: settingsManager.chatSettings.selectedModel
+            modelIdentifier: settingsManager.chatSettings.selectedModel,
+            apiKey: settingsManager.chatSettings.apiKey
         )
     }
 

@@ -28,6 +28,7 @@ struct ModelSettings: Codable, Equatable {
 struct ChatSettings: Codable, Equatable {
     var apiURL: String
     var selectedModel: String
+    var apiKey: String
 }
 
 struct VoiceSettings: Codable, Equatable {
@@ -66,6 +67,33 @@ final class VoicePreset {
         self.promptLang = promptLang
         self.gptWeightsPath = gptWeightsPath
         self.sovitsWeightsPath = sovitsWeightsPath
+        self.createdAt = Date()
+        self.updatedAt = Date()
+    }
+}
+
+// MARK: - Chat Server Preset Entity (SwiftData)
+
+@Model
+final class ChatServerPreset {
+    var id: UUID
+    var name: String
+
+    var apiURL: String
+    var selectedModel: String
+
+    var createdAt: Date
+    var updatedAt: Date
+
+    init(
+        name: String,
+        apiURL: String = "",
+        selectedModel: String = ""
+    ) {
+        self.id = UUID()
+        self.name = name
+        self.apiURL = apiURL
+        self.selectedModel = selectedModel
         self.createdAt = Date()
         self.updatedAt = Date()
     }
@@ -124,6 +152,7 @@ final class AppSettings {
 
     var apiURL: String
     var selectedModel: String
+    var selectedChatServerPresetID: UUID?
 
     var enableStreaming: Bool
     var developerModeEnabled: Bool?
@@ -149,6 +178,7 @@ final class AppSettings {
         autoSplit: String = "cut0",
         apiURL: String = "http://localhost:1234",
         selectedModel: String = "",
+        selectedChatServerPresetID: UUID? = nil,
         enableStreaming: Bool = true,
         developerModeEnabled: Bool = false,
         selectedPresetID: UUID? = nil,
@@ -167,6 +197,7 @@ final class AppSettings {
         self.autoSplit = autoSplit
         self.apiURL = apiURL
         self.selectedModel = selectedModel
+        self.selectedChatServerPresetID = selectedChatServerPresetID
         self.enableStreaming = enableStreaming
         self.developerModeEnabled = developerModeEnabled
         self.selectedPresetID = selectedPresetID
@@ -193,6 +224,11 @@ final class SettingsManager: ObservableObject {
     @Published var chatSettings: ChatSettings
     @Published var voiceSettings: VoiceSettings
     @Published var developerModeEnabled: Bool
+
+    // Chat server preset list and selection state.
+    @Published private(set) var chatServerPresets: [ChatServerPreset] = []
+    @Published private(set) var selectedChatServerPresetID: UUID?
+    var selectedChatServerPreset: ChatServerPreset? { chatServerPresets.first { $0.id == selectedChatServerPresetID } }
 
     // Preset list and selection state.
     @Published private(set) var presets: [VoicePreset] = []
@@ -231,6 +267,11 @@ final class SettingsManager: ObservableObject {
     // Used to gate one-time work performed at launch.
     private var didApplyOnLaunch = false
 
+    private enum KeychainKeys {
+        static let legacyChatAPIKeyAccount = "chat_api_key"
+        static let chatServerPresetAPIKeyPrefix = "chat_server_preset_api_key."
+    }
+
     private enum Defaults {
         static let serverAddress = "http://127.0.0.1:9880"
         static let textLang = "auto"
@@ -252,7 +293,7 @@ final class SettingsManager: ObservableObject {
             promptLang: Defaults.promptLang
         )
         self.modelSettings = ModelSettings(modelId: "", language: Defaults.modelLanguage, autoSplit: Defaults.autoSplit)
-        self.chatSettings = ChatSettings(apiURL: Defaults.apiURL, selectedModel: "")
+        self.chatSettings = ChatSettings(apiURL: Defaults.apiURL, selectedModel: "", apiKey: "")
         self.voiceSettings = VoiceSettings(enableStreaming: Defaults.enableStreaming)
         self.developerModeEnabled = Defaults.developerModeEnabled
     }
@@ -268,6 +309,9 @@ final class SettingsManager: ObservableObject {
             saveContext(label: "apply pending developer mode")
             pendingDeveloperModeEnabled = nil
         }
+        loadChatServerPresetsFromStore()
+        ensureDefaultChatServerPresetIfNeeded()
+        ensureSelectedChatServerPresetIsValid()
         loadPresetsFromStore()
         ensureDefaultPresetIfNeeded()
         ensureSelectedPresetIsValid()
@@ -276,6 +320,7 @@ final class SettingsManager: ObservableObject {
         ensureDefaultSystemPromptPresetsForModesIfNeeded()
         // Keep the in-memory preset selection aligned with persisted data.
         self.selectedPresetID = self.entity?.selectedPresetID ?? self.presets.first?.id
+        self.selectedChatServerPresetID = self.entity?.selectedChatServerPresetID ?? self.chatServerPresets.first?.id
         ensureSystemPromptSelectionsAreValid()
         self.selectedNormalSystemPromptPresetID = self.entity?.selectedNormalSystemPromptPresetID ?? self.selectedNormalSystemPromptPresetID
         self.selectedVoiceSystemPromptPresetID = self.entity?.selectedVoiceSystemPromptPresetID ?? self.selectedVoiceSystemPromptPresetID
@@ -337,10 +382,13 @@ final class SettingsManager: ObservableObject {
             modelId: e.modelId, language: e.language, autoSplit: e.autoSplit
         )
         self.chatSettings = ChatSettings(
-            apiURL: e.apiURL, selectedModel: e.selectedModel
+            apiURL: e.apiURL,
+            selectedModel: e.selectedModel,
+            apiKey: loadChatAPIKey(for: e.selectedChatServerPresetID)
         )
         self.voiceSettings = VoiceSettings(enableStreaming: e.enableStreaming)
         self.developerModeEnabled = e.developerModeEnabled ?? false
+        self.selectedChatServerPresetID = e.selectedChatServerPresetID
         self.selectedPresetID = e.selectedPresetID
         self.selectedNormalSystemPromptPresetID = e.selectedNormalSystemPromptPresetID
         self.selectedVoiceSystemPromptPresetID = e.selectedVoiceSystemPromptPresetID
@@ -473,6 +521,7 @@ final class SettingsManager: ObservableObject {
             adoptBool(\.enableStreaming, defaultValue: Defaults.enableStreaming, from: other)
             adoptOptionalBool(\.developerModeEnabled, defaultValue: Defaults.developerModeEnabled, from: other)
 
+            adoptOptionalID(\.selectedChatServerPresetID, from: other)
             adoptOptionalID(\.selectedPresetID, from: other)
             adoptOptionalID(\.selectedSystemPromptPresetID, from: other)
             adoptOptionalID(\.selectedNormalSystemPromptPresetID, from: other)
@@ -486,6 +535,20 @@ final class SettingsManager: ObservableObject {
             try context.save()
         } catch {
             print("SwiftData save failed (\(label)): \(error)")
+        }
+    }
+
+    private func loadChatServerPresetsFromStore() {
+        guard let context else { return }
+        let descriptor = FetchDescriptor<ChatServerPreset>(
+            predicate: nil,
+            sortBy: [SortDescriptor(\.updatedAt, order: .reverse)]
+        )
+        do {
+            self.chatServerPresets = try context.fetch(descriptor)
+        } catch {
+            print("SwiftData fetch ChatServerPreset failed: \(error)")
+            self.chatServerPresets = []
         }
     }
 
@@ -515,6 +578,54 @@ final class SettingsManager: ObservableObject {
             print("SwiftData fetch SystemPromptPreset failed: \(error)")
             self.systemPromptPresets = []
         }
+    }
+
+    private func ensureDefaultChatServerPresetIfNeeded() {
+        guard let context, let e = entity else { return }
+
+        if chatServerPresets.isEmpty {
+            let def = ChatServerPreset(
+                name: String(localized: "Default"),
+                apiURL: e.apiURL,
+                selectedModel: e.selectedModel
+            )
+            context.insert(def)
+            saveContext(label: "insert default chat server preset")
+            self.chatServerPresets = [def]
+
+            migrateLegacyChatAPIKeyIfNeeded(to: def.id)
+
+            e.selectedChatServerPresetID = def.id
+            saveContext(label: "select default chat server preset")
+            self.selectedChatServerPresetID = def.id
+            applySelectedChatServerPresetToChatSettings()
+            return
+        }
+
+        if e.selectedChatServerPresetID == nil {
+            e.selectedChatServerPresetID = chatServerPresets.first?.id
+            saveContext(label: "seed selectedChatServerPresetID")
+        }
+        self.selectedChatServerPresetID = e.selectedChatServerPresetID
+        applySelectedChatServerPresetToChatSettings()
+    }
+
+    private func ensureSelectedChatServerPresetIsValid() {
+        guard context != nil, let e = entity else { return }
+        guard !chatServerPresets.isEmpty else { return }
+
+        if let selected = e.selectedChatServerPresetID,
+           chatServerPresets.contains(where: { $0.id == selected }) {
+            self.selectedChatServerPresetID = selected
+            applySelectedChatServerPresetToChatSettings()
+            return
+        }
+
+        let fallback = chatServerPresets.first?.id
+        e.selectedChatServerPresetID = fallback
+        self.selectedChatServerPresetID = fallback
+        saveContext(label: "repair selectedChatServerPresetID")
+        applySelectedChatServerPresetToChatSettings()
     }
 
     private func ensureDefaultPresetIfNeeded() {
@@ -748,11 +859,86 @@ final class SettingsManager: ObservableObject {
         chatSettings.apiURL = apiURL
         chatSettings.selectedModel = selectedModel
         saveChatSettings()
+
+        guard context != nil else { return }
+        guard let presetID = selectedChatServerPresetID,
+              let preset = chatServerPresets.first(where: { $0.id == presetID }) else { return }
+        preset.apiURL = apiURL
+        preset.selectedModel = selectedModel
+        preset.updatedAt = Date()
+        saveContext(label: "update chat server preset")
+        loadChatServerPresetsFromStore()
+    }
+
+    func updateChatAPIKey(_ apiKey: String) {
+        let trimmed = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        chatSettings.apiKey = trimmed
+        saveChatAPIKey(trimmed, for: selectedChatServerPresetID)
+
+        guard context != nil else { return }
+        guard let presetID = selectedChatServerPresetID,
+              let preset = chatServerPresets.first(where: { $0.id == presetID }) else { return }
+        preset.updatedAt = Date()
+        saveContext(label: "touch chat server preset api key")
+        loadChatServerPresetsFromStore()
     }
 
     func updateVoiceSettings(enableStreaming: Bool) {
         voiceSettings.enableStreaming = enableStreaming
         saveVoiceSettings()
+    }
+
+    // MARK: - Chat server preset CRUD
+
+    func createChatServerPreset(name: String = String(localized: "New Preset")) -> ChatServerPreset? {
+        guard let context else { return nil }
+        let p = ChatServerPreset(
+            name: name,
+            apiURL: chatSettings.apiURL,
+            selectedModel: chatSettings.selectedModel
+        )
+        context.insert(p)
+        saveContext(label: "create chat server preset")
+        saveChatAPIKey(chatSettings.apiKey, for: p.id)
+        loadChatServerPresetsFromStore()
+        return p
+    }
+
+    func deleteChatServerPreset(_ id: UUID) {
+        guard let context else { return }
+        if let target = chatServerPresets.first(where: { $0.id == id }) {
+            if selectedChatServerPresetID == id {
+                let fallback = chatServerPresets.first(where: { $0.id != id })?.id
+                selectedChatServerPresetID = fallback
+                entity?.selectedChatServerPresetID = fallback
+            }
+            context.delete(target)
+            saveContext(label: "delete chat server preset")
+            deleteChatAPIKey(for: id)
+            loadChatServerPresetsFromStore()
+            ensureSelectedChatServerPresetIsValid()
+        }
+    }
+
+    func updateChatServerPreset(
+        id: UUID,
+        name: String? = nil
+    ) {
+        guard context != nil else { return }
+        guard let preset = chatServerPresets.first(where: { $0.id == id }) else { return }
+        if let name { preset.name = name }
+        preset.updatedAt = Date()
+        saveContext(label: "update chat server preset meta")
+        loadChatServerPresetsFromStore()
+    }
+
+    func selectChatServerPreset(_ id: UUID?) {
+        guard context != nil, let e = entity else { return }
+        if selectedChatServerPresetID == id { return }
+        selectedChatServerPresetID = id
+        e.selectedChatServerPresetID = id
+        saveContext(label: "select chat server preset")
+        applySelectedChatServerPresetToChatSettings()
     }
 
     func updateDeveloperModeEnabled(_ enabled: Bool) {
@@ -947,6 +1133,71 @@ final class SettingsManager: ObservableObject {
         e.apiURL = chatSettings.apiURL
         e.selectedModel = chatSettings.selectedModel
         saveContext(label: "save chat settings")
+    }
+
+    private func keychainAccount(forChatServerPresetID id: UUID) -> String {
+        "\(KeychainKeys.chatServerPresetAPIKeyPrefix)\(id.uuidString)"
+    }
+
+    private func loadChatAPIKey(for presetID: UUID?) -> String {
+        let service = Bundle.main.bundleIdentifier ?? "VoiceChat"
+        let trimmed: (String?) -> String = { raw in
+            (raw ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+
+        if let presetID {
+            let account = keychainAccount(forChatServerPresetID: presetID)
+            return trimmed(KeychainStore.loadString(service: service, account: account))
+        }
+
+        return trimmed(KeychainStore.loadString(service: service, account: KeychainKeys.legacyChatAPIKeyAccount))
+    }
+
+    private func saveChatAPIKey(_ apiKey: String, for presetID: UUID?) {
+        let service = Bundle.main.bundleIdentifier ?? "VoiceChat"
+        let trimmed = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        let account: String
+
+        if let presetID {
+            account = keychainAccount(forChatServerPresetID: presetID)
+        } else {
+            account = KeychainKeys.legacyChatAPIKeyAccount
+        }
+
+        if trimmed.isEmpty {
+            KeychainStore.delete(service: service, account: account)
+        } else {
+            KeychainStore.saveString(trimmed, service: service, account: account)
+        }
+    }
+
+    private func deleteChatAPIKey(for presetID: UUID) {
+        let service = Bundle.main.bundleIdentifier ?? "VoiceChat"
+        let account = keychainAccount(forChatServerPresetID: presetID)
+        KeychainStore.delete(service: service, account: account)
+    }
+
+    private func migrateLegacyChatAPIKeyIfNeeded(to presetID: UUID) {
+        let service = Bundle.main.bundleIdentifier ?? "VoiceChat"
+        let account = keychainAccount(forChatServerPresetID: presetID)
+
+        let existing = (KeychainStore.loadString(service: service, account: account) ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard existing.isEmpty else { return }
+
+        let legacy = (KeychainStore.loadString(service: service, account: KeychainKeys.legacyChatAPIKeyAccount) ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !legacy.isEmpty else { return }
+
+        KeychainStore.saveString(legacy, service: service, account: account)
+    }
+
+    private func applySelectedChatServerPresetToChatSettings() {
+        guard let preset = selectedChatServerPreset else { return }
+        chatSettings.apiURL = preset.apiURL
+        chatSettings.selectedModel = preset.selectedModel
+        chatSettings.apiKey = loadChatAPIKey(for: preset.id)
+        saveChatSettings()
     }
 
     func saveVoiceSettings() {

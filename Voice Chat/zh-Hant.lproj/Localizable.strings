@@ -90,7 +90,10 @@
 "Traditional Chinese" = "繁體中文";
 "Japanese" = "日文";
 "Chat API URL" = "聊天 API 位址";
+"Chat API Key" = "聊天 API 金鑰";
+"Chat Preset" = "聊天預設";
 "Enter chat API URL" = "輸入聊天 API 位址";
+"Enter API key" = "輸入 API 金鑰";
 "GPT weights path" = "GPT 權重路徑";
 "Reference text (optional)" = "參考文字（選填）";
 "Save" = "儲存";
@@ -179,7 +182,6 @@
 "Time To First Token" = "首 Token 延遲";
 "Stream Duration" = "串流耗時";
 "Generation Duration" = "生成耗時";
-
 "System Prompt" = "系統提示詞";
 "Normal Mode Preset" = "一般模式預設";
 "Voice Mode Preset" = "語音模式預設";

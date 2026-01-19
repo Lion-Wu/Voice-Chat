@@ -91,7 +91,8 @@ final class ChatViewModel: ObservableObject {
         self.settingsManager = resolvedSettings
         self.chatConfiguration = ChatServiceConfiguration(
             apiBaseURL: resolvedSettings.chatSettings.apiURL,
-            modelIdentifier: resolvedSettings.chatSettings.selectedModel
+            modelIdentifier: resolvedSettings.chatSettings.selectedModel,
+            apiKey: resolvedSettings.chatSettings.apiKey
         )
         self.chatServiceFactory = chatServiceFactory ?? { ChatService(configurationProvider: $0) }
         self.chatService = chatService ?? self.chatServiceFactory(self.chatConfiguration)
