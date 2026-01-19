@@ -90,7 +90,11 @@
 "Traditional Chinese" = "繁体字中国語";
 "Japanese" = "日本語";
 "Chat API URL" = "チャット API URL";
+"Chat API Key" = "チャット API キー";
+"Chat Preset" = "チャットプリセット";
+"Voice Server Preset" = "音声サーバープリセット";
 "Enter chat API URL" = "チャット API URL を入力";
+"Enter API key" = "API キーを入力";
 "GPT weights path" = "GPT ウェイトパス";
 "Reference text (optional)" = "参考テキスト（任意）";
 "Save" = "保存";
@@ -179,7 +183,6 @@
 "Time To First Token" = "初回トークンまでの時間";
 "Stream Duration" = "ストリーム時間";
 "Generation Duration" = "生成時間";
-
 "System Prompt" = "システムプロンプト";
 "Normal Mode Preset" = "通常モードのプリセット";
 "Voice Mode Preset" = "音声モードのプリセット";
@@ -193,3 +196,22 @@
 "Used for voice chat mode" = "音声チャットモードで使用";
 "Add prompt preset" = "プロンプトプリセットを追加";
 "Delete selected prompt preset" = "選択したプロンプトプリセットを削除";
+"Servers" = "サーバー";
+"Prompts" = "プロンプト";
+"Preset" = "プリセット";
+"Server URL" = "サーバーURL";
+"Server URL is empty or invalid." = "サーバーURLが空または無効です。";
+"Invalid Server URL" = "サーバーURLが無効です";
+"API Key" = "APIキー";
+"Model" = "モデル";
+"Chat server responded with status %d." = "チャットサーバーがステータス %d を返しました。";
+"Chat Prompt" = "チャットプロンプト";
+"Prompt" = "プロンプト";
+"Used for chat mode" = "チャットモードで使用";
+"Used for voice mode" = "音声モードで使用";
+"Add preset" = "プリセットを追加";
+"Delete selected preset" = "選択したプリセットを削除";
+"Chat" = "チャット";
+"Chat Model" = "チャットモデル";
+"Voice Settings" = "音声設定";
+"Voice Model" = "音声モデル";

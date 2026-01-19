@@ -121,12 +121,14 @@ enum ChatNetworkError: Error {
 protocol ChatServiceConfiguring {
     var apiBaseURL: String { get }
     var modelIdentifier: String { get }
+    var apiKey: String { get }
 }
 
 /// Lightweight snapshot of chat configuration to avoid actor-hopping from main-actor singletons.
 struct ChatServiceConfiguration: ChatServiceConfiguring, Equatable {
     let apiBaseURL: String
     let modelIdentifier: String
+    let apiKey: String
 }
 
 // MARK: - Service Contracts
@@ -284,6 +286,12 @@ final class ChatService: NSObject, URLSessionDataDelegate, @unchecked Sendable {
         request.addValue("text/event-stream", forHTTPHeaderField: "Accept")
         request.addValue("keep-alive", forHTTPHeaderField: "Connection")
         request.addValue("no-cache", forHTTPHeaderField: "Cache-Control")
+
+        let rawKey = configurationProvider.apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !rawKey.isEmpty {
+            let headerValue = rawKey.lowercased().hasPrefix("bearer ") ? rawKey : "Bearer \(rawKey)"
+            request.setValue(headerValue, forHTTPHeaderField: "Authorization")
+        }
 
         let requestBody: [String: Any] = [
             "model": model,

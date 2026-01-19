@@ -22,6 +22,7 @@ You can use the Voice Mode to chat with AI in real-time.
 In the app’s Settings:
 - **Chat Server**
   - Set **Chat API URL**
+  - Set **Chat API Key** (optional)
   - Refresh and select a model
 - **Voice Server**
   - Set **Server Address**

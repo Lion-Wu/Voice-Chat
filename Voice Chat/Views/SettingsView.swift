@@ -21,6 +21,8 @@ struct SettingsView: View {
 
     // Preset deletion confirmation state
     @State private var showDeletePresetAlert = false
+    @State private var showDeleteChatServerPresetAlert = false
+    @State private var showDeleteVoiceServerPresetAlert = false
     @State private var showDeleteNormalPromptPresetAlert = false
     @State private var showDeleteVoicePromptPresetAlert = false
 
@@ -44,11 +46,12 @@ struct SettingsView: View {
         applyCommonModifiers(
             NavigationStack {
                 Form {
+                    chatSection()
                     serverSection()
+                    chatModelSection()
+                    systemPromptSection()
                     presetSection()
                     voiceOutputSection()
-                    chatSection()
-                    systemPromptSection()
                     developerSection()
                 }
                 .navigationBarTitle("Settings", displayMode: .inline)
@@ -77,6 +80,20 @@ struct SettingsView: View {
             } message: {
                 Text("This action cannot be undone.")
             }
+            .alert("Delete this preset?",
+                   isPresented: $showDeleteChatServerPresetAlert) {
+                Button("Delete", role: .destructive) { viewModel.deleteSelectedChatServerPreset() }
+                Button("Cancel", role: .cancel) { }
+            } message: {
+                Text("This action cannot be undone.")
+            }
+            .alert("Delete this preset?",
+                   isPresented: $showDeleteVoiceServerPresetAlert) {
+                Button("Delete", role: .destructive) { viewModel.deleteSelectedVoiceServerPreset() }
+                Button("Cancel", role: .cancel) { }
+            } message: {
+                Text("This action cannot be undone.")
+            }
             .alert("Delete this prompt preset?",
                    isPresented: $showDeleteNormalPromptPresetAlert) {
                 Button("Delete", role: .destructive) { viewModel.deleteSelectedNormalSystemPromptPreset() }
@@ -98,69 +115,50 @@ struct SettingsView: View {
 #if os(macOS)
     private var macSettingsTabs: some View {
         TabView {
-            macVoiceServerTab
-            macModelPresetTab
+            macServersTab
+            macChatTab
             macVoiceOutputTab
-            macChatServerTab
-            macSystemPromptTab
             macDeveloperTab
         }
         .scenePadding()
     }
 
-    private var macVoiceServerTab: some View {
+    private var macServersTab: some View {
         Form {
-            serverSection(hideHeader: true)
+            chatSection()
+            serverSection()
         }
         .formStyle(.grouped)
         .tabItem {
-            Label("Voice Server", systemImage: "antenna.radiowaves.left.and.right")
-        }
-    }
-
-    private var macModelPresetTab: some View {
-        Form {
-            presetSection(hideHeader: true)
-        }
-        .formStyle(.grouped)
-        .tabItem {
-            Label("Model Preset", systemImage: "square.stack.3d.up.fill")
+            Label("Servers", systemImage: "server.rack")
         }
     }
 
     private var macVoiceOutputTab: some View {
         Form {
-            voiceOutputSection(hideHeader: true)
+            presetSection()
+            voiceOutputSection()
         }
         .formStyle(.grouped)
         .tabItem {
-            Label("Voice Output", systemImage: "speaker.wave.3.fill")
+            Label("Voice Settings", systemImage: "speaker.wave.3.fill")
         }
     }
 
-    private var macChatServerTab: some View {
+    private var macChatTab: some View {
         Form {
-            chatSection(hideHeader: true)
+            chatModelSection()
+            systemPromptSection()
         }
         .formStyle(.grouped)
         .tabItem {
-            Label("Chat Server", systemImage: "message.and.waveform.fill")
-        }
-    }
-
-    private var macSystemPromptTab: some View {
-        Form {
-            systemPromptSection(hideHeader: true)
-        }
-        .formStyle(.grouped)
-        .tabItem {
-            Label("System Prompt", systemImage: "text.bubble.fill")
+            Label("Chat", systemImage: "text.bubble.fill")
         }
     }
 
     private var macDeveloperTab: some View {
         Form {
-            developerSection(hideHeader: true)
+            developerSection()
         }
         .formStyle(.grouped)
         .tabItem {
@@ -183,15 +181,81 @@ struct SettingsView: View {
     @ViewBuilder
     private func serverSection(hideHeader: Bool = false) -> some View {
         Section {
+            #if os(macOS)
+            LabeledContent("Preset") {
+                Picker("", selection: $viewModel.selectedVoiceServerPresetID) {
+                    ForEach(viewModel.voiceServerPresetList) { p in
+                        Text(p.name).tag(Optional.some(p.id))
+                    }
+                }
+                .labelsHidden()
+            }
+
+            HStack {
+                Spacer()
+                HStack(spacing: 8) {
+                    Button {
+                        viewModel.addVoiceServerPreset()
+                    } label: {
+                        Label("Add", systemImage: "plus.circle.fill")
+                            .foregroundStyle(.blue)
+                    }
+                    .buttonStyle(.plain)
+                    .controlSize(.small)
+                    .help("Add preset")
+
+                    Button(role: .destructive) {
+                        showDeleteVoiceServerPresetAlert = true
+                    } label: {
+                        Label("Delete", systemImage: "trash")
+                            .foregroundStyle(.red)
+                    }
+                    .buttonStyle(.plain)
+                    .controlSize(.small)
+                    .help("Delete selected preset")
+                    .disabled(viewModel.voiceServerPresetList.count <= 1 || viewModel.selectedVoiceServerPresetID == nil)
+                }
+            }
+            #else
+            Picker("Preset", selection: $viewModel.selectedVoiceServerPresetID) {
+                ForEach(viewModel.voiceServerPresetList) { p in
+                    Text(p.name).tag(Optional.some(p.id))
+                }
+            }
+            .pickerStyle(.menu)
+
+            HStack(spacing: 16) {
+                Button {
+                    viewModel.addVoiceServerPreset()
+                } label: {
+                    Label("Add", systemImage: "plus.circle.fill")
+                        .foregroundStyle(.blue)
+                }
+                .buttonStyle(.plain)
+                .contentShape(Rectangle())
+
+                Button(role: .destructive) {
+                    showDeleteVoiceServerPresetAlert = true
+                } label: {
+                    Label("Delete", systemImage: "trash")
+                        .foregroundStyle(.red)
+                }
+                .buttonStyle(.plain)
+                .contentShape(Rectangle())
+                .disabled(viewModel.voiceServerPresetList.count <= 1 || viewModel.selectedVoiceServerPresetID == nil)
+            }
+            #endif
+
             LabeledTextField(
-                label: "Server Address",
+                label: "Preset Name",
+                placeholder: "Preset name",
+                text: $viewModel.voiceServerPresetName
+            )
+
+            LabeledTextField(
+                label: "Server URL",
                 placeholder: "http://127.0.0.1:9880",
                 text: $viewModel.serverAddress
-            )
-            LabeledTextField(
-                label: "Text Language",
-                placeholder: "text_lang (e.g. auto/zh/en)",
-                text: $viewModel.textLang
             )
         } header: {
             if hideHeader {
@@ -214,7 +278,7 @@ struct SettingsView: View {
             if hideHeader {
                 EmptyView()
             } else {
-                sectionHeader("Model Preset")
+                sectionHeader("Voice Model")
             }
         }
     }
@@ -222,7 +286,7 @@ struct SettingsView: View {
     @ViewBuilder
     private var presetPickerRow: some View {
         #if os(macOS)
-        LabeledContent("Current Preset") {
+        LabeledContent("Preset") {
             Picker("", selection: $viewModel.selectedPresetID) {
                 ForEach(viewModel.presetList) { p in
                     Text(p.name).tag(Optional.some(p.id))
@@ -231,7 +295,7 @@ struct SettingsView: View {
             .labelsHidden()
         }
         #else
-        Picker("Current Preset", selection: $viewModel.selectedPresetID) {
+        Picker("Preset", selection: $viewModel.selectedPresetID) {
             ForEach(viewModel.presetList) { p in
                 Text(p.name).tag(Optional.some(p.id))
             }
@@ -367,6 +431,12 @@ struct SettingsView: View {
     @ViewBuilder
     private func voiceOutputSection(hideHeader: Bool = false) -> some View {
         Section {
+            LabeledTextField(
+                label: "Text Language",
+                placeholder: "text_lang (e.g. auto/zh/en)",
+                text: $viewModel.textLang
+            )
+
             #if os(macOS)
             Toggle("Enable Streaming", isOn: $viewModel.enableStreaming)
             LabeledContent("Split Method") {
@@ -397,7 +467,7 @@ struct SettingsView: View {
             if hideHeader {
                 EmptyView()
             } else {
-                sectionHeader("Voice Output")
+                sectionHeader("Voice Settings")
             }
         }
     }
@@ -405,10 +475,101 @@ struct SettingsView: View {
     @ViewBuilder
     private func chatSection(hideHeader: Bool = false) -> some View {
         Section {
-            LabeledTextField(label: "Chat API URL",
-                             placeholder: "Enter chat API URL",
+            #if os(macOS)
+            LabeledContent("Preset") {
+                Picker("", selection: $viewModel.selectedChatServerPresetID) {
+                    ForEach(viewModel.chatServerPresetList) { p in
+                        Text(p.name).tag(Optional.some(p.id))
+                    }
+                }
+                .labelsHidden()
+            }
+
+            HStack {
+                Spacer()
+                HStack(spacing: 8) {
+                    Button {
+                        viewModel.addChatServerPreset()
+                    } label: {
+                        Label("Add", systemImage: "plus.circle.fill")
+                            .foregroundStyle(.blue)
+                    }
+                    .buttonStyle(.plain)
+                    .controlSize(.small)
+                    .help("Add preset")
+
+                    Button(role: .destructive) {
+                        showDeleteChatServerPresetAlert = true
+                    } label: {
+                        Label("Delete", systemImage: "trash")
+                            .foregroundStyle(.red)
+                    }
+                    .buttonStyle(.plain)
+                    .controlSize(.small)
+                    .help("Delete selected preset")
+                    .disabled(viewModel.chatServerPresetList.count <= 1 || viewModel.selectedChatServerPresetID == nil)
+                }
+            }
+            #else
+            Picker("Preset", selection: $viewModel.selectedChatServerPresetID) {
+                ForEach(viewModel.chatServerPresetList) { p in
+                    Text(p.name).tag(Optional.some(p.id))
+                }
+            }
+            .pickerStyle(.menu)
+
+            HStack(spacing: 16) {
+                Button {
+                    viewModel.addChatServerPreset()
+                } label: {
+                    Label("Add", systemImage: "plus.circle.fill")
+                        .foregroundStyle(.blue)
+                }
+                .buttonStyle(.plain)
+                .contentShape(Rectangle())
+
+                Button(role: .destructive) {
+                    showDeleteChatServerPresetAlert = true
+                } label: {
+                    Label("Delete", systemImage: "trash")
+                        .foregroundStyle(.red)
+                }
+                .buttonStyle(.plain)
+                .contentShape(Rectangle())
+                .disabled(viewModel.chatServerPresetList.count <= 1 || viewModel.selectedChatServerPresetID == nil)
+            }
+            #endif
+
+            LabeledTextField(
+                label: "Preset Name",
+                placeholder: "Preset name",
+                text: $viewModel.chatServerPresetName
+            )
+
+            LabeledTextField(label: "Server URL",
+                             placeholder: "http://localhost:1234",
                              text: $viewModel.apiURL)
 
+            LabeledSecureField(
+                label: "API Key",
+                placeholder: "Enter API key",
+                text: $viewModel.chatAPIKey
+            )
+        } header: {
+            if hideHeader {
+                EmptyView()
+            } else {
+                sectionHeader("Chat Server")
+            }
+        }
+        .onChange(of: viewModel.selectedChatServerPresetID) {
+            fetchAvailableModels()
+        }
+    }
+
+    @ViewBuilder
+    private func chatModelSection(hideHeader: Bool = false) -> some View {
+        Section {
             if isLoadingModels {
                 HStack {
                     ProgressView("Loading model list...")
@@ -416,7 +577,7 @@ struct SettingsView: View {
                 }
             } else {
                 #if os(macOS)
-                LabeledContent("Select Model") {
+                LabeledContent("Model") {
                     Picker("", selection: $viewModel.selectedModel) {
                         ForEach(availableModels, id: \.self) { model in
                             Text(model).tag(model)
@@ -425,7 +586,7 @@ struct SettingsView: View {
                     .labelsHidden()
                 }
                 #else
-                Picker("Select Model", selection: $viewModel.selectedModel) {
+                Picker("Model", selection: $viewModel.selectedModel) {
                     ForEach(availableModels, id: \.self) { model in
                         Text(model).tag(model)
                     }
@@ -446,7 +607,7 @@ struct SettingsView: View {
             if hideHeader {
                 EmptyView()
             } else {
-                sectionHeader("Chat Server Settings")
+                sectionHeader("Chat Model")
             }
         }
     }
@@ -479,7 +640,7 @@ struct SettingsView: View {
     private var normalSystemPromptSection: some View {
         Section {
             #if os(macOS)
-            LabeledContent("Normal Mode Preset") {
+            LabeledContent("Preset") {
                 Picker("", selection: $viewModel.selectedNormalSystemPromptPresetID) {
                     ForEach(viewModel.normalSystemPromptPresetList) { p in
                         Text(p.name).tag(Optional.some(p.id))
@@ -514,7 +675,7 @@ struct SettingsView: View {
                 }
             }
             #else
-            Picker("Normal Mode Preset", selection: $viewModel.selectedNormalSystemPromptPresetID) {
+            Picker("Preset", selection: $viewModel.selectedNormalSystemPromptPresetID) {
                 ForEach(viewModel.normalSystemPromptPresetList) { p in
                     Text(p.name).tag(Optional.some(p.id))
                 }
@@ -545,23 +706,23 @@ struct SettingsView: View {
 
             LabeledTextField(
                 label: "Preset Name",
-                placeholder: "Prompt preset name",
+                placeholder: "Preset name",
                 text: $viewModel.normalSystemPromptPresetName
             )
             LabeledTextEditor(
-                label: "Normal Prompt",
-                placeholder: "Used for normal chat mode",
+                label: "Prompt",
+                placeholder: "Used for chat mode",
                 text: $viewModel.normalSystemPromptPrompt
             )
         } header: {
-            sectionHeader("Normal Mode Preset")
+            sectionHeader("Chat Prompt")
         }
     }
 
     private var voiceSystemPromptSection: some View {
         Section {
             #if os(macOS)
-            LabeledContent("Voice Mode Preset") {
+            LabeledContent("Preset") {
                 Picker("", selection: $viewModel.selectedVoiceSystemPromptPresetID) {
                     ForEach(viewModel.voiceSystemPromptPresetList) { p in
                         Text(p.name).tag(Optional.some(p.id))
@@ -596,7 +757,7 @@ struct SettingsView: View {
                 }
             }
             #else
-            Picker("Voice Mode Preset", selection: $viewModel.selectedVoiceSystemPromptPresetID) {
+            Picker("Preset", selection: $viewModel.selectedVoiceSystemPromptPresetID) {
                 ForEach(viewModel.voiceSystemPromptPresetList) { p in
                     Text(p.name).tag(Optional.some(p.id))
                 }
@@ -627,16 +788,16 @@ struct SettingsView: View {
 
             LabeledTextField(
                 label: "Preset Name",
-                placeholder: "Prompt preset name",
+                placeholder: "Preset name",
                 text: $viewModel.voiceSystemPromptPresetName
             )
             LabeledTextEditor(
-                label: "Voice Prompt",
-                placeholder: "Used for voice chat mode",
+                label: "Prompt",
+                placeholder: "Used for voice mode",
                 text: $viewModel.voiceSystemPromptPrompt
             )
         } header: {
-            sectionHeader("Voice Mode Preset")
+            sectionHeader("Voice Prompt")
         }
     }
 
@@ -663,20 +824,24 @@ struct SettingsView: View {
 
         guard !viewModel.apiURL.isEmpty else {
             isLoadingModels = false
-            chatServerErrorMessage = NSLocalizedString("API URL is empty or invalid.", comment: "Shown when the model list URL is missing")
+            chatServerErrorMessage = NSLocalizedString("Server URL is empty or invalid.", comment: "Shown when the model list URL is missing")
             return
         }
 
-        let urlString = "\(viewModel.apiURL)/v1/models"
-        guard let url = URL(string: urlString) else {
+        guard let url = buildModelsURL(from: viewModel.apiURL) else {
             isLoadingModels = false
-            chatServerErrorMessage = NSLocalizedString("Invalid API URL", comment: "Shown when the model list URL cannot be parsed")
+            chatServerErrorMessage = NSLocalizedString("Invalid Server URL", comment: "Shown when the model list URL cannot be parsed")
             return
         }
 
         isLoadingModels = true
 
-        let request = URLRequest(url: url, timeoutInterval: 30)
+        var request = URLRequest(url: url, timeoutInterval: 30)
+        let rawKey = viewModel.chatAPIKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !rawKey.isEmpty {
+            let headerValue = rawKey.lowercased().hasPrefix("bearer ") ? rawKey : "Bearer \(rawKey)"
+            request.setValue(headerValue, forHTTPHeaderField: "Authorization")
+        }
         URLSession.shared.dataTask(with: request) { data, response, error in
             DispatchQueue.main.async {
                 self.isLoadingModels = false
@@ -708,6 +873,34 @@ struct SettingsView: View {
                 }
             }
         }.resume()
+    }
+
+    private func buildModelsURL(from base: String) -> URL? {
+        var sanitized = base.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !sanitized.isEmpty else { return nil }
+
+        if !sanitized.contains("://") {
+            sanitized = "http://\(sanitized)"
+        }
+        while sanitized.hasSuffix("/") { sanitized.removeLast() }
+
+        guard var comps = URLComponents(string: sanitized) else { return nil }
+        var path = comps.path
+        while path.hasSuffix("/") { path.removeLast() }
+
+        if path.hasSuffix("/v1/models") {
+            // Keep as-is.
+        } else if path.hasSuffix("/v1/chat/completions") {
+            comps.path = String(path.dropLast("/chat/completions".count)) + "/models"
+        } else if path.hasSuffix("/v1/chat") {
+            comps.path = String(path.dropLast("/chat".count)) + "/models"
+        } else if path.hasSuffix("/v1") {
+            comps.path = path + "/models"
+        } else {
+            comps.path = path + "/v1/models"
+        }
+
+        return comps.url
     }
 }
 
@@ -795,6 +988,35 @@ struct LabeledTextEditor: View {
                             .padding(.leading, 6)
                     }
                 }
+        }
+        #endif
+    }
+}
+
+// MARK: - LabeledSecureField
+
+struct LabeledSecureField: View {
+    var label: String
+    var placeholder: String
+    @Binding var text: String
+
+    var body: some View {
+        #if os(macOS)
+        LabeledContent(LocalizedStringKey(label)) {
+            SecureField("", text: $text)
+                .textFieldStyle(.roundedBorder)
+                .privacySensitive()
+                .frame(maxWidth: .infinity)
+        }
+        #else
+        VStack(alignment: .leading, spacing: 6) {
+            Text(LocalizedStringKey(label))
+                .font(.subheadline)
+                .foregroundColor(.secondary)
+            SecureField(LocalizedStringKey(placeholder), text: $text)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                .privacySensitive()
         }
         #endif
     }

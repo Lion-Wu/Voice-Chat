@@ -90,7 +90,11 @@
 "Traditional Chinese" = "繁體中文";
 "Japanese" = "日文";
 "Chat API URL" = "聊天 API 位址";
+"Chat API Key" = "聊天 API 金鑰";
+"Chat Preset" = "聊天預設";
+"Voice Server Preset" = "語音伺服器預設";
 "Enter chat API URL" = "輸入聊天 API 位址";
+"Enter API key" = "輸入 API 金鑰";
 "GPT weights path" = "GPT 權重路徑";
 "Reference text (optional)" = "參考文字（選填）";
 "Save" = "儲存";
@@ -179,7 +183,6 @@
 "Time To First Token" = "首 Token 延遲";
 "Stream Duration" = "串流耗時";
 "Generation Duration" = "生成耗時";
-
 "System Prompt" = "系統提示詞";
 "Normal Mode Preset" = "一般模式預設";
 "Voice Mode Preset" = "語音模式預設";
@@ -193,3 +196,22 @@
 "Used for voice chat mode" = "用於語音聊天模式";
 "Add prompt preset" = "新增提示詞預設";
 "Delete selected prompt preset" = "刪除選取的提示詞預設";
+"Servers" = "伺服器";
+"Prompts" = "提示詞";
+"Preset" = "預設";
+"Server URL" = "伺服器位址";
+"Server URL is empty or invalid." = "伺服器位址為空或無效。";
+"Invalid Server URL" = "伺服器位址無效";
+"API Key" = "API 金鑰";
+"Model" = "模型";
+"Chat server responded with status %d." = "聊天伺服器回應狀態碼 %d。";
+"Chat Prompt" = "聊天提示詞";
+"Prompt" = "提示詞";
+"Used for chat mode" = "用於聊天模式";
+"Used for voice mode" = "用於語音模式";
+"Add preset" = "新增預設";
+"Delete selected preset" = "刪除選取的預設";
+"Chat" = "聊天設定";
+"Chat Model" = "聊天模型";
+"Voice Settings" = "語音設定";
+"Voice Model" = "語音模型";

@@ -108,7 +108,11 @@
 "Traditional Chinese" = "Traditional Chinese";
 "Japanese" = "Japanese";
 "Chat API URL" = "Chat API URL";
+"Chat API Key" = "Chat API Key";
+"Chat Preset" = "Chat Preset";
+"Voice Server Preset" = "Voice Server Preset";
 "Enter chat API URL" = "Enter chat API URL";
+"Enter API key" = "Enter API key";
 "GPT weights path" = "GPT weights path";
 "Reference text (optional)" = "Reference text (optional)";
 "Save" = "Save";
@@ -175,7 +179,6 @@
 "Time To First Token" = "Time To First Token";
 "Stream Duration" = "Stream Duration";
 "Generation Duration" = "Generation Duration";
-
 "System Prompt" = "System Prompt";
 "Normal Mode Preset" = "Normal Mode Preset";
 "Voice Mode Preset" = "Voice Mode Preset";
@@ -189,3 +192,22 @@
 "Used for voice chat mode" = "Used for voice chat mode";
 "Add prompt preset" = "Add prompt preset";
 "Delete selected prompt preset" = "Delete selected prompt preset";
+"Servers" = "Servers";
+"Prompts" = "Prompts";
+"Preset" = "Preset";
+"Server URL" = "Server URL";
+"Server URL is empty or invalid." = "Server URL is empty or invalid.";
+"Invalid Server URL" = "Invalid Server URL";
+"API Key" = "API Key";
+"Model" = "Model";
+"Chat server responded with status %d." = "Chat server responded with status %d.";
+"Chat Prompt" = "Chat Prompt";
+"Prompt" = "Prompt";
+"Used for chat mode" = "Used for chat mode";
+"Used for voice mode" = "Used for voice mode";
+"Add preset" = "Add preset";
+"Delete selected preset" = "Delete selected preset";
+"Chat" = "Chat";
+"Chat Model" = "Chat Model";
+"Voice Settings" = "Voice Settings";
+"Voice Model" = "Voice Model";

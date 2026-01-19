@@ -38,6 +38,7 @@
 		FD40D5762CA876010064E732 /* GlobalAudioManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD40D5752CA876010064E732 /* GlobalAudioManager.swift */; };
 		FD423AE02F07B7C10016D0B4 /* Markdown in Frameworks */ = {isa = PBXBuildFile; productRef = FD423ADF2F07B7C10016D0B4 /* Markdown */; };
 		FD6E97252CA92C840086C234 /* SettingsModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD6E97242CA92C840086C234 /* SettingsModel.swift */; };
+		9531A726E227629A33E3B380 /* KeychainStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 219680AEAF301A24A236086F /* KeychainStore.swift */; };
 		FD7228652E7EBE22005BF261 /* SpeechInputManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD7228642E7EBE22005BF261 /* SpeechInputManager.swift */; };
 		FD7AF1B42CD896B900A5080B /* BlurView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD7AF1B32CD896B900A5080B /* BlurView.swift */; };
 		FDA8D9262E7F0E320012B42F /* BubbleBackground.swift in Sources */ = {isa = PBXBuildFile; fileRef = FDA8D9202E7F0E320012B42F /* BubbleBackground.swift */; };
@@ -106,6 +107,7 @@
 		FD40D5732CA875CC0064E732 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		FD40D5752CA876010064E732 /* GlobalAudioManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GlobalAudioManager.swift; sourceTree = "<group>"; };
 		FD6E97242CA92C840086C234 /* SettingsModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsModel.swift; sourceTree = "<group>"; };
+		219680AEAF301A24A236086F /* KeychainStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeychainStore.swift; sourceTree = "<group>"; };
 		FD7228642E7EBE22005BF261 /* SpeechInputManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpeechInputManager.swift; sourceTree = "<group>"; };
 		FD7AF1B32CD896B900A5080B /* BlurView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BlurView.swift; sourceTree = "<group>"; };
 		FDA8D9202E7F0E320012B42F /* BubbleBackground.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BubbleBackground.swift; sourceTree = "<group>"; };
@@ -241,6 +243,7 @@
 				FDFE0A002F12340000000001 /* AppErrorCenter.swift */,
 				FDFE0A042F123C0000000001 /* ServerReachabilityMonitor.swift */,
 				FD6E97242CA92C840086C234 /* SettingsModel.swift */,
+				219680AEAF301A24A236086F /* KeychainStore.swift */,
 				FD40D5752CA876010064E732 /* GlobalAudioManager.swift */,
 				FDA8D9452E7F12E10012B42F /* GlobalAudioManagerComponents */,
 				FD7228642E7EBE22005BF261 /* SpeechInputManager.swift */,
@@ -396,6 +399,7 @@
 				FD0C3AB22C9F38F2009095A1 /* SettingsView.swift in Sources */,
 				FDFE0A012F12340000000001 /* AppErrorCenter.swift in Sources */,
 				FD6E97252CA92C840086C234 /* SettingsModel.swift in Sources */,
+				9531A726E227629A33E3B380 /* KeychainStore.swift in Sources */,
 				FDA8D93E2E7F12190012B42F /* AVAudioDelegate.swift in Sources */,
 				FDA8D92C2E7F0ED00012B42F /* TailLinesText.swift in Sources */,
 				FDF714C12E7FC54100B62D71 /* IncrementalTextSegmenter.swift in Sources */,
