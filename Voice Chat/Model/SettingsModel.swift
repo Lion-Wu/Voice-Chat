@@ -351,23 +351,41 @@ final class SettingsManager: ObservableObject {
             value.trimmingCharacters(in: .whitespacesAndNewlines)
         }
 
+        func isNonEmpty(_ value: String) -> Bool {
+            !normalized(value).isEmpty
+        }
+
+        func isNonEmptyAndNotDefault(_ value: String, defaultValue: String) -> Bool {
+            let trimmed = normalized(value)
+            return !trimmed.isEmpty && trimmed != defaultValue
+        }
+
         func score(_ e: AppSettings) -> Int {
             var total = 0
             func add(_ condition: Bool, weight: Int = 1) {
                 if condition { total += weight }
             }
 
-            add(normalized(e.serverAddress) != Defaults.serverAddress)
-            add(normalized(e.textLang) != Defaults.textLang)
+            // Empty strings are treated as invalid and should never outscore valid defaults.
+            add(isNonEmpty(e.serverAddress), weight: 2)
+            add(isNonEmptyAndNotDefault(e.serverAddress, defaultValue: Defaults.serverAddress))
+
+            add(isNonEmpty(e.textLang))
+            add(isNonEmptyAndNotDefault(e.textLang, defaultValue: Defaults.textLang))
+
             add(!normalized(e.refAudioPath).isEmpty, weight: 2)
             add(!normalized(e.promptText).isEmpty)
-            add(normalized(e.promptLang) != Defaults.promptLang)
+            add(isNonEmpty(e.promptLang))
+            add(isNonEmptyAndNotDefault(e.promptLang, defaultValue: Defaults.promptLang))
 
             add(!normalized(e.modelId).isEmpty)
-            add(normalized(e.language) != Defaults.modelLanguage)
-            add(normalized(e.autoSplit) != Defaults.autoSplit)
+            add(isNonEmpty(e.language))
+            add(isNonEmptyAndNotDefault(e.language, defaultValue: Defaults.modelLanguage))
+            add(isNonEmpty(e.autoSplit))
+            add(isNonEmptyAndNotDefault(e.autoSplit, defaultValue: Defaults.autoSplit))
 
-            add(normalized(e.apiURL) != Defaults.apiURL)
+            add(isNonEmpty(e.apiURL), weight: 2)
+            add(isNonEmptyAndNotDefault(e.apiURL, defaultValue: Defaults.apiURL))
             add(!normalized(e.selectedModel).isEmpty, weight: 2)
 
             add(e.enableStreaming != Defaults.enableStreaming)
@@ -401,6 +419,17 @@ final class SettingsManager: ObservableObject {
         func adoptString(_ keyPath: ReferenceWritableKeyPath<AppSettings, String>, defaultValue: String, from other: AppSettings) {
             let current = normalized(best[keyPath: keyPath])
             let candidate = normalized(other[keyPath: keyPath])
+            // Never adopt empty strings.
+            guard !candidate.isEmpty else { return }
+
+            // If the chosen row has an empty string (invalid), always adopt a non-empty value,
+            // even if it equals the default.
+            if current.isEmpty {
+                best[keyPath: keyPath] = other[keyPath: keyPath]
+                return
+            }
+
+            // Otherwise, only replace defaults with non-default values.
             guard current == defaultValue else { return }
             guard candidate != defaultValue else { return }
             best[keyPath: keyPath] = other[keyPath: keyPath]
