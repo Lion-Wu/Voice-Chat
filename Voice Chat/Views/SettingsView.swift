@@ -46,11 +46,12 @@ struct SettingsView: View {
         applyCommonModifiers(
             NavigationStack {
                 Form {
+                    chatSection()
                     serverSection()
+                    chatModelSection()
+                    systemPromptSection()
                     presetSection()
                     voiceOutputSection()
-                    chatSection()
-                    systemPromptSection()
                     developerSection()
                 }
                 .navigationBarTitle("Settings", displayMode: .inline)
@@ -114,69 +115,50 @@ struct SettingsView: View {
 #if os(macOS)
     private var macSettingsTabs: some View {
         TabView {
-            macVoiceServerTab
-            macModelPresetTab
+            macServersTab
+            macChatTab
             macVoiceOutputTab
-            macChatServerTab
-            macSystemPromptTab
             macDeveloperTab
         }
         .scenePadding()
     }
 
-    private var macVoiceServerTab: some View {
+    private var macServersTab: some View {
         Form {
-            serverSection(hideHeader: true)
+            chatSection()
+            serverSection()
         }
         .formStyle(.grouped)
         .tabItem {
-            Label("Voice Server", systemImage: "antenna.radiowaves.left.and.right")
-        }
-    }
-
-    private var macModelPresetTab: some View {
-        Form {
-            presetSection(hideHeader: true)
-        }
-        .formStyle(.grouped)
-        .tabItem {
-            Label("Model Preset", systemImage: "square.stack.3d.up.fill")
+            Label("Servers", systemImage: "server.rack")
         }
     }
 
     private var macVoiceOutputTab: some View {
         Form {
-            voiceOutputSection(hideHeader: true)
+            presetSection()
+            voiceOutputSection()
         }
         .formStyle(.grouped)
         .tabItem {
-            Label("Voice Output", systemImage: "speaker.wave.3.fill")
+            Label("Voice Settings", systemImage: "speaker.wave.3.fill")
         }
     }
 
-    private var macChatServerTab: some View {
+    private var macChatTab: some View {
         Form {
-            chatSection(hideHeader: true)
+            chatModelSection()
+            systemPromptSection()
         }
         .formStyle(.grouped)
         .tabItem {
-            Label("Chat Server", systemImage: "message.and.waveform.fill")
-        }
-    }
-
-    private var macSystemPromptTab: some View {
-        Form {
-            systemPromptSection(hideHeader: true)
-        }
-        .formStyle(.grouped)
-        .tabItem {
-            Label("System Prompt", systemImage: "text.bubble.fill")
+            Label("Chat", systemImage: "text.bubble.fill")
         }
     }
 
     private var macDeveloperTab: some View {
         Form {
-            developerSection(hideHeader: true)
+            developerSection()
         }
         .formStyle(.grouped)
         .tabItem {
@@ -200,7 +182,7 @@ struct SettingsView: View {
     private func serverSection(hideHeader: Bool = false) -> some View {
         Section {
             #if os(macOS)
-            LabeledContent("Voice Server Preset") {
+            LabeledContent("Preset") {
                 Picker("", selection: $viewModel.selectedVoiceServerPresetID) {
                     ForEach(viewModel.voiceServerPresetList) { p in
                         Text(p.name).tag(Optional.some(p.id))
@@ -235,7 +217,7 @@ struct SettingsView: View {
                 }
             }
             #else
-            Picker("Voice Server Preset", selection: $viewModel.selectedVoiceServerPresetID) {
+            Picker("Preset", selection: $viewModel.selectedVoiceServerPresetID) {
                 ForEach(viewModel.voiceServerPresetList) { p in
                     Text(p.name).tag(Optional.some(p.id))
                 }
@@ -271,14 +253,9 @@ struct SettingsView: View {
             )
 
             LabeledTextField(
-                label: "Server Address",
+                label: "Server URL",
                 placeholder: "http://127.0.0.1:9880",
                 text: $viewModel.serverAddress
-            )
-            LabeledTextField(
-                label: "Text Language",
-                placeholder: "text_lang (e.g. auto/zh/en)",
-                text: $viewModel.textLang
             )
         } header: {
             if hideHeader {
@@ -301,7 +278,7 @@ struct SettingsView: View {
             if hideHeader {
                 EmptyView()
             } else {
-                sectionHeader("Model Preset")
+                sectionHeader("Voice Model")
             }
         }
     }
@@ -309,7 +286,7 @@ struct SettingsView: View {
     @ViewBuilder
     private var presetPickerRow: some View {
         #if os(macOS)
-        LabeledContent("Current Preset") {
+        LabeledContent("Preset") {
             Picker("", selection: $viewModel.selectedPresetID) {
                 ForEach(viewModel.presetList) { p in
                     Text(p.name).tag(Optional.some(p.id))
@@ -318,7 +295,7 @@ struct SettingsView: View {
             .labelsHidden()
         }
         #else
-        Picker("Current Preset", selection: $viewModel.selectedPresetID) {
+        Picker("Preset", selection: $viewModel.selectedPresetID) {
             ForEach(viewModel.presetList) { p in
                 Text(p.name).tag(Optional.some(p.id))
             }
@@ -454,6 +431,12 @@ struct SettingsView: View {
     @ViewBuilder
     private func voiceOutputSection(hideHeader: Bool = false) -> some View {
         Section {
+            LabeledTextField(
+                label: "Text Language",
+                placeholder: "text_lang (e.g. auto/zh/en)",
+                text: $viewModel.textLang
+            )
+
             #if os(macOS)
             Toggle("Enable Streaming", isOn: $viewModel.enableStreaming)
             LabeledContent("Split Method") {
@@ -484,7 +467,7 @@ struct SettingsView: View {
             if hideHeader {
                 EmptyView()
             } else {
-                sectionHeader("Voice Output")
+                sectionHeader("Voice Settings")
             }
         }
     }
@@ -493,7 +476,7 @@ struct SettingsView: View {
     private func chatSection(hideHeader: Bool = false) -> some View {
         Section {
             #if os(macOS)
-            LabeledContent("Chat Preset") {
+            LabeledContent("Preset") {
                 Picker("", selection: $viewModel.selectedChatServerPresetID) {
                     ForEach(viewModel.chatServerPresetList) { p in
                         Text(p.name).tag(Optional.some(p.id))
@@ -528,7 +511,7 @@ struct SettingsView: View {
                 }
             }
             #else
-            Picker("Chat Preset", selection: $viewModel.selectedChatServerPresetID) {
+            Picker("Preset", selection: $viewModel.selectedChatServerPresetID) {
                 ForEach(viewModel.chatServerPresetList) { p in
                     Text(p.name).tag(Optional.some(p.id))
                 }
@@ -563,16 +546,30 @@ struct SettingsView: View {
                 text: $viewModel.chatServerPresetName
             )
 
-            LabeledTextField(label: "Chat API URL",
-                             placeholder: "Enter chat API URL",
+            LabeledTextField(label: "Server URL",
+                             placeholder: "http://localhost:1234",
                              text: $viewModel.apiURL)
 
             LabeledSecureField(
-                label: "Chat API Key",
+                label: "API Key",
                 placeholder: "Enter API key",
                 text: $viewModel.chatAPIKey
             )
+        } header: {
+            if hideHeader {
+                EmptyView()
+            } else {
+                sectionHeader("Chat Server")
+            }
+        }
+        .onChange(of: viewModel.selectedChatServerPresetID) {
+            fetchAvailableModels()
+        }
+    }
 
+    @ViewBuilder
+    private func chatModelSection(hideHeader: Bool = false) -> some View {
+        Section {
             if isLoadingModels {
                 HStack {
                     ProgressView("Loading model list...")
@@ -580,7 +577,7 @@ struct SettingsView: View {
                 }
             } else {
                 #if os(macOS)
-                LabeledContent("Select Model") {
+                LabeledContent("Model") {
                     Picker("", selection: $viewModel.selectedModel) {
                         ForEach(availableModels, id: \.self) { model in
                             Text(model).tag(model)
@@ -589,7 +586,7 @@ struct SettingsView: View {
                     .labelsHidden()
                 }
                 #else
-                Picker("Select Model", selection: $viewModel.selectedModel) {
+                Picker("Model", selection: $viewModel.selectedModel) {
                     ForEach(availableModels, id: \.self) { model in
                         Text(model).tag(model)
                     }
@@ -610,11 +607,8 @@ struct SettingsView: View {
             if hideHeader {
                 EmptyView()
             } else {
-                sectionHeader("Chat Server Settings")
+                sectionHeader("Chat Model")
             }
-        }
-        .onChange(of: viewModel.selectedChatServerPresetID) { _ in
-            fetchAvailableModels()
         }
     }
 
@@ -646,7 +640,7 @@ struct SettingsView: View {
     private var normalSystemPromptSection: some View {
         Section {
             #if os(macOS)
-            LabeledContent("Normal Mode Preset") {
+            LabeledContent("Preset") {
                 Picker("", selection: $viewModel.selectedNormalSystemPromptPresetID) {
                     ForEach(viewModel.normalSystemPromptPresetList) { p in
                         Text(p.name).tag(Optional.some(p.id))
@@ -681,7 +675,7 @@ struct SettingsView: View {
                 }
             }
             #else
-            Picker("Normal Mode Preset", selection: $viewModel.selectedNormalSystemPromptPresetID) {
+            Picker("Preset", selection: $viewModel.selectedNormalSystemPromptPresetID) {
                 ForEach(viewModel.normalSystemPromptPresetList) { p in
                     Text(p.name).tag(Optional.some(p.id))
                 }
@@ -712,23 +706,23 @@ struct SettingsView: View {
 
             LabeledTextField(
                 label: "Preset Name",
-                placeholder: "Prompt preset name",
+                placeholder: "Preset name",
                 text: $viewModel.normalSystemPromptPresetName
             )
             LabeledTextEditor(
-                label: "Normal Prompt",
-                placeholder: "Used for normal chat mode",
+                label: "Prompt",
+                placeholder: "Used for chat mode",
                 text: $viewModel.normalSystemPromptPrompt
             )
         } header: {
-            sectionHeader("Normal Mode Preset")
+            sectionHeader("Chat Prompt")
         }
     }
 
     private var voiceSystemPromptSection: some View {
         Section {
             #if os(macOS)
-            LabeledContent("Voice Mode Preset") {
+            LabeledContent("Preset") {
                 Picker("", selection: $viewModel.selectedVoiceSystemPromptPresetID) {
                     ForEach(viewModel.voiceSystemPromptPresetList) { p in
                         Text(p.name).tag(Optional.some(p.id))
@@ -763,7 +757,7 @@ struct SettingsView: View {
                 }
             }
             #else
-            Picker("Voice Mode Preset", selection: $viewModel.selectedVoiceSystemPromptPresetID) {
+            Picker("Preset", selection: $viewModel.selectedVoiceSystemPromptPresetID) {
                 ForEach(viewModel.voiceSystemPromptPresetList) { p in
                     Text(p.name).tag(Optional.some(p.id))
                 }
@@ -794,16 +788,16 @@ struct SettingsView: View {
 
             LabeledTextField(
                 label: "Preset Name",
-                placeholder: "Prompt preset name",
+                placeholder: "Preset name",
                 text: $viewModel.voiceSystemPromptPresetName
             )
             LabeledTextEditor(
-                label: "Voice Prompt",
-                placeholder: "Used for voice chat mode",
+                label: "Prompt",
+                placeholder: "Used for voice mode",
                 text: $viewModel.voiceSystemPromptPrompt
             )
         } header: {
-            sectionHeader("Voice Mode Preset")
+            sectionHeader("Voice Prompt")
         }
     }
 
@@ -830,13 +824,13 @@ struct SettingsView: View {
 
         guard !viewModel.apiURL.isEmpty else {
             isLoadingModels = false
-            chatServerErrorMessage = NSLocalizedString("API URL is empty or invalid.", comment: "Shown when the model list URL is missing")
+            chatServerErrorMessage = NSLocalizedString("Server URL is empty or invalid.", comment: "Shown when the model list URL is missing")
             return
         }
 
         guard let url = buildModelsURL(from: viewModel.apiURL) else {
             isLoadingModels = false
-            chatServerErrorMessage = NSLocalizedString("Invalid API URL", comment: "Shown when the model list URL cannot be parsed")
+            chatServerErrorMessage = NSLocalizedString("Invalid Server URL", comment: "Shown when the model list URL cannot be parsed")
             return
         }
 
