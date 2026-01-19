@@ -13,7 +13,7 @@ import AppKit
 // MARK: - Settings View
 
 struct SettingsView: View {
-    @ObservedObject var viewModel: SettingsViewModel
+    @StateObject private var viewModel = SettingsViewModel()
 
     @State private var availableModels: [String] = []
     @State private var isLoadingModels = false
@@ -29,10 +29,6 @@ struct SettingsView: View {
 #if os(macOS)
     @State private var measuredContentSize: CGSize = .zero
 #endif
-
-    init() {
-        _viewModel = ObservedObject(wrappedValue: SettingsViewModel())
-    }
 
     var body: some View {
         #if os(macOS)
@@ -70,7 +66,10 @@ struct SettingsView: View {
     private func applyCommonModifiers<Content: View>(_ content: Content) -> some View {
         content
             .background(AppBackgroundView())
-            .onAppear { fetchAvailableModels() }
+            .onAppear {
+                viewModel.refreshFromSettingsManager()
+                fetchAvailableModels()
+            }
             .alert("Delete this preset?",
                    isPresented: $showDeletePresetAlert) {
                 Button("Delete", role: .destructive) { viewModel.deleteCurrentPreset() }

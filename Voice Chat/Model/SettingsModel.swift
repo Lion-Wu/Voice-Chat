@@ -231,19 +231,30 @@ final class SettingsManager: ObservableObject {
     // Used to gate one-time work performed at launch.
     private var didApplyOnLaunch = false
 
+    private enum Defaults {
+        static let serverAddress = "http://127.0.0.1:9880"
+        static let textLang = "auto"
+        static let promptLang = "auto"
+        static let modelLanguage = "auto"
+        static let autoSplit = "cut0"
+        static let apiURL = "http://localhost:1234"
+        static let enableStreaming = true
+        static let developerModeEnabled = false
+    }
+
     private init() {
         // Initialise with defaults until `attach(context:)` loads persisted data.
         self.serverSettings = ServerSettings(
-            serverAddress: "http://127.0.0.1:9880",
-            textLang: "auto",
+            serverAddress: Defaults.serverAddress,
+            textLang: Defaults.textLang,
             refAudioPath: "",
             promptText: "",
-            promptLang: "auto"
+            promptLang: Defaults.promptLang
         )
-        self.modelSettings = ModelSettings(modelId: "", language: "auto", autoSplit: "cut0")
-        self.chatSettings = ChatSettings(apiURL: "http://localhost:1234", selectedModel: "")
-        self.voiceSettings = VoiceSettings(enableStreaming: true)
-        self.developerModeEnabled = false
+        self.modelSettings = ModelSettings(modelId: "", language: Defaults.modelLanguage, autoSplit: Defaults.autoSplit)
+        self.chatSettings = ChatSettings(apiURL: Defaults.apiURL, selectedModel: "")
+        self.voiceSettings = VoiceSettings(enableStreaming: Defaults.enableStreaming)
+        self.developerModeEnabled = Defaults.developerModeEnabled
     }
 
     // SwiftData context injected from the app or root view.
@@ -254,11 +265,12 @@ final class SettingsManager: ObservableObject {
         if let pending = pendingDeveloperModeEnabled {
             developerModeEnabled = pending
             entity?.developerModeEnabled = pending
-            try? context.save()
+            saveContext(label: "apply pending developer mode")
             pendingDeveloperModeEnabled = nil
         }
         loadPresetsFromStore()
         ensureDefaultPresetIfNeeded()
+        ensureSelectedPresetIsValid()
         loadSystemPromptPresetsFromStore()
         migrateLegacySystemPromptPresetsIfNeeded()
         ensureDefaultSystemPromptPresetsForModesIfNeeded()
@@ -274,20 +286,44 @@ final class SettingsManager: ObservableObject {
     private func loadFromStore() {
         guard let context else { return }
         let descriptor = FetchDescriptor<AppSettings>(predicate: nil, sortBy: [])
-        if let first = try? context.fetch(descriptor).first {
-            self.entity = first
-        } else {
+        do {
+            let fetched = try context.fetch(descriptor)
+            if fetched.isEmpty {
+                let fresh = AppSettings()
+                context.insert(fresh)
+                self.entity = fresh
+                try context.save()
+            } else if fetched.count == 1 {
+                self.entity = fetched[0]
+            } else {
+                // If multiple rows exist (e.g. from earlier versions or intermittent fetch/save failures),
+                // pick a deterministic "best" row and remove the rest to avoid random blank settings at launch.
+                let best = pickBestAppSettings(from: fetched)
+                mergeAppSettings(into: best, from: fetched)
+                self.entity = best
+                for other in fetched where other !== best {
+                    context.delete(other)
+                }
+                try context.save()
+            }
+        } catch {
+            print("SwiftData fetch AppSettings failed: \(error)")
+            // As a last-resort recovery, create a new row so the app remains usable.
             let fresh = AppSettings()
             context.insert(fresh)
             self.entity = fresh
-            try? context.save()
+            do {
+                try context.save()
+            } catch {
+                print("SwiftData save AppSettings failed: \(error)")
+            }
         }
 
         guard let e = self.entity else { return }
 
         if e.developerModeEnabled == nil {
-            e.developerModeEnabled = false
-            try? context.save()
+            e.developerModeEnabled = Defaults.developerModeEnabled
+            saveContext(label: "seed developerModeEnabled")
         }
 
         self.serverSettings = ServerSettings(
@@ -310,14 +346,161 @@ final class SettingsManager: ObservableObject {
         self.selectedVoiceSystemPromptPresetID = e.selectedVoiceSystemPromptPresetID
     }
 
+    private func pickBestAppSettings(from candidates: [AppSettings]) -> AppSettings {
+        func normalized(_ value: String) -> String {
+            value.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+
+        func isNonEmpty(_ value: String) -> Bool {
+            !normalized(value).isEmpty
+        }
+
+        func isNonEmptyAndNotDefault(_ value: String, defaultValue: String) -> Bool {
+            let trimmed = normalized(value)
+            return !trimmed.isEmpty && trimmed != defaultValue
+        }
+
+        func score(_ e: AppSettings) -> Int {
+            var total = 0
+            func add(_ condition: Bool, weight: Int = 1) {
+                if condition { total += weight }
+            }
+
+            // Empty strings are treated as invalid and should never outscore valid defaults.
+            add(isNonEmpty(e.serverAddress), weight: 2)
+            add(isNonEmptyAndNotDefault(e.serverAddress, defaultValue: Defaults.serverAddress))
+
+            add(isNonEmpty(e.textLang))
+            add(isNonEmptyAndNotDefault(e.textLang, defaultValue: Defaults.textLang))
+
+            add(!normalized(e.refAudioPath).isEmpty, weight: 2)
+            add(!normalized(e.promptText).isEmpty)
+            add(isNonEmpty(e.promptLang))
+            add(isNonEmptyAndNotDefault(e.promptLang, defaultValue: Defaults.promptLang))
+
+            add(!normalized(e.modelId).isEmpty)
+            add(isNonEmpty(e.language))
+            add(isNonEmptyAndNotDefault(e.language, defaultValue: Defaults.modelLanguage))
+            add(isNonEmpty(e.autoSplit))
+            add(isNonEmptyAndNotDefault(e.autoSplit, defaultValue: Defaults.autoSplit))
+
+            add(isNonEmpty(e.apiURL), weight: 2)
+            add(isNonEmptyAndNotDefault(e.apiURL, defaultValue: Defaults.apiURL))
+            add(!normalized(e.selectedModel).isEmpty, weight: 2)
+
+            add(e.enableStreaming != Defaults.enableStreaming)
+            add((e.developerModeEnabled ?? Defaults.developerModeEnabled) != Defaults.developerModeEnabled)
+
+            add(e.selectedPresetID != nil, weight: 2)
+            add(e.selectedNormalSystemPromptPresetID != nil, weight: 2)
+            add(e.selectedVoiceSystemPromptPresetID != nil, weight: 2)
+            add(e.selectedSystemPromptPresetID != nil)
+            return total
+        }
+
+        let sorted = candidates.sorted { lhs, rhs in
+            let lScore = score(lhs)
+            let rScore = score(rhs)
+            if lScore != rScore {
+                return lScore > rScore
+            }
+            // Stable tie-breaker across launches.
+            return lhs.id.uuidString < rhs.id.uuidString
+        }
+        return sorted[0]
+    }
+
+    /// Best-effort merge: only fills in values that are still at defaults on the chosen row.
+    private func mergeAppSettings(into best: AppSettings, from candidates: [AppSettings]) {
+        func normalized(_ value: String) -> String {
+            value.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+
+        func adoptString(_ keyPath: ReferenceWritableKeyPath<AppSettings, String>, defaultValue: String, from other: AppSettings) {
+            let current = normalized(best[keyPath: keyPath])
+            let candidate = normalized(other[keyPath: keyPath])
+            // Never adopt empty strings.
+            guard !candidate.isEmpty else { return }
+
+            // If the chosen row has an empty string (invalid), always adopt a non-empty value,
+            // even if it equals the default.
+            if current.isEmpty {
+                best[keyPath: keyPath] = other[keyPath: keyPath]
+                return
+            }
+
+            // Otherwise, only replace defaults with non-default values.
+            guard current == defaultValue else { return }
+            guard candidate != defaultValue else { return }
+            best[keyPath: keyPath] = other[keyPath: keyPath]
+        }
+
+        func adoptOptionalID(_ keyPath: ReferenceWritableKeyPath<AppSettings, UUID?>, from other: AppSettings) {
+            guard best[keyPath: keyPath] == nil else { return }
+            guard let value = other[keyPath: keyPath] else { return }
+            best[keyPath: keyPath] = value
+        }
+
+        func adoptBool(_ keyPath: ReferenceWritableKeyPath<AppSettings, Bool>, defaultValue: Bool, from other: AppSettings) {
+            guard best[keyPath: keyPath] == defaultValue else { return }
+            let candidate = other[keyPath: keyPath]
+            guard candidate != defaultValue else { return }
+            best[keyPath: keyPath] = candidate
+        }
+
+        func adoptOptionalBool(_ keyPath: ReferenceWritableKeyPath<AppSettings, Bool?>, defaultValue: Bool, from other: AppSettings) {
+            let current = best[keyPath: keyPath] ?? defaultValue
+            guard current == defaultValue else { return }
+            guard let candidate = other[keyPath: keyPath] else { return }
+            guard candidate != defaultValue else { return }
+            best[keyPath: keyPath] = candidate
+        }
+
+        for other in candidates where other !== best {
+            adoptString(\.serverAddress, defaultValue: Defaults.serverAddress, from: other)
+            adoptString(\.textLang, defaultValue: Defaults.textLang, from: other)
+            adoptString(\.refAudioPath, defaultValue: "", from: other)
+            adoptString(\.promptText, defaultValue: "", from: other)
+            adoptString(\.promptLang, defaultValue: Defaults.promptLang, from: other)
+
+            adoptString(\.modelId, defaultValue: "", from: other)
+            adoptString(\.language, defaultValue: Defaults.modelLanguage, from: other)
+            adoptString(\.autoSplit, defaultValue: Defaults.autoSplit, from: other)
+
+            adoptString(\.apiURL, defaultValue: Defaults.apiURL, from: other)
+            adoptString(\.selectedModel, defaultValue: "", from: other)
+
+            adoptBool(\.enableStreaming, defaultValue: Defaults.enableStreaming, from: other)
+            adoptOptionalBool(\.developerModeEnabled, defaultValue: Defaults.developerModeEnabled, from: other)
+
+            adoptOptionalID(\.selectedPresetID, from: other)
+            adoptOptionalID(\.selectedSystemPromptPresetID, from: other)
+            adoptOptionalID(\.selectedNormalSystemPromptPresetID, from: other)
+            adoptOptionalID(\.selectedVoiceSystemPromptPresetID, from: other)
+        }
+    }
+
+    private func saveContext(label: String) {
+        guard let context else { return }
+        do {
+            try context.save()
+        } catch {
+            print("SwiftData save failed (\(label)): \(error)")
+        }
+    }
+
     private func loadPresetsFromStore() {
         guard let context else { return }
         let descriptor = FetchDescriptor<VoicePreset>(
             predicate: nil,
             sortBy: [SortDescriptor(\.updatedAt, order: .reverse)]
         )
-        let fetched = (try? context.fetch(descriptor)) ?? []
-        self.presets = fetched
+        do {
+            self.presets = try context.fetch(descriptor)
+        } catch {
+            print("SwiftData fetch VoicePreset failed: \(error)")
+            self.presets = []
+        }
     }
 
     private func loadSystemPromptPresetsFromStore() {
@@ -326,8 +509,12 @@ final class SettingsManager: ObservableObject {
             predicate: nil,
             sortBy: [SortDescriptor(\.updatedAt, order: .reverse)]
         )
-        let fetched = (try? context.fetch(descriptor)) ?? []
-        self.systemPromptPresets = fetched
+        do {
+            self.systemPromptPresets = try context.fetch(descriptor)
+        } catch {
+            print("SwiftData fetch SystemPromptPreset failed: \(error)")
+            self.systemPromptPresets = []
+        }
     }
 
     private func ensureDefaultPresetIfNeeded() {
@@ -343,19 +530,34 @@ final class SettingsManager: ObservableObject {
                 sovitsWeightsPath: ""
             )
             context.insert(def)
-            try? context.save()
+            saveContext(label: "insert default voice preset")
             self.presets = [def]
             e.selectedPresetID = def.id
-            try? context.save()
+            saveContext(label: "select default voice preset")
             self.selectedPresetID = def.id
         } else {
             // Default to the first preset when nothing is selected.
             if e.selectedPresetID == nil {
                 e.selectedPresetID = presets.first?.id
-                try? context.save()
+                saveContext(label: "seed selectedPresetID")
                 self.selectedPresetID = e.selectedPresetID
             }
         }
+    }
+
+    private func ensureSelectedPresetIsValid() {
+        guard context != nil, let e = entity else { return }
+        guard !presets.isEmpty else { return }
+
+        if let selected = e.selectedPresetID, presets.contains(where: { $0.id == selected }) {
+            self.selectedPresetID = selected
+            return
+        }
+
+        let fallback = presets.first?.id
+        e.selectedPresetID = fallback
+        self.selectedPresetID = fallback
+        saveContext(label: "repair selectedPresetID")
     }
 
     private func migrateLegacySystemPromptPresetsIfNeeded() {
@@ -442,7 +644,7 @@ final class SettingsManager: ObservableObject {
         }
 
         if didChange {
-            try? context.save()
+            saveContext(label: "migrate system prompt presets")
             loadSystemPromptPresetsFromStore()
         }
     }
@@ -470,13 +672,13 @@ final class SettingsManager: ObservableObject {
         }
 
         if didChange {
-            try? context.save()
+            saveContext(label: "ensure default system prompt presets")
             loadSystemPromptPresetsFromStore()
         }
     }
 
     private func ensureSystemPromptSelectionsAreValid() {
-        guard let context, let e = entity else { return }
+        guard context != nil, let e = entity else { return }
         guard let normalFallback = normalSystemPromptPresets.first?.id else { return }
         guard let voiceFallback = voiceSystemPromptPresets.first?.id else { return }
 
@@ -519,7 +721,7 @@ final class SettingsManager: ObservableObject {
         }
 
         if didChange {
-            try? context.save()
+            saveContext(label: "repair system prompt selections")
         }
     }
 
@@ -575,7 +777,7 @@ final class SettingsManager: ObservableObject {
             sovitsWeightsPath: ""
         )
         context.insert(p)
-        try? context.save()
+        saveContext(label: "create preset")
         loadPresetsFromStore()
         return p
     }
@@ -590,7 +792,7 @@ final class SettingsManager: ObservableObject {
                 entity?.selectedPresetID = fallback
             }
             context.delete(target)
-            try? context.save()
+            saveContext(label: "delete preset")
             loadPresetsFromStore()
         }
     }
@@ -604,7 +806,7 @@ final class SettingsManager: ObservableObject {
         gptWeightsPath: String? = nil,
         sovitsWeightsPath: String? = nil
     ) {
-        guard let context else { return }
+        guard context != nil else { return }
         guard let preset = presets.first(where: { $0.id == id }) else { return }
         if let name = name { preset.name = name }
         if let v = refAudioPath { preset.refAudioPath = v }
@@ -613,16 +815,16 @@ final class SettingsManager: ObservableObject {
         if let v = gptWeightsPath { preset.gptWeightsPath = v }
         if let v = sovitsWeightsPath { preset.sovitsWeightsPath = v }
         preset.updatedAt = Date()
-        try? context.save()
+        saveContext(label: "update preset")
         loadPresetsFromStore()
     }
 
     func selectPreset(_ id: UUID?, apply: Bool = true) {
-        guard let context, let e = entity else { return }
+        guard context != nil, let e = entity else { return }
         if selectedPresetID == id { return }
         self.selectedPresetID = id
         e.selectedPresetID = id
-        try? context.save()
+        saveContext(label: "select preset")
         if apply { Task { await self.applySelectedPreset() } }
     }
 
@@ -640,7 +842,7 @@ final class SettingsManager: ObservableObject {
         guard let context else { return nil }
         let preset = SystemPromptPreset(name: name, mode: mode, normalPrompt: "", voicePrompt: "")
         context.insert(preset)
-        try? context.save()
+        saveContext(label: "create system prompt preset")
         loadSystemPromptPresetsFromStore()
         return preset
     }
@@ -649,7 +851,7 @@ final class SettingsManager: ObservableObject {
         guard let context else { return }
         if let target = systemPromptPresets.first(where: { $0.id == id }) {
             context.delete(target)
-            try? context.save()
+            saveContext(label: "delete system prompt preset")
             loadSystemPromptPresetsFromStore()
             ensureDefaultSystemPromptPresetsForModesIfNeeded()
             ensureSystemPromptSelectionsAreValid()
@@ -661,14 +863,14 @@ final class SettingsManager: ObservableObject {
         name: String? = nil,
         prompt: String? = nil
     ) {
-        guard let context else { return }
+        guard context != nil else { return }
         guard let preset = systemPromptPresets.first(where: { $0.id == id }) else { return }
         preset.mode = SystemPromptPresetMode.normal
         if let name { preset.name = name }
         if let prompt { preset.normalPrompt = prompt }
         preset.voicePrompt = ""
         preset.updatedAt = Date()
-        try? context.save()
+        saveContext(label: "update normal system prompt preset")
         loadSystemPromptPresetsFromStore()
     }
 
@@ -677,14 +879,14 @@ final class SettingsManager: ObservableObject {
         name: String? = nil,
         prompt: String? = nil
     ) {
-        guard let context else { return }
+        guard context != nil else { return }
         guard let preset = systemPromptPresets.first(where: { $0.id == id }) else { return }
         preset.mode = SystemPromptPresetMode.voice
         if let name { preset.name = name }
         if let prompt { preset.voicePrompt = prompt }
         preset.normalPrompt = ""
         preset.updatedAt = Date()
-        try? context.save()
+        saveContext(label: "update voice system prompt preset")
         loadSystemPromptPresetsFromStore()
     }
 
@@ -694,69 +896,69 @@ final class SettingsManager: ObservableObject {
         normalPrompt: String? = nil,
         voicePrompt: String? = nil
     ) {
-        guard let context else { return }
+        guard context != nil else { return }
         guard let preset = systemPromptPresets.first(where: { $0.id == id }) else { return }
         if let name { preset.name = name }
         if let normalPrompt { preset.normalPrompt = normalPrompt }
         if let voicePrompt { preset.voicePrompt = voicePrompt }
         preset.updatedAt = Date()
-        try? context.save()
+        saveContext(label: "update system prompt preset")
         loadSystemPromptPresetsFromStore()
     }
 
     func selectNormalSystemPromptPreset(_ id: UUID?) {
-        guard let context, let e = entity else { return }
+        guard context != nil, let e = entity else { return }
         if selectedNormalSystemPromptPresetID == id { return }
         selectedNormalSystemPromptPresetID = id
         e.selectedNormalSystemPromptPresetID = id
-        try? context.save()
+        saveContext(label: "select normal system prompt preset")
     }
 
     func selectVoiceSystemPromptPreset(_ id: UUID?) {
-        guard let context, let e = entity else { return }
+        guard context != nil, let e = entity else { return }
         if selectedVoiceSystemPromptPresetID == id { return }
         selectedVoiceSystemPromptPresetID = id
         e.selectedVoiceSystemPromptPresetID = id
-        try? context.save()
+        saveContext(label: "select voice system prompt preset")
     }
 
     // MARK: - Persist legacy settings
 
     func saveServerSettings() {
-        guard let e = entity, let context else { return }
+        guard let e = entity, context != nil else { return }
         e.serverAddress = serverSettings.serverAddress
         e.textLang = serverSettings.textLang
         e.refAudioPath = serverSettings.refAudioPath
         e.promptText = serverSettings.promptText
         e.promptLang = serverSettings.promptLang
-        try? context.save()
+        saveContext(label: "save server settings")
     }
 
     func saveModelSettings() {
-        guard let e = entity, let context else { return }
+        guard let e = entity, context != nil else { return }
         e.modelId = modelSettings.modelId
         e.language = modelSettings.language
         e.autoSplit = modelSettings.autoSplit
-        try? context.save()
+        saveContext(label: "save model settings")
     }
 
     func saveChatSettings() {
-        guard let e = entity, let context else { return }
+        guard let e = entity, context != nil else { return }
         e.apiURL = chatSettings.apiURL
         e.selectedModel = chatSettings.selectedModel
-        try? context.save()
+        saveContext(label: "save chat settings")
     }
 
     func saveVoiceSettings() {
-        guard let e = entity, let context else { return }
+        guard let e = entity, context != nil else { return }
         e.enableStreaming = voiceSettings.enableStreaming
-        try? context.save()
+        saveContext(label: "save voice settings")
     }
 
     func saveDeveloperModeEnabled() {
-        guard let e = entity, let context else { return }
+        guard let e = entity, context != nil else { return }
         e.developerModeEnabled = developerModeEnabled
-        try? context.save()
+        saveContext(label: "save developer mode")
     }
 
     // MARK: - Apply presets (invokes the weight APIs sequentially)
