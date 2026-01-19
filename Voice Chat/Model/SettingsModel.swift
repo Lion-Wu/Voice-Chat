@@ -448,6 +448,14 @@ final class SettingsManager: ObservableObject {
             best[keyPath: keyPath] = candidate
         }
 
+        func adoptOptionalBool(_ keyPath: ReferenceWritableKeyPath<AppSettings, Bool?>, defaultValue: Bool, from other: AppSettings) {
+            let current = best[keyPath: keyPath] ?? defaultValue
+            guard current == defaultValue else { return }
+            guard let candidate = other[keyPath: keyPath] else { return }
+            guard candidate != defaultValue else { return }
+            best[keyPath: keyPath] = candidate
+        }
+
         for other in candidates where other !== best {
             adoptString(\.serverAddress, defaultValue: Defaults.serverAddress, from: other)
             adoptString(\.textLang, defaultValue: Defaults.textLang, from: other)
@@ -463,9 +471,7 @@ final class SettingsManager: ObservableObject {
             adoptString(\.selectedModel, defaultValue: "", from: other)
 
             adoptBool(\.enableStreaming, defaultValue: Defaults.enableStreaming, from: other)
-            if best.developerModeEnabled == nil {
-                best.developerModeEnabled = other.developerModeEnabled
-            }
+            adoptOptionalBool(\.developerModeEnabled, defaultValue: Defaults.developerModeEnabled, from: other)
 
             adoptOptionalID(\.selectedPresetID, from: other)
             adoptOptionalID(\.selectedSystemPromptPresetID, from: other)
