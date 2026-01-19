@@ -48,6 +48,18 @@ class SettingsViewModel: ObservableObject {
         var name: String
     }
 
+    // MARK: - Voice server presets
+    @Published var voiceServerPresetList: [PresetSummary] = []
+    @Published var selectedVoiceServerPresetID: UUID? {
+        didSet {
+            if !suppressVoiceServerPresetDidSet {
+                settingsManager.selectVoiceServerPreset(selectedVoiceServerPresetID)
+                refreshFromSettingsManager()
+            }
+        }
+    }
+    @Published var voiceServerPresetName: String = "" { didSet { saveSelectedVoiceServerPresetName() } }
+
     // MARK: - Chat server presets
     @Published var chatServerPresetList: [PresetSummary] = []
     @Published var selectedChatServerPresetID: UUID? {
@@ -108,6 +120,9 @@ class SettingsViewModel: ObservableObject {
     private let settingsManager = SettingsManager.shared
 
     // Avoid recursive didSet triggers when swapping presets.
+    private var suppressVoiceServerPresetDidSet = false
+    private var suppressSaveVoiceServerPreset = false
+
     private var suppressChatServerPresetDidSet = false
     private var suppressSaveChatServerPreset = false
 
@@ -132,6 +147,8 @@ class SettingsViewModel: ObservableObject {
         apiURL = ""
         selectedModel = ""
         chatAPIKey = ""
+
+        selectedVoiceServerPresetID = nil
 
         enableStreaming = true
 
@@ -167,6 +184,7 @@ class SettingsViewModel: ObservableObject {
         language = m.language
         suppressLegacySaves = false
 
+        reloadVoiceServerPresetListAndSelection()
         reloadChatServerPresetListAndSelection()
         reloadPresetListAndSelection()
         loadSelectedPresetFields()
@@ -223,6 +241,50 @@ class SettingsViewModel: ObservableObject {
             language: language,
             autoSplit: autoSplit
         )
+    }
+
+    // MARK: - Voice server preset helpers
+
+    func reloadVoiceServerPresetListAndSelection() {
+        voiceServerPresetList = settingsManager.voiceServerPresets.map { .init(id: $0.id, name: $0.name) }
+        suppressVoiceServerPresetDidSet = true
+        selectedVoiceServerPresetID = settingsManager.selectedVoiceServerPresetID
+        suppressVoiceServerPresetDidSet = false
+        loadSelectedVoiceServerPresetFields()
+    }
+
+    func loadSelectedVoiceServerPresetFields() {
+        suppressSaveVoiceServerPreset = true
+        defer { suppressSaveVoiceServerPreset = false }
+
+        guard let id = settingsManager.selectedVoiceServerPresetID,
+              let p = settingsManager.voiceServerPresets.first(where: { $0.id == id }) else {
+            voiceServerPresetName = ""
+            return
+        }
+
+        voiceServerPresetName = p.name
+    }
+
+    private func saveSelectedVoiceServerPresetName() {
+        guard !suppressSaveVoiceServerPreset,
+              let id = settingsManager.selectedVoiceServerPresetID else { return }
+        settingsManager.updateVoiceServerPreset(id: id, name: voiceServerPresetName)
+        reloadVoiceServerPresetListAndSelection()
+    }
+
+    func addVoiceServerPreset() {
+        if let p = settingsManager.createVoiceServerPreset() {
+            reloadVoiceServerPresetListAndSelection()
+            settingsManager.selectVoiceServerPreset(p.id)
+            refreshFromSettingsManager()
+        }
+    }
+
+    func deleteSelectedVoiceServerPreset() {
+        guard let id = settingsManager.selectedVoiceServerPresetID else { return }
+        settingsManager.deleteVoiceServerPreset(id)
+        refreshFromSettingsManager()
     }
 
     // MARK: - Chat server preset helpers

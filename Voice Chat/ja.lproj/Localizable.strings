@@ -92,6 +92,7 @@
 "Chat API URL" = "チャット API URL";
 "Chat API Key" = "チャット API キー";
 "Chat Preset" = "チャットプリセット";
+"Voice Server Preset" = "音声サーバープリセット";
 "Enter chat API URL" = "チャット API URL を入力";
 "Enter API key" = "API キーを入力";
 "GPT weights path" = "GPT ウェイトパス";

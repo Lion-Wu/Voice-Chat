@@ -22,6 +22,7 @@ struct SettingsView: View {
     // Preset deletion confirmation state
     @State private var showDeletePresetAlert = false
     @State private var showDeleteChatServerPresetAlert = false
+    @State private var showDeleteVoiceServerPresetAlert = false
     @State private var showDeleteNormalPromptPresetAlert = false
     @State private var showDeleteVoicePromptPresetAlert = false
 
@@ -81,6 +82,13 @@ struct SettingsView: View {
             .alert("Delete this preset?",
                    isPresented: $showDeleteChatServerPresetAlert) {
                 Button("Delete", role: .destructive) { viewModel.deleteSelectedChatServerPreset() }
+                Button("Cancel", role: .cancel) { }
+            } message: {
+                Text("This action cannot be undone.")
+            }
+            .alert("Delete this preset?",
+                   isPresented: $showDeleteVoiceServerPresetAlert) {
+                Button("Delete", role: .destructive) { viewModel.deleteSelectedVoiceServerPreset() }
                 Button("Cancel", role: .cancel) { }
             } message: {
                 Text("This action cannot be undone.")
@@ -191,6 +199,77 @@ struct SettingsView: View {
     @ViewBuilder
     private func serverSection(hideHeader: Bool = false) -> some View {
         Section {
+            #if os(macOS)
+            LabeledContent("Voice Server Preset") {
+                Picker("", selection: $viewModel.selectedVoiceServerPresetID) {
+                    ForEach(viewModel.voiceServerPresetList) { p in
+                        Text(p.name).tag(Optional.some(p.id))
+                    }
+                }
+                .labelsHidden()
+            }
+
+            HStack {
+                Spacer()
+                HStack(spacing: 8) {
+                    Button {
+                        viewModel.addVoiceServerPreset()
+                    } label: {
+                        Label("Add", systemImage: "plus.circle.fill")
+                            .foregroundStyle(.blue)
+                    }
+                    .buttonStyle(.plain)
+                    .controlSize(.small)
+                    .help("Add preset")
+
+                    Button(role: .destructive) {
+                        showDeleteVoiceServerPresetAlert = true
+                    } label: {
+                        Label("Delete", systemImage: "trash")
+                            .foregroundStyle(.red)
+                    }
+                    .buttonStyle(.plain)
+                    .controlSize(.small)
+                    .help("Delete selected preset")
+                    .disabled(viewModel.voiceServerPresetList.count <= 1 || viewModel.selectedVoiceServerPresetID == nil)
+                }
+            }
+            #else
+            Picker("Voice Server Preset", selection: $viewModel.selectedVoiceServerPresetID) {
+                ForEach(viewModel.voiceServerPresetList) { p in
+                    Text(p.name).tag(Optional.some(p.id))
+                }
+            }
+            .pickerStyle(.menu)
+
+            HStack(spacing: 16) {
+                Button {
+                    viewModel.addVoiceServerPreset()
+                } label: {
+                    Label("Add", systemImage: "plus.circle.fill")
+                        .foregroundStyle(.blue)
+                }
+                .buttonStyle(.plain)
+                .contentShape(Rectangle())
+
+                Button(role: .destructive) {
+                    showDeleteVoiceServerPresetAlert = true
+                } label: {
+                    Label("Delete", systemImage: "trash")
+                        .foregroundStyle(.red)
+                }
+                .buttonStyle(.plain)
+                .contentShape(Rectangle())
+                .disabled(viewModel.voiceServerPresetList.count <= 1 || viewModel.selectedVoiceServerPresetID == nil)
+            }
+            #endif
+
+            LabeledTextField(
+                label: "Preset Name",
+                placeholder: "Preset name",
+                text: $viewModel.voiceServerPresetName
+            )
+
             LabeledTextField(
                 label: "Server Address",
                 placeholder: "http://127.0.0.1:9880",

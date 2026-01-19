@@ -60,6 +60,7 @@ struct Voice_ChatApp: App {
             ChatMessage.self,
             AppSettings.self,
             ChatServerPreset.self,
+            VoiceServerPreset.self,
             VoicePreset.self,
             SystemPromptPreset.self
         ])

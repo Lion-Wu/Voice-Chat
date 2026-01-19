@@ -92,6 +92,7 @@
 "Chat API URL" = "聊天 API 地址";
 "Chat API Key" = "聊天 API 密钥";
 "Chat Preset" = "聊天预设";
+"Voice Server Preset" = "语音服务器预设";
 "Enter chat API URL" = "输入聊天 API 地址";
 "Enter API key" = "输入 API 密钥";
 "GPT weights path" = "GPT 权重路径";

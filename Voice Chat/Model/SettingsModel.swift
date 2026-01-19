@@ -99,6 +99,30 @@ final class ChatServerPreset {
     }
 }
 
+// MARK: - Voice Server Preset Entity (SwiftData)
+
+@Model
+final class VoiceServerPreset {
+    var id: UUID
+    var name: String
+
+    var serverAddress: String
+
+    var createdAt: Date
+    var updatedAt: Date
+
+    init(
+        name: String,
+        serverAddress: String = ""
+    ) {
+        self.id = UUID()
+        self.name = name
+        self.serverAddress = serverAddress
+        self.createdAt = Date()
+        self.updatedAt = Date()
+    }
+}
+
 // MARK: - System Prompt Preset Entity (SwiftData)
 
 @Model
@@ -153,6 +177,7 @@ final class AppSettings {
     var apiURL: String
     var selectedModel: String
     var selectedChatServerPresetID: UUID?
+    var selectedVoiceServerPresetID: UUID?
 
     var enableStreaming: Bool
     var developerModeEnabled: Bool?
@@ -179,6 +204,7 @@ final class AppSettings {
         apiURL: String = "http://localhost:1234",
         selectedModel: String = "",
         selectedChatServerPresetID: UUID? = nil,
+        selectedVoiceServerPresetID: UUID? = nil,
         enableStreaming: Bool = true,
         developerModeEnabled: Bool = false,
         selectedPresetID: UUID? = nil,
@@ -198,6 +224,7 @@ final class AppSettings {
         self.apiURL = apiURL
         self.selectedModel = selectedModel
         self.selectedChatServerPresetID = selectedChatServerPresetID
+        self.selectedVoiceServerPresetID = selectedVoiceServerPresetID
         self.enableStreaming = enableStreaming
         self.developerModeEnabled = developerModeEnabled
         self.selectedPresetID = selectedPresetID
@@ -224,6 +251,11 @@ final class SettingsManager: ObservableObject {
     @Published var chatSettings: ChatSettings
     @Published var voiceSettings: VoiceSettings
     @Published var developerModeEnabled: Bool
+
+    // Voice server preset list and selection state.
+    @Published private(set) var voiceServerPresets: [VoiceServerPreset] = []
+    @Published private(set) var selectedVoiceServerPresetID: UUID?
+    var selectedVoiceServerPreset: VoiceServerPreset? { voiceServerPresets.first { $0.id == selectedVoiceServerPresetID } }
 
     // Chat server preset list and selection state.
     @Published private(set) var chatServerPresets: [ChatServerPreset] = []
@@ -309,6 +341,9 @@ final class SettingsManager: ObservableObject {
             saveContext(label: "apply pending developer mode")
             pendingDeveloperModeEnabled = nil
         }
+        loadVoiceServerPresetsFromStore()
+        ensureDefaultVoiceServerPresetIfNeeded()
+        ensureSelectedVoiceServerPresetIsValid()
         loadChatServerPresetsFromStore()
         ensureDefaultChatServerPresetIfNeeded()
         ensureSelectedChatServerPresetIsValid()
@@ -321,6 +356,7 @@ final class SettingsManager: ObservableObject {
         // Keep the in-memory preset selection aligned with persisted data.
         self.selectedPresetID = self.entity?.selectedPresetID ?? self.presets.first?.id
         self.selectedChatServerPresetID = self.entity?.selectedChatServerPresetID ?? self.chatServerPresets.first?.id
+        self.selectedVoiceServerPresetID = self.entity?.selectedVoiceServerPresetID ?? self.voiceServerPresets.first?.id
         ensureSystemPromptSelectionsAreValid()
         self.selectedNormalSystemPromptPresetID = self.entity?.selectedNormalSystemPromptPresetID ?? self.selectedNormalSystemPromptPresetID
         self.selectedVoiceSystemPromptPresetID = self.entity?.selectedVoiceSystemPromptPresetID ?? self.selectedVoiceSystemPromptPresetID
@@ -388,6 +424,7 @@ final class SettingsManager: ObservableObject {
         )
         self.voiceSettings = VoiceSettings(enableStreaming: e.enableStreaming)
         self.developerModeEnabled = e.developerModeEnabled ?? false
+        self.selectedVoiceServerPresetID = e.selectedVoiceServerPresetID
         self.selectedChatServerPresetID = e.selectedChatServerPresetID
         self.selectedPresetID = e.selectedPresetID
         self.selectedNormalSystemPromptPresetID = e.selectedNormalSystemPromptPresetID
@@ -521,6 +558,7 @@ final class SettingsManager: ObservableObject {
             adoptBool(\.enableStreaming, defaultValue: Defaults.enableStreaming, from: other)
             adoptOptionalBool(\.developerModeEnabled, defaultValue: Defaults.developerModeEnabled, from: other)
 
+            adoptOptionalID(\.selectedVoiceServerPresetID, from: other)
             adoptOptionalID(\.selectedChatServerPresetID, from: other)
             adoptOptionalID(\.selectedPresetID, from: other)
             adoptOptionalID(\.selectedSystemPromptPresetID, from: other)
@@ -549,6 +587,20 @@ final class SettingsManager: ObservableObject {
         } catch {
             print("SwiftData fetch ChatServerPreset failed: \(error)")
             self.chatServerPresets = []
+        }
+    }
+
+    private func loadVoiceServerPresetsFromStore() {
+        guard let context else { return }
+        let descriptor = FetchDescriptor<VoiceServerPreset>(
+            predicate: nil,
+            sortBy: [SortDescriptor(\.updatedAt, order: .reverse)]
+        )
+        do {
+            self.voiceServerPresets = try context.fetch(descriptor)
+        } catch {
+            print("SwiftData fetch VoiceServerPreset failed: \(error)")
+            self.voiceServerPresets = []
         }
     }
 
@@ -610,6 +662,33 @@ final class SettingsManager: ObservableObject {
         applySelectedChatServerPresetToChatSettings()
     }
 
+    private func ensureDefaultVoiceServerPresetIfNeeded() {
+        guard let context, let e = entity else { return }
+
+        if voiceServerPresets.isEmpty {
+            let def = VoiceServerPreset(
+                name: String(localized: "Default"),
+                serverAddress: e.serverAddress
+            )
+            context.insert(def)
+            saveContext(label: "insert default voice server preset")
+            self.voiceServerPresets = [def]
+
+            e.selectedVoiceServerPresetID = def.id
+            saveContext(label: "select default voice server preset")
+            self.selectedVoiceServerPresetID = def.id
+            applySelectedVoiceServerPresetToServerSettings()
+            return
+        }
+
+        if e.selectedVoiceServerPresetID == nil {
+            e.selectedVoiceServerPresetID = voiceServerPresets.first?.id
+            saveContext(label: "seed selectedVoiceServerPresetID")
+        }
+        self.selectedVoiceServerPresetID = e.selectedVoiceServerPresetID
+        applySelectedVoiceServerPresetToServerSettings()
+    }
+
     private func ensureSelectedChatServerPresetIsValid() {
         guard context != nil, let e = entity else { return }
         guard !chatServerPresets.isEmpty else { return }
@@ -626,6 +705,24 @@ final class SettingsManager: ObservableObject {
         self.selectedChatServerPresetID = fallback
         saveContext(label: "repair selectedChatServerPresetID")
         applySelectedChatServerPresetToChatSettings()
+    }
+
+    private func ensureSelectedVoiceServerPresetIsValid() {
+        guard context != nil, let e = entity else { return }
+        guard !voiceServerPresets.isEmpty else { return }
+
+        if let selected = e.selectedVoiceServerPresetID,
+           voiceServerPresets.contains(where: { $0.id == selected }) {
+            self.selectedVoiceServerPresetID = selected
+            applySelectedVoiceServerPresetToServerSettings()
+            return
+        }
+
+        let fallback = voiceServerPresets.first?.id
+        e.selectedVoiceServerPresetID = fallback
+        self.selectedVoiceServerPresetID = fallback
+        saveContext(label: "repair selectedVoiceServerPresetID")
+        applySelectedVoiceServerPresetToServerSettings()
     }
 
     private func ensureDefaultPresetIfNeeded() {
@@ -846,6 +943,19 @@ final class SettingsManager: ObservableObject {
         serverSettings.promptText = promptText
         serverSettings.promptLang = promptLang
         saveServerSettings()
+
+        guard context != nil else { return }
+        guard let presetID = selectedVoiceServerPresetID,
+              let preset = voiceServerPresets.first(where: { $0.id == presetID }) else { return }
+
+        let trimmed = serverAddress.trimmingCharacters(in: .whitespacesAndNewlines)
+        let presetTrimmed = preset.serverAddress.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed != presetTrimmed else { return }
+
+        preset.serverAddress = serverAddress
+        preset.updatedAt = Date()
+        saveContext(label: "update voice server preset")
+        loadVoiceServerPresetsFromStore()
     }
 
     func updateModelSettings(modelId: String, language: String, autoSplit: String) {
@@ -886,6 +996,56 @@ final class SettingsManager: ObservableObject {
     func updateVoiceSettings(enableStreaming: Bool) {
         voiceSettings.enableStreaming = enableStreaming
         saveVoiceSettings()
+    }
+
+    // MARK: - Voice server preset CRUD
+
+    func createVoiceServerPreset(name: String = String(localized: "New Preset")) -> VoiceServerPreset? {
+        guard let context else { return nil }
+        let p = VoiceServerPreset(
+            name: name,
+            serverAddress: serverSettings.serverAddress
+        )
+        context.insert(p)
+        saveContext(label: "create voice server preset")
+        loadVoiceServerPresetsFromStore()
+        return p
+    }
+
+    func deleteVoiceServerPreset(_ id: UUID) {
+        guard let context else { return }
+        if let target = voiceServerPresets.first(where: { $0.id == id }) {
+            if selectedVoiceServerPresetID == id {
+                let fallback = voiceServerPresets.first(where: { $0.id != id })?.id
+                selectedVoiceServerPresetID = fallback
+                entity?.selectedVoiceServerPresetID = fallback
+            }
+            context.delete(target)
+            saveContext(label: "delete voice server preset")
+            loadVoiceServerPresetsFromStore()
+            ensureSelectedVoiceServerPresetIsValid()
+        }
+    }
+
+    func updateVoiceServerPreset(
+        id: UUID,
+        name: String? = nil
+    ) {
+        guard context != nil else { return }
+        guard let preset = voiceServerPresets.first(where: { $0.id == id }) else { return }
+        if let name { preset.name = name }
+        preset.updatedAt = Date()
+        saveContext(label: "update voice server preset meta")
+        loadVoiceServerPresetsFromStore()
+    }
+
+    func selectVoiceServerPreset(_ id: UUID?) {
+        guard context != nil, let e = entity else { return }
+        if selectedVoiceServerPresetID == id { return }
+        selectedVoiceServerPresetID = id
+        e.selectedVoiceServerPresetID = id
+        saveContext(label: "select voice server preset")
+        applySelectedVoiceServerPresetToServerSettings()
     }
 
     // MARK: - Chat server preset CRUD
@@ -1198,6 +1358,12 @@ final class SettingsManager: ObservableObject {
         chatSettings.selectedModel = preset.selectedModel
         chatSettings.apiKey = loadChatAPIKey(for: preset.id)
         saveChatSettings()
+    }
+
+    private func applySelectedVoiceServerPresetToServerSettings() {
+        guard let preset = selectedVoiceServerPreset else { return }
+        serverSettings.serverAddress = preset.serverAddress
+        saveServerSettings()
     }
 
     func saveVoiceSettings() {
