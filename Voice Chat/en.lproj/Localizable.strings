@@ -44,7 +44,9 @@
 "No data received" = "No data received";
 "No internet connection for TTS requests." = "No internet connection for TTS requests.";
 "OK" = "OK";
+"Other activity is still running" = "Other activity is still running";
 "Open full screen editor" = "Open full screen editor";
+"Continue" = "Continue";
 "Realtime Voice Issue" = "Realtime Voice Issue";
 "Realtime voice unavailable" = "Realtime voice unavailable";
 "Read Aloud" = "Read Aloud";
@@ -78,6 +80,7 @@
 "Text Language" = "Text Language";
 "Text Generation Issue" = "Text Generation Issue";
 "Text server unreachable" = "Text server unreachable";
+"There are other tasks still running. Continuing will interrupt them and start voice mode." = "There are other tasks still running. Continuing will interrupt them and start voice mode.";
 "Thinking" = "Thinking";
 "Thinking Complete" = "Thinking Complete";
 "This action cannot be undone." = "This action cannot be undone.";

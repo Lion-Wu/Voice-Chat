@@ -76,6 +76,14 @@ final class ChatSessionsViewModel: ObservableObject {
         !isRealtimeVoiceLocked
     }
 
+    var hasActiveTextRequests: Bool {
+        viewModelCache.values.contains { $0.isLoading || $0.isPriming }
+    }
+
+    func cancelAllActiveTextRequests() {
+        viewModelCache.values.forEach { $0.cancelCurrentRequest() }
+    }
+
     // MARK: - Chat service configuration
     func refreshChatConfigurationIfNeeded() {
         ensureChatConfigurationCurrent()

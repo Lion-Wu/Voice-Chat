@@ -43,7 +43,9 @@
 "No chat. Creating one..." = "沒有聊天，正在建立...";
 "No data received" = "未收到資料";
 "OK" = "好";
+"Other activity is still running" = "目前仍有其他活動正在執行";
 "Open full screen editor" = "開啟全螢幕編輯器";
+"Continue" = "繼續";
 "Read Aloud" = "朗讀";
 "Reasoning preview" = "思考內容預覽";
 "Refresh Model List" = "重新整理模型列表";
@@ -126,6 +128,7 @@
 "Voice Playback Issue" = "語音播放問題";
 "Realtime Voice Issue" = "即時語音問題";
 "Text server unreachable" = "無法連線文字伺服器";
+"There are other tasks still running. Continuing will interrupt them and start voice mode." = "目前仍有其他任務正在執行。繼續將中斷它們並啟動語音模式。";
 "TTS server unreachable" = "無法連線 TTS 伺服器";
 "TTS server unavailable" = "TTS 伺服器不可用";
 "Unable to construct TTS URL from %@" = "無法從 %@ 建立 TTS URL";
