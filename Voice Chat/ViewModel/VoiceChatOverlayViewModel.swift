@@ -73,6 +73,9 @@ final class VoiceChatOverlayViewModel: ObservableObject {
         showErrorBanner = false
         errorMessage = nil
         cleanupSession()
+        if audioManager.isRealtimeMode {
+            audioManager.closeAudioPlayer()
+        }
     }
 
     func handleViewDisappear() {
