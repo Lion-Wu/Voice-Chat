@@ -36,6 +36,7 @@ final class VoiceChatOverlayViewModel: ObservableObject {
     private let errorCenter: AppErrorCenter
     private var cancellables: Set<AnyCancellable> = []
     private var onRecognizedFinal: ((String) -> Void)?
+    private weak var activeChatViewModel: ChatViewModel?
     private var autoResumeEnabled = false
     private var isStartingRecording = false
     private let overlayAnimation = Animation.spring(response: 0.4, dampingFraction: 0.85)
@@ -52,7 +53,8 @@ final class VoiceChatOverlayViewModel: ObservableObject {
         bindState()
     }
 
-    func presentSession(onFinal: @escaping (String) -> Void) {
+    func presentSession(chatViewModel: ChatViewModel? = nil, onFinal: @escaping (String) -> Void) {
+        activeChatViewModel = chatViewModel
         onRecognizedFinal = onFinal
         autoResumeEnabled = true
         showErrorBanner = false
@@ -65,6 +67,7 @@ final class VoiceChatOverlayViewModel: ObservableObject {
     }
 
     func dismiss() {
+        interruptActiveWorkOnDismiss()
         autoResumeEnabled = false
         withAnimation(overlayAnimation) {
             isPresented = false
@@ -73,9 +76,7 @@ final class VoiceChatOverlayViewModel: ObservableObject {
         showErrorBanner = false
         errorMessage = nil
         cleanupSession()
-        if audioManager.isRealtimeMode {
-            audioManager.closeAudioPlayer()
-        }
+        activeChatViewModel = nil
     }
 
     func handleViewDisappear() {
@@ -201,6 +202,19 @@ final class VoiceChatOverlayViewModel: ObservableObject {
     private func cleanupSession() {
         onRecognizedFinal = nil
         cleanupRecordingOnly()
+    }
+
+    private func interruptActiveWorkOnDismiss() {
+        activeChatViewModel?.cancelCurrentRequest()
+
+        let hasVoiceWork = audioManager.isRealtimeMode
+            || audioManager.isLoading
+            || audioManager.isAudioPlaying
+            || !audioManager.dataTasks.isEmpty
+
+        if hasVoiceWork {
+            audioManager.closeAudioPlayer()
+        }
     }
 
     private func handleRecordingChange(_ isRecording: Bool) {

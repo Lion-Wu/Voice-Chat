@@ -860,7 +860,7 @@ struct ChatView: View {
 
     private func openRealtimeVoiceOverlay() {
         guard !voiceOverlayVM.isPresented else { return }
-        voiceOverlayVM.presentSession { text in
+        voiceOverlayVM.presentSession(chatViewModel: viewModel) { text in
             viewModel.prepareRealtimeTTSForNextAssistant()
             viewModel.userMessage = text
             viewModel.sendMessage()
