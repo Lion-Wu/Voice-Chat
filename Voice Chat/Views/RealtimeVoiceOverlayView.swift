@@ -22,10 +22,15 @@ struct RealtimeVoiceOverlayView: View {
     @State private var targetScale: CGFloat = 1
     @State private var displayedScale: CGFloat = 1
     @State private var pulseTimer: Timer?
+    @State private var circlePressTask: Task<Void, Never>?
+    @State private var isCirclePressed: Bool = false
+    @State private var didTriggerCircleLongPress: Bool = false
+    @State private var interactionPulse: CGFloat = 1
 
     private let stateAnimation = Animation.spring(response: 0.28, dampingFraction: 0.85, blendDuration: 0.2)
     private let defaultBaseSize: CGFloat = 200
     private let listeningBaseSize: CGFloat = 280
+    private let circleLongPressThreshold: UInt64 = 450_000_000
 
     private var circleBaseColor: Color {
         colorScheme == .dark ? .white : .black
@@ -70,9 +75,12 @@ struct RealtimeVoiceOverlayView: View {
                             endRadius: baseSize * 0.8
                         )
                     )
+                    .overlay(circleInteractionRing)
                     .frame(width: baseSize, height: baseSize)
-                    .scaleEffect(displayedScale)
+                    .scaleEffect(displayedScale * interactionPulse * circlePressScale)
                     .shadow(color: .black.opacity(0.25), radius: 16, x: 0, y: 6)
+                    .contentShape(Circle())
+                    .gesture(circleGesture)
             }
             .animation(stateAnimation, value: viewModel.state)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
@@ -128,12 +136,108 @@ struct RealtimeVoiceOverlayView: View {
 
     private func teardown() {
         stopPulse()
+        cancelCirclePressTask()
         viewModel.handleViewDisappear()
     }
 
     private func closeOverlay() {
         viewModel.dismiss()
         onClose()
+    }
+
+    private var circlePressScale: CGFloat {
+        isCirclePressed ? 0.93 : 1.0
+    }
+
+    private var circleInteractionRing: some View {
+        Circle()
+            .strokeBorder(circleRingColor.opacity(circleRingOpacity), lineWidth: circleRingLineWidth)
+            .blendMode(.plusLighter)
+            .animation(.easeInOut(duration: 0.15), value: circleRingOpacity)
+    }
+
+    private var circleRingColor: Color {
+        if viewModel.isSendSuppressed {
+            return ChatTheme.accent
+        }
+        return .white
+    }
+
+    private var circleRingOpacity: Double {
+        if isCirclePressed { return 0.40 }
+        if viewModel.isSendSuppressed { return 0.22 }
+        return 0.0
+    }
+
+    private var circleRingLineWidth: CGFloat {
+        if isCirclePressed { return 5 }
+        if viewModel.isSendSuppressed { return 3 }
+        return 0
+    }
+
+    private var circleGesture: some Gesture {
+        DragGesture(minimumDistance: 0)
+            .onChanged { _ in
+                beginCirclePressIfNeeded()
+            }
+            .onEnded { _ in
+                endCirclePress()
+            }
+    }
+
+    private func beginCirclePressIfNeeded() {
+        guard !isCirclePressed else { return }
+        isCirclePressed = true
+        didTriggerCircleLongPress = false
+        cancelCirclePressTask()
+        circlePressTask = Task { [weak viewModel] in
+            do {
+                try await Task.sleep(nanoseconds: circleLongPressThreshold)
+            } catch {
+                return
+            }
+            await MainActor.run {
+                guard isCirclePressed else { return }
+                guard !didTriggerCircleLongPress else { return }
+                didTriggerCircleLongPress = true
+                triggerLongPressAction(viewModel: viewModel)
+            }
+        }
+    }
+
+    private func endCirclePress() {
+        guard isCirclePressed else { return }
+        isCirclePressed = false
+        cancelCirclePressTask()
+
+        if didTriggerCircleLongPress {
+            viewModel.handleCircleLongPressEnded()
+        } else {
+            triggerTapAction()
+        }
+        didTriggerCircleLongPress = false
+    }
+
+    private func cancelCirclePressTask() {
+        circlePressTask?.cancel()
+        circlePressTask = nil
+    }
+
+    private func triggerTapAction() {
+        animateInteractionPulse()
+        viewModel.handleCircleTap()
+    }
+
+    private func triggerLongPressAction(viewModel: VoiceChatOverlayViewModel?) {
+        animateInteractionPulse(strength: 1.10)
+        viewModel?.handleCircleLongPressBegan()
+    }
+
+    private func animateInteractionPulse(strength: CGFloat = 1.06) {
+        interactionPulse = strength
+        withAnimation(.spring(response: 0.22, dampingFraction: 0.65)) {
+            interactionPulse = 1.0
+        }
     }
 
     // MARK: - Animation helpers

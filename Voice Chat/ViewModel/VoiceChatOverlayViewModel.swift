@@ -26,6 +26,7 @@ final class VoiceChatOverlayViewModel: ObservableObject {
     @Published private(set) var errorMessage: String?
     @Published private(set) var inputLevel: Double = 0
     @Published private(set) var outputLevel: Double = 0
+    @Published private(set) var isSendSuppressed: Bool = false
 
     var availableLanguages: [SpeechInputManager.DictationLanguage] {
         SpeechInputManager.DictationLanguage.allCases
@@ -57,6 +58,7 @@ final class VoiceChatOverlayViewModel: ObservableObject {
         activeChatViewModel = chatViewModel
         onRecognizedFinal = onFinal
         autoResumeEnabled = true
+        isSendSuppressed = false
         showErrorBanner = false
         errorMessage = nil
         withAnimation(overlayAnimation) {
@@ -75,12 +77,34 @@ final class VoiceChatOverlayViewModel: ObservableObject {
         state = .listening
         showErrorBanner = false
         errorMessage = nil
+        isSendSuppressed = false
         cleanupSession()
         activeChatViewModel = nil
     }
 
     func handleViewDisappear() {
         cleanupSession()
+    }
+
+    func handleCircleTap() {
+        guard isPresented else { return }
+
+        if state == .listening {
+            handleListeningTap()
+        } else {
+            interruptActiveWorkAndRestartListening()
+        }
+    }
+
+    func handleCircleLongPressBegan() {
+        guard isPresented else { return }
+        guard state == .listening else { return }
+        isSendSuppressed = true
+    }
+
+    func handleCircleLongPressEnded() {
+        guard isPresented else { return }
+        isSendSuppressed = false
     }
 
     func dismissErrorMessage() {
@@ -186,13 +210,43 @@ final class VoiceChatOverlayViewModel: ObservableObject {
             onPartial: { _ in },
             onFinal: { [weak self] text in
                 guard let self else { return }
-                self.state = .loading
-                self.onRecognizedFinal?(text)
+                self.handleRecognizedFinal(text)
             }
         )
         if let error = speechInputManager.lastError, !error.isEmpty {
             handleError(error)
         }
+    }
+
+    private func handleRecognizedFinal(_ text: String) {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+
+        if isSendSuppressed {
+            // User is holding the long press, so suppress automatic sending.
+            return
+        }
+
+        sendRecognizedText(trimmed)
+    }
+
+    private func handleListeningTap() {
+        isSendSuppressed = false
+
+        if speechInputManager.isRecording {
+            speechInputManager.stopRecording()
+        } else {
+            startListening()
+        }
+    }
+
+    private func sendRecognizedText(_ text: String) {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        showErrorBanner = false
+        errorMessage = nil
+        state = .loading
+        onRecognizedFinal?(trimmed)
     }
 
     private func cleanupRecordingOnly() {
@@ -215,6 +269,24 @@ final class VoiceChatOverlayViewModel: ObservableObject {
         if hasVoiceWork {
             audioManager.closeAudioPlayer()
         }
+    }
+
+    private func interruptActiveWorkAndRestartListening() {
+        activeChatViewModel?.cancelCurrentRequest()
+        autoResumeEnabled = true
+        isSendSuppressed = false
+        showErrorBanner = false
+        errorMessage = nil
+
+        if audioManager.isRealtimeMode
+            || audioManager.isLoading
+            || audioManager.isAudioPlaying
+            || !audioManager.dataTasks.isEmpty {
+            audioManager.closeAudioPlayer()
+        }
+
+        state = .listening
+        restartListening()
     }
 
     private func handleRecordingChange(_ isRecording: Bool) {
