@@ -164,8 +164,7 @@ final class VoiceChatOverlayViewModel: ObservableObject {
             self.selectedLanguage = language
             self.speechInputManager.currentLanguage = language
             if self.isPresented {
-                self.cleanupRecordingOnly()
-                self.resumeListeningIfIdle()
+                self.restartListening()
             }
         }
     }
@@ -444,6 +443,10 @@ final class VoiceChatOverlayViewModel: ObservableObject {
 
         if speechInputManager.isRecording {
             speechInputManager.stopRecording()
+        } else if isStartingRecording {
+            // Treat a second tap as "cancel" even if the microphone hasn't finished starting yet.
+            cancelStartTasks()
+            speechInputManager.stopRecording(finalize: false)
         } else {
             startListening()
         }

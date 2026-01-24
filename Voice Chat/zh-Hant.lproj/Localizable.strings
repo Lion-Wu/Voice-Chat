@@ -225,3 +225,4 @@
 "Unable to connect to the chat server." = "無法連線至聊天服務。";
 "Unable to connect to the voice server." = "無法連線至語音服務。";
 "Unable to connect. Please check your server settings." = "無法連線，請檢查伺服器設定。";
+"Speech recognition stopped unexpectedly." = "語音辨識意外停止。";

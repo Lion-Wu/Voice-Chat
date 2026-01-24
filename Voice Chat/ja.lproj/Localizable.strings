@@ -225,3 +225,4 @@
 "Unable to connect to the chat server." = "チャットサーバーに接続できません。";
 "Unable to connect to the voice server." = "音声サーバーに接続できません。";
 "Unable to connect. Please check your server settings." = "接続できません。サーバー設定を確認してください。";
+"Speech recognition stopped unexpectedly." = "音声認識が予期せず停止しました。";

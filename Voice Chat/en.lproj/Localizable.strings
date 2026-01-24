@@ -221,3 +221,4 @@
 "Unable to connect to the chat server." = "Unable to connect to the chat server.";
 "Unable to connect to the voice server." = "Unable to connect to the voice server.";
 "Unable to connect. Please check your server settings." = "Unable to connect. Please check your server settings.";
+"Speech recognition stopped unexpectedly." = "Speech recognition stopped unexpectedly.";

@@ -600,7 +600,12 @@ actor SpeechRecognizerWorker {
     private func handleEmptyFinalAndRestart() async {
         // Only restart if the session wasn't intentionally ended due to silence after valid text.
         if didEndAudioForSilence {
-            // This final was triggered by our own `endAudio`; conservatively stop entirely.
+            // This final was triggered by our own `endAudio`. Deliver whatever transcript we have
+            // (even if empty) so the outer layer can end the session and update the UI.
+            if !didEmitFinal {
+                didEmitFinal = true
+                onFinalHandler?(lastNonEmptyText)
+            }
             await stop()
             return
         }
@@ -612,7 +617,10 @@ actor SpeechRecognizerWorker {
             attachRecognitionTask()
             // Preserve `hasRecognizedText`; silence-based ending still requires prior text.
         } catch {
-        // If restarting fails, fall back to fully stopping the session.
+            // If restarting fails, fail the session so the UI doesn't get stuck "recording".
+            let raw = error.localizedDescription.trimmingCharacters(in: .whitespacesAndNewlines)
+            let fallback = NSLocalizedString("Speech recognition stopped unexpectedly.", comment: "Shown when speech recognition ends without producing a final transcript")
+            onErrorHandler?(raw.isEmpty ? fallback : raw)
             await stop()
         }
     }
@@ -626,6 +634,9 @@ actor SpeechRecognizerWorker {
             try await makeNewRequestAndTap()
             attachRecognitionTask()
         } catch {
+            let raw = error.localizedDescription.trimmingCharacters(in: .whitespacesAndNewlines)
+            let fallback = NSLocalizedString("Speech recognition stopped unexpectedly.", comment: "Shown when speech recognition ends without producing a final transcript")
+            onErrorHandler?(raw.isEmpty ? fallback : raw)
             await stop()
         }
     }
