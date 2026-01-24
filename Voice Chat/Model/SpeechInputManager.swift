@@ -179,16 +179,29 @@ final class SpeechInputManager: NSObject, ObservableObject {
             guard let self else { return }
 
             let capturedID = self.currentSessionID
-            let capturedFinalText = self.lastStableText.trimmingCharacters(in: .whitespacesAndNewlines)
             let capturedFinal = self.currentOnFinal
 
             await self.worker.stop()
 
+            // Allow any pending main-actor updates from the recognition callbacks to land.
+            await Task.yield()
+
+            let stableText = self.lastStableText.trimmingCharacters(in: .whitespacesAndNewlines)
+            let workerText = await self.worker.lastNonEmptyTextSnapshot()
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            let bestText: String = {
+                if stableText.isEmpty { return workerText }
+                if workerText.isEmpty { return stableText }
+                // Prefer the longer transcript in case the UI state lagged behind.
+                return (workerText.count > stableText.count) ? workerText : stableText
+            }()
+
             if finalize,
                let capturedFinal,
-               !capturedFinalText.isEmpty,
+               let capturedID,
+               !bestText.isEmpty,
                self.currentSessionID == capturedID {
-                capturedFinal(capturedFinalText)
+                capturedFinal(bestText)
             }
 
             self.isRecording      = false
@@ -294,6 +307,10 @@ actor SpeechRecognizerWorker {
     /// When true, the worker will not terminate the session due to silence and will restart
     /// internally if the recognizer produces a final result.
     private var holdToSpeakActive: Bool = false
+
+    func lastNonEmptyTextSnapshot() -> String {
+        lastNonEmptyText
+    }
 
     enum SpeechError: LocalizedError {
         case recognizerUnavailable
