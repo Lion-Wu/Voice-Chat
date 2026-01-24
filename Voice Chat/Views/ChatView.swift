@@ -51,6 +51,7 @@ struct ChatView: View {
     @EnvironmentObject var settingsManager: SettingsManager
     @ObservedObject var viewModel: ChatViewModel
     @State private var textFieldHeight: CGFloat = InputMetrics.defaultHeight
+    @State private var editingBannerHeight: CGFloat = 0
     @FocusState private var isInputFocused: Bool
 
     @State private var isShowingTextSelectionSheet = false
@@ -129,8 +130,21 @@ struct ChatView: View {
         #endif
     }
 
+    private var editingBannerEstimatedHeight: CGFloat {
+        #if os(iOS) || os(tvOS)
+        return 40
+        #else
+        return 38
+        #endif
+    }
+
+    private var editingBannerInset: CGFloat {
+        guard viewModel.isEditing else { return 0 }
+        return max(editingBannerHeight, editingBannerEstimatedHeight)
+    }
+
     private var messageListBottomInset: CGFloat {
-        return floatingInputPanelHeight + composerBottomPadding + 6
+        return floatingInputPanelHeight + composerBottomPadding + 6 + editingBannerInset
     }
 
     private var noticeBottomPadding: CGFloat {
@@ -170,7 +184,7 @@ struct ChatView: View {
         let newVisible: [ChatMessage]
         if let baseID = viewModel.editingBaseMessageID,
            let idx = ordered.firstIndex(where: { $0.id == baseID }) {
-            newVisible = Array(ordered.prefix(idx + 1))
+            newVisible = Array(ordered.prefix(idx))
         } else {
             newVisible = ordered
         }
@@ -184,7 +198,7 @@ struct ChatView: View {
         let target: [ChatMessage]
         if let baseID = viewModel.editingBaseMessageID,
            let idx = ordered.firstIndex(where: { $0.id == baseID }) {
-            target = Array(ordered.prefix(idx + 1))
+            target = Array(ordered.prefix(idx))
         } else {
             target = ordered
         }
@@ -341,6 +355,13 @@ struct ChatView: View {
         }
     }
 
+    private func updateEditingBannerHeightIfNeeded(_ newHeight: CGFloat) {
+        let cleaned = max(0, newHeight)
+        if abs(cleaned - editingBannerHeight) > 0.5 {
+            editingBannerHeight = cleaned
+        }
+    }
+
     var body: some View {
         ZStack(alignment: .top) {
 
@@ -379,32 +400,6 @@ struct ChatView: View {
                         // Placeholder to avoid rendering work while the overlay is visible.
                         Color.clear.frame(height: 1)
                     }
-                }
-
-                // Editing banner
-                if viewModel.isEditing, let _ = visibleMessages.last {
-                    HStack(spacing: 8) {
-                        Image(systemName: "pencil")
-                            .foregroundStyle(.orange)
-                        Text("Editing")
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                        Spacer()
-                        Button {
-                            viewModel.cancelEditing()
-                            isInputFocused = false
-                        } label: {
-                            Image(systemName: "xmark.circle.fill")
-                                .font(.title3)
-                                .foregroundStyle(.secondary)
-                        }
-                        .buttonStyle(.plain)
-                        .help("Cancel editing and restore the conversation")
-                    }
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 8)
-                    .background(PlatformColor.secondaryBackground.opacity(0.6))
                 }
 
             }
@@ -460,6 +455,7 @@ struct ChatView: View {
         .ignoresSafeArea(.container, edges: .bottom)
         .ignoresSafeArea(.keyboard, edges: .bottom)
         #endif
+        .onPreferenceChange(EditingBannerHeightKey.self, perform: updateEditingBannerHeightIfNeeded)
         .onAppear {
             refreshVisibleMessages(hydrating: true)
 #if os(macOS)
@@ -553,100 +549,156 @@ struct ChatView: View {
 #endif
 
     private var floatingInputPanel: some View {
-        HStack(spacing: 0) {
-            HStack(alignment: .center, spacing: 10) {
-                ZStack(alignment: .topLeading) {
-                    if viewModel.userMessage.isEmpty {
-                        Text("Type your message...")
-                            .font(.system(size: 17))
-                            .foregroundColor(.secondary)
-                            .padding(.top, InputMetrics.outerV + InputMetrics.innerTop)
-                            .padding(.leading, InputMetrics.outerH + InputMetrics.innerLeading)
-                            .accessibilityHint("Message field placeholder")
-                    }
-
-                    AutoSizingTextEditor(
-                        text: $viewModel.userMessage,
-                        height: $textFieldHeight,
-                        maxLines: platformMaxLines(),
-                        onOverflowChange: handleOverflowChange
-                    )
-                    .focused($isInputFocused)
-                    .frame(height: textFieldHeight)
-                    .padding(.vertical, InputMetrics.outerV)
-                    .padding(.leading, InputMetrics.outerH)
-                    .padding(.trailing, 6)
-
-                    #if os(iOS) || os(tvOS)
-                    if inputOverflow {
-                        Button {
-                            showFullScreenComposer = true
-                        } label: {
-                            Image(systemName: "arrow.up.left.and.arrow.down.right")
-                                .font(.system(size: 16, weight: .semibold))
-                                .foregroundStyle(.secondary)
-                        }
-                        .padding(.top, 4)
-                        .padding(.trailing, 8)
-                        .accessibilityLabel("Open full screen editor")
-                        .frame(maxWidth: .infinity, alignment: .topTrailing)
-                    }
-                    #endif
-                }
-                .frame(maxWidth: .infinity)
-
-                floatingTrailingButton
+        VStack(spacing: 0) {
+            if viewModel.isEditing {
+                editingAccessory
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
             }
-            .padding(.vertical, composerOuterVerticalPadding)
-            .padding(.leading, 10)
-            .padding(.trailing, 10)
-            .frame(maxWidth: .infinity)
-            .background(
-                RoundedRectangle(cornerRadius: 24, style: .continuous)
-                    .fill(.thinMaterial)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 24, style: .continuous)
-                            .fill(PlatformColor.systemBackground.opacity(0.2))
-                    )
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 24, style: .continuous)
-                            .stroke(ChatTheme.subtleStroke.opacity(0.35), lineWidth: 0.75)
-                    )
-            )
-            .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
-            .background(alignment: .bottom) {
-                RoundedRectangle(cornerRadius: 28, style: .continuous)
-                    .fill(.regularMaterial)
-                    .blur(radius: 26)
-                    .opacity(0.82)
-                    .padding(.horizontal, -18)
-                    .frame(height: 38)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 28, style: .continuous)
-                            .stroke(Color.white.opacity(0.18), lineWidth: 0.8)
-                            .blur(radius: 10)
-                            .blendMode(.plusLighter)
-                    )
-                    .overlay(
-                        LinearGradient(
-                            colors: [
-                                Color.white.opacity(0.16),
-                                Color.white.opacity(0.08),
-                                Color.white.opacity(0.16)
-                            ],
-                            startPoint: .leading,
-                            endPoint: .trailing
-                        )
-                        .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
-                        .blur(radius: 14)
-                    )
-                    .offset(y: 16)
-            }
-            .shadow(color: Color.black.opacity(0.22), radius: 12, x: 0, y: 12)
-            .shadow(color: Color.black.opacity(0.1), radius: 14, x: 10, y: 12)
-            .shadow(color: Color.black.opacity(0.1), radius: 14, x: -10, y: 12)
-            .shadow(color: Color.black.opacity(0.14), radius: 26, x: 0, y: 28)
+
+            composerInputRow
+                .padding(.vertical, composerOuterVerticalPadding)
+                .padding(.leading, 10)
+                .padding(.trailing, 10)
         }
+        .frame(maxWidth: .infinity)
+        .background(
+            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                .fill(.thinMaterial)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 24, style: .continuous)
+                        .fill(PlatformColor.systemBackground.opacity(0.2))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 24, style: .continuous)
+                        .stroke(ChatTheme.subtleStroke.opacity(0.35), lineWidth: 0.75)
+                )
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+        .background(alignment: .bottom) {
+            RoundedRectangle(cornerRadius: 28, style: .continuous)
+                .fill(.regularMaterial)
+                .blur(radius: 26)
+                .opacity(0.82)
+                .padding(.horizontal, -18)
+                .frame(height: 38)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 28, style: .continuous)
+                        .stroke(Color.white.opacity(0.18), lineWidth: 0.8)
+                        .blur(radius: 10)
+                        .blendMode(.plusLighter)
+                )
+                .overlay(
+                    LinearGradient(
+                        colors: [
+                            Color.white.opacity(0.16),
+                            Color.white.opacity(0.08),
+                            Color.white.opacity(0.16)
+                        ],
+                        startPoint: .leading,
+                        endPoint: .trailing
+                    )
+                    .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
+                    .blur(radius: 14)
+                )
+                .offset(y: 16)
+        }
+        .shadow(color: Color.black.opacity(0.22), radius: 12, x: 0, y: 12)
+        .shadow(color: Color.black.opacity(0.1), radius: 14, x: 10, y: 12)
+        .shadow(color: Color.black.opacity(0.1), radius: 14, x: -10, y: 12)
+        .shadow(color: Color.black.opacity(0.14), radius: 26, x: 0, y: 28)
+        .animation(.easeInOut(duration: 0.18), value: viewModel.isEditing)
+    }
+
+    private var composerInputRow: some View {
+        HStack(alignment: .center, spacing: 10) {
+            ZStack(alignment: .topLeading) {
+                if viewModel.userMessage.isEmpty {
+                    Text("Type your message...")
+                        .font(.system(size: 17))
+                        .foregroundColor(.secondary)
+                        .padding(.top, InputMetrics.outerV + InputMetrics.innerTop)
+                        .padding(.leading, InputMetrics.outerH + InputMetrics.innerLeading)
+                        .accessibilityHint("Message field placeholder")
+                }
+
+                AutoSizingTextEditor(
+                    text: $viewModel.userMessage,
+                    height: $textFieldHeight,
+                    maxLines: platformMaxLines(),
+                    onOverflowChange: handleOverflowChange
+                )
+                .focused($isInputFocused)
+                .frame(height: textFieldHeight)
+                .padding(.vertical, InputMetrics.outerV)
+                .padding(.leading, InputMetrics.outerH)
+                .padding(.trailing, 6)
+
+                #if os(iOS) || os(tvOS)
+                if inputOverflow {
+                    Button {
+                        showFullScreenComposer = true
+                    } label: {
+                        Image(systemName: "arrow.up.left.and.arrow.down.right")
+                            .font(.system(size: 16, weight: .semibold))
+                            .foregroundStyle(.secondary)
+                    }
+                    .padding(.top, 4)
+                    .padding(.trailing, 8)
+                    .accessibilityLabel("Open full screen editor")
+                    .frame(maxWidth: .infinity, alignment: .topTrailing)
+                }
+                #endif
+            }
+            .frame(maxWidth: .infinity)
+
+            floatingTrailingButton
+        }
+    }
+
+    private var editingAccessory: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 10) {
+                RoundedRectangle(cornerRadius: 2, style: .continuous)
+                    .fill(Color.orange)
+                    .frame(width: 3, height: 18)
+
+                Image(systemName: "pencil")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(.orange)
+
+                Text("Editing")
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+
+                Spacer(minLength: 0)
+
+                Button {
+                    viewModel.cancelEditing()
+                    isInputFocused = false
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 18, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Cancel editing and restore the conversation")
+                .help("Cancel editing and restore the conversation")
+            }
+            .padding(.top, 10)
+            .padding(.bottom, 8)
+            .padding(.horizontal, 12)
+
+            Divider()
+                .overlay(ChatTheme.separator.opacity(0.65))
+                .padding(.leading, 12)
+                .padding(.trailing, 12)
+        }
+        .background(
+            GeometryReader { proxy in
+                Color.clear.preference(key: EditingBannerHeightKey.self, value: proxy.size.height)
+            }
+        )
     }
 
     private var floatingTrailingButton: some View {
