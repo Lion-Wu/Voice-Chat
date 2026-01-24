@@ -53,6 +53,9 @@ final class SpeechInputManager: NSObject, ObservableObject {
     /// "hold-to-talk" (press and hold to keep listening; release to finalize).
     @Published private(set) var isHoldToSpeakActive: Bool = false
 
+    /// True while the system permission prompt may be on-screen and we're awaiting user input.
+    @Published private(set) var isRequestingPermissions: Bool = false
+
     // MARK: - Session bookkeeping
     private var currentSessionID: UUID?
     private var lastStableText: String = ""
@@ -84,7 +87,9 @@ final class SpeechInputManager: NSObject, ObservableObject {
             levelEMA         = 0
         }
 
+        isRequestingPermissions = true
         let permissionOK = await requestPermissions()
+        isRequestingPermissions = false
 
         // If the calling task was cancelled (e.g. user released long-press or dismissed the overlay),
         // don't surface permission errors or continue bootstrapping speech recognition.
@@ -341,6 +346,9 @@ actor SpeechRecognizerWorker {
     /// internally if the recognizer produces a final result.
     private var holdToSpeakActive: Bool = false
 
+    /// Prefix transcript accumulated across internal restarts while hold-to-talk is active.
+    private var holdToSpeakAccumulatedText: String = ""
+
     func lastNonEmptyTextSnapshot() -> String {
         lastNonEmptyText
     }
@@ -376,6 +384,7 @@ actor SpeechRecognizerWorker {
         onLevelHandler     = onLevel
         onErrorHandler     = onError
         lastNonEmptyText   = ""
+        holdToSpeakAccumulatedText = ""
         didEmitFinal       = false
         isStopping         = false
 
@@ -512,50 +521,23 @@ actor SpeechRecognizerWorker {
         task = recognizer.recognitionTask(with: req) { [weak self] result, err in
             guard let self else { return }
 
-            if let r = result {
-                let txt = r.bestTranscription.formattedString.trimmingCharacters(in: .whitespacesAndNewlines)
-                if !txt.isEmpty {
-                    Task { await self.updateLastTextAndActivity(txt) }
-                }
-
-                if r.isFinal {
-                    // Only treat non-empty transcripts as final; restart otherwise.
-                    if !txt.isEmpty {
-                        Task {
-                            if await self.holdToSpeakActive {
-                                // Keep the session alive while the user is holding; treat the final as an updated partial.
-                                await self.emitPartial(txt)
-                                await self.handleNonEmptyFinalAndContinue()
-                            } else {
-                                await self.emitFinalIfNeeded(txt)
-                                await self.stop()  // Triggers the outer layer to complete and update the UI.
-                            }
-                        }
-                    } else {
-                        // Empty finals usually mean a timeout or silence; restart the capture loop.
-                        Task {
-                            await self.handleEmptyFinalAndRestart()
-                        }
-                    }
-                    return
-                } else if !txt.isEmpty {
-                    Task { await self.emitPartial(txt) }
-                }
-            }
-
-            // Only stop the entire pipeline on actual errors.
             if let err {
-                Task { await self.handleRecognizerError(err) }
+                let message = err.localizedDescription.trimmingCharacters(in: .whitespacesAndNewlines)
+                Task { await self.handleRecognizerErrorMessage(message) }
+                return
             }
+            guard let r = result else { return }
+            let txt = r.bestTranscription.formattedString
+            let isFinal = r.isFinal
+            Task { await self.handleRecognitionResult(text: txt, isFinal: isFinal) }
         }
     }
 
     // MARK: - Actor helpers ------------------------------------------------------------
 
-    private func handleRecognizerError(_ error: Error) async {
+    private func handleRecognizerErrorMessage(_ message: String) async {
         guard !isStopping else { return }
         isStopping = true
-        let message = error.localizedDescription.trimmingCharacters(in: .whitespacesAndNewlines)
         if !message.isEmpty {
             onErrorHandler?(message)
         }
@@ -577,6 +559,73 @@ actor SpeechRecognizerWorker {
         guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
         didEmitFinal = true
         onFinalHandler?(text)
+    }
+
+    private func mergeTranscript(_ prefix: String, _ suffix: String) -> String {
+        let left = prefix.trimmingCharacters(in: .whitespacesAndNewlines)
+        let right = suffix.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !left.isEmpty else { return right }
+        guard !right.isEmpty else { return left }
+
+        // Avoid inserting spaces between CJK segments while still keeping English words readable.
+        func isASCIIAlphaNumeric(_ scalar: UnicodeScalar) -> Bool {
+            scalar.isASCII && (scalar.properties.isAlphabetic || scalar.properties.numericType != nil)
+        }
+
+        func isASCIISentencePunctuation(_ scalar: UnicodeScalar) -> Bool {
+            scalar.isASCII && ".?!:;".unicodeScalars.contains(scalar)
+        }
+
+        func isCJK(_ scalar: UnicodeScalar) -> Bool {
+            switch scalar.value {
+            case 0x3040...0x30FF: return true // Hiragana + Katakana
+            case 0x3400...0x4DBF: return true // CJK Extension A
+            case 0x4E00...0x9FFF: return true // CJK Unified Ideographs
+            case 0xAC00...0xD7AF: return true // Hangul Syllables
+            default: return false
+            }
+        }
+
+        guard let last = left.unicodeScalars.last, let first = right.unicodeScalars.first else {
+            return left + right
+        }
+
+        let needsSpace = isASCIIAlphaNumeric(first) && (isASCIIAlphaNumeric(last) || isASCIISentencePunctuation(last) || isCJK(last))
+        return needsSpace ? "\(left) \(right)" : (left + right)
+    }
+
+    private func handleRecognitionResult(text: String, isFinal: Bool) async {
+        guard !isStopping else { return }
+
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if trimmed.isEmpty {
+            if isFinal {
+                // Empty finals usually mean a timeout or silence; restart the capture loop.
+                await handleEmptyFinalAndRestart()
+            }
+            return
+        }
+
+        let combined = holdToSpeakActive
+            ? mergeTranscript(holdToSpeakAccumulatedText, trimmed)
+            : trimmed
+
+        updateLastTextAndActivity(combined)
+
+        if isFinal {
+            if holdToSpeakActive {
+                // Commit the completed segment and keep listening.
+                holdToSpeakAccumulatedText = combined
+                emitPartial(combined)
+                await handleNonEmptyFinalAndContinue()
+            } else {
+                emitFinalIfNeeded(combined)
+                await stop()  // Triggers the outer layer to complete and update the UI.
+            }
+        } else {
+            emitPartial(combined)
+        }
     }
 
     private func updateLastTextAndActivity(_ text: String) {

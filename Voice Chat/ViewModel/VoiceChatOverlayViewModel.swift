@@ -120,7 +120,11 @@ final class VoiceChatOverlayViewModel: ObservableObject {
             handleListeningTap()
         case .error:
             attemptReconnect()
-        case .loading, .speaking:
+        case .loading:
+            // Don't let a tap bypass the initial connectivity preflight.
+            guard connectivityAttemptID == nil else { return }
+            interruptActiveWorkAndRestartListening()
+        case .speaking:
             interruptActiveWorkAndRestartListening()
         }
     }
@@ -288,6 +292,12 @@ final class VoiceChatOverlayViewModel: ObservableObject {
 
         connectivityTask = Task { @MainActor [weak self] in
             guard let self else { return }
+            defer {
+                if self.connectivityAttemptID == attemptID {
+                    self.connectivityTask = nil
+                    self.connectivityAttemptID = nil
+                }
+            }
 
             await self.reachabilityMonitor.checkAll(settings: self.settingsManager)
 
@@ -390,12 +400,30 @@ final class VoiceChatOverlayViewModel: ObservableObject {
         startWatchdogTask?.cancel()
         startWatchdogTask = Task { [weak self] in
             guard let self else { return }
+            // Don't treat the permission prompt window as a hard startup failure.
+            // We only start the watchdog timeout after the system permission flow resolves.
+            while !Task.isCancelled {
+                let snapshot = await MainActor.run { () -> (stillRelevant: Bool, isWaitingOnPermissions: Bool) in
+                    guard self.startAttemptID == attemptID else { return (false, false) }
+                    guard self.isPresented else { return (false, false) }
+                    guard self.isStartingRecording else { return (false, false) }
+                    guard !self.speechInputManager.isRecording else { return (false, false) }
+                    return (true, self.speechInputManager.isRequestingPermissions)
+                }
+
+                guard snapshot.stillRelevant else { return }
+                guard snapshot.isWaitingOnPermissions else { break }
+
+                try? await Task.sleep(for: .milliseconds(200))
+            }
+
             try? await Task.sleep(for: .seconds(4))
             await MainActor.run {
                 guard self.startAttemptID == attemptID else { return }
                 guard self.isPresented else { return }
                 guard self.isStartingRecording else { return }
                 guard !self.speechInputManager.isRecording else { return }
+                guard !self.speechInputManager.isRequestingPermissions else { return }
                 self.isStartingRecording = false
                 self.pendingRestartAfterStart = false
                 self.startAttemptID = nil
@@ -594,6 +622,8 @@ final class VoiceChatOverlayViewModel: ObservableObject {
 
     private func resumeListeningIfIdle() {
         guard autoResumeEnabled, isPresented else { return }
+        // Avoid restarting the microphone while we're in the middle of sending/loading a response.
+        guard loadingWatchdogTask == nil else { return }
         guard !audioManager.isAudioPlaying else { return }
         guard !audioManager.isLoading else { return }
         guard !speechInputManager.isRecording else { return }
