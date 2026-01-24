@@ -238,7 +238,8 @@ final class VoiceChatOverlayViewModel: ObservableObject {
             .store(in: &cancellables)
 
         reachabilityMonitor.$isChatReachable
-            .combineLatest(reachabilityMonitor.$isTTSReachable)
+            .removeDuplicates()
+            .combineLatest(reachabilityMonitor.$isTTSReachable.removeDuplicates())
             .receive(on: RunLoop.main)
             .sink { [weak self] chatOK, ttsOK in
                 guard let self else { return }
@@ -601,6 +602,9 @@ final class VoiceChatOverlayViewModel: ObservableObject {
 
     private func handleError(_ message: String) {
         let trimmed = message.trimmingCharacters(in: .whitespacesAndNewlines)
+        if case let .error(existing) = state, existing == trimmed {
+            return
+        }
         errorMessage = trimmed
         showErrorBanner = true
         state = .error(trimmed)
