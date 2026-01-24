@@ -43,7 +43,9 @@
 "No chat. Creating one..." = "没有聊天，将自动创建...";
 "No data received" = "未收到数据";
 "OK" = "好";
+"Other activity is still running" = "当前仍有其他活动正在运行";
 "Open full screen editor" = "打开全屏编辑器";
+"Continue" = "继续";
 "Read Aloud" = "朗读";
 "Reasoning preview" = "思考内容预览";
 "Refresh Model List" = "刷新模型列表";
@@ -126,6 +128,7 @@
 "Voice Playback Issue" = "语音播放问题";
 "Realtime Voice Issue" = "实时语音问题";
 "Text server unreachable" = "无法连接文本服务器";
+"There are other tasks still running. Continuing will interrupt them and start voice mode." = "当前仍有其他任务正在运行。继续将中断它们并开启语音模式。";
 "TTS server unreachable" = "无法连接 TTS 服务器";
 "TTS server unavailable" = "TTS 服务器不可用";
 "Unable to construct TTS URL from %@" = "无法从 %@ 构造 TTS URL";
@@ -215,3 +218,11 @@
 "Chat Model" = "聊天模型";
 "Voice Settings" = "语音配置";
 "Voice Model" = "语音模型";
+"Tap to reconnect" = "点击重连";
+"Microphone is unavailable." = "麦克风不可用。";
+"Server address is not configured." = "服务器地址未配置。";
+"Unable to connect to the chat and voice servers." = "无法连接到聊天服务和语音服务。";
+"Unable to connect to the chat server." = "无法连接到聊天服务。";
+"Unable to connect to the voice server." = "无法连接到语音服务。";
+"Unable to connect. Please check your server settings." = "无法连接，请检查服务器设置。";
+"Speech recognition stopped unexpectedly." = "语音识别意外停止。";

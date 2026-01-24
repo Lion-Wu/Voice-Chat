@@ -43,7 +43,9 @@
 "No chat. Creating one..." = "チャットがありません。作成します...";
 "No data received" = "データを受信できませんでした";
 "OK" = "OK";
+"Other activity is still running" = "他の処理が実行中です";
 "Open full screen editor" = "フルスクリーンエディタを開く";
+"Continue" = "続行";
 "Read Aloud" = "読み上げ";
 "Reasoning preview" = "思考プレビュー";
 "Refresh Model List" = "モデル一覧を更新";
@@ -126,6 +128,7 @@
 "Voice Playback Issue" = "音声再生の問題";
 "Realtime Voice Issue" = "リアルタイム音声の問題";
 "Text server unreachable" = "テキストサーバーに接続できません";
+"There are other tasks still running. Continuing will interrupt them and start voice mode." = "他のタスクが実行中です。続行すると中断して音声モードを開始します。";
 "TTS server unreachable" = "TTS サーバーに接続できません";
 "TTS server unavailable" = "TTS サーバーを利用できません";
 "Unable to construct TTS URL from %@" = "%@ から TTS URL を生成できませんでした";
@@ -215,3 +218,11 @@
 "Chat Model" = "チャットモデル";
 "Voice Settings" = "音声設定";
 "Voice Model" = "音声モデル";
+"Tap to reconnect" = "タップして再接続";
+"Microphone is unavailable." = "マイクを使用できません。";
+"Server address is not configured." = "サーバーアドレスが設定されていません。";
+"Unable to connect to the chat and voice servers." = "チャットサーバーと音声サーバーに接続できません。";
+"Unable to connect to the chat server." = "チャットサーバーに接続できません。";
+"Unable to connect to the voice server." = "音声サーバーに接続できません。";
+"Unable to connect. Please check your server settings." = "接続できません。サーバー設定を確認してください。";
+"Speech recognition stopped unexpectedly." = "音声認識が予期せず停止しました。";

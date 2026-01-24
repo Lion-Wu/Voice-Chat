@@ -44,7 +44,9 @@
 "No data received" = "No data received";
 "No internet connection for TTS requests." = "No internet connection for TTS requests.";
 "OK" = "OK";
+"Other activity is still running" = "Other activity is still running";
 "Open full screen editor" = "Open full screen editor";
+"Continue" = "Continue";
 "Realtime Voice Issue" = "Realtime Voice Issue";
 "Realtime voice unavailable" = "Realtime voice unavailable";
 "Read Aloud" = "Read Aloud";
@@ -78,6 +80,7 @@
 "Text Language" = "Text Language";
 "Text Generation Issue" = "Text Generation Issue";
 "Text server unreachable" = "Text server unreachable";
+"There are other tasks still running. Continuing will interrupt them and start voice mode." = "There are other tasks still running. Continuing will interrupt them and start voice mode.";
 "Thinking" = "Thinking";
 "Thinking Complete" = "Thinking Complete";
 "This action cannot be undone." = "This action cannot be undone.";
@@ -211,3 +214,11 @@
 "Chat Model" = "Chat Model";
 "Voice Settings" = "Voice Settings";
 "Voice Model" = "Voice Model";
+"Tap to reconnect" = "Tap to reconnect";
+"Microphone is unavailable." = "Microphone is unavailable.";
+"Server address is not configured." = "Server address is not configured.";
+"Unable to connect to the chat and voice servers." = "Unable to connect to the chat and voice servers.";
+"Unable to connect to the chat server." = "Unable to connect to the chat server.";
+"Unable to connect to the voice server." = "Unable to connect to the voice server.";
+"Unable to connect. Please check your server settings." = "Unable to connect. Please check your server settings.";
+"Speech recognition stopped unexpectedly." = "Speech recognition stopped unexpectedly.";

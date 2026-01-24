@@ -48,7 +48,9 @@ final class AppEnvironment: ObservableObject {
         self.voiceOverlayViewModel = VoiceChatOverlayViewModel(
             speechInputManager: self.speechInputManager,
             audioManager: self.audioManager,
-            errorCenter: self.errorCenter
+            errorCenter: self.errorCenter,
+            settingsManager: self.settingsManager,
+            reachabilityMonitor: self.reachabilityMonitor
         )
 #if os(macOS)
         self.realtimeVoiceWindowController = RealtimeVoiceWindowController(

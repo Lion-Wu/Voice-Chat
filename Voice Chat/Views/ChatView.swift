@@ -73,6 +73,7 @@ struct ChatView: View {
     @State private var hydrationTask: Task<Void, Never>?
     @State private var pendingRefreshAfterHydration: Bool = false
     @State private var refreshGeneration = UUID()
+    @State private var showStartVoiceModeInterruptAlert: Bool = false
 
 #if os(macOS)
     @State private var returnKeyMonitor: Any?
@@ -500,12 +501,41 @@ struct ChatView: View {
                 scrollToBottom()
             }
         }
+        .alert("Other activity is still running",
+               isPresented: $showStartVoiceModeInterruptAlert) {
+            Button("Cancel", role: .cancel) { }
+            Button("Continue", role: .destructive) {
+                interruptAllActivitiesForVoiceModeStart()
+                startRealtimeVoiceOverlay()
+            }
+        } message: {
+            Text("There are other tasks still running. Continuing will interrupt them and start voice mode.")
+        }
+    }
+
+    private var hasOtherActivityForVoiceModeStart: Bool {
+        let hasText = chatSessionsViewModel.hasActiveTextRequests
+        let hasVoice = audioManager.isRealtimeMode
+            || audioManager.isLoading
+            || audioManager.isAudioPlaying
+            || !audioManager.dataTasks.isEmpty
+        return hasText || hasVoice
     }
 
     private func sendIfPossible() {
         let trimmed = trimmedUserMessage
         guard !trimmed.isEmpty, !viewModel.isLoading else { return }
         viewModel.sendMessage()
+    }
+
+    private func interruptAllActivitiesForVoiceModeStart() {
+        chatSessionsViewModel.cancelAllActiveTextRequests()
+        if audioManager.isRealtimeMode
+            || audioManager.isLoading
+            || audioManager.isAudioPlaying
+            || !audioManager.dataTasks.isEmpty {
+            audioManager.closeAudioPlayer()
+        }
     }
 
     private func handleOverflowChange(_ overflow: Bool) {
@@ -912,7 +942,16 @@ struct ChatView: View {
 
     private func openRealtimeVoiceOverlay() {
         guard !voiceOverlayVM.isPresented else { return }
-        voiceOverlayVM.presentSession { text in
+        if hasOtherActivityForVoiceModeStart {
+            showStartVoiceModeInterruptAlert = true
+            return
+        }
+        startRealtimeVoiceOverlay()
+    }
+
+    private func startRealtimeVoiceOverlay() {
+        guard !voiceOverlayVM.isPresented else { return }
+        voiceOverlayVM.presentSession(chatViewModel: viewModel) { text in
             viewModel.prepareRealtimeTTSForNextAssistant()
             viewModel.userMessage = text
             viewModel.sendMessage()
@@ -937,7 +976,9 @@ struct ChatView_Previews: PreviewProvider {
         let overlayVM = VoiceChatOverlayViewModel(
             speechInputManager: speechManager,
             audioManager: GlobalAudioManager.shared,
-            errorCenter: AppErrorCenter.shared
+            errorCenter: AppErrorCenter.shared,
+            settingsManager: SettingsManager.shared,
+            reachabilityMonitor: ServerReachabilityMonitor.shared
         )
         return ChatView(viewModel: ChatViewModel(chatSession: session))
             .modelContainer(for: [ChatSession.self, ChatMessage.self, AppSettings.self], inMemory: true)
