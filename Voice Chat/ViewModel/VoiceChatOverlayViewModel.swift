@@ -138,6 +138,14 @@ final class VoiceChatOverlayViewModel: ObservableObject {
         speechInputManager.setHoldToSpeakActive(false)
         if speechInputManager.isRecording {
             speechInputManager.stopRecording(finalize: true)
+            return
+        }
+
+        // If the user released before the microphone finished starting, cancel the in-flight start
+        // so we don't begin recording after the gesture ends.
+        if isStartingRecording {
+            cancelStartTasks()
+            speechInputManager.stopRecording(finalize: true)
         }
     }
 

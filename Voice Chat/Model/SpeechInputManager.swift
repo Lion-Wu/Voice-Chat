@@ -84,7 +84,13 @@ final class SpeechInputManager: NSObject, ObservableObject {
             levelEMA         = 0
         }
 
-        guard await requestPermissions() else {
+        let permissionOK = await requestPermissions()
+
+        // If the calling task was cancelled (e.g. user released long-press or dismissed the overlay),
+        // don't surface permission errors or continue bootstrapping speech recognition.
+        guard !Task.isCancelled else { return }
+
+        guard permissionOK else {
             lastError = NSLocalizedString("Speech recognition or microphone permission not granted", comment: "Shown when the app lacks microphone or speech recognition access")
             return
         }
@@ -154,6 +160,19 @@ final class SpeechInputManager: NSObject, ObservableObject {
         }
 
         do {
+            guard !Task.isCancelled else {
+                if self.currentSessionID == newID {
+                    await worker.stop()
+                    isRecording = false
+                    currentSessionID = nil
+                    currentOnFinal   = nil
+                    lastStableText   = ""
+                    inputLevel       = 0
+                    levelEMA         = 0
+                }
+                return
+            }
+
             try await worker.start(
                 locale: pickLang.locale,
                 onPartial: partialWrapper,
@@ -161,6 +180,20 @@ final class SpeechInputManager: NSObject, ObservableObject {
                 onLevel:   levelWrapper,
                 onError:   errorWrapper
             )
+            guard !Task.isCancelled, self.currentSessionID == newID else {
+                // Start completed after the caller already stopped/cancelled. Ensure we don't leave
+                // the audio engine running or publish `isRecording = true` for a dead session.
+                if self.currentSessionID == newID {
+                    await worker.stop()
+                    isRecording = false
+                    currentSessionID = nil
+                    currentOnFinal   = nil
+                    lastStableText   = ""
+                    inputLevel       = 0
+                    levelEMA         = 0
+                }
+                return
+            }
             isRecording = true
         } catch {
             lastError = error.localizedDescription
