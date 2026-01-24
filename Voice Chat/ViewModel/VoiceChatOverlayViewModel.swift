@@ -115,10 +115,13 @@ final class VoiceChatOverlayViewModel: ObservableObject {
     func handleCircleTap() {
         guard isPresented else { return }
 
-        if state == .listening {
+        switch state {
+        case .listening:
             handleListeningTap()
-        } else {
+        case .error:
             attemptReconnect()
+        case .loading, .speaking:
+            interruptActiveWorkAndRestartListening()
         }
     }
 
@@ -538,6 +541,7 @@ final class VoiceChatOverlayViewModel: ObservableObject {
         autoResumeEnabled = true
         cancelStartTasks()
         stopLoadingWatchdog()
+        cancelConnectivityTask()
         isSendSuppressed = false
         showErrorBanner = false
         errorMessage = nil
