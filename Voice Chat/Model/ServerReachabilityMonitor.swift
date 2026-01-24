@@ -58,7 +58,10 @@ final class ServerReachabilityMonitor: ObservableObject {
     }
 
     private func check(chatBase: String) async {
-        guard let endpoint = hostPort(from: chatBase, defaultPort: 80) else { return }
+        guard let endpoint = hostPort(from: chatBase, defaultPort: 80) else {
+            await MainActor.run { self.isChatReachable = nil }
+            return
+        }
         do {
             try await tcpProbe(host: endpoint.host, port: endpoint.port)
             await MainActor.run { self.isChatReachable = true }
@@ -78,7 +81,10 @@ final class ServerReachabilityMonitor: ObservableObject {
     }
 
     private func checkTTS(ttsBase: String) async {
-        guard let endpoint = hostPort(from: ttsBase, defaultPort: 9880) else { return }
+        guard let endpoint = hostPort(from: ttsBase, defaultPort: 9880) else {
+            await MainActor.run { self.isTTSReachable = nil }
+            return
+        }
         do {
             try await tcpProbe(host: endpoint.host, port: endpoint.port)
             await MainActor.run { self.isTTSReachable = true }

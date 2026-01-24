@@ -36,6 +36,18 @@ struct RealtimeVoiceOverlayView: View {
         colorScheme == .dark ? .white : .black
     }
 
+    private var circleErrorRingColor: Color {
+        colorScheme == .dark ? Color.white.opacity(0.55) : Color.black.opacity(0.28)
+    }
+
+    private var overlayErrorText: String? {
+        if case let .error(message) = viewModel.state {
+            let trimmed = message.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? nil : trimmed
+        }
+        return nil
+    }
+
     var body: some View {
         ZStack {
             PlatformColor.systemBackground
@@ -49,8 +61,7 @@ struct RealtimeVoiceOverlayView: View {
                     } label: {
                         Image(systemName: "xmark.circle.fill")
                             .font(.system(size: 28, weight: .semibold))
-                            .symbolRenderingMode(.hierarchical)
-                            .foregroundStyle(.white.opacity(0.95))
+                            .foregroundStyle(circleBaseColor.opacity(0.92))
                             .shadow(radius: 6)
                             .padding(8)
                     }
@@ -61,26 +72,51 @@ struct RealtimeVoiceOverlayView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
 
-            ZStack {
-                let baseSize: CGFloat = (viewModel.state == .listening) ? listeningBaseSize : defaultBaseSize
-                Circle()
-                    .fill(
-                        RadialGradient(
-                            colors: [
-                                circleBaseColor.opacity(0.95),
-                                circleBaseColor.opacity(0.78)
-                            ],
-                            center: .center,
-                            startRadius: 2,
-                            endRadius: baseSize * 0.8
-                        )
-                    )
-                    .overlay(circleInteractionRing)
+            VStack(spacing: 18) {
+                ZStack {
+                    let baseSize: CGFloat = (viewModel.state == .listening) ? listeningBaseSize : defaultBaseSize
+                    Group {
+                        if overlayErrorText != nil {
+                            Circle()
+                                .strokeBorder(circleErrorRingColor, lineWidth: 14)
+                        } else {
+                            Circle()
+                                .fill(circleBaseColor)
+                        }
+                    }
                     .frame(width: baseSize, height: baseSize)
                     .scaleEffect(displayedScale * interactionPulse * circlePressScale)
                     .shadow(color: .black.opacity(0.25), radius: 16, x: 0, y: 6)
                     .contentShape(Circle())
                     .gesture(circleGesture)
+                }
+
+                if let message = overlayErrorText {
+                    Button {
+                        triggerTapAction()
+                    } label: {
+                        VStack(spacing: 6) {
+                            Text(message)
+                                .font(.system(size: 15, weight: .semibold))
+                                .foregroundStyle(.primary)
+                                .multilineTextAlignment(.center)
+                                .lineLimit(4)
+                                .minimumScaleFactor(0.85)
+
+                            Text(NSLocalizedString("Tap to reconnect", comment: "Shown under the realtime voice overlay when an error occurs"))
+                                .font(.system(size: 13, weight: .medium))
+                                .foregroundStyle(.secondary)
+                        }
+                        .padding(.horizontal, 24)
+                        .padding(.vertical, 10)
+                        .background(
+                            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                .fill(.ultraThinMaterial)
+                        )
+                    }
+                    .buttonStyle(.plain)
+                    .contentShape(Rectangle())
+                }
             }
             .animation(stateAnimation, value: viewModel.state)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
@@ -147,32 +183,6 @@ struct RealtimeVoiceOverlayView: View {
 
     private var circlePressScale: CGFloat {
         isCirclePressed ? 0.93 : 1.0
-    }
-
-    private var circleInteractionRing: some View {
-        Circle()
-            .strokeBorder(circleRingColor.opacity(circleRingOpacity), lineWidth: circleRingLineWidth)
-            .blendMode(.plusLighter)
-            .animation(.easeInOut(duration: 0.15), value: circleRingOpacity)
-    }
-
-    private var circleRingColor: Color {
-        if viewModel.isSendSuppressed {
-            return ChatTheme.accent
-        }
-        return .white
-    }
-
-    private var circleRingOpacity: Double {
-        if isCirclePressed { return 0.40 }
-        if viewModel.isSendSuppressed { return 0.22 }
-        return 0.0
-    }
-
-    private var circleRingLineWidth: CGFloat {
-        if isCirclePressed { return 5 }
-        if viewModel.isSendSuppressed { return 3 }
-        return 0
     }
 
     private var circleGesture: some Gesture {

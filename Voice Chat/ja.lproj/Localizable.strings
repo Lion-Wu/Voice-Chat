@@ -218,3 +218,10 @@
 "Chat Model" = "チャットモデル";
 "Voice Settings" = "音声設定";
 "Voice Model" = "音声モデル";
+"Tap to reconnect" = "タップして再接続";
+"Microphone is unavailable." = "マイクを使用できません。";
+"Server address is not configured." = "サーバーアドレスが設定されていません。";
+"Unable to connect to the chat and voice servers." = "チャットサーバーと音声サーバーに接続できません。";
+"Unable to connect to the chat server." = "チャットサーバーに接続できません。";
+"Unable to connect to the voice server." = "音声サーバーに接続できません。";
+"Unable to connect. Please check your server settings." = "接続できません。サーバー設定を確認してください。";

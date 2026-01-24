@@ -49,6 +49,10 @@ final class SpeechInputManager: NSObject, ObservableObject {
     /// Currently selected dictation language.
     @Published var currentLanguage: DictationLanguage = .english
 
+    /// When enabled, dictation will not auto-finalize on silence. The UI uses this to implement
+    /// "hold-to-talk" (press and hold to keep listening; release to finalize).
+    @Published private(set) var isHoldToSpeakActive: Bool = false
+
     // MARK: - Session bookkeeping
     private var currentSessionID: UUID?
     private var lastStableText: String = ""
@@ -70,7 +74,15 @@ final class SpeechInputManager: NSObject, ObservableObject {
         lastError = nil
 
         // Stop any active recording before starting a new session.
-        if isRecording { stopRecording() }
+        if isRecording || currentSessionID != nil {
+            await worker.stop()
+            isRecording = false
+            currentSessionID = nil
+            currentOnFinal   = nil
+            lastStableText   = ""
+            inputLevel       = 0
+            levelEMA         = 0
+        }
 
         guard await requestPermissions() else {
             lastError = NSLocalizedString("Speech recognition or microphone permission not granted", comment: "Shown when the app lacks microphone or speech recognition access")
@@ -114,6 +126,22 @@ final class SpeechInputManager: NSObject, ObservableObject {
             }
         }
 
+        let errorWrapper: @Sendable (String) -> Void = { [weak self] message in
+            Task { @MainActor in
+                guard let self else { return }
+                guard self.currentSessionID == newID else { return }
+                let trimmed = message.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !trimmed.isEmpty else { return }
+                self.lastError = trimmed
+                self.isRecording       = false
+                self.currentSessionID  = nil
+                self.currentOnFinal    = nil
+                self.lastStableText    = ""
+                self.inputLevel        = 0
+                self.levelEMA          = 0
+            }
+        }
+
         // Audio level callback: scale and smooth into a 0...1 range.
         let levelWrapper: @Sendable (Float) -> Void = { [weak self] raw in
             Task { @MainActor in
@@ -130,7 +158,8 @@ final class SpeechInputManager: NSObject, ObservableObject {
                 locale: pickLang.locale,
                 onPartial: partialWrapper,
                 onFinal:   finalWrapper,
-                onLevel:   levelWrapper
+                onLevel:   levelWrapper,
+                onError:   errorWrapper
             )
             isRecording = true
         } catch {
@@ -145,34 +174,37 @@ final class SpeechInputManager: NSObject, ObservableObject {
     }
 
     /// Ends recording proactively (safe to call from any thread).
-    nonisolated func stopRecording() {
-        Task { [weak self] in
+    nonisolated func stopRecording(finalize: Bool = true) {
+        Task { @MainActor [weak self] in
             guard let self else { return }
 
-            let capturedID     = await self.currentSessionID
-            let capturedFinal  = await self.currentOnFinal
-            let capturedStable = await self.lastStableText
+            let capturedID = self.currentSessionID
+            let capturedFinalText = self.lastStableText.trimmingCharacters(in: .whitespacesAndNewlines)
+            let capturedFinal = self.currentOnFinal
 
-            await self.worker.stop(
-                fallbackFinalText: capturedStable,
-                onFinalOnMain: { text in
-                    Task { @MainActor in
-                        if self.currentSessionID == capturedID,
-                           let f = capturedFinal,
-                           !text.isEmpty {
-                            f(text)
-                        }
-                    }
-                })
+            await self.worker.stop()
 
-            await MainActor.run {
-                self.isRecording      = false
-                self.currentSessionID = nil
-                self.currentOnFinal   = nil
-                self.inputLevel       = 0
-                self.levelEMA         = 0
+            if finalize,
+               let capturedFinal,
+               !capturedFinalText.isEmpty,
+               self.currentSessionID == capturedID {
+                capturedFinal(capturedFinalText)
             }
+
+            self.isRecording      = false
+            self.currentSessionID = nil
+            self.currentOnFinal   = nil
+            self.lastStableText   = ""
+            self.inputLevel       = 0
+            self.levelEMA         = 0
         }
+    }
+
+    /// Toggles "hold-to-talk" behaviour for the active recording session.
+    /// When enabled, silence-based termination is suspended so the recognizer keeps listening.
+    func setHoldToSpeakActive(_ active: Bool) {
+        isHoldToSpeakActive = active
+        Task { await worker.setHoldToSpeakActive(active) }
     }
 
     // MARK: - Permissions
@@ -230,6 +262,7 @@ actor SpeechRecognizerWorker {
     private var onPartialHandler: (@Sendable (String) -> Void)?
     private var onFinalHandler  : (@Sendable (String) -> Void)?
     private var onLevelHandler  : (@Sendable (Float) -> Void)?
+    private var onErrorHandler  : (@Sendable (String) -> Void)?
 
     // MARK: - End-of-speech detection
     /// Timestamp of the most recent detected speech activity; remains nil until speech is detected.
@@ -256,6 +289,11 @@ actor SpeechRecognizerWorker {
     // MARK: - Misc state
     private var lastNonEmptyText: String = ""
     private var didEmitFinal   : Bool = false
+    private var isStopping: Bool = false
+
+    /// When true, the worker will not terminate the session due to silence and will restart
+    /// internally if the recognizer produces a final result.
+    private var holdToSpeakActive: Bool = false
 
     enum SpeechError: LocalizedError {
         case recognizerUnavailable
@@ -275,7 +313,8 @@ actor SpeechRecognizerWorker {
     func start(locale: Locale,
                onPartial: @Sendable @escaping (String) -> Void,
                onFinal  : @Sendable @escaping (String) -> Void,
-               onLevel  : @Sendable @escaping (Float) -> Void) async throws
+               onLevel  : @Sendable @escaping (Float) -> Void,
+               onError  : @Sendable @escaping (String) -> Void) async throws
     {
         // Stop any existing session before starting a new one.
         if tapInstalled || request != nil || task != nil {
@@ -285,13 +324,17 @@ actor SpeechRecognizerWorker {
         onPartialHandler   = onPartial
         onFinalHandler     = onFinal
         onLevelHandler     = onLevel
+        onErrorHandler     = onError
         lastNonEmptyText   = ""
         didEmitFinal       = false
+        isStopping         = false
 
         // Important: silence cannot end the session until real speech has been heard.
         lastSpeechAt           = nil
         hasRecognizedText      = false
         didEndAudioForSilence  = false
+        graceUntil             = nil
+        firstTextAt            = nil
 
         // 1) recognizer
         guard let r = SFSpeechRecognizer(locale: locale), r.isAvailable else {
@@ -331,20 +374,13 @@ actor SpeechRecognizerWorker {
         launchSilenceMonitor()
     }
 
-    /// Stops recognition and releases resources.
-    func stop(fallbackFinalText: String = "",
-              onFinalOnMain: (@Sendable (String) -> Void)? = nil) async {
+    func setHoldToSpeakActive(_ active: Bool) {
+        holdToSpeakActive = active
+    }
 
-        // If no final result has been emitted, use the caller-provided fallback or the last non-empty text.
-        if !didEmitFinal {
-            let trimmedFallback = fallbackFinalText.trimmingCharacters(in: .whitespacesAndNewlines)
-            let candidateSource = trimmedFallback.isEmpty ? lastNonEmptyText : trimmedFallback
-            let candidate = candidateSource.trimmingCharacters(in: .whitespacesAndNewlines)
-            if let cb = onFinalOnMain, !candidate.isEmpty {
-                cb(candidate)
-                didEmitFinal = true
-            }
-        }
+    /// Stops recognition and releases resources.
+    func stop() async {
+        isStopping = true
 
         // Tear down the recognition task and audio tap.
         task?.cancel()
@@ -374,6 +410,7 @@ actor SpeechRecognizerWorker {
         onPartialHandler  = nil
         onFinalHandler    = nil
         onLevelHandler    = nil
+        onErrorHandler    = nil
 
         monitorTask?.cancel()
         monitorTask = nil
@@ -381,6 +418,8 @@ actor SpeechRecognizerWorker {
         didEndAudioForSilence = false
         hasRecognizedText = false
         lastSpeechAt = nil
+        graceUntil = nil
+        firstTextAt = nil
     }
 
     // MARK: - Internal setup helpers ---------------------------------------------------
@@ -433,8 +472,14 @@ actor SpeechRecognizerWorker {
                     // Only treat non-empty transcripts as final; restart otherwise.
                     if !txt.isEmpty {
                         Task {
-                            await self.emitFinalIfNeeded(txt)
-                            await self.stop()  // Triggers the outer layer to complete and update the UI.
+                            if await self.holdToSpeakActive {
+                                // Keep the session alive while the user is holding; treat the final as an updated partial.
+                                await self.emitPartial(txt)
+                                await self.handleNonEmptyFinalAndContinue()
+                            } else {
+                                await self.emitFinalIfNeeded(txt)
+                                await self.stop()  // Triggers the outer layer to complete and update the UI.
+                            }
                         }
                     } else {
                         // Empty finals usually mean a timeout or silence; restart the capture loop.
@@ -449,13 +494,23 @@ actor SpeechRecognizerWorker {
             }
 
             // Only stop the entire pipeline on actual errors.
-            if let _ = err {
-                Task { await self.stop() }
+            if let err {
+                Task { await self.handleRecognizerError(err) }
             }
         }
     }
 
     // MARK: - Actor helpers ------------------------------------------------------------
+
+    private func handleRecognizerError(_ error: Error) async {
+        guard !isStopping else { return }
+        isStopping = true
+        let message = error.localizedDescription.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !message.isEmpty {
+            onErrorHandler?(message)
+        }
+        await stop()
+    }
 
     private func handleAmplitude(_ level: Float) {
         // Used only for UI level display and tracking the first activity timestamp; silence detection no longer depends on raw energy.
@@ -501,11 +556,26 @@ actor SpeechRecognizerWorker {
         }
         // Recreate the request/tap and attach a new task to keep the engine running.
         do {
+            task?.cancel()
+            task = nil
             try await makeNewRequestAndTap()
             attachRecognitionTask()
             // Preserve `hasRecognizedText`; silence-based ending still requires prior text.
         } catch {
         // If restarting fails, fall back to fully stopping the session.
+            await stop()
+        }
+    }
+
+    private func handleNonEmptyFinalAndContinue() async {
+        // A non-empty final indicates the recognition task ended. Recreate the request/tap and
+        // attach a new task so we can keep listening (used by hold-to-talk).
+        do {
+            task?.cancel()
+            task = nil
+            try await makeNewRequestAndTap()
+            attachRecognitionTask()
+        } catch {
             await stop()
         }
     }
@@ -524,6 +594,7 @@ actor SpeechRecognizerWorker {
     }
 
     private func checkSilenceTimeout() {
+        guard !holdToSpeakActive else { return }
         guard !didEmitFinal else { return }
         // Only consider silence termination after producing non-empty text.
         guard hasRecognizedText, let last = lastSpeechAt else { return }
@@ -614,7 +685,7 @@ final class SpeechInputManager: ObservableObject {
         lastError = NSLocalizedString("Speech input is not supported on this platform.", comment: "Shown when speech input is unavailable")
     }
 
-    nonisolated func stopRecording() {}
+    nonisolated func stopRecording(finalize: Bool = true) {}
 }
 
 #endif

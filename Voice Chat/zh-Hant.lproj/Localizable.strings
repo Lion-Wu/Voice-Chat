@@ -218,3 +218,10 @@
 "Chat Model" = "聊天模型";
 "Voice Settings" = "語音設定";
 "Voice Model" = "語音模型";
+"Tap to reconnect" = "點擊重連";
+"Microphone is unavailable." = "麥克風不可用。";
+"Server address is not configured." = "伺服器位址未設定。";
+"Unable to connect to the chat and voice servers." = "無法連線至聊天服務與語音服務。";
+"Unable to connect to the chat server." = "無法連線至聊天服務。";
+"Unable to connect to the voice server." = "無法連線至語音服務。";
+"Unable to connect. Please check your server settings." = "無法連線，請檢查伺服器設定。";

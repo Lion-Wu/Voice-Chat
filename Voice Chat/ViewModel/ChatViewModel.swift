@@ -75,6 +75,8 @@ final class ChatViewModel: ObservableObject {
     // Emits content fingerprint updates (e.g., streaming deltas) to drive targeted UI refreshes.
     let messageContentDidChange = PassthroughSubject<MessageContentUpdate, Never>()
     let branchDidChange = PassthroughSubject<Void, Never>()
+    /// Emits a user-facing error string when the current request fails (used by the realtime voice overlay).
+    let requestDidFail = PassthroughSubject<String, Never>()
 
     // MARK: - Init
     init(
@@ -151,6 +153,11 @@ final class ChatViewModel: ObservableObject {
         let now = Date()
         let telemetry = activeStreamTelemetry
 
+        let errorText = error.localizedDescription.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !errorText.isEmpty {
+            requestDidFail.send(errorText)
+        }
+
         isPriming = false
         isLoading = false
         sending = false
@@ -185,7 +192,7 @@ final class ChatViewModel: ObservableObject {
             generationDuration = nil
         }
 
-        let errContent = "!error:\(error.localizedDescription)"
+        let errContent = "!error:\(errorText.isEmpty ? error.localizedDescription : errorText)"
         let err = ChatMessage(
             content: errContent,
             isUser: false,
@@ -205,7 +212,7 @@ final class ChatViewModel: ObservableObject {
             promptMessageCount: telemetry?.promptMessageCount,
             promptCharacterCount: telemetry?.promptCharacterCount,
             finishReason: "error",
-            errorDescription: error.localizedDescription,
+            errorDescription: errorText.isEmpty ? error.localizedDescription : errorText,
             session: chatSession
         )
         if let interrupted {
@@ -823,6 +830,7 @@ final class ChatViewModel: ObservableObject {
             pendingBranchRestore = nil
 
             let errText = NSLocalizedString("Unable to reach the text server. Please check your connection or server settings.", comment: "Shown when sending a message while the text server is unreachable")
+            requestDidFail.send(errText)
             let errContent = "!error:\(errText)"
             let err = ChatMessage(
                 content: errContent,

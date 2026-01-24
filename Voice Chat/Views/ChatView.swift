@@ -924,7 +924,9 @@ struct ChatView_Previews: PreviewProvider {
         let overlayVM = VoiceChatOverlayViewModel(
             speechInputManager: speechManager,
             audioManager: GlobalAudioManager.shared,
-            errorCenter: AppErrorCenter.shared
+            errorCenter: AppErrorCenter.shared,
+            settingsManager: SettingsManager.shared,
+            reachabilityMonitor: ServerReachabilityMonitor.shared
         )
         return ChatView(viewModel: ChatViewModel(chatSession: session))
             .modelContainer(for: [ChatSession.self, ChatMessage.self, AppSettings.self], inMemory: true)
