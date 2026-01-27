@@ -43,6 +43,11 @@ private enum ScrollTarget: Hashable {
     case bottom
 }
 
+private struct TextSelectionSheetItem: Identifiable {
+    let id = UUID()
+    let text: String
+}
+
 struct ChatView: View {
     @EnvironmentObject var chatSessionsViewModel: ChatSessionsViewModel
     @EnvironmentObject var audioManager: GlobalAudioManager
@@ -54,8 +59,7 @@ struct ChatView: View {
     @State private var editingBannerHeight: CGFloat = 0
     @FocusState private var isInputFocused: Bool
 
-    @State private var isShowingTextSelectionSheet = false
-    @State private var textSelectionContent = ""
+    @State private var textSelectionSheetItem: TextSelectionSheetItem?
 
     @State private var inputOverflow: Bool = false
     @State private var showFullScreenComposer: Bool = false
@@ -478,6 +482,15 @@ struct ChatView: View {
             FullScreenComposer(text: $viewModel.userMessage) {
                 isInputFocused = true
             }
+        }
+#endif
+#if os(iOS)
+        .fullScreenCover(item: $textSelectionSheetItem) { item in
+            TextSelectionSheet(text: item.text)
+        }
+#else
+        .sheet(item: $textSelectionSheetItem) { item in
+            TextSelectionSheet(text: item.text)
         }
 #endif
         .onReceive(viewModel.messageContentDidChange) { update in
@@ -936,8 +949,13 @@ struct ChatView: View {
     }
 
     private func showSelectTextSheet(with text: String) {
-        textSelectionContent = text
-        isShowingTextSelectionSheet = true
+        let selectionText = text
+        guard !selectionText.isEmpty else { return }
+
+        // Presenting a sheet directly from a context menu action is unreliable; schedule for next run loop.
+        DispatchQueue.main.async {
+            textSelectionSheetItem = TextSelectionSheetItem(text: selectionText)
+        }
     }
 
     private func openRealtimeVoiceOverlay() {
