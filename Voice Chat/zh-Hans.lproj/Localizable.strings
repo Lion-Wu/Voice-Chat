@@ -2,6 +2,7 @@
 "API URL is empty or invalid." = "API 地址为空或无效。";
 "Apply Preset Now" = "立即应用预设";
 "Applying preset..." = "正在应用预设...";
+"Preset applied successfully." = "已成功应用预设。";
 "Buffering" = "正在缓冲";
 "Cancel" = "取消";
 "Cancel editing and restore the conversation" = "取消编辑并恢复对话";

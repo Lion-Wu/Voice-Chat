@@ -2,6 +2,7 @@
 "API URL is empty or invalid." = "API URL が空または無効です。";
 "Apply Preset Now" = "プリセットを今すぐ適用";
 "Applying preset..." = "プリセットを適用しています...";
+"Preset applied successfully." = "プリセットを適用しました。";
 "Buffering" = "バッファ中";
 "Cancel" = "キャンセル";
 "Cancel editing and restore the conversation" = "編集を取り消して会話を戻す";

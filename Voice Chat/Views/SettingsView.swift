@@ -18,6 +18,7 @@ struct SettingsView: View {
     @State private var availableModels: [String] = []
     @State private var isLoadingModels = false
     @State private var chatServerErrorMessage: String?
+    @State private var modelFetchRequestID = UUID()
 
     // Preset deletion confirmation state
     @State private var showDeletePresetAlert = false
@@ -271,8 +272,8 @@ struct SettingsView: View {
         Section {
             presetPickerRow
             presetActionButtons
-            presetStatusView
             presetDetailFields
+            presetApplyStatusRow
             presetApplyRow
         } header: {
             if hideHeader {
@@ -356,40 +357,6 @@ struct SettingsView: View {
         #endif
     }
 
-    @ViewBuilder
-    private var presetStatusView: some View {
-        if settingsManager.isApplyingPreset {
-            HStack(spacing: 8) {
-                ProgressView()
-                Text("Applying preset...")
-                    .foregroundColor(.secondary)
-                Spacer()
-            }
-            .padding(.top, 2)
-        } else if let err = settingsManager.lastApplyError, !err.isEmpty {
-            HStack(spacing: 8) {
-                Image(systemName: "exclamationmark.triangle.fill").foregroundColor(.orange)
-                Text(err).foregroundColor(.secondary)
-                Spacer()
-            }
-            .padding(.top, 2)
-        }
-    }
-
-    @ViewBuilder
-    private var chatServerStatusView: some View {
-        if let message = chatServerErrorMessage, !message.isEmpty {
-            HStack(spacing: 8) {
-                Image(systemName: "exclamationmark.triangle.fill")
-                    .foregroundColor(.orange)
-                Text(message)
-                    .foregroundColor(.secondary)
-                Spacer()
-            }
-            .padding(.top, 2)
-        }
-    }
-
     private var presetDetailFields: some View {
         Group {
             LabeledTextField(label: "Preset Name",
@@ -421,11 +388,66 @@ struct SettingsView: View {
             Button {
                 viewModel.applySelectedPresetNow()
             } label: {
-                Label("Apply Preset Now", systemImage: "arrow.triangle.2.circlepath.circle.fill")
+                Label("Apply Preset Now", systemImage: "arrow.triangle.2.circlepath.circle")
             }
+            .settingsActionButtonStyle()
+            #if os(macOS)
+            .help("Apply selected preset now")
+            #endif
             .disabled(settingsManager.isApplyingPreset || viewModel.selectedPresetID == nil)
         }
-        .padding(.top, 6)
+    }
+
+    private var presetApplyStatusRow: some View {
+        let shouldShowMessage = settingsManager.isApplyingPreset
+            || !(settingsManager.lastApplyError?.isEmpty ?? true)
+            || (settingsManager.lastPresetApplyAt != nil && settingsManager.lastPresetApplySucceeded)
+
+        return HStack { Spacer() }
+            .frame(minHeight: 22)
+            .overlay(alignment: .leading) {
+                if settingsManager.isApplyingPreset {
+                    HStack(spacing: 8) {
+                        ProgressView()
+                            #if os(macOS)
+                            .controlSize(.small)
+                            #endif
+                        Text("Applying preset...")
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                } else if let err = settingsManager.lastApplyError, !err.isEmpty {
+                    HStack(spacing: 8) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .foregroundStyle(.orange)
+                        Text(err)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    #if os(macOS)
+                    .help(err)
+                    #endif
+                } else if settingsManager.lastPresetApplyAt != nil, settingsManager.lastPresetApplySucceeded {
+                    HStack(spacing: 8) {
+                        Image(systemName: "checkmark.circle.fill")
+                            .foregroundStyle(.green)
+                        Text("Preset applied successfully.")
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            }
+            .opacity(shouldShowMessage ? 1 : 0)
+            .accessibilityHidden(!shouldShowMessage)
+            #if !os(macOS)
+            .listRowSeparator(shouldShowMessage ? .visible : .hidden)
+            #endif
     }
 
     @ViewBuilder
@@ -569,40 +591,105 @@ struct SettingsView: View {
 
     @ViewBuilder
     private func chatModelSection(hideHeader: Bool = false) -> some View {
+        let hasModelListError = !(chatServerErrorMessage?.isEmpty ?? true)
+        let showModelPicker = !(isLoadingModels || hasModelListError)
+
         Section {
-            if isLoadingModels {
-                HStack {
-                    ProgressView("Loading model list...")
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
-            } else {
-                #if os(macOS)
-                LabeledContent("Model") {
-                    Picker("", selection: $viewModel.selectedModel) {
-                        ForEach(availableModels, id: \.self) { model in
-                            Text(model).tag(model)
+            #if os(macOS)
+            LabeledContent("Model") {
+                ZStack(alignment: .trailing) {
+                    HStack {
+                        Spacer(minLength: 0)
+                        Picker("", selection: $viewModel.selectedModel) {
+                            ForEach(availableModels, id: \.self) { model in
+                                Text(model).tag(model)
+                            }
                         }
+                        .labelsHidden()
                     }
-                    .labelsHidden()
-                }
-                #else
-                Picker("Model", selection: $viewModel.selectedModel) {
-                    ForEach(availableModels, id: \.self) { model in
-                        Text(model).tag(model)
+                    .opacity(showModelPicker ? 1 : 0)
+                    .allowsHitTesting(showModelPicker)
+                    .accessibilityHidden(!showModelPicker)
+
+                    if isLoadingModels {
+                        HStack(spacing: 8) {
+                            ProgressView()
+                                .controlSize(.small)
+                            Text("Loading model list...")
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                                .truncationMode(.tail)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .trailing)
+                    } else if let message = chatServerErrorMessage, !message.isEmpty {
+                        HStack(spacing: 8) {
+                            Image(systemName: "exclamationmark.triangle.fill")
+                                .foregroundStyle(.orange)
+                            Text(message)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                                .truncationMode(.tail)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .trailing)
+                        .help(message)
                     }
                 }
-                #endif
+                .frame(maxWidth: .infinity, alignment: .trailing)
             }
+            #else
+            LabeledContent("Model") {
+                ZStack(alignment: .trailing) {
+                    HStack {
+                        Spacer(minLength: 0)
+                        Picker("", selection: $viewModel.selectedModel) {
+                            ForEach(availableModels, id: \.self) { model in
+                                Text(model).tag(model)
+                            }
+                        }
+                        .labelsHidden()
+                    }
+                    .pickerStyle(.menu)
+                    .opacity(showModelPicker ? 1 : 0)
+                    .allowsHitTesting(showModelPicker)
+                    .accessibilityHidden(!showModelPicker)
+
+                    if isLoadingModels {
+                        HStack(spacing: 8) {
+                            ProgressView()
+                            Text("Loading model list...")
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                                .truncationMode(.tail)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .trailing)
+                    } else if let message = chatServerErrorMessage, !message.isEmpty {
+                        HStack(spacing: 8) {
+                            Image(systemName: "exclamationmark.triangle.fill")
+                                .foregroundStyle(.orange)
+                            Text(message)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                                .truncationMode(.tail)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .trailing)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .trailing)
+            }
+            #endif
 
             HStack {
                 Spacer()
                 Button(action: fetchAvailableModels) {
                     Label("Refresh Model List", systemImage: "arrow.clockwise.circle")
                 }
+                .settingsActionButtonStyle()
+                #if os(macOS)
+                .help("Refresh available model list")
+                #endif
+                .disabled(isLoadingModels)
             }
             .padding(.top, 6)
-
-            chatServerStatusView
         } header: {
             if hideHeader {
                 EmptyView()
@@ -820,21 +907,24 @@ struct SettingsView: View {
     // MARK: - Networking (List Models)
 
     private func fetchAvailableModels() {
+        let requestID = UUID()
+        modelFetchRequestID = requestID
+
+        isLoadingModels = true
         chatServerErrorMessage = nil
 
-        guard !viewModel.apiURL.isEmpty else {
+        let apiURL = viewModel.apiURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !apiURL.isEmpty else {
             isLoadingModels = false
             chatServerErrorMessage = NSLocalizedString("Server URL is empty or invalid.", comment: "Shown when the model list URL is missing")
             return
         }
 
-        guard let url = buildModelsURL(from: viewModel.apiURL) else {
+        guard let url = buildModelsURL(from: apiURL) else {
             isLoadingModels = false
             chatServerErrorMessage = NSLocalizedString("Invalid Server URL", comment: "Shown when the model list URL cannot be parsed")
             return
         }
-
-        isLoadingModels = true
 
         var request = URLRequest(url: url, timeoutInterval: 30)
         let rawKey = viewModel.chatAPIKey.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -844,6 +934,7 @@ struct SettingsView: View {
         }
         URLSession.shared.dataTask(with: request) { data, response, error in
             DispatchQueue.main.async {
+                guard self.modelFetchRequestID == requestID else { return }
                 self.isLoadingModels = false
 
                 if let error = error {
@@ -922,6 +1013,21 @@ private struct WindowSizeReader: View {
     }
 }
 #endif
+
+private extension View {
+    @ViewBuilder
+    func settingsActionButtonStyle() -> some View {
+        #if os(macOS)
+        self
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+        #else
+        self
+            .buttonStyle(.bordered)
+            .controlSize(.regular)
+        #endif
+    }
+}
 
 // MARK: - LabeledTextField
 
