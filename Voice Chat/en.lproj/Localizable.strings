@@ -2,6 +2,7 @@
 "API URL is empty or invalid." = "API URL is empty or invalid.";
 "Apply Preset Now" = "Apply Preset Now";
 "Applying preset..." = "Applying preset...";
+"Preset applied successfully." = "Preset applied successfully.";
 "Buffering" = "Buffering";
 "Cancel" = "Cancel";
 "Cancel editing and restore the conversation" = "Cancel editing and restore the conversation";
