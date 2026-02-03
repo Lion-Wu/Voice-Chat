@@ -55,6 +55,7 @@
 "Rename Chat" = "重命名聊天";
 "Request failed: %@" = "请求失败：%@";
 "Retry" = "重试";
+"Retrying (attempt %d)..." = "正在重试（第 %d 次）...";
 "Select Model" = "选择模型";
 "Select Text" = "选择文本";
 "Send Message" = "发送消息";

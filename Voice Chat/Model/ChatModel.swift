@@ -111,8 +111,21 @@ struct Delta: Codable {
 
 enum ChatNetworkError: Error {
     case invalidURL
-    case serverError(String)
+    case serverError(statusCode: Int?, message: String)
     case timeout(String)
+}
+
+extension ChatNetworkError: LocalizedError {
+    var errorDescription: String? {
+        switch self {
+        case .invalidURL:
+            return NSLocalizedString("Invalid API URL", comment: "Shown when the configured chat API URL is invalid")
+        case .serverError(_, let message):
+            return message
+        case .timeout(let message):
+            return message
+        }
+    }
 }
 
 // MARK: - Configuration
@@ -176,11 +189,14 @@ final class ChatService: NSObject, URLSessionDataDelegate, @unchecked Sendable {
     private let decoder = JSONDecoder()
 
     // Watchdog configuration to cover long-running sessions (up to ~1 hour).
+    private let connectTimeout: TimeInterval = 8             // Fail fast if we can't establish a connection.
     private let firstTokenTimeout: TimeInterval = 3600        // Wait up to one hour for the first token.
     private let silentGapTimeout: TimeInterval  = 3600        // Allow up to one hour of silence between tokens.
     private var streamStartAt: Date?
+    private var responseReceivedAt: Date?
     private var lastDeltaAt: Date?
     private var watchdog: DispatchSourceTimer?
+    private var connectionWatchdog: DispatchSourceTimer?
 
     // Cancel flag to ignore any residual deltas after stopping.
     private var isCancelled: Bool = false
@@ -224,7 +240,7 @@ final class ChatService: NSObject, URLSessionDataDelegate, @unchecked Sendable {
         super.init()
         self.delegateProxy.owner = self
         let configuration = URLSessionConfiguration.default
-        configuration.waitsForConnectivity = true
+        configuration.waitsForConnectivity = false
         configuration.timeoutIntervalForRequest  = 3900   // Adds a few minutes of headroom beyond one hour.
         configuration.timeoutIntervalForResource = 3900
         configuration.httpMaximumConnectionsPerHost = 1
@@ -233,6 +249,7 @@ final class ChatService: NSObject, URLSessionDataDelegate, @unchecked Sendable {
 
     deinit {
         session?.invalidateAndCancel()
+        stopConnectionWatchdog()
         stopWatchdog()
     }
 
@@ -308,8 +325,10 @@ final class ChatService: NSObject, URLSessionDataDelegate, @unchecked Sendable {
         }
 
         streamStartAt = Date()
+        responseReceivedAt = nil
         lastDeltaAt = nil
         startWatchdog()
+        startConnectionWatchdog()
 
         dataTask = session?.dataTask(with: request)
         dataTask?.resume()
@@ -324,9 +343,11 @@ final class ChatService: NSObject, URLSessionDataDelegate, @unchecked Sendable {
         streamFinishedEmitted = false
         ssePartialLine = ""
         streamStartAt = nil
+        responseReceivedAt = nil
         lastDeltaAt = nil
         httpStatusCode = nil
         errorResponseData.removeAll(keepingCapacity: true)
+        stopConnectionWatchdog()
     }
 
     private func transformedMessagesForRequest(messages: [ChatMessage], developerPrompt: String?) -> [[String: String]] {
@@ -383,6 +404,8 @@ final class ChatService: NSObject, URLSessionDataDelegate, @unchecked Sendable {
             completionHandler(.cancel)
             return
         }
+        responseReceivedAt = Date()
+        stopConnectionWatchdog()
         if let http = response as? HTTPURLResponse {
             httpStatusCode = http.statusCode
             if !(200...299).contains(http.statusCode) {
@@ -412,7 +435,7 @@ final class ChatService: NSObject, URLSessionDataDelegate, @unchecked Sendable {
             dataTask.cancel()
             stopWatchdog()
             Task { @MainActor in
-                self.onError?(ChatNetworkError.serverError("Stream payload exceeded safety limit"))
+                self.onError?(ChatNetworkError.serverError(statusCode: nil, message: "Stream payload exceeded safety limit"))
             }
             return
         }
@@ -500,6 +523,7 @@ final class ChatService: NSObject, URLSessionDataDelegate, @unchecked Sendable {
 
     func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
         guard let currentTask = self.dataTask, task === currentTask else { return }
+        stopConnectionWatchdog()
         stopWatchdog()
         dataTask = nil
 
@@ -516,7 +540,7 @@ final class ChatService: NSObject, URLSessionDataDelegate, @unchecked Sendable {
                 let snippet = preview.prefix(400)
                 message = "HTTP \(status): \(snippet)"
             }
-            Task { @MainActor in self.onError?(ChatNetworkError.serverError(message)) }
+            Task { @MainActor in self.onError?(ChatNetworkError.serverError(statusCode: status, message: message)) }
             return
         }
 
@@ -549,8 +573,11 @@ final class ChatService: NSObject, URLSessionDataDelegate, @unchecked Sendable {
                 if now.timeIntervalSince(start) > self.firstTokenTimeout {
                     self.dataTask?.cancel()
                     self.dataTask = nil
+                    self.stopConnectionWatchdog()
                     self.stopWatchdog()
-                    Task { @MainActor in self.onError?(ChatNetworkError.timeout("Connection timed out")) }
+                    Task { @MainActor in
+                        self.onError?(ChatNetworkError.timeout(NSLocalizedString("Connection timed out", comment: "Shown when the chat server request exceeds the timeout")))
+                    }
                 }
                 return
             }
@@ -559,8 +586,11 @@ final class ChatService: NSObject, URLSessionDataDelegate, @unchecked Sendable {
                 if now.timeIntervalSince(last) > self.silentGapTimeout {
                     self.dataTask?.cancel()
                     self.dataTask = nil
+                    self.stopConnectionWatchdog()
                     self.stopWatchdog()
-                    Task { @MainActor in self.onError?(ChatNetworkError.timeout("Connection timed out")) }
+                    Task { @MainActor in
+                        self.onError?(ChatNetworkError.timeout(NSLocalizedString("Connection timed out", comment: "Shown when the chat server request exceeds the timeout")))
+                    }
                 }
             }
         }
@@ -571,6 +601,32 @@ final class ChatService: NSObject, URLSessionDataDelegate, @unchecked Sendable {
     private func stopWatchdog() {
         watchdog?.cancel()
         watchdog = nil
+    }
+
+    private func startConnectionWatchdog() {
+        stopConnectionWatchdog()
+        let timer = DispatchSource.makeTimerSource(queue: stateQueue)
+        timer.schedule(deadline: .now() + connectTimeout, repeating: .never, leeway: .seconds(1))
+        timer.setEventHandler { [weak self] in
+            guard let self else { return }
+            guard !self.isCancelled else { return }
+            guard let task = self.dataTask else { return }
+            guard self.responseReceivedAt == nil else { return }
+            task.cancel()
+            self.dataTask = nil
+            self.stopWatchdog()
+            self.stopConnectionWatchdog()
+            Task { @MainActor in
+                self.onError?(ChatNetworkError.timeout(NSLocalizedString("Connection timed out", comment: "Shown when connecting to the chat server takes too long")))
+            }
+        }
+        connectionWatchdog = timer
+        timer.resume()
+    }
+
+    private func stopConnectionWatchdog() {
+        connectionWatchdog?.cancel()
+        connectionWatchdog = nil
     }
 
     private func emitStreamFinishedOnce() {

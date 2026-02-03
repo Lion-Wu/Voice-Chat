@@ -280,6 +280,16 @@ final class VoiceChatOverlayViewModel: ObservableObject {
                 self.markLoadingProgress()
             }
             .store(in: &sessionCancellables)
+
+        chatViewModel.$retryAttempt
+            .removeDuplicates()
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in
+                guard let self else { return }
+                guard self.isPresented else { return }
+                self.markLoadingProgress()
+            }
+            .store(in: &sessionCancellables)
     }
 
     // MARK: - State transitions

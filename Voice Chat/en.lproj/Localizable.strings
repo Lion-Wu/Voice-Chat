@@ -59,6 +59,7 @@
 "Rename Chat" = "Rename Chat";
 "Request failed: %@" = "Request failed: %@";
 "Retry" = "Retry";
+"Retrying (attempt %d)..." = "Retrying (attempt %d)...";
 "Select Model" = "Select Model";
 "Select Text" = "Select Text";
 "Send Message" = "Send Message";
