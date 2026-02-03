@@ -7,6 +7,7 @@
 
 import Foundation
 import SwiftData
+import Combine
 
 @MainActor
 final class ChatSessionsViewModel: ObservableObject {
@@ -15,9 +16,12 @@ final class ChatSessionsViewModel: ObservableObject {
     @Published private(set) var draftSession: ChatSession = ChatSession()
     @Published var selectedSessionID: UUID? = nil
     @Published private(set) var isRealtimeVoiceLocked: Bool = false
+    @Published private(set) var hasActiveTextRequests: Bool = false
 
     // MARK: - Cached View Models
     private var viewModelCache: [UUID: ChatViewModel] = [:]
+    private var activityCancellables: [UUID: AnyCancellable] = [:]
+    private var sessionsWithActiveTextRequests: Set<UUID> = []
 
     // MARK: - Dependencies
     private let settingsManager: SettingsManager
@@ -76,10 +80,6 @@ final class ChatSessionsViewModel: ObservableObject {
         !isRealtimeVoiceLocked
     }
 
-    var hasActiveTextRequests: Bool {
-        viewModelCache.values.contains { $0.isLoading || $0.isPriming }
-    }
-
     func cancelAllActiveTextRequests() {
         viewModelCache.values.forEach { $0.cancelCurrentRequest() }
     }
@@ -106,6 +106,7 @@ final class ChatSessionsViewModel: ObservableObject {
         ensureChatConfigurationCurrent()
         if let cached = viewModelCache[session.id] {
             cached.attach(session: session)
+            bindActivity(for: cached, sessionID: session.id)
             return cached
         }
         let config = cachedChatConfiguration
@@ -119,6 +120,7 @@ final class ChatSessionsViewModel: ObservableObject {
             sessionPersistence: self
         )
         viewModelCache[session.id] = vm
+        bindActivity(for: vm, sessionID: session.id)
         return vm
     }
 
@@ -139,11 +141,12 @@ final class ChatSessionsViewModel: ObservableObject {
         if let existing = viewModelCache[session.id] {
             existing.attach(session: session)
             viewModelCache[session.id] = existing
+            bindActivity(for: existing, sessionID: session.id)
             return
         }
 
         let config = cachedChatConfiguration
-        viewModelCache[session.id] = ChatViewModel(
+        let vm = ChatViewModel(
             chatSession: session,
             chatService: chatServiceFactory(config),
             chatServiceFactory: chatServiceFactory,
@@ -152,6 +155,8 @@ final class ChatSessionsViewModel: ObservableObject {
             audioManager: audioManager,
             sessionPersistence: self
         )
+        viewModelCache[session.id] = vm
+        bindActivity(for: vm, sessionID: session.id)
     }
 
     func addSession(_ session: ChatSession) {
@@ -166,6 +171,7 @@ final class ChatSessionsViewModel: ObservableObject {
         for index in offsets {
             let s = chatSessions[index]
             viewModelCache.removeValue(forKey: s.id)
+            unbindActivity(for: s.id)
             repository.delete(s) // SwiftData cascades to remove related messages.
         }
         loadChatSessions() // Keeps list in sync with persisted state.
@@ -200,6 +206,7 @@ final class ChatSessionsViewModel: ObservableObject {
         let staleKeys = viewModelCache.keys.filter { !validIDs.contains($0) }
         for key in staleKeys {
             viewModelCache.removeValue(forKey: key)
+            unbindActivity(for: key)
         }
     }
 
@@ -252,6 +259,44 @@ final class ChatSessionsViewModel: ObservableObject {
             }
         } else {
             selectedSessionID = chatSessions.first?.id ?? draftSession.id
+        }
+    }
+
+    // MARK: - Activity tracking
+
+    private func bindActivity(for viewModel: ChatViewModel, sessionID: UUID) {
+        activityCancellables[sessionID]?.cancel()
+
+        // Seed the current state so `hasActiveTextRequests` is correct even before the first emission.
+        setTextRequestActive(viewModel.isLoading || viewModel.isPriming, for: sessionID)
+
+        let cancellable = Publishers.CombineLatest(viewModel.$isLoading, viewModel.$isPriming)
+            .map { isLoading, isPriming in isLoading || isPriming }
+            .removeDuplicates()
+            .receive(on: RunLoop.main)
+            .sink { [weak self] active in
+                self?.setTextRequestActive(active, for: sessionID)
+            }
+
+        activityCancellables[sessionID] = cancellable
+    }
+
+    private func unbindActivity(for sessionID: UUID) {
+        activityCancellables[sessionID]?.cancel()
+        activityCancellables.removeValue(forKey: sessionID)
+        setTextRequestActive(false, for: sessionID)
+    }
+
+    private func setTextRequestActive(_ active: Bool, for sessionID: UUID) {
+        if active {
+            sessionsWithActiveTextRequests.insert(sessionID)
+        } else {
+            sessionsWithActiveTextRequests.remove(sessionID)
+        }
+
+        let nowActive = !sessionsWithActiveTextRequests.isEmpty
+        if hasActiveTextRequests != nowActive {
+            hasActiveTextRequests = nowActive
         }
     }
 }

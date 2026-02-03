@@ -9,6 +9,9 @@ import Foundation
 import SwiftUI
 import SwiftData
 import Combine
+#if canImport(UIKit)
+import UIKit
+#endif
 
 /// Central place to build and share app-scoped dependencies.
 @MainActor
@@ -28,6 +31,8 @@ final class AppEnvironment: ObservableObject {
     private var reachabilityTask: Task<Void, Never>?
     private var didBindModelContext = false
     private var didStart = false
+    private var keepAwakeActivity: NSObjectProtocol?
+    private var isKeepingAwake: Bool = false
 
     init(
         audioManager: GlobalAudioManager? = nil,
@@ -59,6 +64,7 @@ final class AppEnvironment: ObservableObject {
         )
 #endif
         bindRealtimeVoiceLock()
+        bindKeepAwake()
     }
 
     /// Bootstraps the environment exactly once after SwiftData is available.
@@ -127,6 +133,72 @@ final class AppEnvironment: ObservableObject {
                 self?.chatSessionsViewModel.updateRealtimeVoiceLock(active)
             }
             .store(in: &cancellables)
+    }
+
+    private func bindKeepAwake() {
+        let textActive = chatSessionsViewModel.$hasActiveTextRequests
+            .removeDuplicates()
+
+        let audioActive = Publishers.CombineLatest4(
+            audioManager.$isAudioPlaying,
+            audioManager.$isLoading,
+            audioManager.$isBuffering,
+            audioManager.$isRetrying
+        )
+        .map { playing, loading, buffering, retrying in
+            playing || loading || buffering || retrying
+        }
+        .removeDuplicates()
+
+        let voiceActive = Publishers.CombineLatest3(
+            voiceOverlayViewModel.$isPresented,
+            voiceOverlayViewModel.$state,
+            audioManager.$isRealtimeMode
+        )
+        .map { presented, state, realtime in
+            let overlayOK: Bool
+            if presented {
+                if case .error = state {
+                    overlayOK = false
+                } else {
+                    overlayOK = true
+                }
+            } else {
+                overlayOK = false
+            }
+            return overlayOK || realtime
+        }
+        .removeDuplicates()
+
+        Publishers.CombineLatest3(textActive, audioActive, voiceActive)
+            .map { text, audio, voice in text || audio || voice }
+            .removeDuplicates()
+            .receive(on: RunLoop.main)
+            .sink { [weak self] active in
+                self?.applyKeepAwake(active)
+            }
+            .store(in: &cancellables)
+    }
+
+    private func applyKeepAwake(_ active: Bool) {
+        guard active != isKeepingAwake else { return }
+        isKeepingAwake = active
+
+#if os(macOS)
+        if active {
+            if keepAwakeActivity == nil {
+                keepAwakeActivity = ProcessInfo.processInfo.beginActivity(
+                    options: [.idleSystemSleepDisabled, .idleDisplaySleepDisabled],
+                    reason: "Voice Chat active"
+                )
+            }
+        } else if let activity = keepAwakeActivity {
+            ProcessInfo.processInfo.endActivity(activity)
+            keepAwakeActivity = nil
+        }
+#elseif canImport(UIKit)
+        UIApplication.shared.isIdleTimerDisabled = active
+#endif
     }
 }
 
