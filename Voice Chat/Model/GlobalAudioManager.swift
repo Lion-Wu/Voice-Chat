@@ -21,6 +21,9 @@ final class GlobalAudioManager: NSObject, ObservableObject, AVAudioPlayerDelegat
     @Published var isLoading: Bool = false
     @Published var isBuffering: Bool = false
     @Published var errorMessage: String?
+    @Published var isRetrying: Bool = false
+    @Published var retryAttempt: Int = 0
+    @Published var retryLastError: String? = nil
 
     // Published output level (0...1) so the realtime overlay can animate while speaking.
     @Published var outputLevel: Float = 0
@@ -46,6 +49,16 @@ final class GlobalAudioManager: NSObject, ObservableObject, AVAudioPlayerDelegat
 
     var dataTasks: [URLSessionDataTask] = []
     var inFlightIndexes: Set<Int> = []
+    var ttsRetryTasks: [Int: Task<Void, Never>] = [:]
+    var ttsRetryCounts: [Int: Int] = [:]
+    var ttsRetryingIndexes: Set<Int> = []
+    let ttsRetryPolicy = NetworkRetryPolicy(
+        maxAttempts: nil,
+        baseDelay: 0.6,
+        maxDelay: 12.0,
+        backoffFactor: 1.6,
+        jitterRatio: 0.2
+    )
 
     // MARK: - Seek State
     var seekTime: TimeInterval?
@@ -284,6 +297,13 @@ final class GlobalAudioManager: NSObject, ObservableObject, AVAudioPlayerDelegat
         dataTasks.removeAll()
         inFlightIndexes.removeAll()
         pendingRealtimeIndexes.removeAll()
+        ttsRetryTasks.values.forEach { $0.cancel() }
+        ttsRetryTasks.removeAll()
+        ttsRetryCounts.removeAll()
+        ttsRetryingIndexes.removeAll()
+        isRetrying = false
+        retryAttempt = 0
+        retryLastError = nil
 
         audioPlayer?.stop()
         audioPlayer = nil
@@ -305,6 +325,9 @@ final class GlobalAudioManager: NSObject, ObservableObject, AVAudioPlayerDelegat
         isSeeking = false
         seekTime = nil
         errorMessage = nil
+        isRetrying = false
+        retryAttempt = 0
+        retryLastError = nil
         outputLevel = 0
 
         lastObservedPlaybackTime = 0

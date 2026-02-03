@@ -90,13 +90,41 @@ final class MarkdownImageLoader {
         }
         inFlight[url as NSURL] = [completion]
 
-        let task = URLSession.shared.dataTask(with: url) { data, _, _ in
+        Task.detached(priority: .utility) {
+            let data: Data?
+            if url.isFileURL {
+                data = try? Data(contentsOf: url)
+            } else {
+                let policy = NetworkRetryPolicy(
+                    maxAttempts: 3,
+                    baseDelay: 0.3,
+                    maxDelay: 2.0,
+                    backoffFactor: 1.6,
+                    jitterRatio: 0.2
+                )
+                do {
+                    let (fetched, _) = try await NetworkRetry.run(policy: policy) {
+                        let request = URLRequest(url: url, timeoutInterval: 20)
+                        let (data, resp) = try await URLSession.shared.data(for: request)
+                        if let http = resp as? HTTPURLResponse,
+                           !(200...299).contains(http.statusCode) {
+                            throw HTTPStatusError(statusCode: http.statusCode, bodyPreview: nil)
+                        }
+                        return (data, resp)
+                    }
+                    data = fetched
+                } catch {
+                    data = nil
+                }
+            }
+
             var image: MarkdownPlatformImage?
             if let data, let decoded = MarkdownPlatformImage(data: data) {
                 image = decoded
             }
             let sendableImage = SendableImage(image: image)
-            Task { @MainActor in
+
+            await MainActor.run {
                 let loader = MarkdownImageLoader.shared
                 if let decoded = sendableImage.image {
                     loader.cache.setObject(decoded, forKey: url as NSURL)
@@ -105,7 +133,6 @@ final class MarkdownImageLoader {
                 completions.forEach { $0(sendableImage.image) }
             }
         }
-        task.resume()
     }
 
     private func resolveURL(from source: String) -> URL? {

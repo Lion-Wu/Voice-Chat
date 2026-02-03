@@ -897,7 +897,9 @@ struct ChatView: View {
                 .animation(.spring(response: 0.35, dampingFraction: 0.85), value: visibleMessages.map(\.id))
             }
 
-            if viewModel.isPriming {
+            if viewModel.isRetrying {
+                AssistantAlignedRetryingBubble(attempt: viewModel.retryAttempt, lastError: viewModel.retryLastError)
+            } else if viewModel.isPriming {
                 AssistantAlignedLoadingBubble()
             }
 

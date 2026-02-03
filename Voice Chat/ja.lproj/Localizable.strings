@@ -55,6 +55,7 @@
 "Rename Chat" = "チャットの名前を変更";
 "Request failed: %@" = "リクエストに失敗しました: %@";
 "Retry" = "再試行";
+"Retrying (attempt %d)..." = "再試行中（%d回目）...";
 "Select Model" = "モデルを選択";
 "Select Text" = "テキストを選択";
 "Send Message" = "メッセージを送信";

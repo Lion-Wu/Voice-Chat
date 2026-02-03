@@ -37,12 +37,22 @@ extension GlobalAudioManager {
         guard currentChunkIndex < textSegments.count else { return }
         guard !isRealtimeMode else { return } // Realtime mode does not recurse through the queue.
         let idx = currentChunkIndex
-        currentChunkIndex += 1
-        sendTTSRequest(for: textSegments[idx], index: idx)
+        sendTTSRequest(for: textSegments[idx], index: idx, advanceSequenceOnSuccess: true)
     }
 
-    func sendTTSRequest(for segmentText: String, index: Int) {
+    func sendTTSRequest(for segmentText: String, index: Int, advanceSequenceOnSuccess: Bool = false) {
         guard !inFlightIndexes.contains(index) else { return }
+        cancelScheduledTTSAutoRetry(for: index)
+        if index < audioChunks.count, audioChunks[index] != nil {
+            clearTTSAutoRetry(for: index)
+            if !isRealtimeMode,
+               advanceSequenceOnSuccess,
+               index == currentChunkIndex {
+                currentChunkIndex = index + 1
+                sendNextSegment()
+            }
+            return
+        }
         guard let url = constructTTSURL() else {
             let address = settingsManager.serverSettings.serverAddress
             let message = String(format: NSLocalizedString("Unable to construct TTS URL from %@", comment: "Shown when the TTS endpoint URL cannot be built"), address)
@@ -101,9 +111,6 @@ extension GlobalAudioManager {
                     self.inFlightIndexes.remove(index)
                     if self.isRealtimeMode {
                         self.processRealtimeQueueIfNeeded()
-                    } else {
-                        // Non-realtime mode continues with the next segment immediately.
-                        self.sendNextSegment()
                     }
                     self.concludeRealtimeIfIdle()
                 }
@@ -112,7 +119,19 @@ extension GlobalAudioManager {
                     if err.domain == NSURLErrorDomain && err.code == NSURLErrorCancelled {
                         return
                     }
-                    self.surfaceTTSIssue(self.formatTTSNetworkError(err))
+                    let message = self.formatTTSNetworkError(err)
+                    if self.shouldAutoRetryTTS(error: err, statusCode: nil, isNoData: false) {
+                        self.scheduleTTSAutoRetry(
+                            segmentText: segmentText,
+                            index: index,
+                            generationID: genAtRequest,
+                            advanceSequenceOnSuccess: advanceSequenceOnSuccess,
+                            lastErrorMessage: message
+                        )
+                        return
+                    }
+                    self.clearTTSAutoRetry(for: index)
+                    self.surfaceTTSIssue(message)
                     return
                 }
 
@@ -127,6 +146,17 @@ extension GlobalAudioManager {
                             let snippet = preview.prefix(180)
                             message = String(format: NSLocalizedString("TTS server error: %d (%@)", comment: "Shown when the TTS server returns a non-success status plus body"), http.statusCode, String(snippet))
                         }
+                        if self.shouldAutoRetryTTS(error: nil, statusCode: http.statusCode, isNoData: false) {
+                            self.scheduleTTSAutoRetry(
+                                segmentText: segmentText,
+                                index: index,
+                                generationID: genAtRequest,
+                                advanceSequenceOnSuccess: advanceSequenceOnSuccess,
+                                lastErrorMessage: message
+                            )
+                            return
+                        }
+                        self.clearTTSAutoRetry(for: index)
                         self.surfaceTTSIssue(message)
                         return
                     }
@@ -142,15 +172,30 @@ extension GlobalAudioManager {
                             let snippet = preview.prefix(180)
                             message = String(format: NSLocalizedString("TTS response was not audio: %@", comment: "Shown when TTS returns non-audio body"), String(snippet))
                         }
+                        self.clearTTSAutoRetry(for: index)
                         self.surfaceTTSIssue(message)
                         return
                     }
                 }
 
                 guard let data = data, !data.isEmpty else {
-                    self.surfaceTTSIssue(NSLocalizedString("No data received", comment: "Shown when the TTS server returns an empty body"))
+                    let message = NSLocalizedString("No data received", comment: "Shown when the TTS server returns an empty body")
+                    if self.shouldAutoRetryTTS(error: nil, statusCode: nil, isNoData: true) {
+                        self.scheduleTTSAutoRetry(
+                            segmentText: segmentText,
+                            index: index,
+                            generationID: genAtRequest,
+                            advanceSequenceOnSuccess: advanceSequenceOnSuccess,
+                            lastErrorMessage: message
+                        )
+                        return
+                    }
+                    self.clearTTSAutoRetry(for: index)
+                    self.surfaceTTSIssue(message)
                     return
                 }
+
+                self.clearTTSAutoRetry(for: index)
 
                 // Ensure the arrays grow safely when realtime mode extends them dynamically.
                 if index >= self.audioChunks.count {
@@ -203,11 +248,94 @@ extension GlobalAudioManager {
                 if index == self.currentPlayingIndex + 1 {
                     self.prepareNextAudioChunk(at: index)
                 }
+
+                if !self.isRealtimeMode,
+                   advanceSequenceOnSuccess,
+                   index == self.currentChunkIndex {
+                    self.currentChunkIndex = index + 1
+                    self.sendNextSegment()
+                }
             }
         }
         if let task {
             task.resume()
             dataTasks.append(task)
+        }
+    }
+
+    private func shouldAutoRetryTTS(error: Error?, statusCode: Int?, isNoData: Bool) -> Bool {
+        // Realtime voice mode deliberately avoids auto-retry for now.
+        if isRealtimeMode { return false }
+        if let error {
+            return NetworkRetryability.shouldRetry(error)
+        }
+        if let statusCode {
+            return NetworkRetryability.shouldRetry(statusCode: statusCode)
+        }
+        if isNoData {
+            return true
+        }
+        return false
+    }
+
+    private func scheduleTTSAutoRetry(
+        segmentText: String,
+        index: Int,
+        generationID: UUID,
+        advanceSequenceOnSuccess: Bool,
+        lastErrorMessage: String
+    ) {
+        guard !isRealtimeMode else { return }
+
+        let retryCount = (ttsRetryCounts[index] ?? 0) + 1
+        ttsRetryCounts[index] = retryCount
+        ttsRetryingIndexes.insert(index)
+        updateTTSAutoRetryPublishedState(lastErrorMessage: lastErrorMessage)
+
+        let delay = ttsRetryPolicy.delay(forRetryCount: retryCount)
+
+        cancelScheduledTTSAutoRetry(for: index)
+        ttsRetryTasks[index] = Task { [weak self] in
+            await NetworkRetry.sleep(seconds: delay)
+            guard !Task.isCancelled else { return }
+            await MainActor.run { [weak self] in
+                guard let self else { return }
+                guard self.currentGenerationID == generationID else { return }
+                guard !self.isRealtimeMode else {
+                    self.clearTTSAutoRetry(for: index)
+                    return
+                }
+                if index < self.audioChunks.count, self.audioChunks[index] != nil {
+                    self.clearTTSAutoRetry(for: index)
+                    return
+                }
+                self.ttsRetryTasks[index] = nil
+                self.sendTTSRequest(for: segmentText, index: index, advanceSequenceOnSuccess: advanceSequenceOnSuccess)
+            }
+        }
+    }
+
+    private func cancelScheduledTTSAutoRetry(for index: Int) {
+        if let task = ttsRetryTasks.removeValue(forKey: index) {
+            task.cancel()
+        }
+    }
+
+    private func clearTTSAutoRetry(for index: Int) {
+        cancelScheduledTTSAutoRetry(for: index)
+        ttsRetryCounts.removeValue(forKey: index)
+        ttsRetryingIndexes.remove(index)
+        updateTTSAutoRetryPublishedState(lastErrorMessage: nil)
+    }
+
+    private func updateTTSAutoRetryPublishedState(lastErrorMessage: String?) {
+        isRetrying = !ttsRetryingIndexes.isEmpty
+        retryAttempt = ttsRetryingIndexes.compactMap { ttsRetryCounts[$0] }.max() ?? 0
+        if let lastErrorMessage {
+            let trimmed = lastErrorMessage.trimmingCharacters(in: .whitespacesAndNewlines)
+            retryLastError = trimmed.isEmpty ? nil : trimmed
+        } else if !isRetrying {
+            retryLastError = nil
         }
     }
 }

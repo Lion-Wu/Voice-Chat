@@ -290,6 +290,9 @@ final class SettingsManager: ObservableObject {
 
     // Tracks whether a preset is being applied and the last error, if any.
     @Published private(set) var isApplyingPreset: Bool = false
+    @Published private(set) var isRetryingPresetApply: Bool = false
+    @Published private(set) var presetApplyRetryAttempt: Int = 0
+    @Published private(set) var presetApplyRetryLastError: String?
     @Published private(set) var lastApplyError: String?
     @Published private(set) var lastPresetApplyAt: Date?
     @Published private(set) var lastPresetApplySucceeded: Bool = false
@@ -1393,10 +1396,18 @@ final class SettingsManager: ObservableObject {
         guard !isApplyingPreset else { return }
 
         isApplyingPreset = true
+        isRetryingPresetApply = false
+        presetApplyRetryAttempt = 0
+        presetApplyRetryLastError = nil
         lastApplyError = nil
         lastPresetApplyAt = nil
         lastPresetApplySucceeded = false
-        defer { isApplyingPreset = false }
+        defer {
+            isApplyingPreset = false
+            isRetryingPresetApply = false
+            presetApplyRetryAttempt = 0
+            presetApplyRetryLastError = nil
+        }
 
         // Update the legacy fields first so other components reading them remain in sync, even though TTS uses `selectedPreset`.
         serverSettings.refAudioPath = preset.refAudioPath
@@ -1419,29 +1430,72 @@ final class SettingsManager: ObservableObject {
             lastApplyError = message
             lastPresetApplyAt = Date()
             lastPresetApplySucceeded = false
+            isRetryingPresetApply = false
+            presetApplyRetryAttempt = 0
+            presetApplyRetryLastError = nil
         }
 
         func recordSuccess() {
             lastApplyError = nil
             lastPresetApplyAt = Date()
             lastPresetApplySucceeded = true
+            isRetryingPresetApply = false
+            presetApplyRetryAttempt = 0
+            presetApplyRetryLastError = nil
+        }
+
+        let retryPolicy = NetworkRetryPolicy(
+            maxAttempts: 4,
+            baseDelay: 0.5,
+            maxDelay: 4.0,
+            backoffFactor: 1.6,
+            jitterRatio: 0.2
+        )
+
+        func fetchWithRetry(_ url: URL) async throws -> Data {
+            let (data, _) = try await NetworkRetry.run(
+                policy: retryPolicy,
+                onRetry: { nextAttempt, _, error in
+                    await MainActor.run {
+                        self.isRetryingPresetApply = true
+                        self.presetApplyRetryAttempt = max(1, nextAttempt - 1)
+                        self.presetApplyRetryLastError = error.localizedDescription
+                    }
+                },
+                operation: {
+                    let (data, resp) = try await URLSession.shared.data(from: url)
+                    if let http = resp as? HTTPURLResponse,
+                       !(200...299).contains(http.statusCode) {
+                        let preview = String(data: data, encoding: .utf8)?
+                            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                        let snippet = preview.isEmpty ? nil : String(preview.prefix(180))
+                        throw HTTPStatusError(statusCode: http.statusCode, bodyPreview: snippet)
+                    }
+                    return (data, resp)
+                }
+            )
+            await MainActor.run {
+                self.isRetryingPresetApply = false
+                self.presetApplyRetryAttempt = 0
+                self.presetApplyRetryLastError = nil
+            }
+            return data
         }
 
         // 1) set_gpt_weights
         if let url1 = buildURL("/set_gpt_weights", weightsPath: preset.gptWeightsPath) {
             do {
-                let (data, resp) = try await URLSession.shared.data(from: url1)
-                guard let http = resp as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
-                    let code = (resp as? HTTPURLResponse)?.statusCode ?? -1
-                    recordFailure(String(format: NSLocalizedString("Set GPT weights failed (HTTP %d)", comment: "Shown when setting GPT weights fails with an HTTP status."), code))
-                    return
-                }
+                let data = try await fetchWithRetry(url1)
                 if let s = String(data: data, encoding: .utf8),
                    s.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() != "success" {
                     // Some implementations return an empty body; treat that as success.
                 }
             } catch {
-                recordFailure(String(format: NSLocalizedString("Set GPT weights failed: %@", comment: "Shown when setting GPT weights fails with an error."), error.localizedDescription))
+                if let statusError = error as? HTTPStatusError {
+                    recordFailure(String(format: NSLocalizedString("Set GPT weights failed (HTTP %d)", comment: "Shown when setting GPT weights fails with an HTTP status."), statusError.statusCode))
+                } else {
+                    recordFailure(String(format: NSLocalizedString("Set GPT weights failed: %@", comment: "Shown when setting GPT weights fails with an error."), error.localizedDescription))
+                }
                 return
             }
         } else {
@@ -1452,18 +1506,17 @@ final class SettingsManager: ObservableObject {
         // 2) set_sovits_weights
         if let url2 = buildURL("/set_sovits_weights", weightsPath: preset.sovitsWeightsPath) {
             do {
-                let (data, resp) = try await URLSession.shared.data(from: url2)
-                guard let http = resp as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
-                    let code = (resp as? HTTPURLResponse)?.statusCode ?? -1
-                    recordFailure(String(format: NSLocalizedString("Set SoVITS weights failed (HTTP %d)", comment: "Shown when setting SoVITS weights fails with an HTTP status."), code))
-                    return
-                }
+                let data = try await fetchWithRetry(url2)
                 if let s = String(data: data, encoding: .utf8),
                    s.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() != "success" {
                     // Same handling as above; empty bodies are considered success.
                 }
             } catch {
-                recordFailure(String(format: NSLocalizedString("Set SoVITS weights failed: %@", comment: "Shown when setting SoVITS weights fails with an error."), error.localizedDescription))
+                if let statusError = error as? HTTPStatusError {
+                    recordFailure(String(format: NSLocalizedString("Set SoVITS weights failed (HTTP %d)", comment: "Shown when setting SoVITS weights fails with an HTTP status."), statusError.statusCode))
+                } else {
+                    recordFailure(String(format: NSLocalizedString("Set SoVITS weights failed: %@", comment: "Shown when setting SoVITS weights fails with an error."), error.localizedDescription))
+                }
                 return
             }
         } else {

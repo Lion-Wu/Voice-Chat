@@ -33,6 +33,9 @@ final class ChatViewModel: ObservableObject {
     @Published var userMessage: String = ""
     @Published var isLoading: Bool = false
     @Published var isPriming: Bool = false
+    @Published private(set) var isRetrying: Bool = false
+    @Published private(set) var retryAttempt: Int = 0
+    @Published private(set) var retryLastError: String? = nil
     @Published var chatSession: ChatSession
 
     @Published var editingBaseMessageID: UUID? = nil
@@ -71,6 +74,14 @@ final class ChatViewModel: ObservableObject {
     private var streamingAssistantFingerprint: ContentFingerprint?
     private var pendingAssistantParentMessageID: UUID?
     private var pendingBranchRestore: PendingBranchRestore?
+    private var autoRetryTask: Task<Void, Never>?
+    private let streamRetryPolicy = NetworkRetryPolicy(
+        maxAttempts: nil,
+        baseDelay: 0.8,
+        maxDelay: 18.0,
+        backoffFactor: 1.6,
+        jitterRatio: 0.2
+    )
 
     // Emits content fingerprint updates (e.g., streaming deltas) to drive targeted UI refreshes.
     let messageContentDidChange = PassthroughSubject<MessageContentUpdate, Never>()
@@ -154,6 +165,12 @@ final class ChatViewModel: ObservableObject {
         let telemetry = activeStreamTelemetry
 
         let errorText = error.localizedDescription.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if shouldAutoRetryAfterError(error) {
+            scheduleAutoRetry(after: error, errorText: errorText)
+            return
+        }
+
         if !errorText.isEmpty {
             requestDidFail.send(errorText)
         }
@@ -161,6 +178,7 @@ final class ChatViewModel: ObservableObject {
         isPriming = false
         isLoading = false
         sending = false
+        resetRetryState()
 
         let interrupted = finalizeActiveAssistantMessage(
             reason: "error",
@@ -245,6 +263,7 @@ final class ChatViewModel: ObservableObject {
         isPriming = false
         isLoading = false
         sending = false
+        resetRetryState()
 
         if candidateFullText == nil {
             let lastAssistant = chatSession.messages
@@ -275,9 +294,11 @@ final class ChatViewModel: ObservableObject {
     func updateChatConfiguration(_ configuration: ChatServiceConfiguration) {
         guard configuration != chatConfiguration else { return }
 
+        cancelAutoRetryTask()
         chatService.cancelStreaming()
         finalizeActiveAssistantMessage(reason: "config-changed", finishedAt: Date())
         currentAssistantMessageID = nil
+        resetRetryState()
 
         if realtimeTTSActive {
             audioManager.finishRealtimeStream()
@@ -781,6 +802,7 @@ final class ChatViewModel: ObservableObject {
         guard !trimmedMessage.isEmpty else { return }
         guard !sending else { return }
 
+        resetRetryState()
         ensureMessageTreeInitializedIfNeeded()
 
         let parentMessage: ChatMessage?
@@ -817,44 +839,6 @@ final class ChatViewModel: ObservableObject {
         }
         persistSession(reason: .immediate)
 
-        // Fail fast if we already know the text server is unreachable.
-        if reachability.isChatReachable == false {
-            userMessage = ""
-            isPriming = false
-            isLoading = false
-            sending = false
-            finalizeActiveAssistantMessage(reason: "aborted-before-send", finishedAt: Date())
-            interruptedAssistantMessageID = nil
-            currentAssistantMessageID = nil
-            pendingAssistantParentMessageID = nil
-            pendingBranchRestore = nil
-
-            let errText = NSLocalizedString("Unable to reach the text server. Please check your connection or server settings.", comment: "Shown when sending a message while the text server is unreachable")
-            requestDidFail.send(errText)
-            let errContent = "!error:\(errText)"
-            let err = ChatMessage(
-                content: errContent,
-                isUser: false,
-                isActive: false,
-                createdAt: now,
-                modelIdentifier: chatConfiguration.modelIdentifier,
-                apiBaseURL: chatConfiguration.apiBaseURL,
-                streamStartedAt: now,
-                streamCompletedAt: now,
-                deltaCount: 1,
-                characterCount: errContent.count,
-                finishReason: "unreachable",
-                session: chatSession
-            )
-            err.parentMessage = userMsg
-            userMsg.activeChildMessageID = err.id
-            chatSession.messages.append(err)
-            invalidateCachesAfterMessageMutation()
-            branchDidChange.send(())
-            persistSession(reason: .immediate)
-            return
-        }
-
         isPriming = true
         isLoading = true
         sending = true
@@ -883,6 +867,7 @@ final class ChatViewModel: ObservableObject {
     func cancelCurrentRequest() {
         guard sending || isLoading || isPriming else { return }
         let finishedAt = Date()
+        cancelAutoRetryTask()
         chatService.cancelStreaming()
         finalizeActiveAssistantMessage(reason: "cancelled", finishedAt: finishedAt)
 
@@ -904,6 +889,7 @@ final class ChatViewModel: ObservableObject {
         isPriming = false
         isLoading = false
         sending = false
+        resetRetryState()
         persistSession(reason: .immediate)
 
         if realtimeTTSActive {
@@ -914,6 +900,7 @@ final class ChatViewModel: ObservableObject {
 
     private func handleAssistantDelta(_ piece: String) {
         guard isPriming || isLoading || sending else { return }
+        markRetryProgressIfNeeded()
         objectWillChange.send()
 
         if isPriming { isPriming = false }
@@ -968,6 +955,7 @@ final class ChatViewModel: ObservableObject {
     func regenerateSystemMessage(_ message: ChatMessage) {
         guard !sending else { return }
         ensureMessageTreeInitializedIfNeeded()
+        resetRetryState()
         chatService.cancelStreaming()
         finalizeActiveAssistantMessage(reason: "regenerate", finishedAt: Date())
         currentAssistantMessageID = nil
@@ -998,6 +986,7 @@ final class ChatViewModel: ObservableObject {
     func retry(afterErrorMessage errorMessage: ChatMessage) {
         guard !sending else { return }
         ensureMessageTreeInitializedIfNeeded()
+        resetRetryState()
         chatService.cancelStreaming()
         finalizeActiveAssistantMessage(reason: "retry", finishedAt: Date())
         currentAssistantMessageID = nil
@@ -1052,6 +1041,91 @@ final class ChatViewModel: ObservableObject {
     func cancelEditing() {
         editingBaseMessageID = nil
         userMessage = ""
+    }
+
+    // MARK: - Auto Retry (Text Streaming)
+
+    private func shouldAutoRetryAfterError(_ error: Error) -> Bool {
+        if NetworkRetryability.isCancellation(error) { return false }
+        if let err = error as? ChatNetworkError {
+            switch err {
+            case .invalidURL:
+                return false
+            case .timeout:
+                return true
+            case .serverError(let statusCode, _):
+                if let statusCode {
+                    return NetworkRetryability.shouldRetry(HTTPStatusError(statusCode: statusCode, bodyPreview: nil))
+                }
+                return false
+            }
+        }
+        return NetworkRetryability.shouldRetry(error)
+    }
+
+    private func scheduleAutoRetry(after error: Error, errorText: String) {
+        cancelAutoRetryTask()
+
+        // Keep the request "active" so the Stop button remains visible.
+        isLoading = true
+        sending = true
+        if currentAssistantMessageID == nil {
+            isPriming = true
+        }
+
+        if !isRetrying {
+            // New disconnect episode: reset the counter so the UI starts from attempt 1 again.
+            retryAttempt = 0
+        }
+        retryAttempt += 1
+        isRetrying = true
+        retryLastError = errorText.isEmpty ? error.localizedDescription : errorText
+
+        let retryCount = retryAttempt
+        let delay = streamRetryPolicy.delay(forRetryCount: retryCount)
+        let shouldUseVoicePrompt = realtimeTTSActive || audioManager.isRealtimeMode
+
+        autoRetryTask = Task { [weak self] in
+            await NetworkRetry.sleep(seconds: delay)
+            guard !Task.isCancelled else { return }
+            await MainActor.run { [weak self] in
+                guard let self else { return }
+                guard self.isLoading || self.isPriming || self.sending else {
+                    self.resetRetryState()
+                    return
+                }
+                // Avoid silently switching prompt modes if the user changes modes between retries.
+                if !shouldUseVoicePrompt && (self.realtimeTTSActive || self.audioManager.isRealtimeMode) {
+                    self.resetRetryState()
+                    self.handleChatServiceError(error)
+                    return
+                }
+
+                let currentMessages = self.activeBranchMessages()
+                let developerPrompt = self.resolvedDeveloperPrompt(isVoiceMode: shouldUseVoicePrompt)
+                self.chatService.fetchStreamedData(messages: currentMessages, developerPrompt: developerPrompt)
+            }
+        }
+    }
+
+    private func cancelAutoRetryTask() {
+        autoRetryTask?.cancel()
+        autoRetryTask = nil
+    }
+
+    private func markRetryProgressIfNeeded() {
+        if isRetrying {
+            isRetrying = false
+            retryAttempt = 0
+            retryLastError = nil
+        }
+    }
+
+    private func resetRetryState() {
+        cancelAutoRetryTask()
+        isRetrying = false
+        retryAttempt = 0
+        retryLastError = nil
     }
 
     // MARK: - Session Management

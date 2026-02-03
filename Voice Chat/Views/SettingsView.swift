@@ -17,6 +17,9 @@ struct SettingsView: View {
 
     @State private var availableModels: [String] = []
     @State private var isLoadingModels = false
+    @State private var isRetryingModels = false
+    @State private var modelRetryAttempt: Int = 0
+    @State private var modelRetryLastError: String?
     @State private var chatServerErrorMessage: String?
     @State private var modelFetchRequestID = UUID()
 
@@ -412,12 +415,22 @@ struct SettingsView: View {
                             #if os(macOS)
                             .controlSize(.small)
                             #endif
-                        Text("Applying preset...")
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                            .truncationMode(.tail)
+                        if settingsManager.isRetryingPresetApply {
+                            Text(String(format: NSLocalizedString("Retrying (attempt %d)...", comment: "Shown while auto retry is waiting to reconnect"), max(1, settingsManager.presetApplyRetryAttempt)))
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                                .truncationMode(.tail)
+                        } else {
+                            Text("Applying preset...")
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                                .truncationMode(.tail)
+                        }
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
+                    #if os(macOS)
+                    .help(settingsManager.presetApplyRetryLastError ?? "")
+                    #endif
                 } else if let err = settingsManager.lastApplyError, !err.isEmpty {
                     HStack(spacing: 8) {
                         Image(systemName: "exclamationmark.triangle.fill")
@@ -615,12 +628,20 @@ struct SettingsView: View {
                         HStack(spacing: 8) {
                             ProgressView()
                                 .controlSize(.small)
-                            Text("Loading model list...")
-                                .foregroundStyle(.secondary)
-                                .lineLimit(1)
-                                .truncationMode(.tail)
+                            if isRetryingModels {
+                                Text(String(format: NSLocalizedString("Retrying (attempt %d)...", comment: "Shown while auto retry is waiting to reconnect"), max(1, modelRetryAttempt)))
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(1)
+                                    .truncationMode(.tail)
+                            } else {
+                                Text("Loading model list...")
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(1)
+                                    .truncationMode(.tail)
+                            }
                         }
                         .frame(maxWidth: .infinity, alignment: .trailing)
+                        .help(modelRetryLastError ?? "")
                     } else if let message = chatServerErrorMessage, !message.isEmpty {
                         HStack(spacing: 8) {
                             Image(systemName: "exclamationmark.triangle.fill")
@@ -656,10 +677,17 @@ struct SettingsView: View {
                     if isLoadingModels {
                         HStack(spacing: 8) {
                             ProgressView()
-                            Text("Loading model list...")
-                                .foregroundStyle(.secondary)
-                                .lineLimit(1)
-                                .truncationMode(.tail)
+                            if isRetryingModels {
+                                Text(String(format: NSLocalizedString("Retrying (attempt %d)...", comment: "Shown while auto retry is waiting to reconnect"), max(1, modelRetryAttempt)))
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(1)
+                                    .truncationMode(.tail)
+                            } else {
+                                Text("Loading model list...")
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(1)
+                                    .truncationMode(.tail)
+                            }
                         }
                         .frame(maxWidth: .infinity, alignment: .trailing)
                     } else if let message = chatServerErrorMessage, !message.isEmpty {
@@ -911,6 +939,9 @@ struct SettingsView: View {
         modelFetchRequestID = requestID
 
         isLoadingModels = true
+        isRetryingModels = false
+        modelRetryAttempt = 0
+        modelRetryLastError = nil
         chatServerErrorMessage = nil
 
         let apiURL = viewModel.apiURL.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -932,38 +963,86 @@ struct SettingsView: View {
             let headerValue = rawKey.lowercased().hasPrefix("bearer ") ? rawKey : "Bearer \(rawKey)"
             request.setValue(headerValue, forHTTPHeaderField: "Authorization")
         }
-        URLSession.shared.dataTask(with: request) { data, response, error in
-            DispatchQueue.main.async {
-                guard self.modelFetchRequestID == requestID else { return }
-                self.isLoadingModels = false
 
-                if let error = error {
+        let retryPolicy = NetworkRetryPolicy(
+            maxAttempts: 4,
+            baseDelay: 0.5,
+            maxDelay: 4.0,
+            backoffFactor: 1.6,
+            jitterRatio: 0.2
+        )
+
+        Task { [requestID, request, retryPolicy] in
+            do {
+                let (data, _) = try await NetworkRetry.run(
+                    policy: retryPolicy,
+                    onRetry: { nextAttempt, _, error in
+                        await MainActor.run {
+                            guard self.modelFetchRequestID == requestID else { return }
+                            self.isRetryingModels = true
+                            self.modelRetryAttempt = max(1, nextAttempt - 1)
+                            self.modelRetryLastError = error.localizedDescription
+                        }
+                    },
+                    operation: {
+                        let (data, resp) = try await URLSession.shared.data(for: request)
+                        if let http = resp as? HTTPURLResponse,
+                           !(200...299).contains(http.statusCode) {
+                            let preview = String(data: data, encoding: .utf8)?
+                                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                            let snippet = preview.isEmpty ? nil : String(preview.prefix(180))
+                            throw HTTPStatusError(statusCode: http.statusCode, bodyPreview: snippet)
+                        }
+                        return (data, resp)
+                    }
+                )
+
+                let modelList: ModelListResponse
+                do {
+                    modelList = try JSONDecoder().decode(ModelListResponse.self, from: data)
+                } catch {
+                    await MainActor.run {
+                        guard self.modelFetchRequestID == requestID else { return }
+                        self.isLoadingModels = false
+                        self.isRetryingModels = false
+                        self.modelRetryAttempt = 0
+                        self.modelRetryLastError = nil
+                        self.chatServerErrorMessage = NSLocalizedString("Unable to parse model list", comment: "Decoding the model list failed")
+                    }
+                    return
+                }
+
+                await MainActor.run {
+                    guard self.modelFetchRequestID == requestID else { return }
+                    self.isLoadingModels = false
+                    self.isRetryingModels = false
+                    self.modelRetryAttempt = 0
+                    self.modelRetryLastError = nil
+                    self.chatServerErrorMessage = nil
+                    self.availableModels = modelList.data.map { $0.id }
+                    if !self.availableModels.contains(self.viewModel.selectedModel),
+                       let firstModel = self.availableModels.first {
+                        self.viewModel.selectedModel = firstModel
+                    }
+                }
+            } catch {
+                await MainActor.run {
+                    guard self.modelFetchRequestID == requestID else { return }
+                    self.isLoadingModels = false
+                    self.isRetryingModels = false
+                    self.modelRetryAttempt = 0
+                    self.modelRetryLastError = nil
+
+                    if let statusError = error as? HTTPStatusError {
+                        self.chatServerErrorMessage = String(format: NSLocalizedString("Chat server responded with status %d.", comment: "Displayed when the chat server returns an error"), statusError.statusCode)
+                        return
+                    }
+
                     let message = String(format: NSLocalizedString("Request failed: %@", comment: "Model list request failed"), error.localizedDescription)
                     self.chatServerErrorMessage = message
-                    return
-                }
-
-                if let http = response as? HTTPURLResponse,
-                   !(200...299).contains(http.statusCode) {
-                    let message = String(format: NSLocalizedString("Chat server responded with status %d.", comment: "Displayed when the chat server returns an error"), http.statusCode)
-                    self.chatServerErrorMessage = message
-                    return
-                }
-
-                guard let data = data,
-                      let modelList = try? JSONDecoder().decode(ModelListResponse.self, from: data) else {
-                    self.chatServerErrorMessage = NSLocalizedString("Unable to parse model list", comment: "Decoding the model list failed")
-                    return
-                }
-
-                self.chatServerErrorMessage = nil
-                self.availableModels = modelList.data.map { $0.id }
-                if !self.availableModels.contains(self.viewModel.selectedModel),
-                   let firstModel = self.availableModels.first {
-                    self.viewModel.selectedModel = firstModel
                 }
             }
-        }.resume()
+        }
     }
 
     private func buildModelsURL(from base: String) -> URL? {

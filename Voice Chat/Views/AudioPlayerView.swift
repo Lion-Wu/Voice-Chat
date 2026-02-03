@@ -15,8 +15,21 @@ struct AudioPlayerView: View {
             if audioManager.isLoading {
                 HStack {
                     ProgressView()
-                    Text("Loading...")
-                        .font(.subheadline)
+                    VStack(alignment: .leading, spacing: 2) {
+                        if audioManager.isRetrying {
+                            Text(String(format: NSLocalizedString("Retrying (attempt %d)...", comment: "Shown while auto retry is waiting to reconnect"), max(1, audioManager.retryAttempt)))
+                                .font(.subheadline)
+                        } else {
+                            Text("Loading...")
+                                .font(.subheadline)
+                        }
+                        if let last = audioManager.retryLastError, !last.isEmpty {
+                            Text(last)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                        }
+                    }
                     Spacer()
                     CloseButton(action: audioManager.closeAudioPlayer)
                 }
@@ -43,6 +56,16 @@ struct AudioPlayerView: View {
                             ProgressView()
                                 .scaleEffect(0.7)
                             Text("Buffering")
+                                .font(.footnote)
+                        }
+                        .padding(.leading, 8)
+                    }
+
+                    if audioManager.isRetrying {
+                        HStack(spacing: 5) {
+                            ProgressView()
+                                .scaleEffect(0.7)
+                            Text(String(format: NSLocalizedString("Retrying (attempt %d)...", comment: "Shown while auto retry is waiting to reconnect"), max(1, audioManager.retryAttempt)))
                                 .font(.footnote)
                         }
                         .padding(.leading, 8)
