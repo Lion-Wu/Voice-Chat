@@ -261,4 +261,27 @@ final class ComposerContainerView: UIView {
     }
 }
 
+#Preview {
+    @Previewable @State var text: String = "Hello!"
+    @Previewable @State var measuredHeight: CGFloat = InputMetrics.defaultHeight
+    @Previewable @State var isFirstResponder: Bool = false
+
+    MessageComposerView(
+        text: $text,
+        measuredHeight: $measuredHeight,
+        isFirstResponder: $isFirstResponder,
+        placeholder: "Message",
+        maxLines: 6,
+        isLoading: false,
+        trimmedIsEmpty: text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+        onSend: {},
+        onStop: {},
+        onVoice: {},
+        onExpand: {}
+    )
+    .frame(height: measuredHeight + (InputMetrics.outerV * 2))
+    .padding()
+    .background(AppBackgroundView())
+}
+
 #endif

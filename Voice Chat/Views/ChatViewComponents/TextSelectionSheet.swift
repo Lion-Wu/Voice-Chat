@@ -78,3 +78,16 @@ private struct SelectableTextView: UIViewRepresentable {
     }
 }
 #endif
+
+#Preview {
+    TextSelectionSheet(text: """
+    This is some selectable text.
+
+    - You can copy it
+    - Or select a range
+
+    ```swift
+    print(\"Hello, preview\")
+    ```
+    """)
+}

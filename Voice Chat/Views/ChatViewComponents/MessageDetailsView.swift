@@ -241,3 +241,37 @@ struct MessageDetailsView: View {
         return String(format: "%.3fs", value)
     }
 }
+
+#Preview {
+    let message: ChatMessage = {
+        let session = ChatSession(title: "Preview Session")
+        let now = Date()
+        let message = ChatMessage(
+            content: "Hello from the assistant.",
+            isUser: false,
+            isActive: false,
+            createdAt: now.addingTimeInterval(-12),
+            modelIdentifier: "preview-model",
+            apiBaseURL: "http://localhost:1234",
+            requestID: UUID(),
+            streamStartedAt: now.addingTimeInterval(-12),
+            streamFirstTokenAt: now.addingTimeInterval(-11),
+            streamCompletedAt: now.addingTimeInterval(-10),
+            timeToFirstToken: 1.0,
+            streamDuration: 2.0,
+            generationDuration: 1.0,
+            deltaCount: 42,
+            characterCount: 128,
+            promptMessageCount: 6,
+            promptCharacterCount: 512,
+            finishReason: "stop",
+            errorDescription: nil,
+            session: session
+        )
+        session.messages.append(message)
+        return message
+    }()
+
+    MessageDetailsView(message: message)
+        .modelContainer(for: [ChatSession.self, ChatMessage.self, AppSettings.self], inMemory: true)
+}

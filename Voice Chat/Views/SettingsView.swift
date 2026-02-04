@@ -15,14 +15,6 @@ import AppKit
 struct SettingsView: View {
     @StateObject private var viewModel = SettingsViewModel()
 
-    @State private var availableModels: [String] = []
-    @State private var isLoadingModels = false
-    @State private var isRetryingModels = false
-    @State private var modelRetryAttempt: Int = 0
-    @State private var modelRetryLastError: String?
-    @State private var chatServerErrorMessage: String?
-    @State private var modelFetchRequestID = UUID()
-
     // Preset deletion confirmation state
     @State private var showDeletePresetAlert = false
     @State private var showDeleteChatServerPresetAlert = false
@@ -75,7 +67,7 @@ struct SettingsView: View {
             .background(AppBackgroundView())
             .onAppear {
                 viewModel.refreshFromSettingsManager()
-                fetchAvailableModels()
+                viewModel.fetchAvailableModels()
             }
             .alert("Delete this preset?",
                    isPresented: $showDeletePresetAlert) {
@@ -598,14 +590,14 @@ struct SettingsView: View {
             }
         }
         .onChange(of: viewModel.selectedChatServerPresetID) {
-            fetchAvailableModels()
+            viewModel.fetchAvailableModels()
         }
     }
 
     @ViewBuilder
     private func chatModelSection(hideHeader: Bool = false) -> some View {
-        let hasModelListError = !(chatServerErrorMessage?.isEmpty ?? true)
-        let showModelPicker = !(isLoadingModels || hasModelListError)
+        let hasModelListError = !(viewModel.chatServerErrorMessage?.isEmpty ?? true)
+        let showModelPicker = !(viewModel.isLoadingModels || hasModelListError)
 
         Section {
             #if os(macOS)
@@ -614,7 +606,7 @@ struct SettingsView: View {
                     HStack {
                         Spacer(minLength: 0)
                         Picker("", selection: $viewModel.selectedModel) {
-                            ForEach(availableModels, id: \.self) { model in
+                            ForEach(viewModel.availableModels, id: \.self) { model in
                                 Text(model).tag(model)
                             }
                         }
@@ -624,12 +616,12 @@ struct SettingsView: View {
                     .allowsHitTesting(showModelPicker)
                     .accessibilityHidden(!showModelPicker)
 
-                    if isLoadingModels {
+                    if viewModel.isLoadingModels {
                         HStack(spacing: 8) {
                             ProgressView()
                                 .controlSize(.small)
-                            if isRetryingModels {
-                                Text(String(format: NSLocalizedString("Retrying (attempt %d)...", comment: "Shown while auto retry is waiting to reconnect"), max(1, modelRetryAttempt)))
+                            if viewModel.isRetryingModels {
+                                Text(String(format: NSLocalizedString("Retrying (attempt %d)...", comment: "Shown while auto retry is waiting to reconnect"), max(1, viewModel.modelRetryAttempt)))
                                     .foregroundStyle(.secondary)
                                     .lineLimit(1)
                                     .truncationMode(.tail)
@@ -641,8 +633,8 @@ struct SettingsView: View {
                             }
                         }
                         .frame(maxWidth: .infinity, alignment: .trailing)
-                        .help(modelRetryLastError ?? "")
-                    } else if let message = chatServerErrorMessage, !message.isEmpty {
+                        .help(viewModel.modelRetryLastError ?? "")
+                    } else if let message = viewModel.chatServerErrorMessage, !message.isEmpty {
                         HStack(spacing: 8) {
                             Image(systemName: "exclamationmark.triangle.fill")
                                 .foregroundStyle(.orange)
@@ -663,7 +655,7 @@ struct SettingsView: View {
                     HStack {
                         Spacer(minLength: 0)
                         Picker("", selection: $viewModel.selectedModel) {
-                            ForEach(availableModels, id: \.self) { model in
+                            ForEach(viewModel.availableModels, id: \.self) { model in
                                 Text(model).tag(model)
                             }
                         }
@@ -674,11 +666,11 @@ struct SettingsView: View {
                     .allowsHitTesting(showModelPicker)
                     .accessibilityHidden(!showModelPicker)
 
-                    if isLoadingModels {
+                    if viewModel.isLoadingModels {
                         HStack(spacing: 8) {
                             ProgressView()
-                            if isRetryingModels {
-                                Text(String(format: NSLocalizedString("Retrying (attempt %d)...", comment: "Shown while auto retry is waiting to reconnect"), max(1, modelRetryAttempt)))
+                            if viewModel.isRetryingModels {
+                                Text(String(format: NSLocalizedString("Retrying (attempt %d)...", comment: "Shown while auto retry is waiting to reconnect"), max(1, viewModel.modelRetryAttempt)))
                                     .foregroundStyle(.secondary)
                                     .lineLimit(1)
                                     .truncationMode(.tail)
@@ -690,7 +682,7 @@ struct SettingsView: View {
                             }
                         }
                         .frame(maxWidth: .infinity, alignment: .trailing)
-                    } else if let message = chatServerErrorMessage, !message.isEmpty {
+                    } else if let message = viewModel.chatServerErrorMessage, !message.isEmpty {
                         HStack(spacing: 8) {
                             Image(systemName: "exclamationmark.triangle.fill")
                                 .foregroundStyle(.orange)
@@ -708,14 +700,14 @@ struct SettingsView: View {
 
             HStack {
                 Spacer()
-                Button(action: fetchAvailableModels) {
+                Button(action: viewModel.fetchAvailableModels) {
                     Label("Refresh Model List", systemImage: "arrow.clockwise.circle")
                 }
                 .settingsActionButtonStyle()
                 #if os(macOS)
                 .help("Refresh available model list")
                 #endif
-                .disabled(isLoadingModels)
+                .disabled(viewModel.isLoadingModels)
             }
             .padding(.top, 6)
         } header: {
@@ -931,147 +923,6 @@ struct SettingsView: View {
         }
     }
 #endif
-
-    // MARK: - Networking (List Models)
-
-    private func fetchAvailableModels() {
-        let requestID = UUID()
-        modelFetchRequestID = requestID
-
-        isLoadingModels = true
-        isRetryingModels = false
-        modelRetryAttempt = 0
-        modelRetryLastError = nil
-        chatServerErrorMessage = nil
-
-        let apiURL = viewModel.apiURL.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !apiURL.isEmpty else {
-            isLoadingModels = false
-            chatServerErrorMessage = NSLocalizedString("Server URL is empty or invalid.", comment: "Shown when the model list URL is missing")
-            return
-        }
-
-        guard let url = buildModelsURL(from: apiURL) else {
-            isLoadingModels = false
-            chatServerErrorMessage = NSLocalizedString("Invalid Server URL", comment: "Shown when the model list URL cannot be parsed")
-            return
-        }
-
-        var request = URLRequest(url: url, timeoutInterval: 30)
-        let rawKey = viewModel.chatAPIKey.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !rawKey.isEmpty {
-            let headerValue = rawKey.lowercased().hasPrefix("bearer ") ? rawKey : "Bearer \(rawKey)"
-            request.setValue(headerValue, forHTTPHeaderField: "Authorization")
-        }
-
-        let retryPolicy = NetworkRetryPolicy(
-            maxAttempts: 4,
-            baseDelay: 0.5,
-            maxDelay: 4.0,
-            backoffFactor: 1.6,
-            jitterRatio: 0.2
-        )
-
-        Task { [requestID, request, retryPolicy] in
-            do {
-                let (data, _) = try await NetworkRetry.run(
-                    policy: retryPolicy,
-                    onRetry: { nextAttempt, _, error in
-                        await MainActor.run {
-                            guard self.modelFetchRequestID == requestID else { return }
-                            self.isRetryingModels = true
-                            self.modelRetryAttempt = max(1, nextAttempt - 1)
-                            self.modelRetryLastError = error.localizedDescription
-                        }
-                    },
-                    operation: {
-                        let (data, resp) = try await URLSession.shared.data(for: request)
-                        if let http = resp as? HTTPURLResponse,
-                           !(200...299).contains(http.statusCode) {
-                            let preview = String(data: data, encoding: .utf8)?
-                                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-                            let snippet = preview.isEmpty ? nil : String(preview.prefix(180))
-                            throw HTTPStatusError(statusCode: http.statusCode, bodyPreview: snippet)
-                        }
-                        return (data, resp)
-                    }
-                )
-
-                let modelList: ModelListResponse
-                do {
-                    modelList = try JSONDecoder().decode(ModelListResponse.self, from: data)
-                } catch {
-                    await MainActor.run {
-                        guard self.modelFetchRequestID == requestID else { return }
-                        self.isLoadingModels = false
-                        self.isRetryingModels = false
-                        self.modelRetryAttempt = 0
-                        self.modelRetryLastError = nil
-                        self.chatServerErrorMessage = NSLocalizedString("Unable to parse model list", comment: "Decoding the model list failed")
-                    }
-                    return
-                }
-
-                await MainActor.run {
-                    guard self.modelFetchRequestID == requestID else { return }
-                    self.isLoadingModels = false
-                    self.isRetryingModels = false
-                    self.modelRetryAttempt = 0
-                    self.modelRetryLastError = nil
-                    self.chatServerErrorMessage = nil
-                    self.availableModels = modelList.data.map { $0.id }
-                    if !self.availableModels.contains(self.viewModel.selectedModel),
-                       let firstModel = self.availableModels.first {
-                        self.viewModel.selectedModel = firstModel
-                    }
-                }
-            } catch {
-                await MainActor.run {
-                    guard self.modelFetchRequestID == requestID else { return }
-                    self.isLoadingModels = false
-                    self.isRetryingModels = false
-                    self.modelRetryAttempt = 0
-                    self.modelRetryLastError = nil
-
-                    if let statusError = error as? HTTPStatusError {
-                        self.chatServerErrorMessage = String(format: NSLocalizedString("Chat server responded with status %d.", comment: "Displayed when the chat server returns an error"), statusError.statusCode)
-                        return
-                    }
-
-                    let message = String(format: NSLocalizedString("Request failed: %@", comment: "Model list request failed"), error.localizedDescription)
-                    self.chatServerErrorMessage = message
-                }
-            }
-        }
-    }
-
-    private func buildModelsURL(from base: String) -> URL? {
-        var sanitized = base.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !sanitized.isEmpty else { return nil }
-
-        if !sanitized.contains("://") {
-            sanitized = "http://\(sanitized)"
-        }
-        while sanitized.hasSuffix("/") { sanitized.removeLast() }
-
-        guard var comps = URLComponents(string: sanitized) else { return nil }
-        var path = comps.path
-        while path.hasSuffix("/") { path.removeLast() }
-
-        if path.hasSuffix("/v1/models") {
-            // Keep as-is.
-        } else if path.hasSuffix("/v1/chat/completions") {
-            comps.path = String(path.dropLast("/chat/completions".count)) + "/models"
-        } else if path.hasSuffix("/v1/chat") {
-            comps.path = String(path.dropLast("/chat".count)) + "/models"
-        } else if path.hasSuffix("/v1") {
-            comps.path = path + "/models"
-        } else {
-            comps.path = path + "/v1/models"
-        }
-
-        return comps.url
-    }
 }
 
 #if os(macOS)

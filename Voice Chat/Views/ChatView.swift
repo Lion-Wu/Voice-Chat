@@ -989,24 +989,23 @@ struct ChatView: View {
 
 // MARK: - Preview
 
-struct ChatView_Previews: PreviewProvider {
-    static var previews: some View {
-        let session = ChatSession()
-        let speechManager = SpeechInputManager()
-        let overlayVM = VoiceChatOverlayViewModel(
-            speechInputManager: speechManager,
-            audioManager: GlobalAudioManager.shared,
-            errorCenter: AppErrorCenter.shared,
-            settingsManager: SettingsManager.shared,
-            reachabilityMonitor: ServerReachabilityMonitor.shared
-        )
-        return ChatView(viewModel: ChatViewModel(chatSession: session))
-            .modelContainer(for: [ChatSession.self, ChatMessage.self, AppSettings.self], inMemory: true)
-            .environmentObject(GlobalAudioManager.shared)
-            .environmentObject(SettingsManager.shared)
-            .environmentObject(ChatSessionsViewModel())
-            .environmentObject(speechManager)
-            .environmentObject(overlayVM)
-            .environmentObject(AppErrorCenter.shared)
-    }
+#Preview {
+    let session = ChatSession()
+    let speechManager = SpeechInputManager()
+    let overlayVM = VoiceChatOverlayViewModel(
+        speechInputManager: speechManager,
+        audioManager: GlobalAudioManager.shared,
+        errorCenter: AppErrorCenter.shared,
+        settingsManager: SettingsManager.shared,
+        reachabilityMonitor: ServerReachabilityMonitor.shared
+    )
+
+    ChatView(viewModel: ChatViewModel(chatSession: session))
+        .modelContainer(for: [ChatSession.self, ChatMessage.self, AppSettings.self], inMemory: true)
+        .environmentObject(GlobalAudioManager.shared)
+        .environmentObject(SettingsManager.shared)
+        .environmentObject(ChatSessionsViewModel())
+        .environmentObject(speechManager)
+        .environmentObject(overlayVM)
+        .environmentObject(AppErrorCenter.shared)
 }

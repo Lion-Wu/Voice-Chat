@@ -187,3 +187,33 @@ struct AutoSizingTextEditor: UIViewRepresentable {
     }
 }
 #endif
+
+#Preview {
+    @Previewable @State var text: String = "Type here…"
+    @Previewable @State var height: CGFloat = InputMetrics.defaultHeight
+
+    VStack(alignment: .leading, spacing: 12) {
+        Text("AutoSizingTextEditor")
+            .font(.headline)
+
+        #if os(macOS)
+        AutoSizingTextEditor(
+            text: $text,
+            height: $height,
+            maxLines: 6,
+            onOverflowChange: { _ in },
+            onCommit: {}
+        )
+        #else
+        AutoSizingTextEditor(
+            text: $text,
+            height: $height,
+            maxLines: 6,
+            onOverflowChange: { _ in }
+        )
+        #endif
+    }
+    .padding()
+    .background(AppBackgroundView())
+    .frame(maxWidth: 520, maxHeight: 280, alignment: .topLeading)
+}

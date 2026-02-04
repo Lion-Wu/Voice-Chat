@@ -20,3 +20,22 @@ struct RichMarkdownView: View {
     }
 }
 
+#Preview {
+    RichMarkdownView(markdown: """
+    # Rich Markdown
+
+    This view renders **Markdown** with inline `code`, lists, and tables.
+
+    - Item 1
+    - Item 2
+
+    > Block quote
+
+    ```swift
+    struct Hello { let value = 42 }
+    ```
+    """)
+    .padding()
+    .background(AppBackgroundView())
+    .frame(maxWidth: 520)
+}

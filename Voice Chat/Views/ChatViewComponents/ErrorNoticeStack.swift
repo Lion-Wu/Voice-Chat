@@ -95,3 +95,31 @@ struct ErrorNoticeStack: View {
         .transition(.move(edge: .bottom).combined(with: .opacity))
     }
 }
+
+#Preview {
+    let sampleNotices: [AppErrorNotice] = [
+        AppErrorNotice(
+            id: UUID(),
+            title: "Text server unreachable",
+            message: "Could not connect to http://localhost:1234",
+            category: .textModel,
+            timestamp: Date(),
+            severity: .critical
+        ),
+        AppErrorNotice(
+            id: UUID(),
+            title: "TTS server unreachable",
+            message: "Could not connect to http://127.0.0.1:9880",
+            category: .tts,
+            timestamp: Date(),
+            severity: .banner
+        )
+    ]
+
+    ZStack(alignment: .bottom) {
+        AppBackgroundView()
+        ErrorNoticeStack(notices: sampleNotices, onDismiss: { _ in })
+            .padding(.bottom, 24)
+    }
+    .frame(height: 320)
+}

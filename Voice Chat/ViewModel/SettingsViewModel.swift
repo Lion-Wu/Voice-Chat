@@ -9,7 +9,7 @@ import Foundation
 import Combine
 
 @MainActor
-class SettingsViewModel: ObservableObject {
+final class SettingsViewModel: ObservableObject {
     private var cancellables: Set<AnyCancellable> = []
     private var suppressLegacySaves = false
     private var didSyncAfterStoreLoad = false
@@ -41,6 +41,18 @@ class SettingsViewModel: ObservableObject {
     @Published var autoSplit: String { didSet { if !suppressLegacySaves { saveModelSettings() } } }
     @Published var modelId: String { didSet { if !suppressLegacySaves { saveModelSettings() } } }
     @Published var language: String { didSet { if !suppressLegacySaves { saveModelSettings() } } }
+
+    // MARK: - Model List (Networking)
+
+    @Published private(set) var availableModels: [String] = []
+    @Published private(set) var isLoadingModels: Bool = false
+    @Published private(set) var isRetryingModels: Bool = false
+    @Published private(set) var modelRetryAttempt: Int = 0
+    @Published private(set) var modelRetryLastError: String?
+    @Published private(set) var chatServerErrorMessage: String?
+
+    private var modelFetchRequestID = UUID()
+    private var modelFetchTask: Task<Void, Never>?
 
     // MARK: - Preset bindings for the UI
     struct PresetSummary: Identifiable, Equatable {
@@ -158,6 +170,156 @@ class SettingsViewModel: ObservableObject {
 
         refreshFromSettingsManager()
         bindInitialStoreSync()
+    }
+
+    // MARK: - Networking (List Models)
+
+    func fetchAvailableModels() {
+        let requestID = UUID()
+        modelFetchRequestID = requestID
+        modelFetchTask?.cancel()
+
+        isLoadingModels = true
+        isRetryingModels = false
+        modelRetryAttempt = 0
+        modelRetryLastError = nil
+        chatServerErrorMessage = nil
+
+        let apiURL = apiURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !apiURL.isEmpty else {
+            isLoadingModels = false
+            chatServerErrorMessage = NSLocalizedString("Server URL is empty or invalid.", comment: "Shown when the model list URL is missing")
+            return
+        }
+
+        guard let url = buildModelsURL(from: apiURL) else {
+            isLoadingModels = false
+            chatServerErrorMessage = NSLocalizedString("Invalid Server URL", comment: "Shown when the model list URL cannot be parsed")
+            return
+        }
+
+        var request = URLRequest(url: url, timeoutInterval: 30)
+        let rawKey = chatAPIKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !rawKey.isEmpty {
+            let headerValue = rawKey.lowercased().hasPrefix("bearer ") ? rawKey : "Bearer \(rawKey)"
+            request.setValue(headerValue, forHTTPHeaderField: "Authorization")
+        }
+
+        let retryPolicy = NetworkRetryPolicy(
+            maxAttempts: 4,
+            baseDelay: 0.5,
+            maxDelay: 4.0,
+            backoffFactor: 1.6,
+            jitterRatio: 0.2
+        )
+
+        modelFetchTask = Task { [weak self, request, requestID, retryPolicy] in
+            guard let self else { return }
+            do {
+                let data = try await NetworkRetry.run(
+                    policy: retryPolicy,
+                    onRetry: { nextAttempt, _, error in
+                        await MainActor.run {
+                            guard self.modelFetchRequestID == requestID else { return }
+                            self.isRetryingModels = true
+                            self.modelRetryAttempt = max(1, nextAttempt - 1)
+                            self.modelRetryLastError = error.localizedDescription
+                        }
+                    },
+                    operation: {
+                        let (data, resp) = try await URLSession.shared.data(for: request)
+                        if let http = resp as? HTTPURLResponse,
+                           !(200...299).contains(http.statusCode) {
+                            let preview = String(data: data, encoding: .utf8)?
+                                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                            let snippet = preview.isEmpty ? nil : String(preview.prefix(180))
+                            throw HTTPStatusError(statusCode: http.statusCode, bodyPreview: snippet)
+                        }
+                        return data
+                    }
+                )
+
+                let models: [String]
+                do {
+                    models = try await Task.detached(priority: .utility) { @Sendable in
+                        let modelList = try JSONDecoder().decode(ModelListResponse.self, from: data)
+                        return modelList.data.map(\.id)
+                    }.value
+                } catch {
+                    guard self.modelFetchRequestID == requestID else { return }
+                    self.isLoadingModels = false
+                    self.isRetryingModels = false
+                    self.modelRetryAttempt = 0
+                    self.modelRetryLastError = nil
+                    self.chatServerErrorMessage = NSLocalizedString("Unable to parse model list", comment: "Decoding the model list failed")
+                    return
+                }
+
+                guard self.modelFetchRequestID == requestID else { return }
+                self.isLoadingModels = false
+                self.isRetryingModels = false
+                self.modelRetryAttempt = 0
+                self.modelRetryLastError = nil
+                self.chatServerErrorMessage = nil
+
+                self.availableModels = models
+                if !self.availableModels.contains(self.selectedModel),
+                   let firstModel = self.availableModels.first {
+                    self.selectedModel = firstModel
+                }
+            } catch {
+                guard self.modelFetchRequestID == requestID else { return }
+                self.isLoadingModels = false
+                self.isRetryingModels = false
+                self.modelRetryAttempt = 0
+                self.modelRetryLastError = nil
+
+                if let statusError = error as? HTTPStatusError {
+                    self.chatServerErrorMessage = String(
+                        format: NSLocalizedString(
+                            "Chat server responded with status %d.",
+                            comment: "Displayed when the chat server returns an error"
+                        ),
+                        statusError.statusCode
+                    )
+                    return
+                }
+
+                let message = String(
+                    format: NSLocalizedString("Request failed: %@", comment: "Model list request failed"),
+                    error.localizedDescription
+                )
+                self.chatServerErrorMessage = message
+            }
+        }
+    }
+
+    private func buildModelsURL(from base: String) -> URL? {
+        var sanitized = base.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !sanitized.isEmpty else { return nil }
+
+        if !sanitized.contains("://") {
+            sanitized = "http://\(sanitized)"
+        }
+        while sanitized.hasSuffix("/") { sanitized.removeLast() }
+
+        guard var comps = URLComponents(string: sanitized) else { return nil }
+        var path = comps.path
+        while path.hasSuffix("/") { path.removeLast() }
+
+        if path.hasSuffix("/v1/models") {
+            // Keep as-is.
+        } else if path.hasSuffix("/v1/chat/completions") {
+            comps.path = String(path.dropLast("/chat/completions".count)) + "/models"
+        } else if path.hasSuffix("/v1/chat") {
+            comps.path = String(path.dropLast("/chat".count)) + "/models"
+        } else if path.hasSuffix("/v1") {
+            comps.path = path + "/models"
+        } else {
+            comps.path = path + "/v1/models"
+        }
+
+        return comps.url
     }
 
     func refreshFromSettingsManager() {

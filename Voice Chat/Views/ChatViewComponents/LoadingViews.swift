@@ -103,3 +103,14 @@ struct AssistantAlignedRetryingBubble: View {
         #endif
     }
 }
+
+#Preview {
+    ZStack {
+        AppBackgroundView()
+        VStack(spacing: 18) {
+            AssistantAlignedLoadingBubble()
+            AssistantAlignedRetryingBubble(attempt: 2, lastError: "Connection timed out")
+        }
+        .padding()
+    }
+}
