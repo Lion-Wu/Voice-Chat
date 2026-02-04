@@ -51,7 +51,8 @@ struct AutoSizingTextEditor: NSViewRepresentable {
 
     func updateNSView(_ nsView: NSScrollView, context: Context) {
         guard let tv = context.coordinator.textView else { return }
-        if tv.string != text { tv.string = text }
+        let isComposing = tv.hasMarkedText()
+        if !isComposing, tv.string != text { tv.string = text }
         guard let textContainer = tv.textContainer else { return }
         let used = tv.layoutManager?.usedRect(for: textContainer) ?? .zero
         let lineH = tv.layoutManager?.defaultLineHeight(for: tv.font ?? .systemFont(ofSize: 17)) ?? 18
@@ -63,11 +64,13 @@ struct AutoSizingTextEditor: NSViewRepresentable {
             onOverflowChange(shouldOverflow)
         }
 
-        if let selected = tv.selectedRanges.first as? NSRange {
-            tv.scrollRangeToVisible(selected)
-        } else {
-            let end = NSRange(location: (tv.string as NSString).length, length: 0)
-            tv.scrollRangeToVisible(end)
+        if !isComposing {
+            if let selected = tv.selectedRanges.first as? NSRange {
+                tv.scrollRangeToVisible(selected)
+            } else {
+                let end = NSRange(location: (tv.string as NSString).length, length: 0)
+                tv.scrollRangeToVisible(end)
+            }
         }
     }
 
@@ -93,8 +96,10 @@ struct AutoSizingTextEditor: NSViewRepresentable {
                 self.parent.onOverflowChange(shouldOverflow)
             }
 
-            let end = NSRange(location: (tv.string as NSString).length, length: 0)
-            tv.scrollRangeToVisible(end)
+            if !tv.hasMarkedText() {
+                let end = NSRange(location: (tv.string as NSString).length, length: 0)
+                tv.scrollRangeToVisible(end)
+            }
         }
     }
 
@@ -144,7 +149,10 @@ struct AutoSizingTextEditor: UIViewRepresentable {
     }
 
     func updateUIView(_ uiView: UITextView, context: Context) {
-        if uiView.text != text { uiView.text = text }
+        // Avoid stomping on in-progress IME composition (e.g., Chinese pinyin) during unrelated SwiftUI updates.
+        if uiView.markedTextRange == nil, uiView.text != text {
+            uiView.text = text
+        }
         recalcHeight(uiView)
     }
 
@@ -166,7 +174,7 @@ struct AutoSizingTextEditor: UIViewRepresentable {
             onOverflowChange(shouldScroll)
         }
 
-        if shouldScroll {
+        if shouldScroll, tv.markedTextRange == nil {
             let end = NSRange(location: (tv.text as NSString).length, length: 0)
             tv.scrollRangeToVisible(end)
         }
@@ -179,7 +187,7 @@ struct AutoSizingTextEditor: UIViewRepresentable {
         func textViewDidChange(_ textView: UITextView) {
             parent.text = textView.text ?? ""
             parent.recalcHeight(textView)
-            if textView.isScrollEnabled {
+            if textView.isScrollEnabled, textView.markedTextRange == nil {
                 let end = NSRange(location: (textView.text as NSString).length, length: 0)
                 textView.scrollRangeToVisible(end)
             }
