@@ -29,3 +29,13 @@ struct BlurView: UIViewRepresentable {
     func updateUIView(_ uiView: UIVisualEffectView, context: Context) {}
 }
 #endif
+
+#Preview {
+    ZStack {
+        LinearGradient(colors: [.purple, .blue], startPoint: .topLeading, endPoint: .bottomTrailing)
+        BlurView()
+    }
+    .frame(width: 320, height: 200)
+    .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+    .padding()
+}

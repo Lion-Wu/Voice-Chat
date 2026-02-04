@@ -123,28 +123,26 @@ private extension ContentView {
     }
 }
 
-struct ContentView_Previews: PreviewProvider {
-    static var previews: some View {
-        let speechManager = SpeechInputManager()
-        let chatSessions = ChatSessionsViewModel()
-        let appEnvironment = AppEnvironment(
-            audioManager: GlobalAudioManager.shared,
-            settingsManager: SettingsManager.shared,
-            chatSessionsViewModel: chatSessions,
-            speechInputManager: speechManager,
-            errorCenter: AppErrorCenter.shared
-        )
+#Preview {
+    let speechManager = SpeechInputManager()
+    let chatSessions = ChatSessionsViewModel()
+    let appEnvironment = AppEnvironment(
+        audioManager: GlobalAudioManager.shared,
+        settingsManager: SettingsManager.shared,
+        chatSessionsViewModel: chatSessions,
+        speechInputManager: speechManager,
+        errorCenter: AppErrorCenter.shared
+    )
 
-        return ContentView()
-            .modelContainer(for: [ChatSession.self, ChatMessage.self, AppSettings.self], inMemory: true)
-            .environmentObject(appEnvironment)
-            .environmentObject(appEnvironment.audioManager)
-            .environmentObject(appEnvironment.settingsManager)
-            .environmentObject(chatSessions)
-            .environmentObject(speechManager)
-            .environmentObject(AppErrorCenter.shared)
-            .environmentObject(appEnvironment.voiceOverlayViewModel)
-    }
+    ContentView()
+        .modelContainer(for: [ChatSession.self, ChatMessage.self, AppSettings.self], inMemory: true)
+        .environmentObject(appEnvironment)
+        .environmentObject(appEnvironment.audioManager)
+        .environmentObject(appEnvironment.settingsManager)
+        .environmentObject(chatSessions)
+        .environmentObject(speechManager)
+        .environmentObject(AppErrorCenter.shared)
+        .environmentObject(appEnvironment.voiceOverlayViewModel)
 }
 
 #if os(macOS)

@@ -32,4 +32,14 @@ struct FullScreenComposer: View {
         .ignoresSafeArea()
     }
 }
+
+#Preview {
+    @Previewable @State var text: String = """
+    This is a full-screen editor preview.
+
+    You can type multiple lines here.
+    """
+
+    FullScreenComposer(text: $text, onDone: {})
+}
 #endif

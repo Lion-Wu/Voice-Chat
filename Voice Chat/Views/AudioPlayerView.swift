@@ -124,3 +124,20 @@ struct AudioPlayerView: View {
         }
     }
 }
+
+#Preview {
+    let audio: GlobalAudioManager = {
+        let audio = GlobalAudioManager()
+        audio.isShowingAudioPlayer = true
+        audio.isAudioPlaying = true
+        audio.isLoading = false
+        audio.currentTime = 75
+        audio.isBuffering = false
+        audio.isRetrying = false
+        return audio
+    }()
+
+    AudioPlayerView()
+        .environmentObject(audio)
+        .frame(maxWidth: 520)
+}

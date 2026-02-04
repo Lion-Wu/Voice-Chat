@@ -97,8 +97,7 @@ struct SidebarView: View {
                 Spacer()
                 Button("Save") {
                     if let session = renamingSession {
-                        session.title = newTitle.trimmingCharacters(in: .whitespacesAndNewlines)
-                        chatSessionsViewModel.persist(session: session, reason: .immediate)
+                        chatSessionsViewModel.renameSession(session, to: newTitle, reason: .immediate)
                     }
                     isRenaming = false
                 }
@@ -414,13 +413,11 @@ struct SidebarView: View {
     #endif
 }
 
-struct SidebarView_Previews: PreviewProvider {
-    static var previews: some View {
-        SidebarView(
-            onConversationTap: { _ in },
-            onOpenSettings: {}
-        )
-        .modelContainer(for: [ChatSession.self, ChatMessage.self, AppSettings.self], inMemory: true)
-        .environmentObject(ChatSessionsViewModel())
-    }
+#Preview {
+    SidebarView(
+        onConversationTap: { _ in },
+        onOpenSettings: {}
+    )
+    .modelContainer(for: [ChatSession.self, ChatMessage.self, AppSettings.self], inMemory: true)
+    .environmentObject(ChatSessionsViewModel())
 }

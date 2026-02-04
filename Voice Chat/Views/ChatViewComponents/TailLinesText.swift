@@ -139,3 +139,20 @@ func computeTailVisualLines(text: String, width: CGFloat, lines: Int, font: Plat
 
     return lastResult
 }
+
+#Preview {
+    TailLinesText(
+        text: """
+        This is a long reasoning section that may contain multiple lines.
+        The preview should show only the tail lines so the UI can display a compact snippet.
+        Line 3
+        Line 4
+        Line 5
+        Line 6
+        """,
+        lines: 4,
+        font: PlatformFontSpec(size: 14, isMonospaced: true)
+    )
+    .padding()
+    .background(AppBackgroundView())
+}

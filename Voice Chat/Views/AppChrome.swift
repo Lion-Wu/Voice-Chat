@@ -52,3 +52,19 @@ extension View {
         modifier(SectionLabelStyle())
     }
 }
+
+#Preview {
+    ZStack {
+        AppBackgroundView()
+        VStack(alignment: .leading, spacing: 14) {
+            Text("Section")
+                .appSectionLabelStyle()
+
+            Text("This is a preview of shared app chrome styles.")
+                .font(.body)
+        }
+        .padding(18)
+        .appChromedContainer()
+        .padding()
+    }
+}

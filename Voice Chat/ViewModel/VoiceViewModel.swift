@@ -9,7 +9,7 @@ import Foundation
 import AVFoundation
 
 @MainActor
-class VoiceViewModel: ObservableObject {
+final class VoiceViewModel: ObservableObject {
     // MARK: - State
     @Published var text: String = String(localized: "Sample text.")
     @Published var connectionStatus: String = String(localized: "Waiting for connection")

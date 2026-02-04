@@ -344,6 +344,26 @@ extension UITextView {
 }
 #endif
 
+#Preview {
+    MarkdownTextView(
+        markdown: """
+        **MarkdownTextView**
+
+        - Supports lists
+        - `inline code`
+
+        ```swift
+        print(\"Preview\")
+        ```
+        """,
+        colorScheme: .light,
+        sizeCategory: .large
+    )
+    .padding()
+    .background(AppBackgroundView())
+    .frame(maxWidth: 520)
+}
+
 #elseif os(macOS)
 @preconcurrency import AppKit
 

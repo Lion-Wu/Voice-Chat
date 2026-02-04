@@ -34,3 +34,19 @@ extension View {
         modifier(BubbleBackground(isUser: isUser, contentPadding: contentPadding))
     }
 }
+
+#Preview {
+    ZStack {
+        AppBackgroundView()
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Assistant bubble")
+                .foregroundStyle(.primary)
+                .bubbleStyle(isUser: false)
+
+            Text("User bubble")
+                .foregroundStyle(.white)
+                .bubbleStyle(isUser: true)
+        }
+        .padding()
+    }
+}

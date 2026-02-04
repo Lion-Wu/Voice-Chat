@@ -167,6 +167,11 @@ final class ChatSessionsViewModel: ObservableObject {
         selectedSessionID = session.id
     }
 
+    func renameSession(_ session: ChatSession, to newTitle: String, reason: SessionPersistReason = .immediate) {
+        session.title = newTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        persist(session: session, reason: reason)
+    }
+
     func deleteSession(at offsets: IndexSet) {
         for index in offsets {
             let s = chatSessions[index]

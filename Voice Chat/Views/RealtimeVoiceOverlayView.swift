@@ -299,3 +299,17 @@ struct RealtimeVoiceOverlayView: View {
         displayedScale = 1
     }
 }
+
+#Preview {
+    let speechManager = SpeechInputManager()
+    let overlayVM = VoiceChatOverlayViewModel(
+        speechInputManager: speechManager,
+        audioManager: GlobalAudioManager.shared,
+        errorCenter: AppErrorCenter.shared,
+        settingsManager: SettingsManager.shared,
+        reachabilityMonitor: ServerReachabilityMonitor.shared
+    )
+
+    RealtimeVoiceOverlayView(viewModel: overlayVM)
+        .environmentObject(AppErrorCenter.shared)
+}
