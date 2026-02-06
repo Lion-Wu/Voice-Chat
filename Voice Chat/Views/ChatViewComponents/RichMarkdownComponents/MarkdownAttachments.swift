@@ -384,12 +384,34 @@ final class MarkdownCodeBlockAttachment: MarkdownAttachment, @unchecked Sendable
         #endif
     }
 
+    #if os(macOS)
+    @MainActor
+    #endif
+    func replaceCode(_ nextCode: String) {
+        guard nextCode != code else { return }
+        code = nextCode
+        codeAttributedStorage.setAttributedString(NSAttributedString(string: nextCode, attributes: codeAttributes))
+        estimatedMetrics = Self.estimateMetrics(for: nextCode)
+        contentVersion &+= 1
+        invalidateForContentChange()
+        #if os(macOS)
+        hostedView?.applyUpdate(from: self)
+        #endif
+    }
+
+    func hostedHorizontalOffset() -> CGFloat {
+        horizontalScrollOffset
+    }
+
+    func setHostedHorizontalOffset(_ offset: CGFloat) {
+        horizontalScrollOffset = max(0, offset)
+    }
+
     override func widthDidChange() {
         cachedImage = nil
         cachedSize = .zero
         cachedWidth = 0
         lastLayout = nil
-        horizontalScrollOffset = 0
         horizontalScrollRange = 0
         #if !os(macOS)
         setAttachmentImage(nil)
@@ -839,12 +861,32 @@ final class MarkdownTableAttachment: MarkdownAttachment, @unchecked Sendable {
         #endif
     }
 
+    #if os(macOS)
+    @MainActor
+    #endif
+    func synchronizeRows(to nextRows: [MarkdownTableRow]) {
+        guard !Self.rowsEqual(rows, nextRows) else { return }
+        rows = nextRows
+        contentVersion &+= 1
+        invalidateForContentChange()
+        #if os(macOS)
+        hostedView?.applyUpdate(from: self)
+        #endif
+    }
+
+    func hostedHorizontalOffset() -> CGFloat {
+        horizontalScrollOffset
+    }
+
+    func setHostedHorizontalOffset(_ offset: CGFloat) {
+        horizontalScrollOffset = max(0, offset)
+    }
+
     override func widthDidChange() {
         cachedImage = nil
         cachedSize = .zero
         cachedWidth = 0
         lastLayout = nil
-        horizontalScrollOffset = 0
         horizontalScrollRange = 0
         #if !os(macOS)
         setAttachmentImage(nil)
@@ -935,13 +977,12 @@ final class MarkdownTableAttachment: MarkdownAttachment, @unchecked Sendable {
         let paddingX = style.cellPadding.width
         let paddingY = style.cellPadding.height
         let maxCellTextWidth = max(80, min(maxWidth * 0.8, 360))
+        let emptyCell = NSAttributedString(string: "", attributes: [.font: style.baseFont])
 
         var contentWidths = Array(repeating: CGFloat(0), count: columnCount)
         for row in rows {
             for column in 0..<columnCount {
-                let cell = column < row.cells.count
-                    ? row.cells[column]
-                    : NSAttributedString(string: "", attributes: [.font: style.baseFont])
+                let cell = column < row.cells.count ? row.cells[column] : emptyCell
                 let size = measureCell(cell, width: .greatestFiniteMagnitude)
                 contentWidths[column] = max(contentWidths[column], min(size.width, maxCellTextWidth))
             }
@@ -956,9 +997,7 @@ final class MarkdownTableAttachment: MarkdownAttachment, @unchecked Sendable {
         for row in rows {
             var rowHeight: CGFloat = 0
             for column in 0..<columnCount {
-                let cell = column < row.cells.count
-                    ? row.cells[column]
-                    : NSAttributedString(string: "", attributes: [.font: style.baseFont])
+                let cell = column < row.cells.count ? row.cells[column] : emptyCell
                 let textWidth = max(0, columnWidths[column] - paddingX * 2)
                 let size = measureCell(cell, width: textWidth)
                 rowHeight = max(rowHeight, max(size.height, minRowHeight))
@@ -1003,6 +1042,7 @@ final class MarkdownTableAttachment: MarkdownAttachment, @unchecked Sendable {
         let padding = style.cellPadding
         let tableWidth = layout.contentWidth
         let hasHeader = rows.first?.isHeader == true
+        let emptyCell = NSAttributedString(string: "")
 
         context.setStrokeColor(style.borderColor.cgColor)
         context.setLineWidth(rowSeparator)
@@ -1036,7 +1076,7 @@ final class MarkdownTableAttachment: MarkdownAttachment, @unchecked Sendable {
                 let cellWidth = layout.columnWidths[column]
                 let cellRect = CGRect(x: x, y: y, width: cellWidth, height: rowHeight)
                 let textRect = cellRect.insetBy(dx: padding.width, dy: padding.height)
-                let cell = column < row.cells.count ? row.cells[column] : NSAttributedString(string: "")
+                let cell = column < row.cells.count ? row.cells[column] : emptyCell
                 if textRect.width > 0 && textRect.height > 0 {
                     cell.draw(
                         with: textRect.integral,
@@ -1069,6 +1109,20 @@ final class MarkdownTableAttachment: MarkdownAttachment, @unchecked Sendable {
         #elseif os(macOS)
         return NSLayoutManager().defaultLineHeight(for: font)
         #endif
+    }
+
+    private static func rowsEqual(_ lhs: [MarkdownTableRow], _ rhs: [MarkdownTableRow]) -> Bool {
+        guard lhs.count == rhs.count else { return false }
+        for index in 0..<lhs.count {
+            let left = lhs[index]
+            let right = rhs[index]
+            if left.isHeader != right.isHeader { return false }
+            if left.cells.count != right.cells.count { return false }
+            for column in 0..<left.cells.count {
+                if !left.cells[column].isEqual(to: right.cells[column]) { return false }
+            }
+        }
+        return true
     }
 }
 

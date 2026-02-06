@@ -22,6 +22,7 @@ final class ChatSessionsViewModel: ObservableObject {
     private var viewModelCache: [UUID: ChatViewModel] = [:]
     private var activityCancellables: [UUID: AnyCancellable] = [:]
     private var sessionsWithActiveTextRequests: Set<UUID> = []
+    private var textActivityPublishTask: Task<Void, Never>?
 
     // MARK: - Dependencies
     private let settingsManager: SettingsManager
@@ -299,9 +300,20 @@ final class ChatSessionsViewModel: ObservableObject {
             sessionsWithActiveTextRequests.remove(sessionID)
         }
 
-        let nowActive = !sessionsWithActiveTextRequests.isEmpty
-        if hasActiveTextRequests != nowActive {
-            hasActiveTextRequests = nowActive
+        scheduleTextActivityPublish()
+    }
+
+    private func scheduleTextActivityPublish() {
+        textActivityPublishTask?.cancel()
+        textActivityPublishTask = Task { @MainActor [weak self] in
+            // Publish outside the current update stack to avoid SwiftUI's
+            // "Publishing changes from within view updates" runtime warning.
+            await Task.yield()
+            guard let self, !Task.isCancelled else { return }
+            let nowActive = !self.sessionsWithActiveTextRequests.isEmpty
+            if self.hasActiveTextRequests != nowActive {
+                self.hasActiveTextRequests = nowActive
+            }
         }
     }
 }
