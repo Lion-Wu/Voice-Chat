@@ -417,15 +417,31 @@ private final class MarkdownCodeBlockView: UIView, UIScrollViewDelegate {
     }
 }
 
-private final class MarkdownStaticAttributedLabel: UILabel {
-    override init(frame: CGRect) {
-        super.init(frame: frame)
-        numberOfLines = 0
-        lineBreakMode = .byWordWrapping
+private final class MarkdownStaticAttributedLabel: UITextView {
+    convenience init() {
+        self.init(frame: .zero, textContainer: nil)
+    }
+
+    override init(frame: CGRect, textContainer: NSTextContainer?) {
+        super.init(frame: frame, textContainer: textContainer)
+        isEditable = false
+        isSelectable = true
+        isUserInteractionEnabled = true
+        isScrollEnabled = false
         backgroundColor = .clear
-        isUserInteractionEnabled = false
+        textContainerInset = .zero
+        self.textContainer.lineFragmentPadding = 0
+        self.textContainer.lineBreakMode = .byWordWrapping
+        self.textContainer.maximumNumberOfLines = 0
+        layoutManager.allowsNonContiguousLayout = false
+        layoutManager.usesFontLeading = true
+        showsHorizontalScrollIndicator = false
+        showsVerticalScrollIndicator = false
         setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         setContentHuggingPriority(.defaultLow, for: .horizontal)
+        #if os(iOS)
+        disableTextDragAndDrop()
+        #endif
     }
 
     required init?(coder: NSCoder) {
