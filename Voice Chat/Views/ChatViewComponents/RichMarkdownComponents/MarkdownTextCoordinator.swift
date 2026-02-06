@@ -1617,49 +1617,167 @@ final class MarkdownTextCoordinator: NSObject, @unchecked Sendable {
         excluding usedIndices: Set<Int>
     ) -> Int? {
         guard !reusableAttachments.isEmpty else { return nil }
-        let clampedStart = max(0, min(preferredStart, reusableAttachments.count))
-        if clampedStart < reusableAttachments.count {
-            for index in clampedStart..<reusableAttachments.count {
-                if usedIndices.contains(index) { continue }
-                if canReuseAttachment(existing: reusableAttachments[index], incoming: incoming) {
-                    return index
-                }
+        let normalizedPreferredStart: Int = {
+            if preferredStart <= 0 { return 0 }
+            return preferredStart % reusableAttachments.count
+        }()
+        var bestIndex: Int?
+        var bestScore = Int.min
+
+        for index in reusableAttachments.indices {
+            if usedIndices.contains(index) { continue }
+            guard let similarityScore = attachmentReuseSimilarityScore(
+                existing: reusableAttachments[index],
+                incoming: incoming
+            ) else {
+                continue
+            }
+            let score = similarityScore + attachmentOrderBonus(
+                index: index,
+                preferredStart: normalizedPreferredStart,
+                count: reusableAttachments.count
+            )
+            if score > bestScore {
+                bestScore = score
+                bestIndex = index
             }
         }
-        if clampedStart > 0 {
-            for index in 0..<clampedStart {
-                if usedIndices.contains(index) { continue }
-                if canReuseAttachment(existing: reusableAttachments[index], incoming: incoming) {
-                    return index
-                }
-            }
-        }
-        return nil
+        return bestIndex
     }
 
     private func canReuseAttachment(
         existing: MarkdownAttachment,
         incoming: MarkdownAttachment
     ) -> Bool {
+        attachmentReuseSimilarityScore(existing: existing, incoming: incoming) != nil
+    }
+
+    private func attachmentReuseSimilarityScore(
+        existing: MarkdownAttachment,
+        incoming: MarkdownAttachment
+    ) -> Int? {
         switch (existing, incoming) {
         case (let existing as MarkdownCodeBlockAttachment, let incoming as MarkdownCodeBlockAttachment):
-            return existing.languageLabel == incoming.languageLabel &&
-                existing.copyLabel == incoming.copyLabel &&
-                codeBlockStylesEqual(existing.style, incoming.style)
+            guard existing.languageLabel == incoming.languageLabel,
+                  existing.copyLabel == incoming.copyLabel,
+                  codeBlockStylesEqual(existing.style, incoming.style)
+            else {
+                return nil
+            }
+            return codeReuseSimilarityScore(existing: existing.code, incoming: incoming.code)
         case (let existing as MarkdownTableAttachment, let incoming as MarkdownTableAttachment):
-            return tableStylesEqual(existing.style, incoming.style)
+            guard tableStylesEqual(existing.style, incoming.style) else { return nil }
+            return tableReuseSimilarityScore(existingRows: existing.rows, incomingRows: incoming.rows)
         case (let existing as MarkdownQuoteAttachment, let incoming as MarkdownQuoteAttachment):
-            return quoteStylesEqual(existing.style, incoming.style)
+            guard quoteStylesEqual(existing.style, incoming.style),
+                  existing.content.isEqual(to: incoming.content)
+            else {
+                return nil
+            }
+            return 260_000 + existing.content.length
         case (let existing as MarkdownRuleAttachment, let incoming as MarkdownRuleAttachment):
-            return colorsEqual(existing.color, incoming.color) &&
-                abs(existing.thickness - incoming.thickness) < 0.5 &&
-                abs(existing.verticalPadding - incoming.verticalPadding) < 0.5
+            guard colorsEqual(existing.color, incoming.color),
+                  abs(existing.thickness - incoming.thickness) < 0.5,
+                  abs(existing.verticalPadding - incoming.verticalPadding) < 0.5
+            else {
+                return nil
+            }
+            return 100_000
         case (let existing as MarkdownImageAttachment, let incoming as MarkdownImageAttachment):
-            return existing.source == incoming.source &&
-                existing.altText == incoming.altText
+            guard existing.source == incoming.source,
+                  existing.altText == incoming.altText
+            else {
+                return nil
+            }
+            return 180_000
         default:
-            return false
+            return nil
         }
+    }
+
+    private func attachmentOrderBonus(index: Int, preferredStart: Int, count: Int) -> Int {
+        guard count > 0 else { return 0 }
+        let normalizedStart = max(0, min(preferredStart, count - 1))
+        let forwardDistance = index >= normalizedStart ? index - normalizedStart : count - normalizedStart + index
+        return max(0, 512 - forwardDistance)
+    }
+
+    private func codeReuseSimilarityScore(existing: String, incoming: String) -> Int? {
+        if existing == incoming {
+            return 320_000 + existing.utf16.count
+        }
+        if incoming.hasPrefix(existing) {
+            return 300_000 + existing.utf16.count
+        }
+        if existing.hasPrefix(incoming) {
+            return 290_000 + incoming.utf16.count
+        }
+        return nil
+    }
+
+    private func tableReuseSimilarityScore(
+        existingRows: [MarkdownTableRow],
+        incomingRows: [MarkdownTableRow]
+    ) -> Int? {
+        if existingRows.isEmpty || incomingRows.isEmpty {
+            return existingRows.isEmpty && incomingRows.isEmpty ? 200_000 : nil
+        }
+
+        // Require the first row (header/first data row) to match exactly.
+        guard tableRowsEqual(existingRows[0], incomingRows[0]) else { return nil }
+
+        let sharedRowCount = min(existingRows.count, incomingRows.count)
+        var exactSharedRows = 0
+        var cellMatchScore = 0
+
+        for rowIndex in 0..<sharedRowCount {
+            let existingRow = existingRows[rowIndex]
+            let incomingRow = incomingRows[rowIndex]
+            if tableRowsEqual(existingRow, incomingRow) {
+                exactSharedRows += 1
+                cellMatchScore += existingRow.cells.count
+                continue
+            }
+
+            // Streaming table updates may mutate the last shared draft row; accept if cells still share a leading prefix.
+            guard rowIndex == sharedRowCount - 1,
+                  let partialScore = tableRowPartialPrefixScore(existingRow, incomingRow)
+            else {
+                return nil
+            }
+            cellMatchScore += partialScore
+            break
+        }
+
+        guard exactSharedRows > 0 else { return nil }
+        let rowDepthScore = exactSharedRows * 256
+        let sizeScore = min(existingRows.count, incomingRows.count) * 8
+        return 240_000 + rowDepthScore + cellMatchScore + sizeScore
+    }
+
+    private func tableRowsEqual(_ lhs: MarkdownTableRow, _ rhs: MarkdownTableRow) -> Bool {
+        guard lhs.isHeader == rhs.isHeader else { return false }
+        guard lhs.cells.count == rhs.cells.count else { return false }
+        for index in 0..<lhs.cells.count {
+            if !lhs.cells[index].isEqual(to: rhs.cells[index]) { return false }
+        }
+        return true
+    }
+
+    private func tableRowPartialPrefixScore(_ lhs: MarkdownTableRow, _ rhs: MarkdownTableRow) -> Int? {
+        guard lhs.isHeader == rhs.isHeader else { return nil }
+        let sharedCount = min(lhs.cells.count, rhs.cells.count)
+        guard sharedCount > 0 else { return nil }
+        var matchingPrefixCells = 0
+        for index in 0..<sharedCount {
+            if lhs.cells[index].isEqual(to: rhs.cells[index]) {
+                matchingPrefixCells += 1
+            } else {
+                break
+            }
+        }
+        guard matchingPrefixCells > 0 else { return nil }
+        return matchingPrefixCells * 16
     }
 
     private func synchronizeReusableAttachment(
@@ -1799,11 +1917,11 @@ final class MarkdownTextCoordinator: NSObject, @unchecked Sendable {
             performInvalidateLayout(for: pendingView, changedRange: pendingRange)
         }
 
+        let hadPendingRange = pendingInvalidationTextView != nil
         pendingInvalidationTextView = textView
-        pendingInvalidationRange = mergeInvalidationRanges(
-            pendingInvalidationRange,
-            changedRange
-        )
+        pendingInvalidationRange = hadPendingRange
+            ? mergeInvalidationRanges(pendingInvalidationRange, changedRange)
+            : changedRange
 
         guard !pendingInvalidationScheduled else { return }
         pendingInvalidationScheduled = true
