@@ -281,13 +281,17 @@ final class MarkdownUIKitTextView: UITextView {
         changedRange: NSRange?,
         storageLength: Int
     ) -> NSRange {
+        guard storageLength > 0 else {
+            return NSRange(location: 0, length: 0)
+        }
+
         let fullRange = NSRange(location: 0, length: storageLength)
         let clamped = clampRange(changedRange ?? fullRange, upperBound: storageLength)
-        if clamped.length > 0 || storageLength == 0 {
-            return clamped
+        let start = max(0, min(clamped.location, storageLength))
+        guard start < storageLength else {
+            return NSRange(location: storageLength - 1, length: 1)
         }
-        let fallbackLocation = max(0, min(clamped.location, storageLength - 1))
-        return NSRange(location: fallbackLocation, length: 1)
+        return NSRange(location: start, length: storageLength - start)
     }
 
     deinit {
@@ -721,13 +725,17 @@ final class MarkdownAppKitTextView: NSTextView {
         changedRange: NSRange?,
         storageLength: Int
     ) -> NSRange {
+        guard storageLength > 0 else {
+            return NSRange(location: 0, length: 0)
+        }
+
         let fullRange = NSRange(location: 0, length: storageLength)
         let clamped = clampRange(changedRange ?? fullRange, upperBound: storageLength)
-        if clamped.length > 0 || storageLength == 0 {
-            return clamped
+        let start = max(0, min(clamped.location, storageLength))
+        guard start < storageLength else {
+            return NSRange(location: storageLength - 1, length: 1)
         }
-        let fallbackLocation = max(0, min(clamped.location, storageLength - 1))
-        return NSRange(location: fallbackLocation, length: 1)
+        return NSRange(location: start, length: storageLength - start)
     }
 
     private func handleCopyClick(at point: CGPoint) -> Bool {

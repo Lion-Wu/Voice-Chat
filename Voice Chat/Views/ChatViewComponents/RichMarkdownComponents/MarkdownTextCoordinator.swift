@@ -2056,13 +2056,17 @@ final class MarkdownTextCoordinator: NSObject, @unchecked Sendable {
         changedRange: NSRange?,
         storageLength: Int
     ) -> NSRange {
+        guard storageLength > 0 else {
+            return NSRange(location: 0, length: 0)
+        }
+
         let fullRange = NSRange(location: 0, length: storageLength)
         let clamped = clampRange(changedRange ?? fullRange, upperBound: storageLength)
-        if clamped.length > 0 || storageLength == 0 {
-            return clamped
+        let start = max(0, min(clamped.location, storageLength))
+        guard start < storageLength else {
+            return NSRange(location: storageLength - 1, length: 1)
         }
-        let fallbackLocation = max(0, min(clamped.location, storageLength - 1))
-        return NSRange(location: fallbackLocation, length: 1)
+        return NSRange(location: start, length: storageLength - start)
     }
 
     @available(macOS 12.0, iOS 15.0, tvOS 15.0, watchOS 8.0, *)
