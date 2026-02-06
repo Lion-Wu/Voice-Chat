@@ -651,8 +651,8 @@ private final class MarkdownTableView: UIView, UIScrollViewDelegate {
                 pendingScrollOffsetX = preservedOffsetX
                 setNeedsLayout()
             } else {
-                pendingScrollOffsetX = nil
-                attachment?.setHostedHorizontalOffset(scrollView.contentOffset.x)
+                pendingScrollOffsetX = preservedOffsetX
+                restoreScrollOffsetIfNeeded()
             }
             return
         } else if appendedCount < 0 {
