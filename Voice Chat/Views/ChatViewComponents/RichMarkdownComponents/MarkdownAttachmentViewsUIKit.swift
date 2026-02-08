@@ -198,26 +198,37 @@ private final class MarkdownCodeBlockView: UIView, UIScrollViewDelegate {
 
         let layoutWidth = max(1, bounds.width > 0 ? bounds.width : max(cachedWidth, MeasurementSizing.initialContainerWidth))
         let priorLayout = cachedLayout
-        var nextLayout = computeLayout(width: layoutWidth)
+        let measuredLayout = computeLayout(width: layoutWidth)
+        var nextLayout = measuredLayout
+        var deferredInlineWidthGrowth = false
         if let priorLayout {
-            let contentWidthGrowth = nextLayout.contentWidth - priorLayout.contentWidth
+            let contentWidthGrowth = measuredLayout.contentWidth - priorLayout.contentWidth
             let canDeferWidthGrowth =
                 contentWidthGrowth > 0.5 &&
                 contentWidthGrowth < 8 &&
-                abs(nextLayout.size.height - priorLayout.size.height) <= 0.5
+                abs(measuredLayout.size.height - priorLayout.size.height) <= 0.5
             if canDeferWidthGrowth {
-                nextLayout = priorLayout
+                nextLayout = layoutByDeferringSmallCodeWidthGrowth(
+                    priorLayout: priorLayout,
+                    measuredLayout: measuredLayout
+                )
+                deferredInlineWidthGrowth = abs(nextLayout.contentWidth - priorLayout.contentWidth) > 0.5
             }
         }
         cachedLayout = nextLayout
         cachedWidth = layoutWidth
 
-        let geometryChanged = !layoutsApproximatelyEqual(priorLayout, nextLayout)
+        let geometryChanged = deferredInlineWidthGrowth
+            ? false
+            : !layoutsApproximatelyEqual(priorLayout, nextLayout)
         if geometryChanged {
             needsImmediateLayout = true
             pendingScrollOffsetX = preservedOffsetX
             setNeedsLayout()
         } else {
+            if deferredInlineWidthGrowth {
+                applyDeferredCodeWidthGrowthWithoutRelayout(nextLayout)
+            }
             let maxOffsetX = max(0, nextLayout.contentWidth - nextLayout.scrollFrame.width)
             let clampedOffset = min(max(0, preservedOffsetX), maxOffsetX)
             pendingScrollOffsetX = nil
@@ -268,6 +279,48 @@ private final class MarkdownCodeBlockView: UIView, UIScrollViewDelegate {
             abs(lhs.scrollFrame.height - rhs.scrollFrame.height) <= 0.5 &&
             abs(lhs.codeFrame.height - rhs.codeFrame.height) <= 0.5 &&
             abs(lhs.copyFrame.width - rhs.copyFrame.width) <= 0.5
+    }
+
+    private func layoutByDeferringSmallCodeWidthGrowth(
+        priorLayout: Layout,
+        measuredLayout: Layout
+    ) -> Layout {
+        let grownContentWidth = max(priorLayout.contentWidth, measuredLayout.contentWidth)
+        guard grownContentWidth > priorLayout.contentWidth + 0.5 else {
+            return priorLayout
+        }
+
+        let grownCodeFrame = CGRect(
+            x: priorLayout.codeFrame.origin.x,
+            y: priorLayout.codeFrame.origin.y,
+            width: grownContentWidth,
+            height: priorLayout.codeFrame.height
+        )
+        return Layout(
+            size: priorLayout.size,
+            headerFrame: priorLayout.headerFrame,
+            separatorFrame: priorLayout.separatorFrame,
+            languageFrame: priorLayout.languageFrame,
+            copyFrame: priorLayout.copyFrame,
+            scrollFrame: priorLayout.scrollFrame,
+            codeFrame: grownCodeFrame,
+            contentWidth: grownContentWidth
+        )
+    }
+
+    private func applyDeferredCodeWidthGrowthWithoutRelayout(_ layout: Layout) {
+        if abs(scrollView.contentSize.width - layout.contentWidth) > 0.5 ||
+            abs(scrollView.contentSize.height - layout.codeFrame.height) > 0.5 {
+            scrollView.contentSize = CGSize(width: layout.contentWidth, height: layout.codeFrame.height)
+        }
+
+        var codeFrame = codeTextView.frame
+        if abs(codeFrame.width - layout.codeFrame.width) > 0.5 ||
+            abs(codeFrame.height - layout.codeFrame.height) > 0.5 {
+            codeFrame.size.width = layout.codeFrame.width
+            codeFrame.size.height = layout.codeFrame.height
+            codeTextView.frame = codeFrame
+        }
     }
 
     private func computeLayout(width: CGFloat) -> Layout {
