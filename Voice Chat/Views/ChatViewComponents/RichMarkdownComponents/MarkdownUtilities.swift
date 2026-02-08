@@ -49,6 +49,10 @@ private final class MarkdownAttributedTextMeasurementCache: @unchecked Sendable 
         widthKey: Int,
         compute: () -> CGSize
     ) -> CGSize {
+        if !shouldCacheMeasurement(for: text) {
+            return compute()
+        }
+
         let widthNumber = NSNumber(value: widthKey)
 
         lock.lock()
@@ -66,6 +70,12 @@ private final class MarkdownAttributedTextMeasurementCache: @unchecked Sendable 
         cacheIdentityMeasurement(measured, for: text, widthNumber: widthNumber)
         lock.unlock()
         return measured
+    }
+
+    private func shouldCacheMeasurement(for text: NSAttributedString) -> Bool {
+        // Mutable attributed strings (including NSTextStorage) can change in place while preserving identity.
+        // Caching them by object identity risks returning stale sizes during streaming updates.
+        !(text is NSMutableAttributedString)
     }
 
     private func cacheIdentityMeasurement(_ size: CGSize, for text: NSAttributedString, widthNumber: NSNumber) {
