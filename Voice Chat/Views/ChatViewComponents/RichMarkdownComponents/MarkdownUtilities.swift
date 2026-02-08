@@ -33,6 +33,79 @@ func extractPlainText(from attributed: NSAttributedString) -> String {
     return output
 }
 
+private final class MarkdownAttributedTextMeasurementCache: @unchecked Sendable {
+    static let shared = MarkdownAttributedTextMeasurementCache()
+
+    private let lock = NSLock()
+    private let identityCache = NSMapTable<NSAttributedString, NSMutableDictionary>(
+        keyOptions: .weakMemory,
+        valueOptions: .strongMemory
+    )
+
+    private init() {}
+
+    func measure(
+        _ text: NSAttributedString,
+        widthKey: Int,
+        compute: () -> CGSize
+    ) -> CGSize {
+        if !shouldCacheMeasurement(for: text) {
+            return compute()
+        }
+
+        let widthNumber = NSNumber(value: widthKey)
+
+        lock.lock()
+        if let map = identityCache.object(forKey: text),
+           let cachedValue = map.object(forKey: widthNumber) as? NSValue {
+            let cached = sizeFromNSValue(cachedValue)
+            lock.unlock()
+            return cached
+        }
+        lock.unlock()
+
+        let measured = compute()
+
+        lock.lock()
+        cacheIdentityMeasurement(measured, for: text, widthNumber: widthNumber)
+        lock.unlock()
+        return measured
+    }
+
+    private func shouldCacheMeasurement(for text: NSAttributedString) -> Bool {
+        // Mutable attributed strings (including NSTextStorage) can change in place while preserving identity.
+        // Caching them by object identity risks returning stale sizes during streaming updates.
+        !(text is NSMutableAttributedString)
+    }
+
+    private func cacheIdentityMeasurement(_ size: CGSize, for text: NSAttributedString, widthNumber: NSNumber) {
+        let map: NSMutableDictionary
+        if let existing = identityCache.object(forKey: text) {
+            map = existing
+        } else {
+            map = NSMutableDictionary()
+            identityCache.setObject(map, forKey: text)
+        }
+        map.setObject(nsValue(from: size), forKey: widthNumber)
+    }
+}
+
+private func sizeFromNSValue(_ value: NSValue) -> CGSize {
+    #if os(macOS)
+    return value.sizeValue
+    #else
+    return value.cgSizeValue
+    #endif
+}
+
+private func nsValue(from size: CGSize) -> NSValue {
+    #if os(macOS)
+    return NSValue(size: size)
+    #else
+    return NSValue(cgSize: size)
+    #endif
+}
+
 func measureAttributedText(_ text: NSAttributedString, width: CGFloat) -> CGSize {
     let targetWidth: CGFloat
     if width.isFinite {
@@ -40,16 +113,68 @@ func measureAttributedText(_ text: NSAttributedString, width: CGFloat) -> CGSize
     } else {
         targetWidth = 10_000
     }
+    let widthKey = Int((targetWidth * 2).rounded(.toNearestOrAwayFromZero))
+    return MarkdownAttributedTextMeasurementCache.shared.measure(
+        text,
+        widthKey: widthKey
+    ) {
+        if attributedStringContainsAttachment(text) {
+            return measureAttributedTextIncludingAttachments(text, width: targetWidth)
+        } else {
+            let constraint = CGSize(width: targetWidth, height: .greatestFiniteMagnitude)
+            let rect = text.boundingRect(
+                with: constraint,
+                options: [.usesLineFragmentOrigin, .usesFontLeading],
+                context: nil
+            )
+            return CGSize(width: ceil(rect.width), height: ceil(rect.height))
+        }
+    }
+}
+
+private func attributedStringContainsAttachment(_ text: NSAttributedString) -> Bool {
+    guard text.length > 0 else { return false }
+    var foundAttachment = false
+    text.enumerateAttribute(
+        .attachment,
+        in: NSRange(location: 0, length: text.length),
+        options: []
+    ) { value, _, stop in
+        if value is NSTextAttachment {
+            foundAttachment = true
+            stop.pointee = true
+        }
+    }
+    return foundAttachment
+}
+
+private func measureAttributedTextIncludingAttachments(
+    _ text: NSAttributedString,
+    width: CGFloat
+) -> CGSize {
     let textStorage = NSTextStorage(attributedString: text)
-    let textContainer = NSTextContainer(size: CGSize(width: targetWidth, height: .greatestFiniteMagnitude))
-    textContainer.lineFragmentPadding = 0
     let layoutManager = NSLayoutManager()
+    layoutManager.allowsNonContiguousLayout = false
     layoutManager.usesFontLeading = true
+
+    let textContainer = NSTextContainer(size: CGSize(width: width, height: 10_000_000))
+    textContainer.lineFragmentPadding = 0
+    textContainer.maximumNumberOfLines = 0
+    textContainer.lineBreakMode = .byWordWrapping
+
     layoutManager.addTextContainer(textContainer)
     textStorage.addLayoutManager(layoutManager)
+
+    _ = layoutManager.glyphRange(for: textContainer)
     layoutManager.ensureLayout(for: textContainer)
-    let rect = layoutManager.usedRect(for: textContainer)
-    return CGSize(width: ceil(rect.width), height: ceil(rect.height))
+    var usedRect = layoutManager.usedRect(for: textContainer)
+    if layoutManager.extraLineFragmentTextContainer != nil {
+        usedRect = usedRect.union(layoutManager.extraLineFragmentRect)
+    }
+    return CGSize(
+        width: ceil(max(0, usedRect.width)),
+        height: ceil(max(0, usedRect.height))
+    )
 }
 
 func currentLanguageCode() -> String {

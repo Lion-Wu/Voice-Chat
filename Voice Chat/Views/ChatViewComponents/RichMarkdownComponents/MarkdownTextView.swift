@@ -140,12 +140,10 @@ final class MarkdownUIKitTextView: UITextView {
            let documentRange = textLayoutManager.textContentManager?.documentRange,
            let contentManager = textLayoutManager.textContentManager {
             let storageLength = textStorage.length
-            let baseRange = clampRange(
-                changedRange ?? NSRange(location: 0, length: storageLength),
-                upperBound: storageLength
+            let range = normalizedInvalidationRange(
+                changedRange: changedRange,
+                storageLength: storageLength
             )
-            let start = max(0, baseRange.location)
-            let range = NSRange(location: start, length: max(0, storageLength - start))
 
             if let textRange = makeTextRange(
                 range,
@@ -166,7 +164,10 @@ final class MarkdownUIKitTextView: UITextView {
 
         let layoutManager = self.layoutManager
         let storageLength = textStorage.length
-        let resolvedRange = clampRange(changedRange ?? NSRange(location: 0, length: storageLength), upperBound: storageLength)
+        let resolvedRange = normalizedInvalidationRange(
+            changedRange: changedRange,
+            storageLength: storageLength
+        )
         layoutManager.ensureLayout(forCharacterRange: resolvedRange)
         let used = layoutManager.usedRect(for: textContainer)
         cachedIntrinsicHeight = used.height + insets
@@ -210,16 +211,18 @@ final class MarkdownUIKitTextView: UITextView {
 	        _ textLayoutManager: NSTextLayoutManager,
 	        documentRange: NSTextRange
 	    ) -> CGFloat {
+	        let usageHeight = textLayoutManager.usageBoundsForTextContainer.height
+	        if usageHeight > 0.5 {
+	            return usageHeight
+	        }
+
 	        var maxY: CGFloat = 0
 	        let options: NSTextLayoutFragment.EnumerationOptions = [.reverse, .ensuresLayout, .ensuresExtraLineFragment]
 	        _ = textLayoutManager.enumerateTextLayoutFragments(from: documentRange.endLocation, options: options) { fragment in
 	            maxY = fragment.layoutFragmentFrame.maxY
 	            return false
 	        }
-	        if maxY <= 0.5 {
-	            maxY = textLayoutManager.usageBoundsForTextContainer.height
-	        }
-	        return maxY
+	        return max(maxY, usageHeight)
 	    }
 
     @available(iOS 15.0, tvOS 15.0, *)
@@ -272,6 +275,23 @@ final class MarkdownUIKitTextView: UITextView {
         let start = Swift.max(0, Swift.min(range.location, upperBound))
         let end = Swift.max(0, Swift.min(range.location + range.length, upperBound))
         return NSRange(location: start, length: max(0, end - start))
+    }
+
+    private func normalizedInvalidationRange(
+        changedRange: NSRange?,
+        storageLength: Int
+    ) -> NSRange {
+        guard storageLength > 0 else {
+            return NSRange(location: 0, length: 0)
+        }
+
+        let fullRange = NSRange(location: 0, length: storageLength)
+        let clamped = clampRange(changedRange ?? fullRange, upperBound: storageLength)
+        let start = max(0, min(clamped.location, storageLength))
+        guard start < storageLength else {
+            return NSRange(location: storageLength - 1, length: 1)
+        }
+        return NSRange(location: start, length: storageLength - start)
     }
 
     deinit {
@@ -577,12 +597,10 @@ final class MarkdownAppKitTextView: NSTextView {
            let documentRange = textLayoutManager.textContentManager?.documentRange,
            let contentManager = textLayoutManager.textContentManager {
             let storageLength = textStorage?.length ?? 0
-            let baseRange = clampRange(
-                changedRange ?? NSRange(location: 0, length: storageLength),
-                upperBound: storageLength
+            let range = normalizedInvalidationRange(
+                changedRange: changedRange,
+                storageLength: storageLength
             )
-            let start = max(0, baseRange.location)
-            let range = NSRange(location: start, length: max(0, storageLength - start))
             if let textRange = makeTextRange(
                 range,
                 documentRange: documentRange,
@@ -600,9 +618,10 @@ final class MarkdownAppKitTextView: NSTextView {
 
         if let layoutManager, let textContainer, let storage = self.textStorage {
             let storageLength = storage.length
-            let baseRange = clampRange(changedRange ?? NSRange(location: 0, length: storageLength), upperBound: storageLength)
-            let start = max(0, baseRange.location)
-            let range = NSRange(location: start, length: max(0, storageLength - start))
+            let range = normalizedInvalidationRange(
+                changedRange: changedRange,
+                storageLength: storageLength
+            )
             layoutManager.ensureLayout(forCharacterRange: range)
             let used = layoutManager.usedRect(for: textContainer)
             cachedIntrinsicHeight = used.height + insets
@@ -636,16 +655,18 @@ final class MarkdownAppKitTextView: NSTextView {
         _ textLayoutManager: NSTextLayoutManager,
         documentRange: NSTextRange
     ) -> CGFloat {
+        let usageHeight = textLayoutManager.usageBoundsForTextContainer.height
+        if usageHeight > 0.5 {
+            return usageHeight
+        }
+
         var maxY: CGFloat = 0
         let options: NSTextLayoutFragment.EnumerationOptions = [.reverse, .ensuresLayout, .ensuresExtraLineFragment]
         _ = textLayoutManager.enumerateTextLayoutFragments(from: documentRange.endLocation, options: options) { fragment in
             maxY = fragment.layoutFragmentFrame.maxY
             return false
         }
-        if maxY <= 0.5 {
-            maxY = textLayoutManager.usageBoundsForTextContainer.height
-        }
-        return maxY
+        return max(maxY, usageHeight)
     }
 
     @available(macOS 12.0, *)
@@ -698,6 +719,23 @@ final class MarkdownAppKitTextView: NSTextView {
         let start = Swift.max(0, Swift.min(range.location, upperBound))
         let end = Swift.max(0, Swift.min(range.location + range.length, upperBound))
         return NSRange(location: start, length: max(0, end - start))
+    }
+
+    private func normalizedInvalidationRange(
+        changedRange: NSRange?,
+        storageLength: Int
+    ) -> NSRange {
+        guard storageLength > 0 else {
+            return NSRange(location: 0, length: 0)
+        }
+
+        let fullRange = NSRange(location: 0, length: storageLength)
+        let clamped = clampRange(changedRange ?? fullRange, upperBound: storageLength)
+        let start = max(0, min(clamped.location, storageLength))
+        guard start < storageLength else {
+            return NSRange(location: storageLength - 1, length: 1)
+        }
+        return NSRange(location: start, length: storageLength - start)
     }
 
     private func handleCopyClick(at point: CGPoint) -> Bool {

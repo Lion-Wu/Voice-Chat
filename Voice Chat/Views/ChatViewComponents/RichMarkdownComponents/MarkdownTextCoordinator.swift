@@ -36,6 +36,9 @@ final class MarkdownTextCoordinator: NSObject, @unchecked Sendable {
     private var streamingActiveTableLineBuffer: String = ""
     private var streamingActiveTableHasDraftRow: Bool = false
     private var streamingActiveTableDraftLine: String = ""
+    private weak var pendingInvalidationTextView: MarkdownPlatformTextView?
+    private var pendingInvalidationRange: NSRange?
+    private var pendingInvalidationScheduled: Bool = false
 
     private struct SendableAttributes: @unchecked Sendable {
         let attributes: [NSAttributedString.Key: Any]
@@ -504,11 +507,6 @@ final class MarkdownTextCoordinator: NSObject, @unchecked Sendable {
                 commitAppend.append(commitDeltaAttributed)
                 committedAttributed.append(commitDeltaAttributed)
 
-                self.streamingCommittedAttachments.append(contentsOf: commitDeltaResult.attachments)
-                self.streamingCommittedMarkdownUTF16Count = newCommittedUTF16
-                self.streamingCommittedOrderedList = plan.orderedListAtSafeCommit
-                self.streamingState = plan.nextState
-
                 let tailAttributed = self.tailWithSeparator(
                     prefix: committedAttributed,
                     tail: tailResult.attributedString,
@@ -517,21 +515,45 @@ final class MarkdownTextCoordinator: NSObject, @unchecked Sendable {
                 let replacement = NSMutableAttributedString(attributedString: commitAppend)
                 replacement.append(tailAttributed)
 
+                let oldTailAttachments = oldTailAttachmentCount > 0
+                    ? Array(self.attachments.suffix(oldTailAttachmentCount))
+                    : []
+                let incomingNewAttachments = commitDeltaResult.attachments + tailResult.attachments
+                let reconciledNewAttachments = self.reconcileReplacementAttachments(
+                    replacement: replacement,
+                    incomingAttachments: incomingNewAttachments,
+                    reusableAttachments: oldTailAttachments
+                )
+                let split = self.splitReconciledAttachments(
+                    reconciledNewAttachments,
+                    expectedCommitCount: commitDeltaResult.attachments.count,
+                    expectedTailCount: tailResult.attachments.count,
+                    fallbackCommit: commitDeltaResult.attachments,
+                    fallbackTail: tailResult.attachments
+                )
+                let resolvedCommitDeltaAttachments = split.commit
+                let resolvedTailAttachments = split.tail
+
+                self.streamingCommittedAttachments.append(contentsOf: resolvedCommitDeltaAttachments)
+                self.streamingCommittedMarkdownUTF16Count = newCommittedUTF16
+                self.streamingCommittedOrderedList = plan.orderedListAtSafeCommit
+                self.streamingState = plan.nextState
+
                 let replaceRange = NSRange(location: oldCommittedLength, length: max(0, storage.length - oldCommittedLength))
                 storage.beginEditing()
                 storage.replaceCharacters(in: replaceRange, with: replacement)
                 storage.endEditing()
 
-                let newAttachments = commitDeltaResult.attachments + tailResult.attachments
+                let newAttachments = resolvedCommitDeltaAttachments + resolvedTailAttachments
                 if self.attachments.count >= oldCommittedAttachmentCount {
                     if oldTailAttachmentCount > 0 {
                         self.attachments.removeLast(oldTailAttachmentCount)
                     }
-                    self.attachments.append(contentsOf: commitDeltaResult.attachments)
-                    self.attachments.append(contentsOf: tailResult.attachments)
+                    self.attachments.append(contentsOf: resolvedCommitDeltaAttachments)
+                    self.attachments.append(contentsOf: resolvedTailAttachments)
                 } else {
                     var allAttachments = self.streamingCommittedAttachments
-                    allAttachments.append(contentsOf: tailResult.attachments)
+                    allAttachments.append(contentsOf: resolvedTailAttachments)
                     self.attachments = allAttachments
                 }
                 self.resetStreamingOpenAttachmentState()
@@ -549,10 +571,20 @@ final class MarkdownTextCoordinator: NSObject, @unchecked Sendable {
                 let tailMarkdown = utf16Substring(plan.markdown, from: plan.safeCommitUTF16Count, to: plan.markdown.utf16.count)
                 let tailStart = plan.orderedListAtSafeCommit.map { max(1, $0.startIndex + $0.committedItemCount) }
                 let tailResult = renderSegment(tailMarkdown, orderedListStartNumber: tailStart)
-                let tailAttributed = self.tailWithSeparator(
+                let tailAttributed = NSMutableAttributedString(attributedString: self.tailWithSeparator(
                     prefix: committedAttributed,
                     tail: tailResult.attributedString,
                     newlineAttributes: sendableBaseAttributes
+                ))
+                let committedAttachmentCount = self.streamingCommittedAttachments.count
+                let oldTailAttachmentCount = max(0, self.attachments.count - committedAttachmentCount)
+                let oldTailAttachments = oldTailAttachmentCount > 0
+                    ? Array(self.attachments.suffix(oldTailAttachmentCount))
+                    : []
+                let resolvedTailAttachments = self.reconcileReplacementAttachments(
+                    replacement: tailAttributed,
+                    incomingAttachments: tailResult.attachments,
+                    reusableAttachments: oldTailAttachments
                 )
 
                 let replaceRange = NSRange(location: committedLength, length: max(0, storage.length - committedLength))
@@ -562,21 +594,19 @@ final class MarkdownTextCoordinator: NSObject, @unchecked Sendable {
 
                 self.streamingState = plan.nextState
                 self.streamingCommittedOrderedList = plan.orderedListAtSafeCommit
-                let committedAttachmentCount = self.streamingCommittedAttachments.count
-                let oldTailAttachmentCount = max(0, self.attachments.count - committedAttachmentCount)
                 if self.attachments.count >= committedAttachmentCount {
                     if oldTailAttachmentCount > 0 {
                         self.attachments.removeLast(oldTailAttachmentCount)
                     }
-                    self.attachments.append(contentsOf: tailResult.attachments)
+                    self.attachments.append(contentsOf: resolvedTailAttachments)
                 } else {
                     var allAttachments = self.streamingCommittedAttachments
-                    allAttachments.append(contentsOf: tailResult.attachments)
+                    allAttachments.append(contentsOf: resolvedTailAttachments)
                     self.attachments = allAttachments
                 }
                 self.resetStreamingOpenAttachmentState()
-                self.updateAttachmentWidth(for: tailResult.attachments)
-                self.queueImageLoads(attachments: tailResult.attachments)
+                self.updateAttachmentWidth(for: resolvedTailAttachments)
+                self.queueImageLoads(attachments: resolvedTailAttachments)
                 self.lastMarkdown = plan.markdown
                 self.lastStyleKey = styleKey
                 let start = self.invalidationStart(in: storage, insertionLocation: committedLength)
@@ -729,11 +759,6 @@ final class MarkdownTextCoordinator: NSObject, @unchecked Sendable {
                     commitAppend.append(commitDeltaAttributed)
                     committedAttributed.append(commitDeltaAttributed)
 
-                    self.streamingCommittedAttachments.append(contentsOf: commitDeltaResult.attachments)
-                    self.streamingCommittedMarkdownUTF16Count = plan.safeCommitUTF16Count
-                    self.streamingCommittedOrderedList = plan.orderedListAtSafeCommit
-                    self.streamingState = plan.nextState
-
                     let tailAttributed = self.tailWithSeparator(
                         prefix: committedAttributed,
                         tail: tailResult.attributedString,
@@ -742,21 +767,45 @@ final class MarkdownTextCoordinator: NSObject, @unchecked Sendable {
                     let replacement = NSMutableAttributedString(attributedString: commitAppend)
                     replacement.append(tailAttributed)
 
+                    let oldTailAttachments = oldTailAttachmentCount > 0
+                        ? Array(self.attachments.suffix(oldTailAttachmentCount))
+                        : []
+                    let incomingNewAttachments = commitDeltaResult.attachments + tailResult.attachments
+                    let reconciledNewAttachments = self.reconcileReplacementAttachments(
+                        replacement: replacement,
+                        incomingAttachments: incomingNewAttachments,
+                        reusableAttachments: oldTailAttachments
+                    )
+                    let split = self.splitReconciledAttachments(
+                        reconciledNewAttachments,
+                        expectedCommitCount: commitDeltaResult.attachments.count,
+                        expectedTailCount: tailResult.attachments.count,
+                        fallbackCommit: commitDeltaResult.attachments,
+                        fallbackTail: tailResult.attachments
+                    )
+                    let resolvedCommitDeltaAttachments = split.commit
+                    let resolvedTailAttachments = split.tail
+
+                    self.streamingCommittedAttachments.append(contentsOf: resolvedCommitDeltaAttachments)
+                    self.streamingCommittedMarkdownUTF16Count = plan.safeCommitUTF16Count
+                    self.streamingCommittedOrderedList = plan.orderedListAtSafeCommit
+                    self.streamingState = plan.nextState
+
                     let replaceRange = NSRange(location: oldCommittedLength, length: max(0, storage.length - oldCommittedLength))
                     storage.beginEditing()
                     storage.replaceCharacters(in: replaceRange, with: replacement)
                     storage.endEditing()
 
-                    let newAttachments = commitDeltaResult.attachments + tailResult.attachments
+                    let newAttachments = resolvedCommitDeltaAttachments + resolvedTailAttachments
                     if self.attachments.count >= oldCommittedAttachmentCount {
                         if oldTailAttachmentCount > 0 {
                             self.attachments.removeLast(oldTailAttachmentCount)
                         }
-                        self.attachments.append(contentsOf: commitDeltaResult.attachments)
-                        self.attachments.append(contentsOf: tailResult.attachments)
+                        self.attachments.append(contentsOf: resolvedCommitDeltaAttachments)
+                        self.attachments.append(contentsOf: resolvedTailAttachments)
                     } else {
                         var allAttachments = self.streamingCommittedAttachments
-                        allAttachments.append(contentsOf: tailResult.attachments)
+                        allAttachments.append(contentsOf: resolvedTailAttachments)
                         self.attachments = allAttachments
                     }
                     self.resetStreamingOpenAttachmentState()
@@ -769,10 +818,20 @@ final class MarkdownTextCoordinator: NSObject, @unchecked Sendable {
 
                 case let (.updateTail(committedLength), .tailOnly(tailResult)):
                     guard let committedAttributed = self.streamingCommittedAttributedString else { return }
-                    let tailAttributed = self.tailWithSeparator(
+                    let tailAttributed = NSMutableAttributedString(attributedString: self.tailWithSeparator(
                         prefix: committedAttributed,
                         tail: tailResult.attributedString,
                         newlineAttributes: sendableBaseAttributes
+                    ))
+                    let committedAttachmentCount = self.streamingCommittedAttachments.count
+                    let oldTailAttachmentCount = max(0, self.attachments.count - committedAttachmentCount)
+                    let oldTailAttachments = oldTailAttachmentCount > 0
+                        ? Array(self.attachments.suffix(oldTailAttachmentCount))
+                        : []
+                    let resolvedTailAttachments = self.reconcileReplacementAttachments(
+                        replacement: tailAttributed,
+                        incomingAttachments: tailResult.attachments,
+                        reusableAttachments: oldTailAttachments
                     )
 
                     let replaceRange = NSRange(location: committedLength, length: max(0, storage.length - committedLength))
@@ -782,21 +841,19 @@ final class MarkdownTextCoordinator: NSObject, @unchecked Sendable {
 
                     self.streamingState = plan.nextState
                     self.streamingCommittedOrderedList = plan.orderedListAtSafeCommit
-                    let committedAttachmentCount = self.streamingCommittedAttachments.count
-                    let oldTailAttachmentCount = max(0, self.attachments.count - committedAttachmentCount)
                     if self.attachments.count >= committedAttachmentCount {
                         if oldTailAttachmentCount > 0 {
                             self.attachments.removeLast(oldTailAttachmentCount)
                         }
-                        self.attachments.append(contentsOf: tailResult.attachments)
+                        self.attachments.append(contentsOf: resolvedTailAttachments)
                     } else {
                         var allAttachments = self.streamingCommittedAttachments
-                        allAttachments.append(contentsOf: tailResult.attachments)
+                        allAttachments.append(contentsOf: resolvedTailAttachments)
                         self.attachments = allAttachments
                     }
                     self.resetStreamingOpenAttachmentState()
-                    self.updateAttachmentWidth(for: tailResult.attachments)
-                    self.queueImageLoads(attachments: tailResult.attachments)
+                    self.updateAttachmentWidth(for: resolvedTailAttachments)
+                    self.queueImageLoads(attachments: resolvedTailAttachments)
                     self.lastMarkdown = plan.markdown
                     self.lastStyleKey = styleKey
                     let start = self.invalidationStart(in: storage, insertionLocation: committedLength)
@@ -1491,6 +1548,329 @@ final class MarkdownTextCoordinator: NSObject, @unchecked Sendable {
         return cells
     }
 
+    private struct AttachmentOccurrence {
+        let range: NSRange
+        let attachment: MarkdownAttachment
+    }
+
+    private func attachmentOccurrences(in attributed: NSAttributedString) -> [AttachmentOccurrence] {
+        guard attributed.length > 0 else { return [] }
+        var occurrences: [AttachmentOccurrence] = []
+        occurrences.reserveCapacity(4)
+        attributed.enumerateAttribute(
+            .attachment,
+            in: NSRange(location: 0, length: attributed.length),
+            options: []
+        ) { value, range, _ in
+            guard let attachment = value as? MarkdownAttachment else { return }
+            occurrences.append(AttachmentOccurrence(range: range, attachment: attachment))
+        }
+        return occurrences
+    }
+
+    private func reconcileReplacementAttachments(
+        replacement: NSMutableAttributedString,
+        incomingAttachments: [MarkdownAttachment],
+        reusableAttachments: [MarkdownAttachment]
+    ) -> [MarkdownAttachment] {
+        guard !incomingAttachments.isEmpty else { return [] }
+        guard !reusableAttachments.isEmpty else { return incomingAttachments }
+
+        let occurrences = attachmentOccurrences(in: replacement)
+        guard occurrences.count == incomingAttachments.count else {
+            return incomingAttachments
+        }
+
+        var resolved: [MarkdownAttachment] = []
+        resolved.reserveCapacity(occurrences.count)
+        var preferredStart = 0
+        var usedIndices: Set<Int> = []
+
+        for occurrence in occurrences {
+            let incoming = occurrence.attachment
+            guard let matchedIndex = reusableAttachmentIndex(
+                for: incoming,
+                in: reusableAttachments,
+                preferredStart: preferredStart,
+                excluding: usedIndices
+            ), let reused = synchronizeReusableAttachment(
+                existing: reusableAttachments[matchedIndex],
+                incoming: incoming
+            ) else {
+                resolved.append(incoming)
+                continue
+            }
+            replacement.removeAttribute(.attachment, range: occurrence.range)
+            replacement.addAttribute(.attachment, value: reused, range: occurrence.range)
+            resolved.append(reused)
+            usedIndices.insert(matchedIndex)
+            preferredStart = min(reusableAttachments.count, matchedIndex + 1)
+        }
+
+        return resolved
+    }
+
+    private func reusableAttachmentIndex(
+        for incoming: MarkdownAttachment,
+        in reusableAttachments: [MarkdownAttachment],
+        preferredStart: Int,
+        excluding usedIndices: Set<Int>
+    ) -> Int? {
+        guard !reusableAttachments.isEmpty else { return nil }
+        let normalizedPreferredStart: Int = {
+            if preferredStart <= 0 { return 0 }
+            return preferredStart % reusableAttachments.count
+        }()
+        var bestIndex: Int?
+        var bestScore = Int.min
+
+        for index in reusableAttachments.indices {
+            if usedIndices.contains(index) { continue }
+            guard let similarityScore = attachmentReuseSimilarityScore(
+                existing: reusableAttachments[index],
+                incoming: incoming
+            ) else {
+                continue
+            }
+            let score = similarityScore + attachmentOrderBonus(
+                index: index,
+                preferredStart: normalizedPreferredStart,
+                count: reusableAttachments.count
+            )
+            if score > bestScore {
+                bestScore = score
+                bestIndex = index
+            }
+        }
+        return bestIndex
+    }
+
+    private func canReuseAttachment(
+        existing: MarkdownAttachment,
+        incoming: MarkdownAttachment
+    ) -> Bool {
+        attachmentReuseSimilarityScore(existing: existing, incoming: incoming) != nil
+    }
+
+    private func attachmentReuseSimilarityScore(
+        existing: MarkdownAttachment,
+        incoming: MarkdownAttachment
+    ) -> Int? {
+        switch (existing, incoming) {
+        case (let existing as MarkdownCodeBlockAttachment, let incoming as MarkdownCodeBlockAttachment):
+            guard existing.languageLabel == incoming.languageLabel,
+                  existing.copyLabel == incoming.copyLabel,
+                  codeBlockStylesEqual(existing.style, incoming.style)
+            else {
+                return nil
+            }
+            return codeReuseSimilarityScore(existing: existing.code, incoming: incoming.code)
+        case (let existing as MarkdownTableAttachment, let incoming as MarkdownTableAttachment):
+            guard tableStylesEqual(existing.style, incoming.style) else { return nil }
+            return tableReuseSimilarityScore(existingRows: existing.rows, incomingRows: incoming.rows)
+        case (let existing as MarkdownQuoteAttachment, let incoming as MarkdownQuoteAttachment):
+            guard quoteStylesEqual(existing.style, incoming.style),
+                  existing.content.isEqual(to: incoming.content)
+            else {
+                return nil
+            }
+            return 260_000 + existing.content.length
+        case (let existing as MarkdownRuleAttachment, let incoming as MarkdownRuleAttachment):
+            guard colorsEqual(existing.color, incoming.color),
+                  abs(existing.thickness - incoming.thickness) < 0.5,
+                  abs(existing.verticalPadding - incoming.verticalPadding) < 0.5
+            else {
+                return nil
+            }
+            return 100_000
+        case (let existing as MarkdownImageAttachment, let incoming as MarkdownImageAttachment):
+            guard existing.source == incoming.source,
+                  existing.altText == incoming.altText
+            else {
+                return nil
+            }
+            return 180_000
+        default:
+            return nil
+        }
+    }
+
+    private func attachmentOrderBonus(index: Int, preferredStart: Int, count: Int) -> Int {
+        guard count > 0 else { return 0 }
+        let normalizedStart = max(0, min(preferredStart, count - 1))
+        let forwardDistance = index >= normalizedStart ? index - normalizedStart : count - normalizedStart + index
+        return max(0, 512 - forwardDistance)
+    }
+
+    private func codeReuseSimilarityScore(existing: String, incoming: String) -> Int? {
+        if existing == incoming {
+            return 320_000 + existing.utf16.count
+        }
+        if incoming.hasPrefix(existing) {
+            return 300_000 + existing.utf16.count
+        }
+        if existing.hasPrefix(incoming) {
+            return 290_000 + incoming.utf16.count
+        }
+        return nil
+    }
+
+    private func tableReuseSimilarityScore(
+        existingRows: [MarkdownTableRow],
+        incomingRows: [MarkdownTableRow]
+    ) -> Int? {
+        if existingRows.isEmpty || incomingRows.isEmpty {
+            return existingRows.isEmpty && incomingRows.isEmpty ? 200_000 : nil
+        }
+
+        // Require the first row (header/first data row) to match exactly.
+        guard tableRowsEqual(existingRows[0], incomingRows[0]) else { return nil }
+
+        let sharedRowCount = min(existingRows.count, incomingRows.count)
+        var exactSharedRows = 0
+        var cellMatchScore = 0
+
+        for rowIndex in 0..<sharedRowCount {
+            let existingRow = existingRows[rowIndex]
+            let incomingRow = incomingRows[rowIndex]
+            if tableRowsEqual(existingRow, incomingRow) {
+                exactSharedRows += 1
+                cellMatchScore += existingRow.cells.count
+                continue
+            }
+
+            // Streaming table updates may mutate the last shared draft row; accept if cells still share a leading prefix.
+            guard rowIndex == sharedRowCount - 1,
+                  let partialScore = tableRowPartialPrefixScore(existingRow, incomingRow)
+            else {
+                return nil
+            }
+            cellMatchScore += partialScore
+            break
+        }
+
+        guard exactSharedRows > 0 else { return nil }
+        let rowDepthScore = exactSharedRows * 256
+        let sizeScore = min(existingRows.count, incomingRows.count) * 8
+        return 240_000 + rowDepthScore + cellMatchScore + sizeScore
+    }
+
+    private func tableRowsEqual(_ lhs: MarkdownTableRow, _ rhs: MarkdownTableRow) -> Bool {
+        guard lhs.isHeader == rhs.isHeader else { return false }
+        guard lhs.cells.count == rhs.cells.count else { return false }
+        for index in 0..<lhs.cells.count {
+            if !lhs.cells[index].isEqual(to: rhs.cells[index]) { return false }
+        }
+        return true
+    }
+
+    private func tableRowPartialPrefixScore(_ lhs: MarkdownTableRow, _ rhs: MarkdownTableRow) -> Int? {
+        guard lhs.isHeader == rhs.isHeader else { return nil }
+        let sharedCount = min(lhs.cells.count, rhs.cells.count)
+        guard sharedCount > 0 else { return nil }
+        var matchingPrefixCells = 0
+        for index in 0..<sharedCount {
+            if lhs.cells[index].isEqual(to: rhs.cells[index]) {
+                matchingPrefixCells += 1
+            } else {
+                break
+            }
+        }
+        guard matchingPrefixCells > 0 else { return nil }
+        return matchingPrefixCells * 16
+    }
+
+    private func synchronizeReusableAttachment(
+        existing: MarkdownAttachment,
+        incoming: MarkdownAttachment
+    ) -> MarkdownAttachment? {
+        switch (existing, incoming) {
+        case (let existing as MarkdownCodeBlockAttachment, let incoming as MarkdownCodeBlockAttachment):
+            guard canReuseAttachment(existing: existing, incoming: incoming) else { return nil }
+            if existing.code != incoming.code {
+                if incoming.code.hasPrefix(existing.code) {
+                    let delta = String(incoming.code.dropFirst(existing.code.count))
+                    existing.appendCode(delta)
+                } else {
+                    existing.replaceCode(incoming.code)
+                }
+            }
+            return existing
+
+        case (let existing as MarkdownTableAttachment, let incoming as MarkdownTableAttachment):
+            guard canReuseAttachment(existing: existing, incoming: incoming) else { return nil }
+            existing.synchronizeRows(to: incoming.rows)
+            return existing
+
+        case (let existing as MarkdownQuoteAttachment, let incoming as MarkdownQuoteAttachment):
+            guard canReuseAttachment(existing: existing, incoming: incoming) else { return nil }
+            guard existing.content.isEqual(to: incoming.content) else { return nil }
+            return existing
+
+        case (let existing as MarkdownRuleAttachment, let incoming as MarkdownRuleAttachment):
+            guard canReuseAttachment(existing: existing, incoming: incoming) else { return nil }
+            return existing
+
+        case (let existing as MarkdownImageAttachment, let incoming as MarkdownImageAttachment):
+            guard canReuseAttachment(existing: existing, incoming: incoming) else { return nil }
+            return existing
+
+        default:
+            return nil
+        }
+    }
+
+    private func splitReconciledAttachments(
+        _ reconciled: [MarkdownAttachment],
+        expectedCommitCount: Int,
+        expectedTailCount: Int,
+        fallbackCommit: [MarkdownAttachment],
+        fallbackTail: [MarkdownAttachment]
+    ) -> (commit: [MarkdownAttachment], tail: [MarkdownAttachment]) {
+        guard reconciled.count == expectedCommitCount + expectedTailCount else {
+            return (fallbackCommit, fallbackTail)
+        }
+        let commit = Array(reconciled.prefix(expectedCommitCount))
+        let tail = Array(reconciled.dropFirst(expectedCommitCount))
+        return (commit, tail)
+    }
+
+    private func tableStylesEqual(_ lhs: MarkdownTableStyle, _ rhs: MarkdownTableStyle) -> Bool {
+        fontsEqual(lhs.baseFont, rhs.baseFont) &&
+            colorsEqual(lhs.headerBackground, rhs.headerBackground) &&
+            colorsEqual(lhs.stripeBackground, rhs.stripeBackground) &&
+            colorsEqual(lhs.borderColor, rhs.borderColor) &&
+            abs(lhs.borderWidth - rhs.borderWidth) < 0.5 &&
+            abs(lhs.cellPadding.width - rhs.cellPadding.width) < 0.5 &&
+            abs(lhs.cellPadding.height - rhs.cellPadding.height) < 0.5
+    }
+
+    private func codeBlockStylesEqual(_ lhs: MarkdownCodeBlockStyle, _ rhs: MarkdownCodeBlockStyle) -> Bool {
+        fontsEqual(lhs.codeFont, rhs.codeFont) &&
+            fontsEqual(lhs.headerFont, rhs.headerFont) &&
+            colorsEqual(lhs.textColor, rhs.textColor) &&
+            colorsEqual(lhs.headerTextColor, rhs.headerTextColor) &&
+            colorsEqual(lhs.backgroundColor, rhs.backgroundColor) &&
+            colorsEqual(lhs.headerBackground, rhs.headerBackground) &&
+            colorsEqual(lhs.borderColor, rhs.borderColor) &&
+            colorsEqual(lhs.copyTextColor, rhs.copyTextColor) &&
+            colorsEqual(lhs.copyBackground, rhs.copyBackground) &&
+            abs(lhs.borderWidth - rhs.borderWidth) < 0.5 &&
+            abs(lhs.cornerRadius - rhs.cornerRadius) < 0.5 &&
+            abs(lhs.codePadding.width - rhs.codePadding.width) < 0.5 &&
+            abs(lhs.codePadding.height - rhs.codePadding.height) < 0.5 &&
+            abs(lhs.headerPadding.width - rhs.headerPadding.width) < 0.5 &&
+            abs(lhs.headerPadding.height - rhs.headerPadding.height) < 0.5
+    }
+
+    private func quoteStylesEqual(_ lhs: MarkdownQuoteStyle, _ rhs: MarkdownQuoteStyle) -> Bool {
+        colorsEqual(lhs.textColor, rhs.textColor) &&
+            colorsEqual(lhs.borderColor, rhs.borderColor) &&
+            abs(lhs.borderWidth - rhs.borderWidth) < 0.5 &&
+            abs(lhs.padding.width - rhs.padding.width) < 0.5 &&
+            abs(lhs.padding.height - rhs.padding.height) < 0.5
+    }
+
     private func updateAttachmentWidth() {
         updateAttachmentWidth(for: attachments)
     }
@@ -1522,17 +1902,63 @@ final class MarkdownTextCoordinator: NSObject, @unchecked Sendable {
         for textView: MarkdownPlatformTextView,
         changedRange: NSRange?
     ) {
+        enqueueLayoutInvalidation(for: textView, changedRange: changedRange)
+    }
+
+    private func enqueueLayoutInvalidation(
+        for textView: MarkdownPlatformTextView,
+        changedRange: NSRange?
+    ) {
+        if let pendingView = pendingInvalidationTextView, pendingView !== textView {
+            let pendingRange = pendingInvalidationRange
+            pendingInvalidationTextView = nil
+            pendingInvalidationRange = nil
+            pendingInvalidationScheduled = false
+            performInvalidateLayout(for: pendingView, changedRange: pendingRange)
+        }
+
+        let hadPendingRange = pendingInvalidationTextView != nil
+        pendingInvalidationTextView = textView
+        pendingInvalidationRange = hadPendingRange
+            ? mergeInvalidationRanges(pendingInvalidationRange, changedRange)
+            : changedRange
+
+        guard !pendingInvalidationScheduled else { return }
+        pendingInvalidationScheduled = true
+
+        DispatchQueue.main.async { [weak self, weak textView] in
+            guard let self else { return }
+            guard self.pendingInvalidationScheduled else { return }
+            self.pendingInvalidationScheduled = false
+            let targetView = self.pendingInvalidationTextView ?? textView
+            let targetRange = self.pendingInvalidationRange
+            self.pendingInvalidationTextView = nil
+            self.pendingInvalidationRange = nil
+            guard let targetView else { return }
+            self.performInvalidateLayout(for: targetView, changedRange: targetRange)
+        }
+    }
+
+    private func mergeInvalidationRanges(_ lhs: NSRange?, _ rhs: NSRange?) -> NSRange? {
+        if lhs == nil || rhs == nil {
+            return nil
+        }
+        return NSUnionRange(lhs!, rhs!)
+    }
+
+    private func performInvalidateLayout(
+        for textView: MarkdownPlatformTextView,
+        changedRange: NSRange?
+    ) {
         #if os(iOS) || os(tvOS) || os(watchOS)
         if #available(iOS 16.0, tvOS 16.0, *) {
             if let textLayoutManager = textView.textLayoutManager,
                let documentRange = textLayoutManager.textContentManager?.documentRange {
                 let storageLength = textView.textStorage.length
-                let baseRange = clampRange(
-                    changedRange ?? NSRange(location: 0, length: storageLength),
-                    upperBound: storageLength
+                let range = normalizedInvalidationRange(
+                    changedRange: changedRange,
+                    storageLength: storageLength
                 )
-                let start = max(0, baseRange.location)
-                let range = NSRange(location: start, length: max(0, storageLength - start))
                 if let textRange = makeTextRange(
                     range,
                     documentRange: documentRange,
@@ -1547,7 +1973,10 @@ final class MarkdownTextCoordinator: NSObject, @unchecked Sendable {
         } else {
             let layoutManager = textView.layoutManager
             let storage = textView.textStorage
-            let range = clampRange(changedRange ?? NSRange(location: 0, length: storage.length), upperBound: storage.length)
+            let range = normalizedInvalidationRange(
+                changedRange: changedRange,
+                storageLength: storage.length
+            )
             layoutManager.invalidateLayout(forCharacterRange: range, actualCharacterRange: nil)
             layoutManager.invalidateDisplay(forCharacterRange: range)
         }
@@ -1562,12 +1991,10 @@ final class MarkdownTextCoordinator: NSObject, @unchecked Sendable {
             if let textLayoutManager = textView.textLayoutManager,
                let documentRange = textLayoutManager.textContentManager?.documentRange {
                 let storageLength = textView.textStorage?.length ?? 0
-                let baseRange = clampRange(
-                    changedRange ?? NSRange(location: 0, length: storageLength),
-                    upperBound: storageLength
+                let range = normalizedInvalidationRange(
+                    changedRange: changedRange,
+                    storageLength: storageLength
                 )
-                let start = max(0, baseRange.location)
-                let range = NSRange(location: start, length: max(0, storageLength - start))
                 if let textRange = makeTextRange(
                     range,
                     documentRange: documentRange,
@@ -1579,18 +2006,18 @@ final class MarkdownTextCoordinator: NSObject, @unchecked Sendable {
                     textLayoutManager.invalidateLayout(for: documentRange)
                 }
             } else if let layoutManager = textView.layoutManager, let storage = textView.textStorage {
-                let storageLength = storage.length
-                let baseRange = clampRange(changedRange ?? NSRange(location: 0, length: storageLength), upperBound: storageLength)
-                let start = max(0, baseRange.location)
-                let range = NSRange(location: start, length: max(0, storageLength - start))
+                let range = normalizedInvalidationRange(
+                    changedRange: changedRange,
+                    storageLength: storage.length
+                )
                 layoutManager.invalidateLayout(forCharacterRange: range, actualCharacterRange: nil)
                 layoutManager.invalidateDisplay(forCharacterRange: range)
             }
         } else if let layoutManager = textView.layoutManager, let storage = textView.textStorage {
-            let storageLength = storage.length
-            let baseRange = clampRange(changedRange ?? NSRange(location: 0, length: storageLength), upperBound: storageLength)
-            let start = max(0, baseRange.location)
-            let range = NSRange(location: start, length: max(0, storageLength - start))
+            let range = normalizedInvalidationRange(
+                changedRange: changedRange,
+                storageLength: storage.length
+            )
             layoutManager.invalidateLayout(forCharacterRange: range, actualCharacterRange: nil)
             layoutManager.invalidateDisplay(forCharacterRange: range)
         }
@@ -1623,6 +2050,23 @@ final class MarkdownTextCoordinator: NSObject, @unchecked Sendable {
         default:
             return priorIndex
         }
+    }
+
+    private func normalizedInvalidationRange(
+        changedRange: NSRange?,
+        storageLength: Int
+    ) -> NSRange {
+        guard storageLength > 0 else {
+            return NSRange(location: 0, length: 0)
+        }
+
+        let fullRange = NSRange(location: 0, length: storageLength)
+        let clamped = clampRange(changedRange ?? fullRange, upperBound: storageLength)
+        let start = max(0, min(clamped.location, storageLength))
+        guard start < storageLength else {
+            return NSRange(location: storageLength - 1, length: 1)
+        }
+        return NSRange(location: start, length: storageLength - start)
     }
 
     @available(macOS 12.0, iOS 15.0, tvOS 15.0, watchOS 8.0, *)
