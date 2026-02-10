@@ -215,6 +215,9 @@ struct SidebarView: View {
             #if os(iOS) || os(tvOS)
             .listStyle(.insetGrouped)
             .scrollContentBackground(.automatic)
+            #if os(iOS)
+            .scrollDismissesKeyboard(.interactively)
+            #endif
             #else
             .listStyle(.plain)
             #endif

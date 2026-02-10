@@ -13,9 +13,12 @@ import UIKit
 final class SideMenuContainerViewController: UIViewController {
 
     private let sideMenuWidth: CGFloat = 325
+    private let menuAnimationDuration: TimeInterval = 0.22
+    private let maxMainDimmingAlpha: CGFloat = 0.2
 
     private var sidebarHostingController: UIViewController!
     private var mainHostingController: UIViewController!
+    private let mainDimmingView = UIView()
 
     private var sideMenuLeadingConstraint: NSLayoutConstraint!
     private var mainLeftConstraint: NSLayoutConstraint!
@@ -101,6 +104,7 @@ final class SideMenuContainerViewController: UIViewController {
         view.addSubview(mainVC.view)
         mainVC.view.translatesAutoresizingMaskIntoConstraints = false
         mainVC.didMove(toParent: self)
+        configureMainDimmingOverlay(on: mainVC.view)
     }
 
     private func configureConstraints() {
@@ -128,6 +132,7 @@ final class SideMenuContainerViewController: UIViewController {
         NSLayoutConstraint.activate(mainConstraints)
 
         isMenuOpen = false
+        updateMainDimming(forMenuLeading: sideMenuLeadingConstraint.constant)
     }
 
     private func configureGestures() {
@@ -172,16 +177,59 @@ final class SideMenuContainerViewController: UIViewController {
         present(settingsVC, animated: true, completion: nil)
     }
 
+    private func configureMainDimmingOverlay(on mainView: UIView) {
+        mainDimmingView.translatesAutoresizingMaskIntoConstraints = false
+        mainDimmingView.backgroundColor = .black
+        mainDimmingView.alpha = 0
+        mainDimmingView.isHidden = false
+        mainDimmingView.isUserInteractionEnabled = false
+        mainDimmingView.addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(handleMainDimmingTap)))
+
+        // Keep the dimming view outside UIHostingController.view to avoid breaking SwiftUI view hierarchy.
+        view.insertSubview(mainDimmingView, aboveSubview: mainView)
+        NSLayoutConstraint.activate([
+            mainDimmingView.topAnchor.constraint(equalTo: mainView.topAnchor),
+            mainDimmingView.bottomAnchor.constraint(equalTo: mainView.bottomAnchor),
+            mainDimmingView.leadingAnchor.constraint(equalTo: mainView.leadingAnchor),
+            mainDimmingView.trailingAnchor.constraint(equalTo: mainView.trailingAnchor)
+        ])
+    }
+
+    @objc
+    private func handleMainDimmingTap() {
+        toggleMenu(open: false, animated: true)
+    }
+
+    private func updateMainDimming(forMenuLeading leading: CGFloat) {
+        let progress = max(0, min(1, 1 + (leading / sideMenuWidth)))
+        let alpha = progress * maxMainDimmingAlpha
+        mainDimmingView.alpha = alpha
+        mainDimmingView.isUserInteractionEnabled = alpha > 0.001
+    }
+
+    private func dismissKeyboardIfNeeded() {
+        view.endEditing(true)
+    }
+
     func toggleMenu(open: Bool, animated: Bool) {
+        let wasMenuOpen = isMenuOpen
+        if open || wasMenuOpen {
+            dismissKeyboardIfNeeded()
+        }
+
         isMenuOpen = open
         let finalLeading = open ? 0 : -sideMenuWidth
+
         if animated {
-            UIView.animate(withDuration: 0.3, animations: {
+            UIView.animate(withDuration: menuAnimationDuration, delay: 0, options: [.curveEaseInOut, .beginFromCurrentState], animations: {
                 self.sideMenuLeadingConstraint.constant = finalLeading
+                self.updateMainDimming(forMenuLeading: finalLeading)
                 self.view.layoutIfNeeded()
             })
         } else {
             sideMenuLeadingConstraint.constant = finalLeading
+            updateMainDimming(forMenuLeading: finalLeading)
+            view.layoutIfNeeded()
         }
     }
 
@@ -195,6 +243,7 @@ final class SideMenuContainerViewController: UIViewController {
         case .changed:
             let newLeading = startMenuLeading + translation
             sideMenuLeadingConstraint.constant = max(-sideMenuWidth, min(0, newLeading))
+            updateMainDimming(forMenuLeading: sideMenuLeadingConstraint.constant)
         case .ended, .cancelled:
             let velocityX = gesture.velocity(in: view).x
             let currentOffset = sideMenuLeadingConstraint.constant
