@@ -212,7 +212,8 @@ final class SideMenuContainerViewController: UIViewController {
     }
 
     func toggleMenu(open: Bool, animated: Bool) {
-        if open {
+        let wasMenuOpen = isMenuOpen
+        if open || wasMenuOpen {
             dismissKeyboardIfNeeded()
         }
 
