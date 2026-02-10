@@ -858,8 +858,11 @@ struct ChatView: View {
 
         VStack(spacing: 12) {
             ForEach(visibleMessages) { message in
-                // Hide action buttons while the newest message is still streaming.
-                let showButtons = !(viewModel.isLoading && (visibleMessages.last?.id == message.id))
+                // Hide action buttons only for the assistant message that is actively streaming.
+                // Using "last visible message" can briefly hide buttons on the previous assistant
+                // reply while a new user message is being appended.
+                let isStreamingAssistant = viewModel.isLoading && !message.isUser && message.isActive
+                let showButtons = !isStreamingAssistant
 
                 // Skip re-rendering when the message content and state have not changed.
                 let fingerprint = fingerprintCache[message.id] ?? ContentFingerprint.make(message.content)
