@@ -152,14 +152,13 @@ struct ChatView: View {
         return floatingInputPanelHeight + composerBottomPadding + 6 + editingBannerInset
     }
 
-    private var noticeBottomPadding: CGFloat {
-        // Keep the banner close to the composer while leaving a narrow gap.
-        max(8, messageListBottomInset - 22)
+    private var composerHeightForNotice: CGFloat {
+        floatingInputPanelHeight + editingBannerInset
     }
 
-    // Negative offset so the banner begins under the composer and reveals upward.
-    private var noticeHiddenOffset: CGFloat {
-        -(floatingInputPanelHeight / 1.8)
+    private var noticeBottomPadding: CGFloat {
+        // Keep a stable gap above the floating composer regardless of input height growth.
+        composerBottomPadding + composerHeightForNotice + 8
     }
 
     private var shouldDisplayAudioPlayer: Bool {
@@ -449,9 +448,7 @@ struct ChatView: View {
                         errorCenter.dismiss(notice)
                     }
                 )
-                // Start hidden behind the composer: offset up by composer height so it slides from under it.
                 .padding(.bottom, noticeBottomPadding)
-                .offset(y: noticeHiddenOffset)
                 .transition(.move(edge: .bottom).combined(with: .opacity))
                 .zIndex(0)
             }
