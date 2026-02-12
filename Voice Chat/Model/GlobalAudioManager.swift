@@ -275,7 +275,7 @@ final class GlobalAudioManager: NSObject, ObservableObject, AVAudioPlayerDelegat
                     isLoading = true
                     isAudioPlaying = false
                 } else {
-                    // Retain legacy behaviour for non-realtime mode.
+                    // Keep non-realtime playback behavior unchanged.
                     isAudioPlaying = true
                 }
             }

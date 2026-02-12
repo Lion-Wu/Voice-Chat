@@ -13,10 +13,6 @@ import SwiftData
 struct ServerSettings: Codable, Equatable {
     var serverAddress: String
     var textLang: String
-    // These legacy fields now live on `VoicePreset` but remain for backward compatibility.
-    var refAudioPath: String
-    var promptText: String
-    var promptLang: String
 }
 
 struct ModelSettings: Codable, Equatable {
@@ -165,10 +161,6 @@ final class AppSettings {
     var id: UUID
     var serverAddress: String
     var textLang: String
-    // Legacy compatibility: these three fields are managed by `VoicePreset` in newer versions.
-    var refAudioPath: String
-    var promptText: String
-    var promptLang: String
 
     var modelId: String
     var language: String
@@ -185,19 +177,13 @@ final class AppSettings {
     // Currently selected preset identifier (optional when nothing is selected).
     var selectedPresetID: UUID?
 
-    // Legacy (v1): single selected system prompt preset identifier.
-    var selectedSystemPromptPresetID: UUID?
-
-    // v2: separate selections for normal/voice chat modes.
+    // Separate selections for normal/voice chat modes.
     var selectedNormalSystemPromptPresetID: UUID?
     var selectedVoiceSystemPromptPresetID: UUID?
 
     init(
         serverAddress: String = "http://127.0.0.1:9880",
         textLang: String = "auto",
-        refAudioPath: String = "",
-        promptText: String = "",
-        promptLang: String = "auto",
         modelId: String = "",
         language: String = "auto",
         autoSplit: String = "cut0",
@@ -208,16 +194,12 @@ final class AppSettings {
         enableStreaming: Bool = true,
         developerModeEnabled: Bool = false,
         selectedPresetID: UUID? = nil,
-        selectedSystemPromptPresetID: UUID? = nil,
         selectedNormalSystemPromptPresetID: UUID? = nil,
         selectedVoiceSystemPromptPresetID: UUID? = nil
     ) {
         self.id = UUID()
         self.serverAddress = serverAddress
         self.textLang = textLang
-        self.refAudioPath = refAudioPath
-        self.promptText = promptText
-        self.promptLang = promptLang
         self.modelId = modelId
         self.language = language
         self.autoSplit = autoSplit
@@ -228,7 +210,6 @@ final class AppSettings {
         self.enableStreaming = enableStreaming
         self.developerModeEnabled = developerModeEnabled
         self.selectedPresetID = selectedPresetID
-        self.selectedSystemPromptPresetID = selectedSystemPromptPresetID
         self.selectedNormalSystemPromptPresetID = selectedNormalSystemPromptPresetID
         self.selectedVoiceSystemPromptPresetID = selectedVoiceSystemPromptPresetID
     }
@@ -245,7 +226,7 @@ final class SettingsManager: ObservableObject {
         static let voice = "voice"
     }
 
-    // Legacy settings still read from the old structure.
+    // Global settings state.
     @Published var serverSettings: ServerSettings
     @Published var modelSettings: ModelSettings
     @Published var chatSettings: ChatSettings
@@ -305,7 +286,6 @@ final class SettingsManager: ObservableObject {
     private var didApplyOnLaunch = false
 
     private enum KeychainKeys {
-        static let legacyChatAPIKeyAccount = "chat_api_key"
         static let chatServerPresetAPIKeyPrefix = "chat_server_preset_api_key."
     }
 
@@ -324,10 +304,7 @@ final class SettingsManager: ObservableObject {
         // Initialise with defaults until `attach(context:)` loads persisted data.
         self.serverSettings = ServerSettings(
             serverAddress: Defaults.serverAddress,
-            textLang: Defaults.textLang,
-            refAudioPath: "",
-            promptText: "",
-            promptLang: Defaults.promptLang
+            textLang: Defaults.textLang
         )
         self.modelSettings = ModelSettings(modelId: "", language: Defaults.modelLanguage, autoSplit: Defaults.autoSplit)
         self.chatSettings = ChatSettings(apiURL: Defaults.apiURL, selectedModel: "", apiKey: "")
@@ -356,7 +333,6 @@ final class SettingsManager: ObservableObject {
         ensureDefaultPresetIfNeeded()
         ensureSelectedPresetIsValid()
         loadSystemPromptPresetsFromStore()
-        migrateLegacySystemPromptPresetsIfNeeded()
         ensureDefaultSystemPromptPresetsForModesIfNeeded()
         // Keep the in-memory preset selection aligned with persisted data.
         self.selectedPresetID = self.entity?.selectedPresetID ?? self.presets.first?.id
@@ -379,18 +355,17 @@ final class SettingsManager: ObservableObject {
                 context.insert(fresh)
                 self.entity = fresh
                 try context.save()
-            } else if fetched.count == 1 {
-                self.entity = fetched[0]
             } else {
-                // If multiple rows exist (e.g. from earlier versions or intermittent fetch/save failures),
-                // pick a deterministic "best" row and remove the rest to avoid random blank settings at launch.
-                let best = pickBestAppSettings(from: fetched)
-                mergeAppSettings(into: best, from: fetched)
-                self.entity = best
-                for other in fetched where other !== best {
+                let sorted = fetched.sorted { lhs, rhs in
+                    lhs.id.uuidString < rhs.id.uuidString
+                }
+                self.entity = sorted[0]
+                for other in sorted.dropFirst() {
                     context.delete(other)
                 }
-                try context.save()
+                if sorted.count > 1 {
+                    try context.save()
+                }
             }
         } catch {
             print("SwiftData fetch AppSettings failed: \(error)")
@@ -407,17 +382,9 @@ final class SettingsManager: ObservableObject {
 
         guard let e = self.entity else { return }
 
-        if e.developerModeEnabled == nil {
-            e.developerModeEnabled = Defaults.developerModeEnabled
-            saveContext(label: "seed developerModeEnabled")
-        }
-
         self.serverSettings = ServerSettings(
             serverAddress: e.serverAddress,
-            textLang: e.textLang,
-            refAudioPath: e.refAudioPath,
-            promptText: e.promptText,
-            promptLang: e.promptLang
+            textLang: e.textLang
         )
         self.modelSettings = ModelSettings(
             modelId: e.modelId, language: e.language, autoSplit: e.autoSplit
@@ -434,142 +401,6 @@ final class SettingsManager: ObservableObject {
         self.selectedPresetID = e.selectedPresetID
         self.selectedNormalSystemPromptPresetID = e.selectedNormalSystemPromptPresetID
         self.selectedVoiceSystemPromptPresetID = e.selectedVoiceSystemPromptPresetID
-    }
-
-    private func pickBestAppSettings(from candidates: [AppSettings]) -> AppSettings {
-        func normalized(_ value: String) -> String {
-            value.trimmingCharacters(in: .whitespacesAndNewlines)
-        }
-
-        func isNonEmpty(_ value: String) -> Bool {
-            !normalized(value).isEmpty
-        }
-
-        func isNonEmptyAndNotDefault(_ value: String, defaultValue: String) -> Bool {
-            let trimmed = normalized(value)
-            return !trimmed.isEmpty && trimmed != defaultValue
-        }
-
-        func score(_ e: AppSettings) -> Int {
-            var total = 0
-            func add(_ condition: Bool, weight: Int = 1) {
-                if condition { total += weight }
-            }
-
-            // Empty strings are treated as invalid and should never outscore valid defaults.
-            add(isNonEmpty(e.serverAddress), weight: 2)
-            add(isNonEmptyAndNotDefault(e.serverAddress, defaultValue: Defaults.serverAddress))
-
-            add(isNonEmpty(e.textLang))
-            add(isNonEmptyAndNotDefault(e.textLang, defaultValue: Defaults.textLang))
-
-            add(!normalized(e.refAudioPath).isEmpty, weight: 2)
-            add(!normalized(e.promptText).isEmpty)
-            add(isNonEmpty(e.promptLang))
-            add(isNonEmptyAndNotDefault(e.promptLang, defaultValue: Defaults.promptLang))
-
-            add(!normalized(e.modelId).isEmpty)
-            add(isNonEmpty(e.language))
-            add(isNonEmptyAndNotDefault(e.language, defaultValue: Defaults.modelLanguage))
-            add(isNonEmpty(e.autoSplit))
-            add(isNonEmptyAndNotDefault(e.autoSplit, defaultValue: Defaults.autoSplit))
-
-            add(isNonEmpty(e.apiURL), weight: 2)
-            add(isNonEmptyAndNotDefault(e.apiURL, defaultValue: Defaults.apiURL))
-            add(!normalized(e.selectedModel).isEmpty, weight: 2)
-
-            add(e.enableStreaming != Defaults.enableStreaming)
-            add((e.developerModeEnabled ?? Defaults.developerModeEnabled) != Defaults.developerModeEnabled)
-
-            add(e.selectedPresetID != nil, weight: 2)
-            add(e.selectedNormalSystemPromptPresetID != nil, weight: 2)
-            add(e.selectedVoiceSystemPromptPresetID != nil, weight: 2)
-            add(e.selectedSystemPromptPresetID != nil)
-            return total
-        }
-
-        let sorted = candidates.sorted { lhs, rhs in
-            let lScore = score(lhs)
-            let rScore = score(rhs)
-            if lScore != rScore {
-                return lScore > rScore
-            }
-            // Stable tie-breaker across launches.
-            return lhs.id.uuidString < rhs.id.uuidString
-        }
-        return sorted[0]
-    }
-
-    /// Best-effort merge: only fills in values that are still at defaults on the chosen row.
-    private func mergeAppSettings(into best: AppSettings, from candidates: [AppSettings]) {
-        func normalized(_ value: String) -> String {
-            value.trimmingCharacters(in: .whitespacesAndNewlines)
-        }
-
-        func adoptString(_ keyPath: ReferenceWritableKeyPath<AppSettings, String>, defaultValue: String, from other: AppSettings) {
-            let current = normalized(best[keyPath: keyPath])
-            let candidate = normalized(other[keyPath: keyPath])
-            // Never adopt empty strings.
-            guard !candidate.isEmpty else { return }
-
-            // If the chosen row has an empty string (invalid), always adopt a non-empty value,
-            // even if it equals the default.
-            if current.isEmpty {
-                best[keyPath: keyPath] = other[keyPath: keyPath]
-                return
-            }
-
-            // Otherwise, only replace defaults with non-default values.
-            guard current == defaultValue else { return }
-            guard candidate != defaultValue else { return }
-            best[keyPath: keyPath] = other[keyPath: keyPath]
-        }
-
-        func adoptOptionalID(_ keyPath: ReferenceWritableKeyPath<AppSettings, UUID?>, from other: AppSettings) {
-            guard best[keyPath: keyPath] == nil else { return }
-            guard let value = other[keyPath: keyPath] else { return }
-            best[keyPath: keyPath] = value
-        }
-
-        func adoptBool(_ keyPath: ReferenceWritableKeyPath<AppSettings, Bool>, defaultValue: Bool, from other: AppSettings) {
-            guard best[keyPath: keyPath] == defaultValue else { return }
-            let candidate = other[keyPath: keyPath]
-            guard candidate != defaultValue else { return }
-            best[keyPath: keyPath] = candidate
-        }
-
-        func adoptOptionalBool(_ keyPath: ReferenceWritableKeyPath<AppSettings, Bool?>, defaultValue: Bool, from other: AppSettings) {
-            let current = best[keyPath: keyPath] ?? defaultValue
-            guard current == defaultValue else { return }
-            guard let candidate = other[keyPath: keyPath] else { return }
-            guard candidate != defaultValue else { return }
-            best[keyPath: keyPath] = candidate
-        }
-
-        for other in candidates where other !== best {
-            adoptString(\.serverAddress, defaultValue: Defaults.serverAddress, from: other)
-            adoptString(\.textLang, defaultValue: Defaults.textLang, from: other)
-            adoptString(\.refAudioPath, defaultValue: "", from: other)
-            adoptString(\.promptText, defaultValue: "", from: other)
-            adoptString(\.promptLang, defaultValue: Defaults.promptLang, from: other)
-
-            adoptString(\.modelId, defaultValue: "", from: other)
-            adoptString(\.language, defaultValue: Defaults.modelLanguage, from: other)
-            adoptString(\.autoSplit, defaultValue: Defaults.autoSplit, from: other)
-
-            adoptString(\.apiURL, defaultValue: Defaults.apiURL, from: other)
-            adoptString(\.selectedModel, defaultValue: "", from: other)
-
-            adoptBool(\.enableStreaming, defaultValue: Defaults.enableStreaming, from: other)
-            adoptOptionalBool(\.developerModeEnabled, defaultValue: Defaults.developerModeEnabled, from: other)
-
-            adoptOptionalID(\.selectedVoiceServerPresetID, from: other)
-            adoptOptionalID(\.selectedChatServerPresetID, from: other)
-            adoptOptionalID(\.selectedPresetID, from: other)
-            adoptOptionalID(\.selectedSystemPromptPresetID, from: other)
-            adoptOptionalID(\.selectedNormalSystemPromptPresetID, from: other)
-            adoptOptionalID(\.selectedVoiceSystemPromptPresetID, from: other)
-        }
     }
 
     private func saveContext(label: String) {
@@ -649,8 +480,6 @@ final class SettingsManager: ObservableObject {
             context.insert(def)
             saveContext(label: "insert default chat server preset")
             self.chatServerPresets = [def]
-
-            migrateLegacyChatAPIKeyIfNeeded(to: def.id)
 
             e.selectedChatServerPresetID = def.id
             saveContext(label: "select default chat server preset")
@@ -733,12 +562,11 @@ final class SettingsManager: ObservableObject {
     private func ensureDefaultPresetIfNeeded() {
         guard let context, let e = entity else { return }
         if presets.isEmpty {
-            // Build a default preset using legacy fields when none exist yet.
             let def = VoicePreset(
                 name: String(localized: "Default"),
-                refAudioPath: e.refAudioPath,
-                promptText: e.promptText,
-                promptLang: e.promptLang,
+                refAudioPath: "",
+                promptText: "",
+                promptLang: Defaults.promptLang,
                 gptWeightsPath: "",
                 sovitsWeightsPath: ""
             )
@@ -771,95 +599,6 @@ final class SettingsManager: ObservableObject {
         e.selectedPresetID = fallback
         self.selectedPresetID = fallback
         saveContext(label: "repair selectedPresetID")
-    }
-
-    private func migrateLegacySystemPromptPresetsIfNeeded() {
-        guard let context, let e = entity else { return }
-        guard !systemPromptPresets.isEmpty else { return }
-
-        func trimmed(_ text: String) -> String {
-            text.trimmingCharacters(in: .whitespacesAndNewlines)
-        }
-
-        var didChange = false
-        var voiceCloneByOriginalID: [UUID: UUID] = [:]
-
-        for preset in systemPromptPresets {
-            let mode = trimmed(preset.mode ?? "")
-            let normal = trimmed(preset.normalPrompt)
-            let voice = trimmed(preset.voicePrompt)
-
-            if mode == SystemPromptPresetMode.normal {
-                if !voice.isEmpty {
-                    preset.voicePrompt = ""
-                    didChange = true
-                }
-                continue
-            }
-
-            if mode == SystemPromptPresetMode.voice {
-                if !normal.isEmpty {
-                    preset.normalPrompt = ""
-                    didChange = true
-                }
-                continue
-            }
-
-            // Legacy preset (no/unknown mode): split or classify.
-            if !normal.isEmpty && !voice.isEmpty {
-                let voiceClone = SystemPromptPreset(
-                    name: preset.name,
-                    mode: SystemPromptPresetMode.voice,
-                    normalPrompt: "",
-                    voicePrompt: voice
-                )
-                voiceClone.createdAt = preset.createdAt
-                voiceClone.updatedAt = preset.updatedAt
-                context.insert(voiceClone)
-                voiceCloneByOriginalID[preset.id] = voiceClone.id
-
-                preset.mode = SystemPromptPresetMode.normal
-                preset.normalPrompt = normal
-                preset.voicePrompt = ""
-                didChange = true
-                continue
-            }
-
-            if !voice.isEmpty {
-                preset.mode = SystemPromptPresetMode.voice
-                preset.normalPrompt = ""
-                preset.voicePrompt = voice
-                didChange = true
-                continue
-            }
-
-            // Default to normal for empty/normal-only presets.
-            preset.mode = SystemPromptPresetMode.normal
-            preset.normalPrompt = normal
-            preset.voicePrompt = ""
-            didChange = true
-        }
-
-        // Migration: if only the legacy selection exists, populate both new selections.
-        if e.selectedNormalSystemPromptPresetID == nil,
-           e.selectedVoiceSystemPromptPresetID == nil,
-           let legacy = e.selectedSystemPromptPresetID {
-            e.selectedNormalSystemPromptPresetID = legacy
-            e.selectedVoiceSystemPromptPresetID = legacy
-            didChange = true
-        }
-
-        // If the voice selection pointed at an old combined preset that was split, map it to the voice clone.
-        if let voiceSelection = e.selectedVoiceSystemPromptPresetID,
-           let mapped = voiceCloneByOriginalID[voiceSelection] {
-            e.selectedVoiceSystemPromptPresetID = mapped
-            didChange = true
-        }
-
-        if didChange {
-            saveContext(label: "migrate system prompt presets")
-            loadSystemPromptPresetsFromStore()
-        }
     }
 
     private func ensureDefaultSystemPromptPresetsForModesIfNeeded() {
@@ -898,11 +637,8 @@ final class SettingsManager: ObservableObject {
         let byID: [UUID: SystemPromptPreset] = Dictionary(uniqueKeysWithValues: systemPromptPresets.map { ($0.id, $0) })
         var didChange = false
 
-        let legacySelection = e.selectedSystemPromptPresetID
-
         let desiredNormal = selectedNormalSystemPromptPresetID
             ?? e.selectedNormalSystemPromptPresetID
-            ?? legacySelection
         if let desiredNormal,
            let preset = byID[desiredNormal],
            preset.mode == SystemPromptPresetMode.normal {
@@ -916,7 +652,6 @@ final class SettingsManager: ObservableObject {
 
         let desiredVoice = selectedVoiceSystemPromptPresetID
             ?? e.selectedVoiceSystemPromptPresetID
-            ?? legacySelection
         if let desiredVoice,
            let preset = byID[desiredVoice],
            preset.mode == SystemPromptPresetMode.voice {
@@ -928,25 +663,16 @@ final class SettingsManager: ObservableObject {
             didChange = true
         }
 
-        if e.selectedSystemPromptPresetID == nil {
-            e.selectedSystemPromptPresetID = selectedNormalSystemPromptPresetID
-            didChange = true
-        }
-
         if didChange {
             saveContext(label: "repair system prompt selections")
         }
     }
 
-    // MARK: - Update legacy settings
+    // MARK: - Update settings
 
-    func updateServerSettings(serverAddress: String, textLang: String, refAudioPath: String, promptText: String, promptLang: String) {
-        // Note: these fields are maintained only for backward compatibility; presets hold the canonical values.
+    func updateServerSettings(serverAddress: String, textLang: String) {
         serverSettings.serverAddress = serverAddress
         serverSettings.textLang = textLang
-        serverSettings.refAudioPath = refAudioPath
-        serverSettings.promptText = promptText
-        serverSettings.promptLang = promptLang
         saveServerSettings()
 
         guard context != nil else { return }
@@ -1273,15 +999,12 @@ final class SettingsManager: ObservableObject {
         saveContext(label: "select voice system prompt preset")
     }
 
-    // MARK: - Persist legacy settings
+    // MARK: - Persist settings
 
     func saveServerSettings() {
         guard let e = entity, context != nil else { return }
         e.serverAddress = serverSettings.serverAddress
         e.textLang = serverSettings.textLang
-        e.refAudioPath = serverSettings.refAudioPath
-        e.promptText = serverSettings.promptText
-        e.promptLang = serverSettings.promptLang
         saveContext(label: "save server settings")
     }
 
@@ -1306,28 +1029,17 @@ final class SettingsManager: ObservableObject {
 
     private func loadChatAPIKey(for presetID: UUID?) -> String {
         let service = Bundle.main.bundleIdentifier ?? "VoiceChat"
-        let trimmed: (String?) -> String = { raw in
-            (raw ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        }
-
-        if let presetID {
-            let account = keychainAccount(forChatServerPresetID: presetID)
-            return trimmed(KeychainStore.loadString(service: service, account: account))
-        }
-
-        return trimmed(KeychainStore.loadString(service: service, account: KeychainKeys.legacyChatAPIKeyAccount))
+        guard let presetID else { return "" }
+        let account = keychainAccount(forChatServerPresetID: presetID)
+        return (KeychainStore.loadString(service: service, account: account) ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     private func saveChatAPIKey(_ apiKey: String, for presetID: UUID?) {
+        guard let presetID else { return }
         let service = Bundle.main.bundleIdentifier ?? "VoiceChat"
         let trimmed = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
-        let account: String
-
-        if let presetID {
-            account = keychainAccount(forChatServerPresetID: presetID)
-        } else {
-            account = KeychainKeys.legacyChatAPIKeyAccount
-        }
+        let account = keychainAccount(forChatServerPresetID: presetID)
 
         if trimmed.isEmpty {
             KeychainStore.delete(service: service, account: account)
@@ -1340,21 +1052,6 @@ final class SettingsManager: ObservableObject {
         let service = Bundle.main.bundleIdentifier ?? "VoiceChat"
         let account = keychainAccount(forChatServerPresetID: presetID)
         KeychainStore.delete(service: service, account: account)
-    }
-
-    private func migrateLegacyChatAPIKeyIfNeeded(to presetID: UUID) {
-        let service = Bundle.main.bundleIdentifier ?? "VoiceChat"
-        let account = keychainAccount(forChatServerPresetID: presetID)
-
-        let existing = (KeychainStore.loadString(service: service, account: account) ?? "")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        guard existing.isEmpty else { return }
-
-        let legacy = (KeychainStore.loadString(service: service, account: KeychainKeys.legacyChatAPIKeyAccount) ?? "")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !legacy.isEmpty else { return }
-
-        KeychainStore.saveString(legacy, service: service, account: account)
     }
 
     private func applySelectedChatServerPresetToChatSettings() {
@@ -1408,12 +1105,6 @@ final class SettingsManager: ObservableObject {
             presetApplyRetryAttempt = 0
             presetApplyRetryLastError = nil
         }
-
-        // Update the legacy fields first so other components reading them remain in sync, even though TTS uses `selectedPreset`.
-        serverSettings.refAudioPath = preset.refAudioPath
-        serverSettings.promptText = preset.promptText
-        serverSettings.promptLang = preset.promptLang
-        saveServerSettings()
 
         // Build URLs while being tolerant of trailing slashes in `serverAddress`.
         func buildURL(_ path: String, weightsPath: String) -> URL? {

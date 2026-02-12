@@ -11,25 +11,20 @@ import Combine
 @MainActor
 final class SettingsViewModel: ObservableObject {
     private var cancellables: Set<AnyCancellable> = []
-    private var suppressLegacySaves = false
+    private var suppressAutoSaves = false
     private var didSyncAfterStoreLoad = false
 
-    // MARK: - Legacy settings
-    @Published var serverAddress: String { didSet { if !suppressLegacySaves { saveServerSettings() } } }
-    @Published var textLang: String { didSet { if !suppressLegacySaves { saveServerSettings() } } }
+    // MARK: - Settings
+    @Published var serverAddress: String { didSet { if !suppressAutoSaves { saveServerSettings() } } }
+    @Published var textLang: String { didSet { if !suppressAutoSaves { saveServerSettings() } } }
 
-    // The following legacy fields now live on presets; we keep them for compatibility.
-    @Published var refAudioPath_legacy: String { didSet { if !suppressLegacySaves { saveServerSettings() } } }
-    @Published var promptText_legacy: String { didSet { if !suppressLegacySaves { saveServerSettings() } } }
-    @Published var promptLang_legacy: String { didSet { if !suppressLegacySaves { saveServerSettings() } } }
-
-    @Published var apiURL: String { didSet { if !suppressLegacySaves { saveChatSettings() } } }
-    @Published var selectedModel: String { didSet { if !suppressLegacySaves { saveChatSettings() } } }
-    @Published var chatAPIKey: String { didSet { if !suppressLegacySaves { saveChatAPIKey() } } }
+    @Published var apiURL: String { didSet { if !suppressAutoSaves { saveChatSettings() } } }
+    @Published var selectedModel: String { didSet { if !suppressAutoSaves { saveChatSettings() } } }
+    @Published var chatAPIKey: String { didSet { if !suppressAutoSaves { saveChatAPIKey() } } }
 
     @Published var enableStreaming: Bool {
         didSet {
-            guard !suppressLegacySaves else { return }
+            guard !suppressAutoSaves else { return }
             saveVoiceSettings()
             if enableStreaming {
                 // Force `cut0` when streaming is enabled.
@@ -38,9 +33,9 @@ final class SettingsViewModel: ObservableObject {
         }
     }
 
-    @Published var autoSplit: String { didSet { if !suppressLegacySaves { saveModelSettings() } } }
-    @Published var modelId: String { didSet { if !suppressLegacySaves { saveModelSettings() } } }
-    @Published var language: String { didSet { if !suppressLegacySaves { saveModelSettings() } } }
+    @Published var autoSplit: String { didSet { if !suppressAutoSaves { saveModelSettings() } } }
+    @Published var modelId: String { didSet { if !suppressAutoSaves { saveModelSettings() } } }
+    @Published var language: String { didSet { if !suppressAutoSaves { saveModelSettings() } } }
 
     // MARK: - Model List (Networking)
 
@@ -152,9 +147,6 @@ final class SettingsViewModel: ObservableObject {
         // so we also listen for the first post-load signal and resync.
         serverAddress = ""
         textLang = ""
-        refAudioPath_legacy = ""
-        promptText_legacy = ""
-        promptLang_legacy = "auto"
 
         apiURL = ""
         selectedModel = ""
@@ -328,12 +320,9 @@ final class SettingsViewModel: ObservableObject {
         let v = settingsManager.voiceSettings
         let m = settingsManager.modelSettings
 
-        suppressLegacySaves = true
+        suppressAutoSaves = true
         serverAddress = s.serverAddress
         textLang = s.textLang
-        refAudioPath_legacy = s.refAudioPath
-        promptText_legacy = s.promptText
-        promptLang_legacy = s.promptLang
 
         apiURL = c.apiURL
         selectedModel = c.selectedModel
@@ -344,7 +333,7 @@ final class SettingsViewModel: ObservableObject {
         autoSplit = m.autoSplit
         modelId = m.modelId
         language = m.language
-        suppressLegacySaves = false
+        suppressAutoSaves = false
 
         reloadVoiceServerPresetListAndSelection()
         reloadChatServerPresetListAndSelection()
@@ -367,16 +356,12 @@ final class SettingsViewModel: ObservableObject {
             .store(in: &cancellables)
     }
 
-    // MARK: - Persist legacy settings
+    // MARK: - Persist settings
 
     func saveServerSettings() {
-        // Write back the legacy fields so any older callers stay in sync.
         settingsManager.updateServerSettings(
             serverAddress: serverAddress,
-            textLang: textLang,
-            refAudioPath: refAudioPath_legacy,
-            promptText: promptText_legacy,
-            promptLang: promptLang_legacy
+            textLang: textLang
         )
     }
 
