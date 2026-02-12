@@ -275,10 +275,9 @@ struct SideMenuContainerRepresentable: UIViewControllerRepresentable {
     @EnvironmentObject var chatSessionsViewModel: ChatSessionsViewModel
     @EnvironmentObject var audioManager: GlobalAudioManager
     @EnvironmentObject var settingsManager: SettingsManager
-    // Propagate the shared speech input manager into the UIKit container.
-    @EnvironmentObject var speechInputManager: SpeechInputManager
     @EnvironmentObject var voiceOverlayViewModel: VoiceChatOverlayViewModel
     @EnvironmentObject var errorCenter: AppErrorCenter
+    let speechInputManager: SpeechInputManager
 
     func makeUIViewController(context: Context) -> SideMenuContainerViewController {
         let vc = SideMenuContainerViewController()
@@ -308,12 +307,11 @@ struct SideMenuContainerRepresentable: UIViewControllerRepresentable {
         reachabilityMonitor: ServerReachabilityMonitor.shared
     )
 
-    SideMenuContainerRepresentable()
+    SideMenuContainerRepresentable(speechInputManager: speech)
         .modelContainer(for: [ChatSession.self, ChatMessage.self, AppSettings.self], inMemory: true)
         .environmentObject(chatSessions)
         .environmentObject(audio)
         .environmentObject(SettingsManager.shared)
-        .environmentObject(speech)
         .environmentObject(overlayVM)
         .environmentObject(AppErrorCenter.shared)
 }

@@ -24,9 +24,7 @@ final class VoiceChatOverlayViewModel: ObservableObject {
     @Published var selectedLanguage: SpeechInputManager.DictationLanguage
     @Published private(set) var showErrorBanner: Bool = false
     @Published private(set) var errorMessage: String?
-    @Published private(set) var inputLevel: Double = 0
-    @Published private(set) var outputLevel: Double = 0
-    @Published private(set) var isSendSuppressed: Bool = false
+    private var isSendSuppressed: Bool = false
 
     var availableLanguages: [SpeechInputManager.DictationLanguage] {
         SpeechInputManager.DictationLanguage.allCases
@@ -37,6 +35,8 @@ final class VoiceChatOverlayViewModel: ObservableObject {
     private let errorCenter: AppErrorCenter
     private let settingsManager: SettingsManager
     private let reachabilityMonitor: ServerReachabilityMonitor
+    private let inputLevelSubject = CurrentValueSubject<Double, Never>(0)
+    private let outputLevelSubject = CurrentValueSubject<Double, Never>(0)
     private var cancellables: Set<AnyCancellable> = []
     private var sessionCancellables: Set<AnyCancellable> = []
     private var onRecognizedFinal: ((String) -> Void)?
@@ -54,6 +54,14 @@ final class VoiceChatOverlayViewModel: ObservableObject {
     private var connectivityTask: Task<Void, Never>?
     private var connectivityAttemptID: UUID?
     private let overlayAnimation = Animation.spring(response: 0.4, dampingFraction: 0.85)
+
+    var inputLevelPublisher: AnyPublisher<Double, Never> {
+        inputLevelSubject.eraseToAnyPublisher()
+    }
+
+    var outputLevelPublisher: AnyPublisher<Double, Never> {
+        outputLevelSubject.eraseToAnyPublisher()
+    }
 
     init(
         speechInputManager: SpeechInputManager,
@@ -77,6 +85,8 @@ final class VoiceChatOverlayViewModel: ObservableObject {
         onRecognizedFinal = onFinal
         autoResumeEnabled = false
         isSendSuppressed = false
+        inputLevelSubject.send(0)
+        outputLevelSubject.send(0)
         showErrorBanner = false
         errorMessage = nil
         withAnimation(overlayAnimation) {
@@ -100,6 +110,8 @@ final class VoiceChatOverlayViewModel: ObservableObject {
         showErrorBanner = false
         errorMessage = nil
         isSendSuppressed = false
+        inputLevelSubject.send(0)
+        outputLevelSubject.send(0)
         cleanupSession()
         activeChatViewModel = nil
     }
@@ -177,16 +189,20 @@ final class VoiceChatOverlayViewModel: ObservableObject {
 
     private func bindState() {
         speechInputManager.$inputLevel
+            .map { min(1.0, max(0.0, $0)) }
+            .removeDuplicates(by: { abs($0 - $1) < 0.003 })
             .receive(on: RunLoop.main)
             .sink { [weak self] level in
-                self?.inputLevel = level
+                self?.inputLevelSubject.send(level)
             }
             .store(in: &cancellables)
 
-        audioManager.$outputLevel
+        audioManager.outputLevelPublisher
+            .map { Double(min(1.0, max(0.0, $0))) }
+            .removeDuplicates(by: { abs($0 - $1) < 0.003 })
             .receive(on: RunLoop.main)
             .sink { [weak self] level in
-                self?.outputLevel = Double(level)
+                self?.outputLevelSubject.send(level)
             }
             .store(in: &cancellables)
 

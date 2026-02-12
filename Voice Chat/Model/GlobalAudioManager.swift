@@ -17,16 +17,76 @@ final class GlobalAudioManager: NSObject, ObservableObject, AVAudioPlayerDelegat
     // MARK: - Public State
     @Published var isShowingAudioPlayer: Bool = false
     @Published var isAudioPlaying: Bool = false
-    @Published var currentTime: TimeInterval = 0
+    var currentTime: TimeInterval = 0 {
+        didSet {
+            guard abs(currentTime - oldValue) >= 0.0005 else { return }
+            currentTimeSubject.send(currentTime)
+        }
+    }
     @Published var isLoading: Bool = false
-    @Published var isBuffering: Bool = false
+    var isBuffering: Bool = false {
+        didSet {
+            guard isBuffering != oldValue else { return }
+            isBufferingSubject.send(isBuffering)
+        }
+    }
     @Published var errorMessage: String?
-    @Published var isRetrying: Bool = false
-    @Published var retryAttempt: Int = 0
-    @Published var retryLastError: String? = nil
+    var isRetrying: Bool = false {
+        didSet {
+            guard isRetrying != oldValue else { return }
+            isRetryingSubject.send(isRetrying)
+        }
+    }
+    var retryAttempt: Int = 0 {
+        didSet {
+            guard retryAttempt != oldValue else { return }
+            retryAttemptSubject.send(retryAttempt)
+        }
+    }
+    var retryLastError: String? = nil {
+        didSet {
+            guard retryLastError != oldValue else { return }
+            retryLastErrorSubject.send(retryLastError)
+        }
+    }
 
-    // Published output level (0...1) so the realtime overlay can animate while speaking.
-    @Published var outputLevel: Float = 0
+    // Realtime output level (0...1) for speaking animations.
+    var outputLevel: Float = 0 {
+        didSet {
+            guard abs(outputLevel - oldValue) >= 0.0005 else { return }
+            outputLevelSubject.send(outputLevel)
+        }
+    }
+    private let currentTimeSubject = CurrentValueSubject<TimeInterval, Never>(0)
+    private let outputLevelSubject = CurrentValueSubject<Float, Never>(0)
+    private let isBufferingSubject = CurrentValueSubject<Bool, Never>(false)
+    private let isRetryingSubject = CurrentValueSubject<Bool, Never>(false)
+    private let retryAttemptSubject = CurrentValueSubject<Int, Never>(0)
+    private let retryLastErrorSubject = CurrentValueSubject<String?, Never>(nil)
+
+    var currentTimePublisher: AnyPublisher<TimeInterval, Never> {
+        currentTimeSubject.eraseToAnyPublisher()
+    }
+
+    var outputLevelPublisher: AnyPublisher<Float, Never> {
+        outputLevelSubject.eraseToAnyPublisher()
+    }
+
+    var isBufferingPublisher: AnyPublisher<Bool, Never> {
+        isBufferingSubject.eraseToAnyPublisher()
+    }
+
+    var isRetryingPublisher: AnyPublisher<Bool, Never> {
+        isRetryingSubject.eraseToAnyPublisher()
+    }
+
+    var retryAttemptPublisher: AnyPublisher<Int, Never> {
+        retryAttemptSubject.eraseToAnyPublisher()
+    }
+
+    var retryLastErrorPublisher: AnyPublisher<String?, Never> {
+        retryLastErrorSubject.eraseToAnyPublisher()
+    }
 
     // MARK: - Players & Timers
     var audioPlayer: AVAudioPlayer?

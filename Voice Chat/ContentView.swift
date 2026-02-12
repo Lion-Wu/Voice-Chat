@@ -16,7 +16,6 @@ struct ContentView: View {
     @EnvironmentObject var audioManager: GlobalAudioManager
     @EnvironmentObject var settingsManager: SettingsManager
     @EnvironmentObject var chatSessionsViewModel: ChatSessionsViewModel
-    @EnvironmentObject var speechInputManager: SpeechInputManager
     @EnvironmentObject var errorCenter: AppErrorCenter
     @EnvironmentObject var voiceOverlayViewModel: VoiceChatOverlayViewModel
 
@@ -97,11 +96,10 @@ private extension ContentView {
     var iosContent: some View {
         ZStack {
             AppBackgroundView()
-            SideMenuContainerRepresentable()
+            SideMenuContainerRepresentable(speechInputManager: appEnvironment.speechInputManager)
                 .environmentObject(chatSessionsViewModel)
                 .environmentObject(audioManager)
                 .environmentObject(settingsManager)
-                .environmentObject(speechInputManager)
                 .environmentObject(errorCenter)
                 .ignoresSafeArea()
             voiceOverlayLayer

@@ -142,8 +142,8 @@ final class AppEnvironment: ObservableObject {
         let audioActive = Publishers.CombineLatest4(
             audioManager.$isAudioPlaying,
             audioManager.$isLoading,
-            audioManager.$isBuffering,
-            audioManager.$isRetrying
+            audioManager.isBufferingPublisher.removeDuplicates(),
+            audioManager.isRetryingPublisher.removeDuplicates()
         )
         .map { playing, loading, buffering, retrying in
             playing || loading || buffering || retrying

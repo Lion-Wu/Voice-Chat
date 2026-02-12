@@ -51,7 +51,6 @@ private struct TextSelectionSheetItem: Identifiable {
 struct ChatView: View {
     @EnvironmentObject var chatSessionsViewModel: ChatSessionsViewModel
     @EnvironmentObject var audioManager: GlobalAudioManager
-    @EnvironmentObject var speechInputManager: SpeechInputManager
     @EnvironmentObject var errorCenter: AppErrorCenter
     @EnvironmentObject var settingsManager: SettingsManager
     @ObservedObject var viewModel: ChatViewModel
