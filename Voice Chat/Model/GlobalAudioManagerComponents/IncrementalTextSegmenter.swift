@@ -46,6 +46,8 @@ struct IncrementalTextSegmenter {
     // Heuristics: estimate speech time by word count (word languages) and character count (CJK).
     private let enWordsPerSecond: Double = 2.8
     private let cjkCharsPerSecond: Double = 4.5
+    // For unspaced / punctuation-heavy non-CJK text, approximate "word units" by characters.
+    private let approxCharsPerWordUnit: Double = 5.5
     // Cap normal segment length around 15 seconds.
     private let maxNormalSeconds: Double = 15.0
 
@@ -260,7 +262,7 @@ struct IncrementalTextSegmenter {
         case .cjkCharacters:
             return text.count
         case .words:
-            return text.split(whereSeparator: { $0.isWhitespace || $0.isNewline }).count
+            return wordLikeUnitCount(text)
         }
     }
 
@@ -271,6 +273,19 @@ struct IncrementalTextSegmenter {
         case .words:
             return Double(max(unitCount(in: text, mode: mode), 1)) / enWordsPerSecond
         }
+    }
+
+    /// Uses whitespace words as primary units, plus a character-based fallback so
+    /// punctuation-heavy or unspaced content still advances realtime boundary flushes.
+    private func wordLikeUnitCount(_ text: String) -> Int {
+        let whitespaceWords = text.split(whereSeparator: { $0.isWhitespace || $0.isNewline }).count
+        let compactChars = text.unicodeScalars.reduce(into: 0) { count, scalar in
+            if !CharacterSet.whitespacesAndNewlines.contains(scalar) {
+                count += 1
+            }
+        }
+        let charUnits = Int((Double(compactChars) / approxCharsPerWordUnit).rounded(.up))
+        return max(whitespaceWords, charUnits)
     }
 
     private func bestPunctuationSplitIndex(
