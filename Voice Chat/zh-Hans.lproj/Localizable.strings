@@ -228,3 +228,10 @@
 "Unable to connect to the voice server." = "无法连接到语音服务。";
 "Unable to connect. Please check your server settings." = "无法连接，请检查服务器设置。";
 "Speech recognition stopped unexpectedly." = "语音识别意外停止。";
+"Checking data..." = "正在检查数据...";
+"Data Error" = "数据错误";
+"The app could not read local data at launch." = "应用在启动时无法读取本地数据。";
+"Exit" = "退出";
+"Resetting..." = "正在重置...";
+"Reset Data and Continue" = "重置数据并继续";
+"Reset data failed.\n%@" = "重置数据失败。\n%@";

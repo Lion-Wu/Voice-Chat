@@ -12,71 +12,46 @@ import SwiftData
 @MainActor
 struct Voice_ChatApp: App {
     @StateObject private var appEnvironment = AppEnvironment()
+    @StateObject private var startupCoordinator = StartupDataCoordinator()
 
     var body: some Scene {
         WindowGroup {
-            ContentView()
-                .environmentObject(appEnvironment)
-                .environmentObject(appEnvironment.audioManager)
-                .environmentObject(appEnvironment.settingsManager)
-                .environmentObject(appEnvironment.chatSessionsViewModel)
-                .environmentObject(appEnvironment.speechInputManager)
-                .environmentObject(appEnvironment.errorCenter)
-                .environmentObject(appEnvironment.voiceOverlayViewModel)
-                // Bind the SwiftData context once for all shared dependencies.
-                .background(ModelContextBinder()
+            StartupDataGateView(coordinator: startupCoordinator) { container in
+                ContentView()
                     .environmentObject(appEnvironment)
-                )
+                    .environmentObject(appEnvironment.audioManager)
+                    .environmentObject(appEnvironment.settingsManager)
+                    .environmentObject(appEnvironment.chatSessionsViewModel)
+                    .environmentObject(appEnvironment.speechInputManager)
+                    .environmentObject(appEnvironment.errorCenter)
+                    .environmentObject(appEnvironment.voiceOverlayViewModel)
+                    // Bind the SwiftData context once for all shared dependencies.
+                    .background(
+                        ModelContextBinder()
+                            .environmentObject(appEnvironment)
+                    )
+                    .modelContainer(container)
+            }
         }
-        .modelContainer(Self.sharedContainer)
 
         #if os(macOS)
         Settings {
-            SettingsView()
-                .environmentObject(appEnvironment)
-                .environmentObject(appEnvironment.settingsManager)
-                .environmentObject(appEnvironment.errorCenter)
-                .background(ModelContextBinder()
+            StartupDataGateView(coordinator: startupCoordinator) { container in
+                SettingsView()
                     .environmentObject(appEnvironment)
-                )
+                    .environmentObject(appEnvironment.settingsManager)
+                    .environmentObject(appEnvironment.errorCenter)
+                    .background(
+                        ModelContextBinder()
+                            .environmentObject(appEnvironment)
+                    )
+                    .modelContainer(container)
+            }
         }
-        // Reuse the same container instance to avoid creating parallel stores.
-        .modelContainer(Self.sharedContainer)
         .commands {
             AppMenuCommands(appEnvironment.chatSessionsViewModel)
         }
         #endif
-    }
-
-    /// Shared SwiftData container used by both the main scene and the Settings window.
-    private static let sharedContainer: ModelContainer = {
-        makeContainer()
-    }()
-
-    /// Builds a SwiftData container, falling back to in-memory storage if the persistent store fails.
-    private static func makeContainer() -> ModelContainer {
-        let schema = Schema([
-            ChatSession.self,
-            ChatMessage.self,
-            AppSettings.self,
-            ChatServerPreset.self,
-            VoiceServerPreset.self,
-            VoicePreset.self,
-            SystemPromptPreset.self
-        ])
-        do {
-            return try ModelContainer(for: schema, configurations: [ModelConfiguration()])
-        } catch {
-            // Avoid crashing the entire app if the persistent store cannot be created (e.g., corruption,
-            // permission issues, or an incompatible schema). Fall back to an in-memory store so the UI
-            // can still launch and the user can fix settings/export data.
-            print("SwiftData persistent store init failed, falling back to in-memory: \(error)")
-            do {
-                return try ModelContainer(for: schema, configurations: [.init(isStoredInMemoryOnly: true)])
-            } catch {
-                fatalError("Failed to create any ModelContainer: \(error)")
-            }
-        }
     }
 }
 

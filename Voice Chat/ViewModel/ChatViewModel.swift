@@ -579,7 +579,7 @@ final class ChatViewModel: ObservableObject {
         var didMutate = false
         var didMutateBranch = false
 
-        // Ensure all messages are associated with the current session (legacy data can have nil / stale links).
+        // Ensure all messages are associated with the current session.
         for message in chatSession.messages {
             if message.session?.id != chatSession.id {
                 message.session = chatSession
@@ -627,54 +627,6 @@ final class ChatViewModel: ObservableObject {
                     break
                 }
                 current = parent
-            }
-        }
-
-        // Legacy migration: sessions that predate branching stored messages linearly without parent pointers.
-        if !messages.contains(where: { $0.parentMessage != nil }) {
-            var orderIndex: [UUID: Int] = [:]
-            orderIndex.reserveCapacity(messages.count)
-            for (idx, message) in messages.enumerated() {
-                orderIndex[message.id] = idx
-            }
-
-            let ordered = messages.sorted { lhs, rhs in
-                if lhs.createdAt == rhs.createdAt {
-                    let leftIndex = orderIndex[lhs.id] ?? 0
-                    let rightIndex = orderIndex[rhs.id] ?? 0
-                    if leftIndex == rightIndex {
-                        return lhs.id.uuidString < rhs.id.uuidString
-                    }
-                    return leftIndex < rightIndex
-                }
-                return lhs.createdAt < rhs.createdAt
-            }
-            if let first = ordered.first, chatSession.activeRootMessageID != first.id {
-                chatSession.activeRootMessageID = first.id
-                didMutate = true
-                didMutateBranch = true
-            }
-
-            if ordered.count >= 2 {
-                for idx in 1..<ordered.count {
-                    let prev = ordered[idx - 1]
-                    let cur = ordered[idx]
-                    if cur.parentMessage?.id != prev.id {
-                        cur.parentMessage = prev
-                        didMutate = true
-                        didMutateBranch = true
-                    }
-                    if prev.activeChildMessageID != cur.id {
-                        prev.activeChildMessageID = cur.id
-                        didMutate = true
-                        didMutateBranch = true
-                    }
-                }
-                if let last = ordered.last, last.activeChildMessageID != nil {
-                    last.activeChildMessageID = nil
-                    didMutate = true
-                    didMutateBranch = true
-                }
             }
         }
 

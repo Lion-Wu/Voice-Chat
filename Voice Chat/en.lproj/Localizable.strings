@@ -224,3 +224,10 @@
 "Unable to connect to the voice server." = "Unable to connect to the voice server.";
 "Unable to connect. Please check your server settings." = "Unable to connect. Please check your server settings.";
 "Speech recognition stopped unexpectedly." = "Speech recognition stopped unexpectedly.";
+"Checking data..." = "Checking data...";
+"Data Error" = "Data Error";
+"The app could not read local data at launch." = "The app could not read local data at launch.";
+"Exit" = "Exit";
+"Resetting..." = "Resetting...";
+"Reset Data and Continue" = "Reset Data and Continue";
+"Reset data failed.\n%@" = "Reset data failed.\n%@";

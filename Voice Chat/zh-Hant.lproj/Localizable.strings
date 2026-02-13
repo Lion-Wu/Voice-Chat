@@ -228,3 +228,10 @@
 "Unable to connect to the voice server." = "無法連線至語音服務。";
 "Unable to connect. Please check your server settings." = "無法連線，請檢查伺服器設定。";
 "Speech recognition stopped unexpectedly." = "語音辨識意外停止。";
+"Checking data..." = "正在檢查資料...";
+"Data Error" = "資料錯誤";
+"The app could not read local data at launch." = "App 在啟動時無法讀取本機資料。";
+"Exit" = "結束";
+"Resetting..." = "正在重設...";
+"Reset Data and Continue" = "重設資料並繼續";
+"Reset data failed.\n%@" = "重設資料失敗。\n%@";
