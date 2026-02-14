@@ -193,7 +193,7 @@ final class ChatService: NSObject, URLSessionDataDelegate, @unchecked Sendable {
     private let firstTokenTimeout: TimeInterval = 3600        // Wait up to one hour for the first token.
     private let silentGapTimeout: TimeInterval  = 3600        // Allow up to one hour of silence between tokens.
     private var streamStartAt: Date?
-    private var responseReceivedAt: Date?
+    private var didEstablishConnection: Bool = false
     private var lastDeltaAt: Date?
     private var watchdog: DispatchSourceTimer?
     private var connectionWatchdog: DispatchSourceTimer?
@@ -220,6 +220,22 @@ final class ChatService: NSObject, URLSessionDataDelegate, @unchecked Sendable {
 
         func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
             owner?.urlSession(session, dataTask: dataTask, didReceive: data)
+        }
+
+        func urlSession(
+            _ session: URLSession,
+            task: URLSessionTask,
+            didSendBodyData bytesSent: Int64,
+            totalBytesSent: Int64,
+            totalBytesExpectedToSend: Int64
+        ) {
+            owner?.urlSession(
+                session,
+                task: task,
+                didSendBodyData: bytesSent,
+                totalBytesSent: totalBytesSent,
+                totalBytesExpectedToSend: totalBytesExpectedToSend
+            )
         }
 
         func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
@@ -325,7 +341,7 @@ final class ChatService: NSObject, URLSessionDataDelegate, @unchecked Sendable {
         }
 
         streamStartAt = Date()
-        responseReceivedAt = nil
+        didEstablishConnection = false
         lastDeltaAt = nil
         startWatchdog()
         startConnectionWatchdog()
@@ -343,7 +359,7 @@ final class ChatService: NSObject, URLSessionDataDelegate, @unchecked Sendable {
         streamFinishedEmitted = false
         ssePartialLine = ""
         streamStartAt = nil
-        responseReceivedAt = nil
+        didEstablishConnection = false
         lastDeltaAt = nil
         httpStatusCode = nil
         errorResponseData.removeAll(keepingCapacity: true)
@@ -404,8 +420,7 @@ final class ChatService: NSObject, URLSessionDataDelegate, @unchecked Sendable {
             completionHandler(.cancel)
             return
         }
-        responseReceivedAt = Date()
-        stopConnectionWatchdog()
+        markConnectionEstablishedIfNeeded()
         if let http = response as? HTTPURLResponse {
             httpStatusCode = http.statusCode
             if !(200...299).contains(http.statusCode) {
@@ -415,9 +430,22 @@ final class ChatService: NSObject, URLSessionDataDelegate, @unchecked Sendable {
         completionHandler(.allow)
     }
 
+    func urlSession(
+        _ session: URLSession,
+        task: URLSessionTask,
+        didSendBodyData _: Int64,
+        totalBytesSent: Int64,
+        totalBytesExpectedToSend _: Int64
+    ) {
+        guard let currentTask = self.dataTask, task === currentTask else { return }
+        guard totalBytesSent > 0 else { return }
+        markConnectionEstablishedIfNeeded()
+    }
+
     func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
         guard let currentTask = self.dataTask, dataTask === currentTask else { return }
         guard !isCancelled else { return }
+        markConnectionEstablishedIfNeeded()
 
         if let status = httpStatusCode, !(200...299).contains(status) {
             if errorResponseData.count < errorBodyCaptureLimit {
@@ -611,7 +639,14 @@ final class ChatService: NSObject, URLSessionDataDelegate, @unchecked Sendable {
             guard let self else { return }
             guard !self.isCancelled else { return }
             guard let task = self.dataTask else { return }
-            guard self.responseReceivedAt == nil else { return }
+            guard !self.didEstablishConnection else {
+                self.stopConnectionWatchdog()
+                return
+            }
+            if task.countOfBytesSent > 0 {
+                self.markConnectionEstablishedIfNeeded()
+                return
+            }
             task.cancel()
             self.dataTask = nil
             self.stopWatchdog()
@@ -627,6 +662,12 @@ final class ChatService: NSObject, URLSessionDataDelegate, @unchecked Sendable {
     private func stopConnectionWatchdog() {
         connectionWatchdog?.cancel()
         connectionWatchdog = nil
+    }
+
+    private func markConnectionEstablishedIfNeeded() {
+        guard !didEstablishConnection else { return }
+        didEstablishConnection = true
+        stopConnectionWatchdog()
     }
 
     private func emitStreamFinishedOnce() {
