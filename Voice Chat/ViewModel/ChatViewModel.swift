@@ -870,6 +870,7 @@ final class ChatViewModel: ObservableObject {
            let existing = chatSession.messages.first(where: { $0.id == id }) {
             let previousFingerprint = (streamingAssistantMessageID == existing.id) ? streamingAssistantFingerprint : nil
             existing.content += piece
+            markSessionMessageActivity(at: now)
             message = existing
             if let previousFingerprint {
                 fingerprint = previousFingerprint.appending(piece)
