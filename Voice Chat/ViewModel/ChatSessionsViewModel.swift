@@ -11,6 +11,11 @@ import Combine
 
 @MainActor
 final class ChatSessionsViewModel: ObservableObject {
+    private struct PendingOrderingUpdate {
+        let session: ChatSession
+        let shouldPromoteDraft: Bool
+    }
+
     // MARK: - Published State
     @Published private(set) var chatSessions: [ChatSession] = []
     @Published private(set) var draftSession: ChatSession = ChatSession()
@@ -23,7 +28,7 @@ final class ChatSessionsViewModel: ObservableObject {
     private var activityCancellables: [UUID: AnyCancellable] = [:]
     private var sessionsWithActiveTextRequests: Set<UUID> = []
     private var textActivityPublishTask: Task<Void, Never>?
-    private var pendingOrderingUpdates: [UUID: ChatSession] = [:]
+    private var pendingOrderingUpdates: [UUID: PendingOrderingUpdate] = [:]
     private var orderingPublishTask: Task<Void, Never>?
 
     // MARK: - Dependencies
@@ -190,8 +195,13 @@ final class ChatSessionsViewModel: ObservableObject {
     func persist(session: ChatSession, reason: SessionPersistReason = .throttled) -> Bool {
         guard shouldPersist(session) else { return false }
         let didPersist = repository.persist(session: session, reason: reason)
-        // Always refresh in-memory ordering so sidebar updates are not blocked by disk-write throttling.
-        scheduleInMemoryOrderingUpdate(with: session)
+
+        // Keep throttled live-ordering updates for tracked sessions, but never promote draft on failed writes.
+        let shouldScheduleOrderingUpdate = didPersist || (reason == .throttled && session.id != draftSession.id)
+        if shouldScheduleOrderingUpdate {
+            let shouldPromoteDraft = didPersist && session.id == draftSession.id
+            scheduleInMemoryOrderingUpdate(with: session, shouldPromoteDraft: shouldPromoteDraft)
+        }
         return didPersist
     }
 
@@ -225,8 +235,18 @@ final class ChatSessionsViewModel: ObservableObject {
         ensureValidSelection()
     }
 
-    private func scheduleInMemoryOrderingUpdate(with session: ChatSession) {
-        pendingOrderingUpdates[session.id] = session
+    private func scheduleInMemoryOrderingUpdate(with session: ChatSession, shouldPromoteDraft: Bool) {
+        if let existing = pendingOrderingUpdates[session.id] {
+            pendingOrderingUpdates[session.id] = PendingOrderingUpdate(
+                session: session,
+                shouldPromoteDraft: existing.shouldPromoteDraft || shouldPromoteDraft
+            )
+        } else {
+            pendingOrderingUpdates[session.id] = PendingOrderingUpdate(
+                session: session,
+                shouldPromoteDraft: shouldPromoteDraft
+            )
+        }
         orderingPublishTask?.cancel()
         orderingPublishTask = Task { @MainActor [weak self] in
             // Publish outside the current update stack to avoid SwiftUI runtime warnings.
@@ -237,9 +257,11 @@ final class ChatSessionsViewModel: ObservableObject {
             self.pendingOrderingUpdates.removeAll()
 
             guard !pending.isEmpty else { return }
-            for session in pending {
-                self.updateInMemoryOrdering(with: session)
-                self.promoteDraftIfNeeded(session)
+            for update in pending {
+                self.updateInMemoryOrdering(with: update.session)
+                if update.shouldPromoteDraft {
+                    self.promoteDraftIfNeeded(update.session)
+                }
             }
         }
     }
