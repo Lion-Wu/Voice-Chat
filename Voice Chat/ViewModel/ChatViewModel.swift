@@ -242,6 +242,7 @@ final class ChatViewModel: ObservableObject {
             parent.activeChildMessageID = err.id
         }
         chatSession.messages.append(err)
+        markSessionMessageActivity(at: err.createdAt)
         invalidateCachesAfterMessageMutation()
         pendingAssistantParentMessageID = nil
         pendingBranchRestore = nil
@@ -323,6 +324,10 @@ final class ChatViewModel: ObservableObject {
     private func persistSession(reason: SessionPersistReason = .throttled) {
         sessionPersistence?.ensureSessionTracked(chatSession)
         sessionPersistence?.persist(session: chatSession, reason: reason)
+    }
+
+    private func markSessionMessageActivity(at date: Date) {
+        chatSession.registerMessageActivity(at: date)
     }
 
     private func invalidateBranchMessagesCache() {
@@ -783,6 +788,7 @@ final class ChatViewModel: ObservableObject {
             chatSession.activeRootMessageID = userMsg.id
         }
         chatSession.messages.append(userMsg)
+        markSessionMessageActivity(at: userMsg.createdAt)
         invalidateCachesAfterMessageMutation()
         branchDidChange.send(())
         pendingBranchRestore = nil
@@ -887,6 +893,7 @@ final class ChatViewModel: ObservableObject {
                 chatSession.activeRootMessageID = sys.id
             }
             chatSession.messages.append(sys)
+            markSessionMessageActivity(at: sys.createdAt)
             invalidateCachesAfterMessageMutation()
             pendingBranchRestore = nil
             branchDidChange.send(())

@@ -208,6 +208,7 @@ final class ChatSessionsViewModel: ObservableObject {
     // MARK: - Fetch
     func loadChatSessions() {
         let fetched = repository.fetchSessions()
+        hydrateLastMessageActivityIfNeeded(in: fetched)
         chatSessions = orderedSessions(fetched)
         pruneStaleViewModels(keeping: fetched)
         ensureChatConfigurationCurrent()
@@ -220,6 +221,14 @@ final class ChatSessionsViewModel: ObservableObject {
         for key in staleKeys {
             viewModelCache.removeValue(forKey: key)
             unbindActivity(for: key)
+        }
+    }
+
+    private func hydrateLastMessageActivityIfNeeded(in sessions: [ChatSession]) {
+        for session in sessions where session.lastMessageAt == nil {
+            if let latest = session.messages.lazy.map(\.createdAt).max() {
+                session.lastMessageAt = latest
+            }
         }
     }
 
