@@ -23,6 +23,8 @@ final class ChatSessionsViewModel: ObservableObject {
     private var activityCancellables: [UUID: AnyCancellable] = [:]
     private var sessionsWithActiveTextRequests: Set<UUID> = []
     private var textActivityPublishTask: Task<Void, Never>?
+    private var pendingOrderingUpdates: [UUID: ChatSession] = [:]
+    private var orderingPublishTask: Task<Void, Never>?
 
     // MARK: - Dependencies
     private let settingsManager: SettingsManager
@@ -188,13 +190,8 @@ final class ChatSessionsViewModel: ObservableObject {
     func persist(session: ChatSession, reason: SessionPersistReason = .throttled) -> Bool {
         guard shouldPersist(session) else { return false }
         let didPersist = repository.persist(session: session, reason: reason)
-        if didPersist {
-            Task { @MainActor [weak self] in
-                // Run after the current call stack to keep SwiftUI happy.
-                self?.updateInMemoryOrdering(with: session)
-                self?.promoteDraftIfNeeded(session)
-            }
-        }
+        // Always refresh in-memory ordering so sidebar updates are not blocked by disk-write throttling.
+        scheduleInMemoryOrderingUpdate(with: session)
         return didPersist
     }
 
@@ -228,6 +225,25 @@ final class ChatSessionsViewModel: ObservableObject {
         ensureValidSelection()
     }
 
+    private func scheduleInMemoryOrderingUpdate(with session: ChatSession) {
+        pendingOrderingUpdates[session.id] = session
+        orderingPublishTask?.cancel()
+        orderingPublishTask = Task { @MainActor [weak self] in
+            // Publish outside the current update stack to avoid SwiftUI runtime warnings.
+            await Task.yield()
+            guard let self, !Task.isCancelled else { return }
+
+            let pending = Array(self.pendingOrderingUpdates.values)
+            self.pendingOrderingUpdates.removeAll()
+
+            guard !pending.isEmpty else { return }
+            for session in pending {
+                self.updateInMemoryOrdering(with: session)
+                self.promoteDraftIfNeeded(session)
+            }
+        }
+    }
+
     func updateRealtimeVoiceLock(_ active: Bool) {
         if isRealtimeVoiceLocked != active {
             isRealtimeVoiceLocked = active
@@ -235,11 +251,17 @@ final class ChatSessionsViewModel: ObservableObject {
     }
 
     private func orderedSessions(_ sessions: [ChatSession]) -> [ChatSession] {
-        sessions.sorted { lhs, rhs in
-            if lhs.updatedAt == rhs.updatedAt {
+        let activityDates = Dictionary(uniqueKeysWithValues: sessions.map { ($0.id, $0.lastActivityAt) })
+        return sessions.sorted { lhs, rhs in
+            let lhsActivity = activityDates[lhs.id] ?? lhs.updatedAt
+            let rhsActivity = activityDates[rhs.id] ?? rhs.updatedAt
+            if lhsActivity == rhsActivity {
+                if lhs.createdAt == rhs.createdAt {
+                    return lhs.id.uuidString > rhs.id.uuidString
+                }
                 return lhs.createdAt > rhs.createdAt
             }
-            return lhs.updatedAt > rhs.updatedAt
+            return lhsActivity > rhsActivity
         }
     }
 

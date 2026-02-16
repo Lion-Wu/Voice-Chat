@@ -32,3 +32,11 @@ final class ChatSession {
         self.messages = []
     }
 }
+
+extension ChatSession {
+    /// Conversation activity time used for list sorting/grouping.
+    /// Prefer the latest message time; fall back to metadata update time when no message exists.
+    var lastActivityAt: Date {
+        messages.map(\.createdAt).max() ?? updatedAt
+    }
+}

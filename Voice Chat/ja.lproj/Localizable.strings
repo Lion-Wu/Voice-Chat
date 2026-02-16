@@ -117,6 +117,12 @@
 "Waiting for connection" = "接続待機中";
 "Unable to set up audio session: %@" = "オーディオセッションを設定できませんでした: %@";
 "Search Chats" = "チャットを検索";
+"Today" = "今日";
+"Yesterday" = "昨日";
+"Last 7 Days" = "過去7日間";
+"Last 30 Days" = "過去30日間";
+"Past Year" = "過去1年";
+"Older" = "それ以前";
 "No chats yet" = "チャット履歴はありません";
 "No chats match \"%@\"" = "「%@」に一致するチャットはありません";
 "No Results" = "結果なし";
