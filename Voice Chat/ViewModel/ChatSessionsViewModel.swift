@@ -30,6 +30,7 @@ final class ChatSessionsViewModel: ObservableObject {
     private var textActivityPublishTask: Task<Void, Never>?
     private var pendingOrderingUpdates: [UUID: PendingOrderingUpdate] = [:]
     private var orderingPublishTask: Task<Void, Never>?
+    private var deletedSessionIDs: Set<UUID> = []
 
     // MARK: - Dependencies
     private let settingsManager: SettingsManager
@@ -169,6 +170,7 @@ final class ChatSessionsViewModel: ObservableObject {
 
     func addSession(_ session: ChatSession) {
         ensureChatConfigurationCurrent()
+        deletedSessionIDs.remove(session.id)
         repository.ensureSessionTracked(session)
         cacheViewModel(for: session)
         persist(session: session, reason: .immediate)
@@ -183,6 +185,8 @@ final class ChatSessionsViewModel: ObservableObject {
     func deleteSession(at offsets: IndexSet) {
         for index in offsets {
             let s = chatSessions[index]
+            deletedSessionIDs.insert(s.id)
+            pendingOrderingUpdates.removeValue(forKey: s.id)
             viewModelCache.removeValue(forKey: s.id)
             unbindActivity(for: s.id)
             repository.delete(s) // SwiftData cascades to remove related messages.
@@ -245,6 +249,7 @@ final class ChatSessionsViewModel: ObservableObject {
     }
 
     private func scheduleInMemoryOrderingUpdate(with session: ChatSession, shouldPromoteDraft: Bool) {
+        guard !deletedSessionIDs.contains(session.id) else { return }
         if let existing = pendingOrderingUpdates[session.id] {
             pendingOrderingUpdates[session.id] = PendingOrderingUpdate(
                 session: session,
@@ -267,6 +272,7 @@ final class ChatSessionsViewModel: ObservableObject {
 
             guard !pending.isEmpty else { return }
             for update in pending {
+                guard !self.deletedSessionIDs.contains(update.session.id) else { continue }
                 self.updateInMemoryOrdering(with: update.session)
                 if update.shouldPromoteDraft {
                     self.promoteDraftIfNeeded(update.session)
