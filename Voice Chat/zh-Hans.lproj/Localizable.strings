@@ -117,6 +117,12 @@
 "Waiting for connection" = "等待连接";
 "Unable to set up audio session: %@" = "无法设置音频会话：%@";
 "Search Chats" = "搜索聊天";
+"Today" = "今天";
+"Yesterday" = "昨天";
+"Last 7 Days" = "最近 7 天";
+"Last 30 Days" = "最近 30 天";
+"Past Year" = "过去一年";
+"Older" = "更早";
 "No chats yet" = "暂无历史聊天";
 "No chats match \"%@\"" = "没有与“%@”匹配的聊天";
 "No Results" = "没有结果";

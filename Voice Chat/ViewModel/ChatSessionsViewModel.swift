@@ -11,6 +11,11 @@ import Combine
 
 @MainActor
 final class ChatSessionsViewModel: ObservableObject {
+    private struct PendingOrderingUpdate {
+        let session: ChatSession
+        let shouldPromoteDraft: Bool
+    }
+
     // MARK: - Published State
     @Published private(set) var chatSessions: [ChatSession] = []
     @Published private(set) var draftSession: ChatSession = ChatSession()
@@ -23,6 +28,9 @@ final class ChatSessionsViewModel: ObservableObject {
     private var activityCancellables: [UUID: AnyCancellable] = [:]
     private var sessionsWithActiveTextRequests: Set<UUID> = []
     private var textActivityPublishTask: Task<Void, Never>?
+    private var pendingOrderingUpdates: [UUID: PendingOrderingUpdate] = [:]
+    private var orderingPublishTask: Task<Void, Never>?
+    private var deletedSessionIDs: Set<UUID> = []
 
     // MARK: - Dependencies
     private let settingsManager: SettingsManager
@@ -162,6 +170,7 @@ final class ChatSessionsViewModel: ObservableObject {
 
     func addSession(_ session: ChatSession) {
         ensureChatConfigurationCurrent()
+        deletedSessionIDs.remove(session.id)
         repository.ensureSessionTracked(session)
         cacheViewModel(for: session)
         persist(session: session, reason: .immediate)
@@ -176,6 +185,8 @@ final class ChatSessionsViewModel: ObservableObject {
     func deleteSession(at offsets: IndexSet) {
         for index in offsets {
             let s = chatSessions[index]
+            deletedSessionIDs.insert(s.id)
+            pendingOrderingUpdates.removeValue(forKey: s.id)
             viewModelCache.removeValue(forKey: s.id)
             unbindActivity(for: s.id)
             repository.delete(s) // SwiftData cascades to remove related messages.
@@ -188,12 +199,12 @@ final class ChatSessionsViewModel: ObservableObject {
     func persist(session: ChatSession, reason: SessionPersistReason = .throttled) -> Bool {
         guard shouldPersist(session) else { return false }
         let didPersist = repository.persist(session: session, reason: reason)
-        if didPersist {
-            Task { @MainActor [weak self] in
-                // Run after the current call stack to keep SwiftUI happy.
-                self?.updateInMemoryOrdering(with: session)
-                self?.promoteDraftIfNeeded(session)
-            }
+
+        // Keep throttled live-ordering updates for tracked sessions, but never promote draft on failed writes.
+        let shouldScheduleOrderingUpdate = didPersist || (reason == .throttled && session.id != draftSession.id)
+        if shouldScheduleOrderingUpdate {
+            let shouldPromoteDraft = didPersist && session.id == draftSession.id
+            scheduleInMemoryOrderingUpdate(with: session, shouldPromoteDraft: shouldPromoteDraft)
         }
         return didPersist
     }
@@ -201,6 +212,7 @@ final class ChatSessionsViewModel: ObservableObject {
     // MARK: - Fetch
     func loadChatSessions() {
         let fetched = repository.fetchSessions()
+        hydrateLastMessageActivityIfNeeded(in: fetched)
         chatSessions = orderedSessions(fetched)
         pruneStaleViewModels(keeping: fetched)
         ensureChatConfigurationCurrent()
@@ -216,6 +228,14 @@ final class ChatSessionsViewModel: ObservableObject {
         }
     }
 
+    private func hydrateLastMessageActivityIfNeeded(in sessions: [ChatSession]) {
+        for session in sessions where session.lastMessageAt == nil {
+            if let latest = session.messages.lazy.map(\.createdAt).max() {
+                session.lastMessageAt = latest
+            }
+        }
+    }
+
     private func updateInMemoryOrdering(with session: ChatSession) {
         var updated = chatSessions
         if let idx = updated.firstIndex(where: { $0.id == session.id }) {
@@ -228,6 +248,39 @@ final class ChatSessionsViewModel: ObservableObject {
         ensureValidSelection()
     }
 
+    private func scheduleInMemoryOrderingUpdate(with session: ChatSession, shouldPromoteDraft: Bool) {
+        guard !deletedSessionIDs.contains(session.id) else { return }
+        if let existing = pendingOrderingUpdates[session.id] {
+            pendingOrderingUpdates[session.id] = PendingOrderingUpdate(
+                session: session,
+                shouldPromoteDraft: existing.shouldPromoteDraft || shouldPromoteDraft
+            )
+        } else {
+            pendingOrderingUpdates[session.id] = PendingOrderingUpdate(
+                session: session,
+                shouldPromoteDraft: shouldPromoteDraft
+            )
+        }
+        orderingPublishTask?.cancel()
+        orderingPublishTask = Task { @MainActor [weak self] in
+            // Publish outside the current update stack to avoid SwiftUI runtime warnings.
+            await Task.yield()
+            guard let self, !Task.isCancelled else { return }
+
+            let pending = Array(self.pendingOrderingUpdates.values)
+            self.pendingOrderingUpdates.removeAll()
+
+            guard !pending.isEmpty else { return }
+            for update in pending {
+                guard !self.deletedSessionIDs.contains(update.session.id) else { continue }
+                self.updateInMemoryOrdering(with: update.session)
+                if update.shouldPromoteDraft {
+                    self.promoteDraftIfNeeded(update.session)
+                }
+            }
+        }
+    }
+
     func updateRealtimeVoiceLock(_ active: Bool) {
         if isRealtimeVoiceLocked != active {
             isRealtimeVoiceLocked = active
@@ -235,11 +288,17 @@ final class ChatSessionsViewModel: ObservableObject {
     }
 
     private func orderedSessions(_ sessions: [ChatSession]) -> [ChatSession] {
-        sessions.sorted { lhs, rhs in
-            if lhs.updatedAt == rhs.updatedAt {
+        let activityDates = Dictionary(uniqueKeysWithValues: sessions.map { ($0.id, $0.lastActivityAt) })
+        return sessions.sorted { lhs, rhs in
+            let lhsActivity = activityDates[lhs.id] ?? lhs.updatedAt
+            let rhsActivity = activityDates[rhs.id] ?? rhs.updatedAt
+            if lhsActivity == rhsActivity {
+                if lhs.createdAt == rhs.createdAt {
+                    return lhs.id.uuidString > rhs.id.uuidString
+                }
                 return lhs.createdAt > rhs.createdAt
             }
-            return lhs.updatedAt > rhs.updatedAt
+            return lhsActivity > rhsActivity
         }
     }
 

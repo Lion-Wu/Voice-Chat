@@ -51,7 +51,10 @@ final class SwiftDataChatSessionRepository: ChatSessionRepository {
         guard let context = context else { return [] }
         let descriptor = FetchDescriptor<ChatSession>(
             predicate: nil,
-            sortBy: [SortDescriptor(\.updatedAt, order: .reverse)]
+            sortBy: [
+                SortDescriptor(\.updatedAt, order: .reverse),
+                SortDescriptor(\.createdAt, order: .reverse)
+            ]
         )
         do {
             return try context.fetch(descriptor)
@@ -94,11 +97,12 @@ final class SwiftDataChatSessionRepository: ChatSessionRepository {
             saveContext(label: "immediate session save")
             return true
         case .throttled:
+            // Keep in-memory ordering accurate even while disk writes are throttled.
+            session.updatedAt = now
             let last = lastSaveTime[session.id] ?? .distantPast
             guard now.timeIntervalSince(last) >= throttleInterval else { return false }
 
             lastSaveTime[session.id] = now
-            session.updatedAt = now
             saveContext(label: "throttled session save")
             return true
         }

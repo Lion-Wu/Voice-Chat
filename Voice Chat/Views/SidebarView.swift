@@ -7,6 +7,65 @@
 
 import SwiftUI
 
+private enum SidebarTimeSection: Int, CaseIterable, Identifiable {
+    case today
+    case yesterday
+    case last7Days
+    case last30Days
+    case pastYear
+    case older
+
+    var id: Int { rawValue }
+
+    var title: LocalizedStringKey {
+        switch self {
+        case .today:
+            return "Today"
+        case .yesterday:
+            return "Yesterday"
+        case .last7Days:
+            return "Last 7 Days"
+        case .last30Days:
+            return "Last 30 Days"
+        case .pastYear:
+            return "Past Year"
+        case .older:
+            return "Older"
+        }
+    }
+
+    static func from(_ date: Date, calendar: Calendar = .autoupdatingCurrent) -> SidebarTimeSection {
+        if calendar.isDateInToday(date) {
+            return .today
+        }
+        if calendar.isDateInYesterday(date) {
+            return .yesterday
+        }
+
+        let startOfToday = calendar.startOfDay(for: Date())
+        if let sevenDaysAgo = calendar.date(byAdding: .day, value: -7, to: startOfToday),
+           date >= sevenDaysAgo {
+            return .last7Days
+        }
+        if let thirtyDaysAgo = calendar.date(byAdding: .day, value: -30, to: startOfToday),
+           date >= thirtyDaysAgo {
+            return .last30Days
+        }
+        if let oneYearAgo = calendar.date(byAdding: .year, value: -1, to: startOfToday),
+           date >= oneYearAgo {
+            return .pastYear
+        }
+        return .older
+    }
+}
+
+private struct SidebarSessionGroup: Identifiable {
+    let section: SidebarTimeSection
+    let sessions: [ChatSession]
+
+    var id: SidebarTimeSection { section }
+}
+
 struct SidebarView: View {
     @EnvironmentObject var chatSessionsViewModel: ChatSessionsViewModel
 
@@ -20,8 +79,7 @@ struct SidebarView: View {
 
     // Deletion confirmation
     @State private var showDeleteChatAlert: Bool = false
-    @State private var pendingDeleteOffsets: IndexSet?
-    @State private var pendingDeleteSingleIndex: Int?
+    @State private var pendingDeleteSessionIDs: [UUID] = []
 
     private var filteredSessions: [ChatSession] {
         let keyword = searchKeyword
@@ -39,6 +97,21 @@ struct SidebarView: View {
         searchText.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
+    private var groupedFilteredSessions: [SidebarSessionGroup] {
+        let calendar = Calendar.autoupdatingCurrent
+        var grouped: [SidebarTimeSection: [ChatSession]] = [:]
+
+        for session in filteredSessions {
+            let section = SidebarTimeSection.from(session.lastActivityAt, calendar: calendar)
+            grouped[section, default: []].append(session)
+        }
+
+        return SidebarTimeSection.allCases.compactMap { section in
+            guard let sessions = grouped[section], !sessions.isEmpty else { return nil }
+            return SidebarSessionGroup(section: section, sessions: sessions)
+        }
+    }
+
     var body: some View {
         Group {
             #if os(macOS)
@@ -51,17 +124,17 @@ struct SidebarView: View {
         .alert("Delete chat?",
                isPresented: $showDeleteChatAlert) {
             Button("Delete", role: .destructive) {
-                if let idx = pendingDeleteSingleIndex {
-                    chatSessionsViewModel.deleteSession(at: IndexSet(integer: idx))
-                    pendingDeleteSingleIndex = nil
-                } else if let offsets = pendingDeleteOffsets {
+                let indexes = Set(pendingDeleteSessionIDs.compactMap { sessionID in
+                    chatSessionsViewModel.chatSessions.firstIndex(where: { $0.id == sessionID })
+                })
+                if !indexes.isEmpty {
+                    let offsets = IndexSet(indexes)
                     chatSessionsViewModel.deleteSession(at: offsets)
-                    pendingDeleteOffsets = nil
                 }
+                pendingDeleteSessionIDs.removeAll()
             }
             Button("Cancel", role: .cancel) {
-                pendingDeleteSingleIndex = nil
-                pendingDeleteOffsets = nil
+                pendingDeleteSessionIDs.removeAll()
             }
         } message: {
             Text("This action cannot be undone.")
@@ -70,15 +143,23 @@ struct SidebarView: View {
 
     // MARK: - Swipe Delete Hook
 
-    private func handleSwipeDelete(at filteredOffsets: IndexSet) {
-        let mapped = IndexSet(filteredOffsets.compactMap { offset -> Int? in
-            guard offset < filteredSessions.count else { return nil }
-            let session = filteredSessions[offset]
-            return chatSessionsViewModel.chatSessions.firstIndex(where: { $0.id == session.id })
-        })
-        guard !mapped.isEmpty else { return }
-        pendingDeleteOffsets = mapped
-        pendingDeleteSingleIndex = nil
+    private func handleSwipeDelete(at offsets: IndexSet, within sessions: [ChatSession]) {
+        let sessionIDs = offsets.compactMap { offset -> UUID? in
+            guard offset < sessions.count else { return nil }
+            return sessions[offset].id
+        }
+        requestDelete(for: sessionIDs)
+    }
+
+    private func requestDelete(for session: ChatSession) {
+        requestDelete(for: [session.id])
+    }
+
+    private func requestDelete(for sessionIDs: [UUID]) {
+        var seen = Set<UUID>()
+        let uniqueIDs = sessionIDs.filter { seen.insert($0).inserted }
+        guard !uniqueIDs.isEmpty else { return }
+        pendingDeleteSessionIDs = uniqueIDs
         showDeleteChatAlert = true
     }
 
@@ -127,8 +208,8 @@ struct SidebarView: View {
                 macDraftRow
                     .tag(chatSessionsViewModel.draftSession.id)
             }
-            Section(header: Text("Chats")) {
-                if filteredSessions.isEmpty {
+            if groupedFilteredSessions.isEmpty {
+                Section(header: Text("Chats")) {
                     if searchKeyword.isEmpty {
                         Text("No chats yet")
                             .foregroundStyle(.secondary)
@@ -136,22 +217,24 @@ struct SidebarView: View {
                         Text(String(format: NSLocalizedString("No chats match \"%@\"", comment: ""), searchKeyword))
                             .foregroundStyle(.secondary)
                     }
-                } else {
-                    ForEach(filteredSessions) { session in
-                        macSessionRow(session)
-                            .tag(session.id)
-                            .contextMenu {
-                                Button("Rename") { renameSession(session) }
-                                Button("Delete", role: .destructive) {
-                                    if let idx = chatSessionsViewModel.chatSessions.firstIndex(where: { $0.id == session.id }) {
-                                        pendingDeleteSingleIndex = idx
-                                        pendingDeleteOffsets = nil
-                                        showDeleteChatAlert = true
+                }
+            } else {
+                ForEach(groupedFilteredSessions) { group in
+                    Section(header: Text(group.section.title)) {
+                        ForEach(group.sessions) { session in
+                            macSessionRow(session)
+                                .tag(session.id)
+                                .contextMenu {
+                                    Button("Rename") { renameSession(session) }
+                                    Button("Delete", role: .destructive) {
+                                        requestDelete(for: session)
                                     }
                                 }
-                            }
+                        }
+                        .onDelete { offsets in
+                            handleSwipeDelete(at: offsets, within: group.sessions)
+                        }
                     }
-                    .onDelete(perform: handleSwipeDelete)
                 }
             }
         }
@@ -171,8 +254,8 @@ struct SidebarView: View {
                     iosDraftRow
                         .tag(chatSessionsViewModel.draftSession.id)
                 }
-                Section(LocalizedStringKey("Chats")) {
-                    if filteredSessions.isEmpty {
+                if groupedFilteredSessions.isEmpty {
+                    Section(LocalizedStringKey("Chats")) {
                         if searchKeyword.isEmpty {
                             ContentUnavailableView(
                                 LocalizedStringKey("No chats yet"),
@@ -188,27 +271,29 @@ struct SidebarView: View {
                             )
                             .listRowBackground(Color.clear)
                         }
-                    } else {
-                        ForEach(filteredSessions) { session in
-                            iosSessionRow(session)
-                                .contentShape(Rectangle())
-                                .onTapGesture {
-                                    chatSessionsViewModel.selectedSession = session
-                                    onConversationTap(session)
-                                }
-                                .contextMenu {
-                                    Button("Rename") { renameSession(session) }
-                                    Button("Delete", role: .destructive) {
-                                        if let idx = chatSessionsViewModel.chatSessions.firstIndex(where: { $0.id == session.id }) {
-                                            pendingDeleteSingleIndex = idx
-                                            pendingDeleteOffsets = nil
-                                            showDeleteChatAlert = true
+                    }
+                } else {
+                    ForEach(groupedFilteredSessions) { group in
+                        Section(group.section.title) {
+                            ForEach(group.sessions) { session in
+                                iosSessionRow(session)
+                                    .contentShape(Rectangle())
+                                    .onTapGesture {
+                                        chatSessionsViewModel.selectedSession = session
+                                        onConversationTap(session)
+                                    }
+                                    .contextMenu {
+                                        Button("Rename") { renameSession(session) }
+                                        Button("Delete", role: .destructive) {
+                                            requestDelete(for: session)
                                         }
                                     }
-                                }
-                                .tag(session.id)
+                                    .tag(session.id)
+                            }
+                            .onDelete { offsets in
+                                handleSwipeDelete(at: offsets, within: group.sessions)
+                            }
                         }
-                        .onDelete(perform: handleSwipeDelete)
                     }
                 }
             }

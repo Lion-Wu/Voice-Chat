@@ -136,6 +136,12 @@
 "Waiting for connection" = "Waiting for connection";
 "Unable to set up audio session: %@" = "Unable to set up audio session: %@";
 "Search Chats" = "Search Chats";
+"Today" = "Today";
+"Yesterday" = "Yesterday";
+"Last 7 Days" = "Last 7 Days";
+"Last 30 Days" = "Last 30 Days";
+"Past Year" = "Past Year";
+"Older" = "Older";
 "No chats yet" = "No chats yet";
 "No chats match \"%@\"" = "No chats match \"%@\"";
 "No Results" = "No Results";

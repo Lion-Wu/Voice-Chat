@@ -17,6 +17,7 @@ final class ChatSession {
     var title: String
     var createdAt: Date
     var updatedAt: Date
+    var lastMessageAt: Date?
     var activeRootMessageID: UUID?
 
     // MARK: - Relation
@@ -28,7 +29,27 @@ final class ChatSession {
         self.title = title
         self.createdAt = Date()
         self.updatedAt = Date()
+        self.lastMessageAt = nil
         self.activeRootMessageID = nil
         self.messages = []
+    }
+}
+
+extension ChatSession {
+    /// Conversation activity time used for list sorting/grouping.
+    /// Use the newer timestamp between message activity and metadata updates.
+    var lastActivityAt: Date {
+        guard let lastMessageAt else { return updatedAt }
+        return max(lastMessageAt, updatedAt)
+    }
+
+    func registerMessageActivity(at date: Date) {
+        if let current = lastMessageAt {
+            if date > current {
+                lastMessageAt = date
+            }
+        } else {
+            lastMessageAt = date
+        }
     }
 }
