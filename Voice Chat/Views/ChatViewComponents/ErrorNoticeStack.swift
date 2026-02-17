@@ -37,6 +37,9 @@ struct ErrorNoticeStack: View {
     }
 
     private let bannerVerticalPadding: CGFloat = 8
+    private let noticeAnimation = Animation.spring(response: 0.35, dampingFraction: 0.9)
+    private let noticeTransition = AnyTransition.move(edge: .bottom).combined(with: .opacity)
+    private var noticeIDs: [UUID] { notices.map(\.id) }
 
     var body: some View {
         VStack(spacing: stackSpacing) {
@@ -88,10 +91,12 @@ struct ErrorNoticeStack: View {
                                 .stroke(ChatTheme.subtleStroke.opacity(0.6), lineWidth: 0.8)
                         )
                 )
+                .transition(noticeTransition)
             }
         }
         .frame(maxWidth: maxStackWidth)
         .padding(.horizontal, horizontalPadding)
+        .animation(noticeAnimation, value: noticeIDs)
         .transition(.move(edge: .bottom).combined(with: .opacity))
     }
 }

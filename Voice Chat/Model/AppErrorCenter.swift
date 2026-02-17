@@ -109,12 +109,25 @@ final class AppErrorCenter: ObservableObject {
     }
 
     func clear(category: AppErrorNotice.Category? = nil) {
+        let removedIDs: [UUID]
         if let category {
-            notices.removeAll { $0.category == category }
+            removedIDs = notices
+                .filter { $0.category == category }
+                .map(\.id)
+            withAnimation(noticeAnimation) {
+                notices.removeAll { $0.category == category }
+            }
             dismissedCategories.remove(category)
         } else {
-            notices.removeAll()
+            removedIDs = notices.map(\.id)
+            withAnimation(noticeAnimation) {
+                notices.removeAll()
+            }
             dismissedCategories.removeAll()
+        }
+        for id in removedIDs {
+            dismissTasks[id]?.cancel()
+            dismissTasks[id] = nil
         }
     }
 
