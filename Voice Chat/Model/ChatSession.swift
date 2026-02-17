@@ -37,9 +37,10 @@ final class ChatSession {
 
 extension ChatSession {
     /// Conversation activity time used for list sorting/grouping.
-    /// Prefer cached latest-message time; fall back to metadata update time when no message exists.
+    /// Use the newer timestamp between message activity and metadata updates.
     var lastActivityAt: Date {
-        lastMessageAt ?? updatedAt
+        guard let lastMessageAt else { return updatedAt }
+        return max(lastMessageAt, updatedAt)
     }
 
     func registerMessageActivity(at date: Date) {
