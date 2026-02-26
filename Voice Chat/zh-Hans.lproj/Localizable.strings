@@ -156,6 +156,7 @@
 "Received audio data could not be played." = "收到的音频数据无法播放。";
 "Developer" = "开发者";
 "Developer Mode" = "开发者模式";
+"Haptic Feedback" = "触感反馈";
 "Details" = "详细信息";
 "Message Details" = "消息详情";
 "Not Available" = "暂无";

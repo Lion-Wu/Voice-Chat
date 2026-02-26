@@ -50,13 +50,19 @@ struct AudioPlayerView: View {
     var body: some View {
         VStack(spacing: 8) {
             HStack(spacing: 12) {
-                ControlButton(icon: "gobackward.15", action: audioManager.backward15Seconds)
+                ControlButton(icon: "gobackward.15") {
+                    audioManager.backward15Seconds()
+                }
                     .disabled(shouldDisableTransportControls)
                 ControlButton(icon: audioManager.isAudioPlaying ? "pause.circle.fill" : "play.circle.fill",
-                              action: audioManager.togglePlayback,
+                              action: {
+                    audioManager.togglePlayback()
+                },
                               isLarge: true)
                     .disabled(shouldDisableTransportControls)
-                ControlButton(icon: "goforward.15", action: audioManager.forward15Seconds)
+                ControlButton(icon: "goforward.15") {
+                    audioManager.forward15Seconds()
+                }
                     .disabled(shouldDisableTransportControls)
 
                 Text(formatTime(displayedCurrentTime))
@@ -84,7 +90,9 @@ struct AudioPlayerView: View {
                 .animation(.easeInOut(duration: 0.18), value: transportStatusText)
 
                 Spacer(minLength: 8)
-                CloseButton(action: audioManager.closeAudioPlayer)
+                CloseButton(action: {
+                    audioManager.closeAudioPlayer()
+                })
             }
             .padding()
             .opacity(shouldDisableTransportControls ? 0.92 : 1)

@@ -156,6 +156,7 @@
 "Received audio data could not be played." = "受信した音声データを再生できませんでした。";
 "Developer" = "開発者";
 "Developer Mode" = "開発者モード";
+"Haptic Feedback" = "触覚フィードバック";
 "Details" = "詳細";
 "Message Details" = "メッセージ詳細";
 "Not Available" = "なし";

@@ -33,9 +33,20 @@ final class SettingsViewModel: ObservableObject {
         }
     }
 
-    @Published var autoSplit: String { didSet { if !suppressAutoSaves { saveModelSettings() } } }
+    @Published var autoSplit: String {
+        didSet {
+            guard !suppressAutoSaves else { return }
+            saveModelSettings()
+        }
+    }
     @Published var modelId: String { didSet { if !suppressAutoSaves { saveModelSettings() } } }
     @Published var language: String { didSet { if !suppressAutoSaves { saveModelSettings() } } }
+    @Published var hapticFeedbackEnabled: Bool {
+        didSet {
+            guard !suppressAutoSaves else { return }
+            saveHapticFeedbackSettings()
+        }
+    }
 
     // MARK: - Model List (Networking)
 
@@ -159,6 +170,7 @@ final class SettingsViewModel: ObservableObject {
         autoSplit = "cut0"
         modelId = ""
         language = "auto"
+        hapticFeedbackEnabled = true
 
         refreshFromSettingsManager()
         bindInitialStoreSync()
@@ -329,6 +341,7 @@ final class SettingsViewModel: ObservableObject {
         chatAPIKey = c.apiKey
 
         enableStreaming = v.enableStreaming
+        hapticFeedbackEnabled = settingsManager.hapticFeedbackEnabled
 
         autoSplit = m.autoSplit
         modelId = m.modelId
@@ -382,6 +395,10 @@ final class SettingsViewModel: ObservableObject {
         )
     }
 
+    func saveHapticFeedbackSettings() {
+        settingsManager.updateHapticFeedbackEnabled(hapticFeedbackEnabled)
+    }
+
     func saveModelSettings() {
         settingsManager.updateModelSettings(
             modelId: modelId,
@@ -425,6 +442,7 @@ final class SettingsViewModel: ObservableObject {
             reloadVoiceServerPresetListAndSelection()
             settingsManager.selectVoiceServerPreset(p.id)
             refreshFromSettingsManager()
+            AppHaptics.trigger(.success)
         }
     }
 
@@ -432,6 +450,7 @@ final class SettingsViewModel: ObservableObject {
         guard let id = settingsManager.selectedVoiceServerPresetID else { return }
         settingsManager.deleteVoiceServerPreset(id)
         refreshFromSettingsManager()
+        AppHaptics.trigger(.warning)
     }
 
     // MARK: - Chat server preset helpers
@@ -469,6 +488,7 @@ final class SettingsViewModel: ObservableObject {
             reloadChatServerPresetListAndSelection()
             settingsManager.selectChatServerPreset(p.id)
             refreshFromSettingsManager()
+            AppHaptics.trigger(.success)
         }
     }
 
@@ -476,6 +496,7 @@ final class SettingsViewModel: ObservableObject {
         guard let id = settingsManager.selectedChatServerPresetID else { return }
         settingsManager.deleteChatServerPreset(id)
         refreshFromSettingsManager()
+        AppHaptics.trigger(.warning)
     }
 
     // MARK: - Preset helpers
@@ -532,6 +553,7 @@ final class SettingsViewModel: ObservableObject {
             settingsManager.selectPreset(p.id, apply: false)
             reloadPresetListAndSelection()
             loadSelectedPresetFields()
+            AppHaptics.trigger(.success)
         }
     }
 
@@ -540,9 +562,11 @@ final class SettingsViewModel: ObservableObject {
         settingsManager.deletePreset(id)
         reloadPresetListAndSelection()
         loadSelectedPresetFields()
+        AppHaptics.trigger(.warning)
     }
 
     func applySelectedPresetNow() {
+        AppHaptics.trigger(.selection)
         Task { await settingsManager.applySelectedPreset() }
     }
 
@@ -628,6 +652,7 @@ final class SettingsViewModel: ObservableObject {
             reloadSystemPromptPresetListsAndSelections()
             SettingsManager.shared.selectNormalSystemPromptPreset(p.id)
             reloadSystemPromptPresetListsAndSelections()
+            AppHaptics.trigger(.success)
         }
     }
 
@@ -635,6 +660,7 @@ final class SettingsViewModel: ObservableObject {
         guard let id = settingsManager.selectedNormalSystemPromptPresetID else { return }
         settingsManager.deleteSystemPromptPreset(id)
         reloadSystemPromptPresetListsAndSelections()
+        AppHaptics.trigger(.warning)
     }
 
     func addVoiceSystemPromptPreset() {
@@ -642,6 +668,7 @@ final class SettingsViewModel: ObservableObject {
             reloadSystemPromptPresetListsAndSelections()
             SettingsManager.shared.selectVoiceSystemPromptPreset(p.id)
             reloadSystemPromptPresetListsAndSelections()
+            AppHaptics.trigger(.success)
         }
     }
 
@@ -649,5 +676,6 @@ final class SettingsViewModel: ObservableObject {
         guard let id = settingsManager.selectedVoiceSystemPromptPresetID else { return }
         settingsManager.deleteSystemPromptPreset(id)
         reloadSystemPromptPresetListsAndSelections()
+        AppHaptics.trigger(.warning)
     }
 }

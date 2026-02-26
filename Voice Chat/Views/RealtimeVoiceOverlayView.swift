@@ -164,8 +164,8 @@ struct RealtimeVoiceOverlayView: View {
                 .zIndex(0)
             }
         }
-        .onChange(of: viewModel.state) { _, newState in
-            handleStateChange(newState)
+        .onChange(of: viewModel.state) { oldState, newState in
+            handleStateChange(from: oldState, to: newState)
         }
         .onReceive(viewModel.inputLevelPublisher) { newLevel in
             handleInputLevelChange(newLevel)
@@ -299,11 +299,21 @@ struct RealtimeVoiceOverlayView: View {
     }
 
     private func triggerTapAction() {
+        switch viewModel.state {
+        case .listening, .speaking:
+            AppHaptics.trigger(.lightTap)
+        case .error:
+            AppHaptics.trigger(.selection)
+        case .loading:
+            break
+        }
         animateInteractionPulse()
         viewModel.handleCircleTap()
     }
 
     private func triggerLongPressAction(viewModel: VoiceChatOverlayViewModel?) {
+        guard viewModel?.state == .listening else { return }
+        AppHaptics.trigger(.selection)
         viewModel?.handleCircleLongPressBegan()
     }
 
@@ -329,7 +339,17 @@ struct RealtimeVoiceOverlayView: View {
         }
     }
 
-    private func handleStateChange(_ newState: VoiceChatOverlayViewModel.OverlayState) {
+    private func handleStateChange(from oldState: VoiceChatOverlayViewModel.OverlayState, to newState: VoiceChatOverlayViewModel.OverlayState) {
+        if case .error = oldState {
+            if case .error = newState {
+                // no-op
+            } else {
+                AppHaptics.trigger(.success)
+            }
+        } else if case .error = newState {
+            AppHaptics.trigger(.error)
+        }
+
         if newState == .loading {
             startLoadingBreathIfNeeded()
         } else {

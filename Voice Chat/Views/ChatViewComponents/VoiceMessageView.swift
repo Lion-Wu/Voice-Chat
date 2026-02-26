@@ -43,17 +43,19 @@ struct VoiceMessageView: View {
             .padding(.horizontal, 8)
         } else {
             let systemTextBubble = SystemTextBubble(
-            message: message,
-            thinkPreviewLines: thinkPreviewLines,
-            thinkFontSize: thinkFontSize,
-            thinkFont: thinkFont,
-            showActionButtons: showActionButtons,
-            developerModeEnabled: developerModeEnabled,
-            contentFingerprint: contentFingerprint,
-            onCopy: { copyToClipboard(message.content.extractThinkParts().body) },
-            onRegenerate: { onRegenerate(message) },
-            onReadAloud: { audioManager.startProcessing(text: message.content.extractThinkParts().body) }
-        )
+                message: message,
+                thinkPreviewLines: thinkPreviewLines,
+                thinkFontSize: thinkFontSize,
+                thinkFont: thinkFont,
+                showActionButtons: showActionButtons,
+                developerModeEnabled: developerModeEnabled,
+                contentFingerprint: contentFingerprint,
+                onCopy: { copyToClipboard(message.content.extractThinkParts().body) },
+                onRegenerate: { onRegenerate(message) },
+                onReadAloud: {
+                    audioManager.startProcessing(text: message.content.extractThinkParts().body)
+                }
+            )
 
             HStack(alignment: .top) {
                 if message.isUser { Spacer(minLength: 40) } else { Spacer(minLength: 0) }
