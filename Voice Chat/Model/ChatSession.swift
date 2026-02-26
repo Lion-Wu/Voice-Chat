@@ -37,10 +37,10 @@ final class ChatSession {
 
 extension ChatSession {
     /// Conversation activity time used for list sorting/grouping.
-    /// Use the newer timestamp between message activity and metadata updates.
+    /// Sidebar ordering should track message activity only.
+    /// Metadata writes (e.g. branch selection/repair) must not reorder sessions.
     var lastActivityAt: Date {
-        guard let lastMessageAt else { return updatedAt }
-        return max(lastMessageAt, updatedAt)
+        lastMessageAt ?? createdAt
     }
 
     func registerMessageActivity(at date: Date) {
