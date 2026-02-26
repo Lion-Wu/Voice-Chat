@@ -213,6 +213,7 @@ final class SideMenuContainerViewController: UIViewController {
 
     func toggleMenu(open: Bool, animated: Bool) {
         let wasMenuOpen = isMenuOpen
+        let shouldTriggerHaptic = (wasMenuOpen != open)
         if open || wasMenuOpen {
             dismissKeyboardIfNeeded()
         }
@@ -230,6 +231,10 @@ final class SideMenuContainerViewController: UIViewController {
             sideMenuLeadingConstraint.constant = finalLeading
             updateMainDimming(forMenuLeading: finalLeading)
             view.layoutIfNeeded()
+        }
+
+        if shouldTriggerHaptic {
+            AppHaptics.trigger(.lightTap)
         }
     }
 

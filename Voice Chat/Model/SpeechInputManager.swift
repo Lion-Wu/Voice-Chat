@@ -401,10 +401,7 @@ actor SpeechRecognizerWorker {
         }
         recognizer = r
 
-        // 2) Build the request (using the default mode with system auto-punctuation).
-        try await makeNewRequestAndTap()
-
-        // 3) Configure the iOS audio session.
+        // 2) Configure the iOS audio session first so input hardware format is valid.
         #if os(iOS)
         try await MainActor.run {
             let session = AVAudioSession.sharedInstance()
@@ -417,6 +414,9 @@ actor SpeechRecognizerWorker {
             try session.setActive(true, options: [])
         }
         #endif
+
+        // 3) Build the request and tap after session activation.
+        try await makeNewRequestAndTap()
 
         // 4) Start the audio engine.
         audioEngine.prepare()
@@ -507,8 +507,13 @@ actor SpeechRecognizerWorker {
             guard let self else { return }
             Task { await self.handleAmplitude(level) }
         }
-        // Let the system pick a suitable audio format by passing nil.
-        inputNode.installTap(onBus: 0, bufferSize: 1024, format: nil) { [tap] buffer, _ in
+        let recordingFormat = inputNode.outputFormat(forBus: 0)
+        guard recordingFormat.sampleRate > 0, recordingFormat.channelCount > 0 else {
+            throw SpeechError.engineStartFailed("Microphone format is unavailable.")
+        }
+
+        // Use the input node's current output format to avoid channel/rate mismatches.
+        inputNode.installTap(onBus: 0, bufferSize: 1024, format: recordingFormat) { [tap] buffer, _ in
             tap.handle(buffer: buffer)
         }
         audioTap = tap

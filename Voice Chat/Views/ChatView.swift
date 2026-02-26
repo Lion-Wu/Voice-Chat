@@ -77,6 +77,8 @@ struct ChatView: View {
     @State private var pendingRefreshAfterHydration: Bool = false
     @State private var refreshGeneration = UUID()
     @State private var showStartVoiceModeInterruptAlert: Bool = false
+    @State private var expectAssistantResponseHaptics: Bool = false
+    @State private var didTriggerResponseStartHaptic: Bool = false
 
 #if os(macOS)
     @State private var returnKeyMonitor: Any?
@@ -471,6 +473,8 @@ struct ChatView: View {
             hydrationTask = nil
             isHydratingSession = false
             pendingRefreshAfterHydration = false
+            expectAssistantResponseHaptics = false
+            didTriggerResponseStartHaptic = false
         }
 
 #if os(iOS) || os(tvOS)
@@ -491,12 +495,53 @@ struct ChatView: View {
 #endif
         .onReceive(viewModel.messageContentDidChange) { update in
             applyContentFingerprintUpdate(update)
+            guard textHapticsEnabled else { return }
+            guard expectAssistantResponseHaptics, !didTriggerResponseStartHaptic else { return }
+            if let message = viewModel.chatSession.messages.first(where: { $0.id == update.messageID }),
+               !message.isUser {
+                didTriggerResponseStartHaptic = true
+                triggerTextHaptic(.selection)
+            }
         }
         .onReceive(viewModel.branchDidChange) {
             refreshVisibleMessages()
         }
+        .onChange(of: viewModel.isLoading) { oldValue, newValue in
+            guard oldValue, !newValue else { return }
+            guard expectAssistantResponseHaptics else { return }
+            guard textHapticsEnabled else {
+                expectAssistantResponseHaptics = false
+                didTriggerResponseStartHaptic = false
+                return
+            }
+
+            defer {
+                expectAssistantResponseHaptics = false
+                didTriggerResponseStartHaptic = false
+            }
+
+            let finishReason = viewModel
+                .orderedMessagesCached()
+                .last(where: { !$0.isUser })?
+                .finishReason
+
+            switch finishReason {
+            case "completed":
+                if didTriggerResponseStartHaptic {
+                    triggerTextHaptic(.successStrong)
+                } else {
+                    triggerTextHaptic(.success)
+                }
+            case "error":
+                triggerTextHaptic(.error)
+            default:
+                break
+            }
+        }
         .onChange(of: viewModel.chatSession.id) { _, _ in
             MessageRenderCache.shared.clear()
+            expectAssistantResponseHaptics = false
+            didTriggerResponseStartHaptic = false
             refreshVisibleMessages(hydrating: true)
         }
         .onChange(of: viewModel.chatSession.messages.count) { _, _ in
@@ -531,10 +576,24 @@ struct ChatView: View {
         return hasText || hasVoice
     }
 
-    private func sendIfPossible() {
+    private var textHapticsEnabled: Bool {
+        !voiceOverlayVM.isPresented
+    }
+
+    private func triggerTextHaptic(_ event: AppHapticEvent) {
+        guard textHapticsEnabled else { return }
+        AppHaptics.trigger(event)
+    }
+
+    @discardableResult
+    private func sendIfPossible() -> Bool {
         let trimmed = trimmedUserMessage
-        guard !trimmed.isEmpty, !viewModel.isLoading else { return }
+        guard !trimmed.isEmpty, !viewModel.isLoading else { return false }
+        expectAssistantResponseHaptics = true
+        didTriggerResponseStartHaptic = false
         viewModel.sendMessage()
+        triggerTextHaptic(.lightTap)
+        return true
     }
 
     private func interruptAllActivitiesForVoiceModeStart() {
@@ -744,7 +803,10 @@ struct ChatView: View {
         Group {
             if viewModel.isLoading {
                 Button {
+                    expectAssistantResponseHaptics = false
+                    didTriggerResponseStartHaptic = false
                     viewModel.cancelCurrentRequest()
+                    triggerTextHaptic(.warning)
                 } label: {
                     Image(systemName: "stop.circle.fill")
                         .font(.system(size: 28, weight: .semibold))
@@ -880,14 +942,24 @@ struct ChatView: View {
                         developerModeEnabled: developerModeEnabled,
                         contentFingerprint: fingerprint,
                         onSelectText: { showSelectTextSheet(with: $0) },
-                        onRegenerate: { viewModel.regenerateSystemMessage($0) },
+                        onRegenerate: {
+                            expectAssistantResponseHaptics = true
+                            didTriggerResponseStartHaptic = false
+                            viewModel.regenerateSystemMessage($0)
+                            triggerTextHaptic(.lightTap)
+                        },
                         onEditUserMessage: { msg in
                             viewModel.beginEditUserMessage(msg)
                             isInputFocused = true
                         },
-                        onSwitchVersion: { viewModel.switchToMessageVersion($0) },
+                        onSwitchVersion: {
+                            viewModel.switchToMessageVersion($0)
+                        },
                         onRetry: { errMsg in
+                            expectAssistantResponseHaptics = true
+                            didTriggerResponseStartHaptic = false
                             viewModel.retry(afterErrorMessage: errMsg)
+                            triggerTextHaptic(.lightTap)
                         }
                     )
                 }
@@ -970,9 +1042,14 @@ struct ChatView: View {
 
     private func startRealtimeVoiceOverlay() {
         guard !voiceOverlayVM.isPresented else { return }
+        AppHaptics.trigger(.selection)
+        expectAssistantResponseHaptics = false
+        didTriggerResponseStartHaptic = false
         voiceOverlayVM.presentSession(chatViewModel: viewModel) { text in
             viewModel.prepareRealtimeTTSForNextAssistant()
             viewModel.userMessage = text
+            expectAssistantResponseHaptics = false
+            didTriggerResponseStartHaptic = false
             viewModel.sendMessage()
         }
     }

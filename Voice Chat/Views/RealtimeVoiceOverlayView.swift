@@ -164,8 +164,8 @@ struct RealtimeVoiceOverlayView: View {
                 .zIndex(0)
             }
         }
-        .onChange(of: viewModel.state) { _, newState in
-            handleStateChange(newState)
+        .onChange(of: viewModel.state) { oldState, newState in
+            handleStateChange(from: oldState, to: newState)
         }
         .onReceive(viewModel.inputLevelPublisher) { newLevel in
             handleInputLevelChange(newLevel)
@@ -299,11 +299,21 @@ struct RealtimeVoiceOverlayView: View {
     }
 
     private func triggerTapAction() {
+        switch viewModel.state {
+        case .listening, .speaking:
+            AppHaptics.trigger(.lightTap)
+        case .error:
+            AppHaptics.trigger(.selection)
+        case .loading:
+            break
+        }
         animateInteractionPulse()
         viewModel.handleCircleTap()
     }
 
     private func triggerLongPressAction(viewModel: VoiceChatOverlayViewModel?) {
+        guard viewModel?.state == .listening else { return }
+        AppHaptics.trigger(.selection)
         viewModel?.handleCircleLongPressBegan()
     }
 
@@ -329,7 +339,27 @@ struct RealtimeVoiceOverlayView: View {
         }
     }
 
-    private func handleStateChange(_ newState: VoiceChatOverlayViewModel.OverlayState) {
+    private func handleStateChange(from oldState: VoiceChatOverlayViewModel.OverlayState, to newState: VoiceChatOverlayViewModel.OverlayState) {
+        let wasError: Bool = {
+            if case .error = oldState { return true }
+            return false
+        }()
+        let isError: Bool = {
+            if case .error = newState { return true }
+            return false
+        }()
+
+        if !wasError && isError {
+            AppHaptics.trigger(.error)
+        } else if wasError {
+            switch newState {
+            case .listening, .speaking:
+                AppHaptics.trigger(.success)
+            case .loading, .error:
+                break
+            }
+        }
+
         if newState == .loading {
             startLoadingBreathIfNeeded()
         } else {

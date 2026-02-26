@@ -174,7 +174,9 @@ struct SidebarView: View {
                 .textFieldStyle(RoundedBorderTextFieldStyle())
                 .padding()
             HStack {
-                Button("Cancel") { isRenaming = false }
+                Button("Cancel") {
+                    isRenaming = false
+                }
                 Spacer()
                 Button("Save") {
                     if let session = renamingSession {

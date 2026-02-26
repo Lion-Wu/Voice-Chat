@@ -34,14 +34,20 @@ struct MainContentView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
-                    Button(action: { onToggleSidebar() }) {
+                    Button(action: {
+                        onToggleSidebar()
+                    }) {
                         Image(systemName: "sidebar.left")
                     }
                     .accessibilityLabel(Text("Toggle chat list"))
                 }
 
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button(action: { chatSessionsViewModel.startNewSession() }) {
+                    Button(action: {
+                        guard chatSessionsViewModel.canStartNewSession else { return }
+                        chatSessionsViewModel.startNewSession()
+                        AppHaptics.trigger(.selection)
+                    }) {
                         Image(systemName: "plus")
                     }
                     .accessibilityLabel("New Chat")

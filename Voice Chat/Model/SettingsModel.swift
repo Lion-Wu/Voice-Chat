@@ -173,6 +173,7 @@ final class AppSettings {
 
     var enableStreaming: Bool
     var developerModeEnabled: Bool?
+    var hapticFeedbackEnabled: Bool?
 
     // Currently selected preset identifier (optional when nothing is selected).
     var selectedPresetID: UUID?
@@ -193,6 +194,7 @@ final class AppSettings {
         selectedVoiceServerPresetID: UUID? = nil,
         enableStreaming: Bool = true,
         developerModeEnabled: Bool = false,
+        hapticFeedbackEnabled: Bool? = true,
         selectedPresetID: UUID? = nil,
         selectedNormalSystemPromptPresetID: UUID? = nil,
         selectedVoiceSystemPromptPresetID: UUID? = nil
@@ -209,6 +211,7 @@ final class AppSettings {
         self.selectedVoiceServerPresetID = selectedVoiceServerPresetID
         self.enableStreaming = enableStreaming
         self.developerModeEnabled = developerModeEnabled
+        self.hapticFeedbackEnabled = hapticFeedbackEnabled
         self.selectedPresetID = selectedPresetID
         self.selectedNormalSystemPromptPresetID = selectedNormalSystemPromptPresetID
         self.selectedVoiceSystemPromptPresetID = selectedVoiceSystemPromptPresetID
@@ -232,6 +235,7 @@ final class SettingsManager: ObservableObject {
     @Published var chatSettings: ChatSettings
     @Published var voiceSettings: VoiceSettings
     @Published var developerModeEnabled: Bool
+    @Published var hapticFeedbackEnabled: Bool
 
     // Voice server preset list and selection state.
     @Published private(set) var voiceServerPresets: [VoiceServerPreset] = []
@@ -281,6 +285,7 @@ final class SettingsManager: ObservableObject {
     private var context: ModelContext?
     private var entity: AppSettings?
     private var pendingDeveloperModeEnabled: Bool?
+    private var pendingHapticFeedbackEnabled: Bool?
 
     // Used to gate one-time work performed at launch.
     private var didApplyOnLaunch = false
@@ -298,6 +303,7 @@ final class SettingsManager: ObservableObject {
         static let apiURL = "http://localhost:1234"
         static let enableStreaming = true
         static let developerModeEnabled = false
+        static let hapticFeedbackEnabled = true
     }
 
     private init() {
@@ -310,6 +316,7 @@ final class SettingsManager: ObservableObject {
         self.chatSettings = ChatSettings(apiURL: Defaults.apiURL, selectedModel: "", apiKey: "")
         self.voiceSettings = VoiceSettings(enableStreaming: Defaults.enableStreaming)
         self.developerModeEnabled = Defaults.developerModeEnabled
+        self.hapticFeedbackEnabled = Defaults.hapticFeedbackEnabled
     }
 
     // SwiftData context injected from the app or root view.
@@ -322,6 +329,12 @@ final class SettingsManager: ObservableObject {
             entity?.developerModeEnabled = pending
             saveContext(label: "apply pending developer mode")
             pendingDeveloperModeEnabled = nil
+        }
+        if let pending = pendingHapticFeedbackEnabled {
+            hapticFeedbackEnabled = pending
+            entity?.hapticFeedbackEnabled = pending
+            saveContext(label: "apply pending haptic feedback")
+            pendingHapticFeedbackEnabled = nil
         }
         loadVoiceServerPresetsFromStore()
         ensureDefaultVoiceServerPresetIfNeeded()
@@ -396,11 +409,19 @@ final class SettingsManager: ObservableObject {
         )
         self.voiceSettings = VoiceSettings(enableStreaming: e.enableStreaming)
         self.developerModeEnabled = e.developerModeEnabled ?? false
+        let resolvedHapticEnabled = e.hapticFeedbackEnabled ?? Defaults.hapticFeedbackEnabled
+        self.hapticFeedbackEnabled = resolvedHapticEnabled
         self.selectedVoiceServerPresetID = e.selectedVoiceServerPresetID
         self.selectedChatServerPresetID = e.selectedChatServerPresetID
         self.selectedPresetID = e.selectedPresetID
         self.selectedNormalSystemPromptPresetID = e.selectedNormalSystemPromptPresetID
         self.selectedVoiceSystemPromptPresetID = e.selectedVoiceSystemPromptPresetID
+
+        // Backfill older rows that predate this field so future loads are explicit.
+        if e.hapticFeedbackEnabled == nil {
+            e.hapticFeedbackEnabled = resolvedHapticEnabled
+            saveContext(label: "backfill haptic feedback setting")
+        }
     }
 
     private func saveContext(label: String) {
@@ -841,6 +862,15 @@ final class SettingsManager: ObservableObject {
         saveDeveloperModeEnabled()
     }
 
+    func updateHapticFeedbackEnabled(_ enabled: Bool) {
+        hapticFeedbackEnabled = enabled
+        guard entity != nil, context != nil else {
+            pendingHapticFeedbackEnabled = enabled
+            return
+        }
+        saveHapticFeedbackEnabled()
+    }
+
     // MARK: - Preset CRUD
 
     func createPreset(name: String = String(localized: "New Preset")) -> VoicePreset? {
@@ -1078,6 +1108,12 @@ final class SettingsManager: ObservableObject {
         guard let e = entity, context != nil else { return }
         e.developerModeEnabled = developerModeEnabled
         saveContext(label: "save developer mode")
+    }
+
+    func saveHapticFeedbackEnabled() {
+        guard let e = entity, context != nil else { return }
+        e.hapticFeedbackEnabled = hapticFeedbackEnabled
+        saveContext(label: "save haptic feedback")
     }
 
     // MARK: - Apply presets (invokes the weight APIs sequentially)
