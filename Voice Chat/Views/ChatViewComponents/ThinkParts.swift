@@ -15,28 +15,34 @@ struct ThinkParts {
 
 extension String {
     func extractThinkParts() -> ThinkParts {
-        guard self.contains("<think>") else {
+        let openMarker = "<think>"
+        let closeMarker = "</think>"
+
+        guard self.contains(openMarker) else {
             return ThinkParts(think: nil, isClosed: true, body: self)
         }
 
-        let lines = self.components(separatedBy: .newlines)
-        guard let startIdx = lines.firstIndex(where: { $0.trimmingCharacters(in: .whitespacesAndNewlines) == "<think>" }) else {
+        // Opening marker must be the first token in the content,
+        // but no longer needs to be on a standalone line.
+        guard self.hasPrefix(openMarker) else {
             return ThinkParts(think: nil, isClosed: true, body: self)
         }
 
-        let afterStart = lines.index(after: startIdx)
-        let endIdx = lines[afterStart...].firstIndex(where: { $0.trimmingCharacters(in: .whitespacesAndNewlines) == "</think>" })
+        let afterOpen = self.index(self.startIndex, offsetBy: openMarker.count)
+        let contentAfterOpen = String(self[afterOpen...])
+        let lines = contentAfterOpen.components(separatedBy: .newlines)
+        let endIdx = lines.firstIndex(where: { $0.trimmingCharacters(in: .whitespacesAndNewlines) == closeMarker })
 
         let thinkLines: ArraySlice<String>
         let bodyLines: ArraySlice<String>
         let isClosed: Bool
 
         if let endIdx {
-            thinkLines = lines[afterStart..<endIdx]
+            thinkLines = lines[..<endIdx]
             bodyLines = lines.suffix(from: lines.index(after: endIdx))
             isClosed = true
         } else {
-            thinkLines = lines[afterStart...]
+            thinkLines = lines[...]
             bodyLines = []
             isClosed = false
         }
