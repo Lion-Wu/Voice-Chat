@@ -340,14 +340,24 @@ struct RealtimeVoiceOverlayView: View {
     }
 
     private func handleStateChange(from oldState: VoiceChatOverlayViewModel.OverlayState, to newState: VoiceChatOverlayViewModel.OverlayState) {
-        if case .error = oldState {
-            if case .error = newState {
-                // no-op
-            } else {
-                AppHaptics.trigger(.success)
-            }
-        } else if case .error = newState {
+        let wasError: Bool = {
+            if case .error = oldState { return true }
+            return false
+        }()
+        let isError: Bool = {
+            if case .error = newState { return true }
+            return false
+        }()
+
+        if !wasError && isError {
             AppHaptics.trigger(.error)
+        } else if wasError {
+            switch newState {
+            case .listening, .speaking:
+                AppHaptics.trigger(.success)
+            case .loading, .error:
+                break
+            }
         }
 
         if newState == .loading {
