@@ -452,7 +452,7 @@ final class SettingsManager: ObservableObject {
             // Cohere
             "aya-vision", "command-a-vision",
             // Alibaba / Qwen
-            "qwen-vl", "qwen2-vl", "qwen2.5-vl", "qwen3-vl", "qvq", "qwen-omni", "qwen2.5-omni", "qwen3-omni",
+            "qwen-vl", "qwen2-vl", "qwen2.5-vl", "qwen3-vl", "qwen3.5", "qvq", "qwen-omni", "qwen2.5-omni", "qwen3-omni",
             // Meta / open-source VLM families
             "llama-3.2-vision", "llama-4-scout", "llama-4-maverick",
             "llava", "internvl", "minicpm-v", "paligemma", "idefics", "moondream",
