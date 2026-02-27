@@ -82,6 +82,7 @@ final class ChatViewModel: ObservableObject {
     private var pendingAssistantParentMessageID: UUID?
     private var pendingBranchRestore: PendingBranchRestore?
     private var autoRetryTask: Task<Void, Never>?
+    private var deferredChatConfiguration: ChatServiceConfiguration?
     private let streamRetryPolicy = NetworkRetryPolicy(
         maxAttempts: 2,
         baseDelay: 0.8,
@@ -335,6 +336,8 @@ final class ChatViewModel: ObservableObject {
             audioManager.finishRealtimeStream()
             realtimeTTSActive = false
         }
+
+        applyDeferredChatConfigurationIfNeeded()
     }
 
     private func handleChatStreamFinished() {
@@ -371,35 +374,29 @@ final class ChatViewModel: ObservableObject {
             audioManager.finishRealtimeStream()
             realtimeTTSActive = false
         }
+
+        applyDeferredChatConfigurationIfNeeded()
     }
 
     /// Rebuilds the chat streaming service when the API base URL or model changes.
     func updateChatConfiguration(_ configuration: ChatServiceConfiguration) {
-        guard configuration != chatConfiguration else { return }
-
-        cancelAutoRetryTask()
-        chatService.cancelStreaming()
-        finalizeActiveAssistantMessage(reason: "config-changed", finishedAt: Date())
-        currentAssistantMessageID = nil
-        resetRetryState()
-
-        if realtimeTTSActive {
-            audioManager.finishRealtimeStream()
-            realtimeTTSActive = false
+        guard configuration != chatConfiguration else {
+            // If hints reverted to the currently active service config, drop any stale deferred update.
+            deferredChatConfiguration = nil
+            return
+        }
+        if requiresHardChatServiceReset(from: chatConfiguration, to: configuration) {
+            applyChatConfiguration(configuration, interruptActiveRequest: true)
+            return
         }
 
-        if isPriming { isPriming = false }
-        if isLoading { isLoading = false }
-        if sending { sending = false }
-        interruptedAssistantMessageID = nil
-        incSegmenter.reset()
+        if sending || isLoading || isPriming {
+            // Provider/style hints can refresh asynchronously; avoid interrupting an active stream.
+            deferredChatConfiguration = configuration
+            return
+        }
 
-        chatConfiguration = configuration
-        let newService = chatServiceFactory(configuration)
-        bindChatService(newService)
-        pendingDeltaWriteBytes = 0
-        objectWillChange.send()
-        persistSession(reason: .immediate)
+        applyChatConfiguration(configuration, interruptActiveRequest: false)
     }
 
     private func syncChatConfigurationFromSettingsIfNeeded() {
@@ -412,6 +409,53 @@ final class ChatViewModel: ObservableObject {
             requestStyleHint: settingsManager.detectedChatRequestStyle(for: settings.apiURL)
         )
         updateChatConfiguration(latest)
+    }
+
+    private func requiresHardChatServiceReset(from current: ChatServiceConfiguration, to next: ChatServiceConfiguration) -> Bool {
+        current.apiBaseURL != next.apiBaseURL
+        || current.modelIdentifier != next.modelIdentifier
+        || current.apiKey != next.apiKey
+    }
+
+    private func applyChatConfiguration(_ configuration: ChatServiceConfiguration, interruptActiveRequest: Bool) {
+        if interruptActiveRequest {
+            cancelAutoRetryTask()
+            chatService.cancelStreaming()
+            finalizeActiveAssistantMessage(reason: "config-changed", finishedAt: Date())
+            currentAssistantMessageID = nil
+            resetRetryState()
+
+            if realtimeTTSActive {
+                audioManager.finishRealtimeStream()
+                realtimeTTSActive = false
+            }
+
+            if isPriming { isPriming = false }
+            if isLoading { isLoading = false }
+            if sending { sending = false }
+            interruptedAssistantMessageID = nil
+            pendingAssistantParentMessageID = nil
+            pendingBranchRestore = nil
+            incSegmenter.reset()
+        }
+
+        deferredChatConfiguration = nil
+        chatConfiguration = configuration
+        let newService = chatServiceFactory(configuration)
+        bindChatService(newService)
+        pendingDeltaWriteBytes = 0
+        objectWillChange.send()
+        persistSession(reason: .immediate)
+    }
+
+    private func applyDeferredChatConfigurationIfNeeded() {
+        guard !sending, !isLoading, !isPriming else { return }
+        guard let deferred = deferredChatConfiguration else { return }
+        guard deferred != chatConfiguration else {
+            deferredChatConfiguration = nil
+            return
+        }
+        applyChatConfiguration(deferred, interruptActiveRequest: false)
     }
 
     // MARK: - Helpers (stable ordering & safe trimming)
@@ -1064,6 +1108,8 @@ final class ChatViewModel: ObservableObject {
             audioManager.finishRealtimeStream()
             realtimeTTSActive = false
         }
+
+        applyDeferredChatConfigurationIfNeeded()
     }
 
     private func handleAssistantDelta(_ piece: String) {
