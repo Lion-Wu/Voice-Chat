@@ -29,8 +29,14 @@ final class ChatViewModel: ObservableObject {
         case message(parentID: UUID, previousChildID: UUID?)
     }
 
+    private enum MetricValueSource: String {
+        case local
+        case provider
+    }
+
     // MARK: - Published State
     @Published var userMessage: String = ""
+    @Published var pendingImageAttachments: [ChatImageAttachment] = []
     @Published var isLoading: Bool = false
     @Published var isPriming: Bool = false
     @Published private(set) var isRetrying: Bool = false
@@ -55,6 +61,7 @@ final class ChatViewModel: ObservableObject {
     private var currentAssistantMessageID: UUID?
     private var interruptedAssistantMessageID: UUID?
     private var activeStreamTelemetry: ActiveStreamTelemetry?
+    private var pendingServerMetadata: ChatResponseMetadata = .empty
     private var pendingDeltaWriteBytes: Int = 0
     private let deltaPersistThreshold: Int = 2048
 
@@ -76,7 +83,7 @@ final class ChatViewModel: ObservableObject {
     private var pendingBranchRestore: PendingBranchRestore?
     private var autoRetryTask: Task<Void, Never>?
     private let streamRetryPolicy = NetworkRetryPolicy(
-        maxAttempts: nil,
+        maxAttempts: 2,
         baseDelay: 0.8,
         maxDelay: 18.0,
         backoffFactor: 1.6,
@@ -105,7 +112,9 @@ final class ChatViewModel: ObservableObject {
         self.chatConfiguration = ChatServiceConfiguration(
             apiBaseURL: resolvedSettings.chatSettings.apiURL,
             modelIdentifier: resolvedSettings.chatSettings.selectedModel,
-            apiKey: resolvedSettings.chatSettings.apiKey
+            apiKey: resolvedSettings.chatSettings.apiKey,
+            providerHint: resolvedSettings.detectedChatProvider(for: resolvedSettings.chatSettings.apiURL),
+            requestStyleHint: resolvedSettings.detectedChatRequestStyle(for: resolvedSettings.chatSettings.apiURL)
         )
         self.chatServiceFactory = chatServiceFactory ?? { ChatService(configurationProvider: $0) }
         self.chatService = chatService ?? self.chatServiceFactory(self.chatConfiguration)
@@ -121,6 +130,38 @@ final class ChatViewModel: ObservableObject {
     // MARK: - Public API for the realtime overlay
     func prepareRealtimeTTSForNextAssistant() {
         enableRealtimeTTSNext = true
+    }
+
+    var hasPendingImageAttachments: Bool {
+        !pendingImageAttachments.isEmpty
+    }
+
+    func removePendingImageAttachment(id: UUID) {
+        pendingImageAttachments.removeAll { $0.id == id }
+    }
+
+    func clearPendingImageAttachments() {
+        pendingImageAttachments.removeAll()
+    }
+
+    func currentModelSupportsImageInput() -> Bool {
+        let selected = settingsManager.chatSettings.selectedModel.trimmingCharacters(in: .whitespacesAndNewlines)
+        let effectiveModel = selected.isEmpty ? chatConfiguration.modelIdentifier : selected
+        return settingsManager.supportsImageInput(for: effectiveModel)
+    }
+
+    func activeBranchContainsImageInputs(includePending: Bool = true) -> Bool {
+        if includePending && !pendingImageAttachments.isEmpty {
+            return true
+        }
+        return activeBranchMessages().contains(where: \.hasImageAttachments)
+    }
+
+    func shouldWarnAboutUnsupportedImageInputBeforeSending() -> Bool {
+        guard !currentModelSupportsImageInput() else { return false }
+        let hasDraft = !userMessage.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !pendingImageAttachments.isEmpty
+        guard hasDraft else { return false }
+        return activeBranchContainsImageInputs(includePending: true)
     }
 
     // MARK: - Developer prompt
@@ -150,6 +191,11 @@ final class ChatViewModel: ObservableObject {
         service.onError = { [weak self] error in
             guard let self = self else { return }
             self.handleChatServiceError(error)
+        }
+
+        service.onResponseMetadata = { [weak self] metadata in
+            guard let self = self else { return }
+            self.pendingServerMetadata.merge(metadata)
         }
 
         service.onStreamFinished = { [weak self] in
@@ -195,6 +241,18 @@ final class ChatViewModel: ObservableObject {
         } else {
             firstTokenLatency = nil
         }
+        let resolvedTimeToFirstToken: TimeInterval? = {
+            if let apiTTF = pendingServerMetadata.timeToFirstTokenSeconds,
+               apiTTF.isFinite,
+               apiTTF >= 0 {
+                return apiTTF
+            }
+            return firstTokenLatency
+        }()
+        let resolvedTimeToFirstTokenSource: String? =
+            pendingServerMetadata.timeToFirstTokenSeconds != nil
+            ? MetricValueSource.provider.rawValue
+            : (resolvedTimeToFirstToken != nil ? MetricValueSource.local.rawValue : nil)
 
         let streamDuration: TimeInterval?
         if let start = telemetry?.startedAt {
@@ -210,6 +268,12 @@ final class ChatViewModel: ObservableObject {
             generationDuration = nil
         }
 
+        let resolvedTokenCount: Int = max(0, pendingServerMetadata.outputTokenCount ?? 0)
+        let resolvedTokenCountSource: String? =
+            pendingServerMetadata.outputTokenCount != nil
+            ? MetricValueSource.provider.rawValue
+            : (resolvedTokenCount > 0 ? MetricValueSource.local.rawValue : nil)
+
         let errContent = "!error:\(errorText.isEmpty ? error.localizedDescription : errorText)"
         let err = ChatMessage(
             content: errContent,
@@ -219,20 +283,37 @@ final class ChatViewModel: ObservableObject {
             modelIdentifier: telemetry?.modelIdentifier ?? chatConfiguration.modelIdentifier,
             apiBaseURL: telemetry?.apiBaseURL ?? chatConfiguration.apiBaseURL,
             requestID: telemetry?.streamID,
+            providerResponseID: pendingServerMetadata.providerResponseID,
             streamStartedAt: telemetry?.startedAt,
             streamFirstTokenAt: telemetry?.firstTokenAt,
             streamCompletedAt: now,
-            timeToFirstToken: firstTokenLatency,
+            timeToFirstToken: resolvedTimeToFirstToken,
             streamDuration: streamDuration,
             generationDuration: generationDuration,
-            deltaCount: 1,
+            reasoningOutputTokenCount: pendingServerMetadata.reasoningOutputTokenCount,
+            tokensPerSecond: pendingServerMetadata.tokensPerSecond,
+            deltaCount: resolvedTokenCount,
+            tokenCountSource: resolvedTokenCountSource,
+            timeToFirstTokenSource: resolvedTimeToFirstTokenSource,
+            tokensPerSecondSource: pendingServerMetadata.tokensPerSecond != nil ? MetricValueSource.provider.rawValue : nil,
+            finishReasonSource: pendingServerMetadata.finishReason != nil ? MetricValueSource.provider.rawValue : MetricValueSource.local.rawValue,
             characterCount: errContent.count,
             promptMessageCount: telemetry?.promptMessageCount,
             promptCharacterCount: telemetry?.promptCharacterCount,
-            finishReason: "error",
+            finishReason: pendingServerMetadata.finishReason ?? "error",
             errorDescription: errorText.isEmpty ? error.localizedDescription : errorText,
             session: chatSession
         )
+        if err.tokensPerSecond == nil,
+           err.tokensPerSecondSource != MetricValueSource.provider.rawValue,
+           err.tokenCount > 0,
+           let generationDuration = err.generationDuration,
+           generationDuration > 0 {
+            err.tokensPerSecond = Double(err.tokenCount) / generationDuration
+            err.tokensPerSecondSource = MetricValueSource.local.rawValue
+        } else if err.tokensPerSecond != nil && err.tokensPerSecondSource == nil {
+            err.tokensPerSecondSource = MetricValueSource.provider.rawValue
+        }
         if let interrupted {
             err.parentMessage = interrupted
             interrupted.activeChildMessageID = err.id
@@ -248,6 +329,7 @@ final class ChatViewModel: ObservableObject {
         pendingBranchRestore = nil
         branchDidChange.send(())
         persistSession(reason: .immediate)
+        pendingServerMetadata = .empty
 
         if realtimeTTSActive {
             audioManager.finishRealtimeStream()
@@ -316,7 +398,20 @@ final class ChatViewModel: ObservableObject {
         let newService = chatServiceFactory(configuration)
         bindChatService(newService)
         pendingDeltaWriteBytes = 0
+        objectWillChange.send()
         persistSession(reason: .immediate)
+    }
+
+    private func syncChatConfigurationFromSettingsIfNeeded() {
+        let settings = settingsManager.chatSettings
+        let latest = ChatServiceConfiguration(
+            apiBaseURL: settings.apiURL,
+            modelIdentifier: settings.selectedModel,
+            apiKey: settings.apiKey,
+            providerHint: settingsManager.detectedChatProvider(for: settings.apiURL),
+            requestStyleHint: settingsManager.detectedChatRequestStyle(for: settings.apiURL)
+        )
+        updateChatConfiguration(latest)
     }
 
     // MARK: - Helpers (stable ordering & safe trimming)
@@ -353,6 +448,7 @@ final class ChatViewModel: ObservableObject {
             partial += msg.content.count
         }
         pendingDeltaWriteBytes = 0
+        pendingServerMetadata = .empty
 
         activeStreamTelemetry = ActiveStreamTelemetry(
             streamID: UUID(),
@@ -408,12 +504,25 @@ final class ChatViewModel: ObservableObject {
            let first = message.streamFirstTokenAt,
            message.timeToFirstToken == nil {
             message.timeToFirstToken = first.timeIntervalSince(start)
+            if message.timeToFirstTokenSource == nil {
+                message.timeToFirstTokenSource = MetricValueSource.local.rawValue
+            }
         }
     }
 
+    private func estimatedTokenCountFromCharacters(_ characterCount: Int) -> Int {
+        guard characterCount > 0 else { return 0 }
+        return Int((Double(characterCount) / 4.0).rounded(.up))
+    }
+
     private func bumpStreamCounters(for message: ChatMessage, delta: String) {
-        message.deltaCount += 1
         message.characterCount += delta.count
+        if message.tokenCountSource != MetricValueSource.provider.rawValue {
+            message.tokenCount = estimatedTokenCountFromCharacters(message.characterCount)
+            if message.tokenCount > 0 {
+                message.tokenCountSource = MetricValueSource.local.rawValue
+            }
+        }
         maybePersistStreamDelta(delta.count)
     }
 
@@ -424,17 +533,71 @@ final class ChatViewModel: ObservableObject {
         persistSession(reason: .immediate)
     }
 
+    private func applyServerMetadata(to message: ChatMessage) {
+        let metadata = pendingServerMetadata
+        if let responseID = metadata.providerResponseID,
+           !responseID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            message.providerResponseID = responseID
+        }
+        if let outputTokenCount = metadata.outputTokenCount {
+            message.tokenCount = max(0, outputTokenCount)
+            message.tokenCountSource = MetricValueSource.provider.rawValue
+        }
+        if let reasoningOutputTokenCount = metadata.reasoningOutputTokenCount {
+            message.reasoningOutputTokenCount = reasoningOutputTokenCount
+        }
+        if let finishReason = metadata.finishReason,
+           !finishReason.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            message.finishReason = finishReason
+            message.finishReasonSource = MetricValueSource.provider.rawValue
+        } else if message.finishReason != nil, message.finishReasonSource == nil {
+            message.finishReasonSource = MetricValueSource.local.rawValue
+        }
+
+        if let apiTTF = metadata.timeToFirstTokenSeconds,
+           apiTTF.isFinite,
+           apiTTF >= 0 {
+            message.timeToFirstToken = apiTTF
+            message.timeToFirstTokenSource = MetricValueSource.provider.rawValue
+            if let start = message.streamStartedAt {
+                message.streamFirstTokenAt = start.addingTimeInterval(apiTTF)
+            }
+        } else if message.timeToFirstToken != nil, message.timeToFirstTokenSource == nil {
+            message.timeToFirstTokenSource = MetricValueSource.local.rawValue
+        }
+
+        if let apiTPS = metadata.tokensPerSecond,
+           apiTPS.isFinite,
+           apiTPS >= 0 {
+            message.tokensPerSecond = apiTPS
+            message.tokensPerSecondSource = MetricValueSource.provider.rawValue
+        } else if let outputTokens = (message.tokenCount > 0 ? message.tokenCount : nil),
+                  let generationDuration = message.generationDuration,
+                  generationDuration > 0 {
+            message.tokensPerSecond = Double(outputTokens) / generationDuration
+            message.tokensPerSecondSource = MetricValueSource.local.rawValue
+        }
+
+        if message.tokenCountSource == nil, message.tokenCount > 0 {
+            message.tokenCountSource = MetricValueSource.local.rawValue
+        }
+    }
+
     @discardableResult
     private func finalizeActiveAssistantMessage(reason: String, finishedAt: Date = Date(), errorDescription: String? = nil) -> ChatMessage? {
         guard let id = currentAssistantMessageID ?? interruptedAssistantMessageID,
               let message = chatSession.messages.first(where: { $0.id == id }) else {
             activeStreamTelemetry = nil
+            pendingServerMetadata = .empty
             return nil
         }
 
         message.isActive = false
         if message.finishReason == nil {
             message.finishReason = reason
+            if message.finishReasonSource == nil {
+                message.finishReasonSource = MetricValueSource.local.rawValue
+            }
         }
         if message.errorDescription == nil {
             message.errorDescription = errorDescription
@@ -475,14 +638,21 @@ final class ChatViewModel: ObservableObject {
         if let first = message.streamFirstTokenAt {
             message.generationDuration = message.generationDuration ?? finishedAt.timeIntervalSince(first)
         }
-        if message.deltaCount == 0 {
-            message.deltaCount = 1
-        }
         if message.characterCount == 0 {
             message.characterCount = message.content.count
         }
+        if message.tokenCountSource != MetricValueSource.provider.rawValue,
+           message.tokenCount == 0,
+           message.characterCount > 0 {
+            message.tokenCount = estimatedTokenCountFromCharacters(message.characterCount)
+            if message.tokenCount > 0 {
+                message.tokenCountSource = MetricValueSource.local.rawValue
+            }
+        }
+        applyServerMetadata(to: message)
 
         activeStreamTelemetry = nil
+        pendingServerMetadata = .empty
         if streamingAssistantMessageID == message.id {
             streamingAssistantMessageID = nil
             streamingAssistantFingerprint = nil
@@ -722,6 +892,9 @@ final class ChatViewModel: ObservableObject {
             message.isActive = false
             if message.finishReason == nil {
                 message.finishReason = "interrupted"
+                if message.finishReasonSource == nil {
+                    message.finishReasonSource = MetricValueSource.local.rawValue
+                }
             }
             if message.streamStartedAt == nil {
                 message.streamStartedAt = message.createdAt
@@ -735,11 +908,26 @@ final class ChatViewModel: ObservableObject {
             if let first = message.streamFirstTokenAt, message.generationDuration == nil {
                 message.generationDuration = now.timeIntervalSince(first)
             }
-            if message.deltaCount == 0 {
-                message.deltaCount = 1
-            }
             if message.characterCount == 0 {
                 message.characterCount = message.content.count
+            }
+            if message.tokenCountSource != MetricValueSource.provider.rawValue,
+               message.tokenCount == 0,
+               message.characterCount > 0 {
+                message.tokenCount = estimatedTokenCountFromCharacters(message.characterCount)
+                if message.tokenCount > 0 {
+                    message.tokenCountSource = MetricValueSource.local.rawValue
+                }
+            }
+            if message.timeToFirstToken != nil && message.timeToFirstTokenSource == nil {
+                message.timeToFirstTokenSource = MetricValueSource.local.rawValue
+            }
+            if message.tokensPerSecond == nil,
+               message.tokenCount > 0,
+               let generationDuration = message.generationDuration,
+               generationDuration > 0 {
+                message.tokensPerSecond = Double(message.tokenCount) / generationDuration
+                message.tokensPerSecondSource = MetricValueSource.local.rawValue
             }
             didChange = true
         }
@@ -754,10 +942,24 @@ final class ChatViewModel: ObservableObject {
 
     // MARK: - Intent
 
-    func sendMessage() {
+    @discardableResult
+    func sendMessage(ignoringUnsupportedImageInputs: Bool = false) -> Bool {
+        syncChatConfigurationFromSettingsIfNeeded()
         let trimmedMessage = userMessage.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedMessage.isEmpty else { return }
-        guard !sending else { return }
+        let draftAttachments = pendingImageAttachments
+        guard !trimmedMessage.isEmpty || !draftAttachments.isEmpty else { return false }
+        guard !sending else { return false }
+
+        let supportsImageInputs = currentModelSupportsImageInput()
+        let hasImageContext = activeBranchContainsImageInputs(includePending: true)
+        if hasImageContext && !supportsImageInputs && !ignoringUnsupportedImageInputs {
+            return false
+        }
+
+        let attachmentsForMessage = supportsImageInputs ? draftAttachments : []
+        guard !trimmedMessage.isEmpty || !attachmentsForMessage.isEmpty else {
+            return false
+        }
 
         resetRetryState()
         ensureMessageTreeInitializedIfNeeded()
@@ -774,10 +976,12 @@ final class ChatViewModel: ObservableObject {
         let now = Date()
         let userMsg = ChatMessage(
             content: trimmedMessage,
+            imageAttachments: attachmentsForMessage,
             isUser: true,
             isActive: true,
             createdAt: now,
-            deltaCount: 1,
+            deltaCount: estimatedTokenCountFromCharacters(trimmedMessage.count),
+            tokenCountSource: MetricValueSource.local.rawValue,
             characterCount: trimmedMessage.count,
             session: chatSession
         )
@@ -792,7 +996,7 @@ final class ChatViewModel: ObservableObject {
         invalidateCachesAfterMessageMutation()
         branchDidChange.send(())
         pendingBranchRestore = nil
-        if isPlaceholderTitle(chatSession.title) {
+        if isPlaceholderTitle(chatSession.title), !trimmedMessage.isEmpty {
             chatSession.title = trimmedMessage
         }
         persistSession(reason: .immediate)
@@ -806,6 +1010,7 @@ final class ChatViewModel: ObservableObject {
         pendingAssistantParentMessageID = userMsg.id
         pendingDeltaWriteBytes = 0
         userMessage = ""
+        pendingImageAttachments.removeAll()
         persistSession(reason: .immediate)
 
         // Determine whether this response should use realtime narration.
@@ -819,7 +1024,12 @@ final class ChatViewModel: ObservableObject {
         let currentMessages = activeBranchMessages()
         recordStreamStart(using: currentMessages)
         let developerPrompt = resolvedDeveloperPrompt(isVoiceMode: realtimeTTSActive || audioManager.isRealtimeMode)
-        chatService.fetchStreamedData(messages: currentMessages, developerPrompt: developerPrompt)
+        chatService.fetchStreamedData(
+            messages: currentMessages,
+            developerPrompt: developerPrompt,
+            includeImagesInUserContent: supportsImageInputs
+        )
+        return true
     }
 
     func cancelCurrentRequest() {
@@ -914,6 +1124,7 @@ final class ChatViewModel: ObservableObject {
 
     func regenerateSystemMessage(_ message: ChatMessage) {
         guard !sending else { return }
+        syncChatConfigurationFromSettingsIfNeeded()
         ensureMessageTreeInitializedIfNeeded()
         resetRetryState()
         chatService.cancelStreaming()
@@ -940,11 +1151,16 @@ final class ChatViewModel: ObservableObject {
         sending = true
         recordStreamStart(using: currentMessages)
         let developerPrompt = resolvedDeveloperPrompt(isVoiceMode: audioManager.isRealtimeMode)
-        chatService.fetchStreamedData(messages: currentMessages, developerPrompt: developerPrompt)
+        chatService.fetchStreamedData(
+            messages: currentMessages,
+            developerPrompt: developerPrompt,
+            includeImagesInUserContent: currentModelSupportsImageInput()
+        )
     }
 
     func retry(afterErrorMessage errorMessage: ChatMessage) {
         guard !sending else { return }
+        syncChatConfigurationFromSettingsIfNeeded()
         ensureMessageTreeInitializedIfNeeded()
         resetRetryState()
         chatService.cancelStreaming()
@@ -974,7 +1190,11 @@ final class ChatViewModel: ObservableObject {
 
         recordStreamStart(using: currentMessages)
         let developerPrompt = resolvedDeveloperPrompt(isVoiceMode: audioManager.isRealtimeMode)
-        chatService.fetchStreamedData(messages: currentMessages, developerPrompt: developerPrompt)
+        chatService.fetchStreamedData(
+            messages: currentMessages,
+            developerPrompt: developerPrompt,
+            includeImagesInUserContent: currentModelSupportsImageInput()
+        )
     }
 
     func switchToMessageVersion(_ message: ChatMessage) {
@@ -996,16 +1216,20 @@ final class ChatViewModel: ObservableObject {
         guard message.isUser else { return }
         editingBaseMessageID = message.id
         userMessage = message.content
+        pendingImageAttachments = message.imageAttachments
     }
 
     func cancelEditing() {
         editingBaseMessageID = nil
         userMessage = ""
+        pendingImageAttachments = []
     }
 
     // MARK: - Auto Retry (Text Streaming)
 
     private func shouldAutoRetryAfterError(_ error: Error) -> Bool {
+        // Cap retry rounds for a single request episode.
+        guard streamRetryPolicy.shouldContinue(afterAttempt: retryAttempt + 1) else { return false }
         if NetworkRetryability.isCancellation(error) { return false }
         if let err = error as? ChatNetworkError {
             switch err {
@@ -1013,6 +1237,9 @@ final class ChatViewModel: ObservableObject {
                 return false
             case .timeout:
                 return true
+            case .emptyResponse:
+                // Empty payloads are usually protocol/format mismatches, not transient network failures.
+                return false
             case .serverError(let statusCode, _):
                 if let statusCode {
                     return NetworkRetryability.shouldRetry(HTTPStatusError(statusCode: statusCode, bodyPreview: nil))
@@ -1063,7 +1290,11 @@ final class ChatViewModel: ObservableObject {
 
                 let currentMessages = self.activeBranchMessages()
                 let developerPrompt = self.resolvedDeveloperPrompt(isVoiceMode: shouldUseVoicePrompt)
-                self.chatService.fetchStreamedData(messages: currentMessages, developerPrompt: developerPrompt)
+                self.chatService.fetchStreamedData(
+                    messages: currentMessages,
+                    developerPrompt: developerPrompt,
+                    includeImagesInUserContent: self.currentModelSupportsImageInput()
+                )
             }
         }
     }

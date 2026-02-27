@@ -57,7 +57,9 @@ final class ChatSessionsViewModel: ObservableObject {
         self.cachedChatConfiguration = ChatServiceConfiguration(
             apiBaseURL: self.settingsManager.chatSettings.apiURL,
             modelIdentifier: self.settingsManager.chatSettings.selectedModel,
-            apiKey: self.settingsManager.chatSettings.apiKey
+            apiKey: self.settingsManager.chatSettings.apiKey,
+            providerHint: self.settingsManager.detectedChatProvider(for: self.settingsManager.chatSettings.apiURL),
+            requestStyleHint: self.settingsManager.detectedChatRequestStyle(for: self.settingsManager.chatSettings.apiURL)
         )
         self.selectedSessionID = draftSession.id
     }
@@ -66,7 +68,9 @@ final class ChatSessionsViewModel: ObservableObject {
         ChatServiceConfiguration(
             apiBaseURL: settingsManager.chatSettings.apiURL,
             modelIdentifier: settingsManager.chatSettings.selectedModel,
-            apiKey: settingsManager.chatSettings.apiKey
+            apiKey: settingsManager.chatSettings.apiKey,
+            providerHint: settingsManager.detectedChatProvider(for: settingsManager.chatSettings.apiURL),
+            requestStyleHint: settingsManager.detectedChatRequestStyle(for: settingsManager.chatSettings.apiURL)
         )
     }
 

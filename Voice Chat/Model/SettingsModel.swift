@@ -181,9 +181,10 @@ final class AppSettings {
     // Separate selections for normal/voice chat modes.
     var selectedNormalSystemPromptPresetID: UUID?
     var selectedVoiceSystemPromptPresetID: UUID?
+    var modelImageInputOverrideJSON: String?
 
     init(
-        serverAddress: String = "http://127.0.0.1:9880",
+        serverAddress: String = "http://localhost:9880",
         textLang: String = "auto",
         modelId: String = "",
         language: String = "auto",
@@ -197,7 +198,8 @@ final class AppSettings {
         hapticFeedbackEnabled: Bool? = true,
         selectedPresetID: UUID? = nil,
         selectedNormalSystemPromptPresetID: UUID? = nil,
-        selectedVoiceSystemPromptPresetID: UUID? = nil
+        selectedVoiceSystemPromptPresetID: UUID? = nil,
+        modelImageInputOverrideJSON: String? = nil
     ) {
         self.id = UUID()
         self.serverAddress = serverAddress
@@ -215,6 +217,7 @@ final class AppSettings {
         self.selectedPresetID = selectedPresetID
         self.selectedNormalSystemPromptPresetID = selectedNormalSystemPromptPresetID
         self.selectedVoiceSystemPromptPresetID = selectedVoiceSystemPromptPresetID
+        self.modelImageInputOverrideJSON = modelImageInputOverrideJSON
     }
 }
 
@@ -233,6 +236,10 @@ final class SettingsManager: ObservableObject {
     @Published var serverSettings: ServerSettings
     @Published var modelSettings: ModelSettings
     @Published var chatSettings: ChatSettings
+    @Published private(set) var chatModelImageInputSupport: [String: Bool] = [:]
+    @Published private(set) var chatModelImageInputOverrides: [String: Bool] = [:]
+    @Published private(set) var detectedChatProviderHints: [String: ChatProvider] = [:]
+    @Published private(set) var detectedChatRequestStyleHints: [String: ChatRequestStyle] = [:]
     @Published var voiceSettings: VoiceSettings
     @Published var developerModeEnabled: Bool
     @Published var hapticFeedbackEnabled: Bool
@@ -289,13 +296,15 @@ final class SettingsManager: ObservableObject {
 
     // Used to gate one-time work performed at launch.
     private var didApplyOnLaunch = false
+    private var didPrefetchChatModelsOnLaunch = false
+    private var providerDetectionRequestID = UUID()
 
     private enum KeychainKeys {
         static let chatServerPresetAPIKeyPrefix = "chat_server_preset_api_key."
     }
 
     private enum Defaults {
-        static let serverAddress = "http://127.0.0.1:9880"
+        static let serverAddress = "http://localhost:9880"
         static let textLang = "auto"
         static let promptLang = "auto"
         static let modelLanguage = "auto"
@@ -317,6 +326,107 @@ final class SettingsManager: ObservableObject {
         self.voiceSettings = VoiceSettings(enableStreaming: Defaults.enableStreaming)
         self.developerModeEnabled = Defaults.developerModeEnabled
         self.hapticFeedbackEnabled = Defaults.hapticFeedbackEnabled
+    }
+
+    func updateChatModelImageInputSupport(_ supportByModel: [String: Bool]) {
+        chatModelImageInputSupport = supportByModel
+    }
+
+    func noteDetectedChatProvider(_ provider: ChatProvider, for apiBaseURL: String) {
+        guard provider != .unknown else { return }
+        guard let key = ChatAPIEndpointResolver.normalizedAPIBaseKey(apiBaseURL) else { return }
+        if detectedChatProviderHints[key] == provider { return }
+        detectedChatProviderHints[key] = provider
+    }
+
+    func noteDetectedChatRequestStyle(_ style: ChatRequestStyle, for apiBaseURL: String) {
+        guard let key = ChatAPIEndpointResolver.normalizedAPIBaseKey(apiBaseURL) else { return }
+        if detectedChatRequestStyleHints[key] == style { return }
+        detectedChatRequestStyleHints[key] = style
+    }
+
+    func noteDetectedChatEndpoint(_ endpoint: ChatAPIEndpointCandidate, for apiBaseURL: String) {
+        noteDetectedChatProvider(endpoint.provider, for: apiBaseURL)
+        noteDetectedChatRequestStyle(endpoint.style, for: apiBaseURL)
+    }
+
+    func detectedChatProvider(for apiBaseURL: String) -> ChatProvider? {
+        guard let key = ChatAPIEndpointResolver.normalizedAPIBaseKey(apiBaseURL) else { return nil }
+        return detectedChatProviderHints[key]
+    }
+
+    func detectedChatRequestStyle(for apiBaseURL: String) -> ChatRequestStyle? {
+        guard let key = ChatAPIEndpointResolver.normalizedAPIBaseKey(apiBaseURL) else { return nil }
+        return detectedChatRequestStyleHints[key]
+    }
+
+    func imageInputManualOverride(for modelIdentifier: String) -> Bool? {
+        let trimmed = modelIdentifier.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        return chatModelImageInputOverrides[trimmed]
+    }
+
+    func setImageInputManualOverride(_ enabled: Bool?, for modelIdentifier: String) {
+        let trimmed = modelIdentifier.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+
+        if let enabled {
+            chatModelImageInputOverrides[trimmed] = enabled
+        } else {
+            chatModelImageInputOverrides.removeValue(forKey: trimmed)
+        }
+        saveChatModelImageInputOverrides()
+    }
+
+    func isImageInputSupportUnknown(for modelIdentifier: String) -> Bool {
+        let trimmed = modelIdentifier.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return false }
+        if chatModelImageInputSupport[trimmed] != nil {
+            return false
+        }
+        return Self.inferImageInputSupportFromModelIdentifier(trimmed) == nil
+    }
+
+    func supportsImageInput(for modelIdentifier: String) -> Bool {
+        let trimmed = modelIdentifier.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return false }
+
+        if let manualOverride = chatModelImageInputOverrides[trimmed] {
+            return manualOverride
+        }
+        if let explicit = chatModelImageInputSupport[trimmed] {
+            return explicit
+        }
+        if let inferred = Self.inferImageInputSupportFromModelIdentifier(trimmed) {
+            return inferred
+        }
+        return false
+    }
+
+    func selectedModelSupportsImageInput() -> Bool {
+        supportsImageInput(for: chatSettings.selectedModel)
+    }
+
+    private static func inferImageInputSupportFromModelIdentifier(_ identifier: String) -> Bool? {
+        let normalized = identifier.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !normalized.isEmpty else { return nil }
+
+        let knownVisionHints = [
+            "gpt-4o", "gpt-4.1", "gpt-4.5", "o4", "o3",
+            "claude-3", "claude-4",
+            "gemini", "pixtral", "llava", "qwen-vl", "qwen2-vl", "internvl",
+            "vision", "multimodal", "vlm"
+        ]
+
+        if knownVisionHints.contains(where: { normalized.contains($0) }) {
+            return true
+        }
+
+        if normalized.contains("deepseek-vl") || normalized.contains("glm-4v") {
+            return true
+        }
+
+        return nil
     }
 
     // SwiftData context injected from the app or root view.
@@ -411,6 +521,7 @@ final class SettingsManager: ObservableObject {
         self.developerModeEnabled = e.developerModeEnabled ?? false
         let resolvedHapticEnabled = e.hapticFeedbackEnabled ?? Defaults.hapticFeedbackEnabled
         self.hapticFeedbackEnabled = resolvedHapticEnabled
+        self.chatModelImageInputOverrides = decodeChatModelImageInputOverrides(from: e.modelImageInputOverrideJSON)
         self.selectedVoiceServerPresetID = e.selectedVoiceServerPresetID
         self.selectedChatServerPresetID = e.selectedChatServerPresetID
         self.selectedPresetID = e.selectedPresetID
@@ -431,6 +542,26 @@ final class SettingsManager: ObservableObject {
         } catch {
             print("SwiftData save failed (\(label)): \(error)")
         }
+    }
+
+    private func decodeChatModelImageInputOverrides(from json: String?) -> [String: Bool] {
+        guard let json, !json.isEmpty, let data = json.data(using: .utf8) else { return [:] }
+        guard let decoded = try? JSONDecoder().decode([String: Bool].self, from: data) else {
+            return [:]
+        }
+        return decoded
+    }
+
+    private func encodeChatModelImageInputOverrides(_ overrides: [String: Bool]) -> String? {
+        guard !overrides.isEmpty else { return nil }
+        guard let data = try? JSONEncoder().encode(overrides) else { return nil }
+        return String(data: data, encoding: .utf8)
+    }
+
+    private func saveChatModelImageInputOverrides() {
+        guard let e = entity, context != nil else { return }
+        e.modelImageInputOverrideJSON = encodeChatModelImageInputOverrides(chatModelImageInputOverrides)
+        saveContext(label: "save chat model image input overrides")
     }
 
     private func loadChatServerPresetsFromStore() {
@@ -1116,12 +1247,240 @@ final class SettingsManager: ObservableObject {
         saveContext(label: "save haptic feedback")
     }
 
+    private struct ProviderModelFetchPayload {
+        let models: [ModelInfo]
+        let rawData: Data
+    }
+
+    private func requestModelsForProviderDetection(
+        from candidate: ChatAPIEndpointCandidate
+    ) async throws -> ProviderModelFetchPayload {
+        var request = URLRequest(url: candidate.modelsURL, timeoutInterval: 30)
+        request.httpMethod = "GET"
+        applyModelRequestHeaders(to: &request, candidate: candidate, rawAPIKey: chatSettings.apiKey)
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        if let http = response as? HTTPURLResponse,
+           !(200...299).contains(http.statusCode) {
+            throw HTTPStatusError(statusCode: http.statusCode, bodyPreview: nil)
+        }
+
+        let modelList = try await Task.detached(priority: .utility) { @Sendable in
+            try JSONDecoder().decode(ModelListResponse.self, from: data)
+        }.value
+
+        return ProviderModelFetchPayload(models: modelList.data, rawData: data)
+    }
+
+    private func normalizedAPIKeyForXAPIKeyHeader(_ raw: String) -> String {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return "" }
+        if trimmed.lowercased().hasPrefix("bearer ") {
+            return String(trimmed.dropFirst("bearer ".count)).trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        return trimmed
+    }
+
+    private func applyModelRequestHeaders(
+        to request: inout URLRequest,
+        candidate: ChatAPIEndpointCandidate,
+        rawAPIKey: String
+    ) {
+        switch candidate.style {
+        case .anthropicMessages:
+            let xAPIKey = normalizedAPIKeyForXAPIKeyHeader(rawAPIKey)
+            if !xAPIKey.isEmpty {
+                request.setValue(xAPIKey, forHTTPHeaderField: "x-api-key")
+            }
+            request.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
+
+        case .openAIChatCompletions, .lmStudioRESTV1, .lmStudioRESTV1LegacyMessage:
+            let trimmed = rawAPIKey.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmed.isEmpty {
+                let headerValue = trimmed.lowercased().hasPrefix("bearer ") ? trimmed : "Bearer \(trimmed)"
+                request.setValue(headerValue, forHTTPHeaderField: "Authorization")
+            }
+        }
+    }
+
+    private func scoreModelsPayload(
+        candidate: ChatAPIEndpointCandidate,
+        models: [ModelInfo],
+        rawData: Data
+    ) -> Int {
+        guard !models.isEmpty else { return .min / 4 }
+
+        var score = 1000 + min(models.count, 200)
+
+        var explicitImageMetadataCount = 0
+        var richMetadataCount = 0
+        for model in models {
+            let hasExplicitImageMetadata =
+                model.supports_image_input != nil ||
+                model.supports_vision != nil ||
+                model.vision != nil ||
+                model.multimodal != nil
+            if hasExplicitImageMetadata {
+                explicitImageMetadataCount += 1
+            }
+
+            let hasRichMetadata =
+                model.capabilities != nil ||
+                model.details != nil ||
+                model.model_info != nil ||
+                model.type != nil ||
+                model.arch != nil ||
+                (model.input_modalities?.isEmpty == false) ||
+                (model.modalities?.isEmpty == false)
+            if hasRichMetadata {
+                richMetadataCount += 1
+            }
+        }
+        score += explicitImageMetadataCount * 50
+        score += richMetadataCount * 16
+
+        let topLevelKeys = topLevelJSONKeys(from: rawData)
+        if topLevelKeys.contains("models") {
+            score += 320
+        }
+        if topLevelKeys.contains("data") {
+            score += 160
+        }
+        if topLevelKeys.contains("object") {
+            score += 20
+        }
+
+        switch candidate.style {
+        case .lmStudioRESTV1:
+            score += 420
+            if !topLevelKeys.contains("models") {
+                score -= 80
+            }
+        case .lmStudioRESTV1LegacyMessage:
+            score += 360
+            if !topLevelKeys.contains("models") {
+                score -= 80
+            }
+        case .anthropicMessages:
+            score += 200
+        case .openAIChatCompletions:
+            score += 140
+        }
+
+        switch candidate.provider {
+        case .lmStudio:
+            score += 180
+        case .anthropic:
+            score += 120
+        case .openAI:
+            score += 100
+        case .llamaCpp:
+            score += 80
+        case .openAICompatible:
+            score += 60
+        case .unknown:
+            break
+        }
+
+        return score
+    }
+
+    private func topLevelJSONKeys(from data: Data) -> Set<String> {
+        guard let object = try? JSONSerialization.jsonObject(with: data, options: []),
+              let dictionary = object as? [String: Any] else {
+            return []
+        }
+        return Set(dictionary.keys.map { $0.lowercased() })
+    }
+
     // MARK: - Apply presets (invokes the weight APIs sequentially)
 
     func applyPresetOnLaunchIfNeeded() async {
         guard !didApplyOnLaunch else { return }
         didApplyOnLaunch = true
         await applySelectedPreset()
+    }
+
+    func prefetchChatModelsOnLaunchIfNeeded() async {
+        guard !didPrefetchChatModelsOnLaunch else { return }
+        didPrefetchChatModelsOnLaunch = true
+        await refreshChatProviderHintsAndModels()
+    }
+
+    func refreshChatProviderHintsAndModels() async {
+        let rawBase = chatSettings.apiURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !rawBase.isEmpty else { return }
+        let requestID = UUID()
+        providerDetectionRequestID = requestID
+
+        var endpointCandidates = ChatAPIEndpointResolver.endpointCandidates(
+            for: rawBase,
+            preferredProvider: detectedChatProvider(for: rawBase)
+        )
+        endpointCandidates = prioritizeEndpointCandidates(
+            endpointCandidates,
+            preferredStyle: detectedChatRequestStyle(for: rawBase)
+        )
+        guard !endpointCandidates.isEmpty else { return }
+
+        var bestCandidate: ChatAPIEndpointCandidate?
+        var bestModels: [ModelInfo] = []
+        var bestScore = Int.min
+
+        for candidate in endpointCandidates {
+            guard providerDetectionRequestID == requestID else { return }
+            do {
+                let payload = try await requestModelsForProviderDetection(from: candidate)
+                let score = scoreModelsPayload(candidate: candidate, models: payload.models, rawData: payload.rawData)
+                if score > bestScore {
+                    bestScore = score
+                    bestCandidate = candidate
+                    bestModels = payload.models
+                }
+            } catch {
+                continue
+            }
+        }
+
+        guard providerDetectionRequestID == requestID else { return }
+        let currentRawBase = chatSettings.apiURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard ChatAPIEndpointResolver.normalizedAPIBaseKey(currentRawBase) == ChatAPIEndpointResolver.normalizedAPIBaseKey(rawBase) else {
+            return
+        }
+
+        guard let bestCandidate, !bestModels.isEmpty else { return }
+        noteDetectedChatEndpoint(bestCandidate, for: rawBase)
+
+        var supportMap: [String: Bool] = [:]
+        supportMap.reserveCapacity(bestModels.count)
+        for model in bestModels {
+            if let support = model.supportsImageInputHint {
+                supportMap[model.id] = support
+            }
+        }
+        updateChatModelImageInputSupport(supportMap)
+
+        let selected = chatSettings.selectedModel.trimmingCharacters(in: .whitespacesAndNewlines)
+        let availableModelIDs = Set(bestModels.map(\.id))
+        if (selected.isEmpty || !availableModelIDs.contains(selected)),
+           let firstModel = bestModels.first?.id {
+            updateChatSettings(apiURL: chatSettings.apiURL, selectedModel: firstModel)
+        }
+    }
+
+    private func prioritizeEndpointCandidates(
+        _ candidates: [ChatAPIEndpointCandidate],
+        preferredStyle: ChatRequestStyle?
+    ) -> [ChatAPIEndpointCandidate] {
+        guard let preferredStyle else { return candidates }
+        return candidates.enumerated().sorted { lhs, rhs in
+            let lhsPreferred = lhs.element.style == preferredStyle
+            let rhsPreferred = rhs.element.style == preferredStyle
+            if lhsPreferred != rhsPreferred {
+                return lhsPreferred && !rhsPreferred
+            }
+            return lhs.offset < rhs.offset
+        }.map(\.element)
     }
 
     func applySelectedPreset() async {

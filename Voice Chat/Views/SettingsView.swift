@@ -250,7 +250,7 @@ struct SettingsView: View {
 
             LabeledTextField(
                 label: "Server URL",
-                placeholder: "http://127.0.0.1:9880",
+                placeholder: "http://localhost:9880",
                 text: $viewModel.serverAddress
             )
         } header: {
@@ -710,6 +710,21 @@ struct SettingsView: View {
                 .disabled(viewModel.isLoadingModels)
             }
             .padding(.top, 6)
+
+            if viewModel.shouldShowUnknownModelImageInputToggle {
+                Toggle(
+                    "Enable image input for this model",
+                    isOn: Binding(
+                        get: { viewModel.isSelectedUnknownModelImageInputEnabled },
+                        set: { viewModel.setSelectedUnknownModelImageInputEnabled($0) }
+                    )
+                )
+
+                Text("This model's metadata does not clearly report image-input capability. Turn this on only if you are sure the backend can accept image content for this model.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         } header: {
             if hideHeader {
                 EmptyView()

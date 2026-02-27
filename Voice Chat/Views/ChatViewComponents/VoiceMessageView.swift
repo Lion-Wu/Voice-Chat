@@ -6,10 +6,16 @@
 //
 
 import SwiftUI
+#if os(iOS) || os(tvOS) || os(watchOS)
+import UIKit
+#elseif os(macOS)
+import AppKit
+#endif
 
 struct VoiceMessageView: View {
     @Bindable var message: ChatMessage
     @EnvironmentObject var audioManager: GlobalAudioManager
+    @State private var messagePreviewAttachment: ChatImageAttachment?
 
     let showActionButtons: Bool
     let branchControlsEnabled: Bool
@@ -42,6 +48,7 @@ struct VoiceMessageView: View {
             .padding(.vertical, 4)
             .padding(.horizontal, 8)
         } else {
+            let userAttachments = message.imageAttachments
             let systemTextBubble = SystemTextBubble(
                 message: message,
                 thinkPreviewLines: thinkPreviewLines,
@@ -62,7 +69,13 @@ struct VoiceMessageView: View {
 
                 if message.isUser {
                     VStack(alignment: .trailing, spacing: 4) {
-                        UserTextBubble(text: message.content)
+                        UserTextBubble(
+                            text: message.content,
+                            attachments: userAttachments,
+                            onPreviewImage: { attachment in
+                                messagePreviewAttachment = attachment
+                            }
+                        )
                         .transition(.opacity.combined(with: .scale(scale: 0.98)))
                         userBranchControls
                     }
@@ -84,6 +97,15 @@ struct VoiceMessageView: View {
                 onEditUserMessage: onEditUserMessage,
                 copyToClipboard: copyToClipboard
             ))
+#if os(iOS)
+            .fullScreenCover(item: $messagePreviewAttachment) { attachment in
+                ChatImagePreviewSheet(attachment: attachment)
+            }
+#else
+            .sheet(item: $messagePreviewAttachment) { attachment in
+                ChatImagePreviewSheet(attachment: attachment)
+            }
+#endif
         }
     }
 
@@ -483,6 +505,8 @@ struct SystemTextBubble: View {
 
 struct UserTextBubble: View {
     let text: String
+    let attachments: [ChatImageAttachment]
+    let onPreviewImage: (ChatImageAttachment) -> Void
     @State private var expanded = false
     private let maxCharacters = 1000
 
@@ -490,11 +514,25 @@ struct UserTextBubble: View {
         let display = (expanded || text.count <= maxCharacters) ? text : (String(text.prefix(maxCharacters)) + "...")
 
         VStack(alignment: .trailing, spacing: 6) {
-            Text(display)
-                .foregroundColor(.white)
-                .fixedSize(horizontal: false, vertical: true)
-                .bubbleStyle(isUser: true)
+            if !attachments.isEmpty {
+                ChatImageAttachmentStrip(
+                    attachments: attachments,
+                    removable: false,
+                    maxItemSize: 160,
+                    onPreview: onPreviewImage,
+                    onRemove: nil,
+                    horizontalAlignment: .trailing
+                )
                 .frame(maxWidth: contentMaxWidthForUser(), alignment: .trailing)
+            }
+
+            if !display.isEmpty {
+                Text(display)
+                    .foregroundColor(.white)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .bubbleStyle(isUser: true)
+                    .frame(maxWidth: contentMaxWidthForUser(), alignment: .trailing)
+            }
 
             if text.count > maxCharacters {
                 Button(expanded ? "Collapse" : "Show Full Message") {
@@ -508,4 +546,146 @@ struct UserTextBubble: View {
         }
         .frame(maxWidth: .infinity, alignment: .trailing)
     }
+}
+
+struct ChatImageAttachmentStrip: View {
+    let attachments: [ChatImageAttachment]
+    let removable: Bool
+    let maxItemSize: CGFloat
+    let onPreview: (ChatImageAttachment) -> Void
+    let onRemove: ((ChatImageAttachment) -> Void)?
+    let horizontalAlignment: HorizontalAlignment
+
+    init(
+        attachments: [ChatImageAttachment],
+        removable: Bool,
+        maxItemSize: CGFloat,
+        onPreview: @escaping (ChatImageAttachment) -> Void,
+        onRemove: ((ChatImageAttachment) -> Void)?,
+        horizontalAlignment: HorizontalAlignment = .leading
+    ) {
+        self.attachments = attachments
+        self.removable = removable
+        self.maxItemSize = maxItemSize
+        self.onPreview = onPreview
+        self.onRemove = onRemove
+        self.horizontalAlignment = horizontalAlignment
+    }
+
+    private var stripAlignment: Alignment {
+        horizontalAlignment == .trailing ? .trailing : .leading
+    }
+
+    var body: some View {
+        GeometryReader { proxy in
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    ForEach(attachments) { attachment in
+                        ChatImageAttachmentItem(
+                            attachment: attachment,
+                            removable: removable,
+                            maxItemSize: maxItemSize,
+                            onPreview: onPreview,
+                            onRemove: onRemove
+                        )
+                    }
+                }
+                .frame(minWidth: proxy.size.width, alignment: stripAlignment)
+                .padding(.vertical, 2)
+            }
+        }
+        .frame(height: maxItemSize + 4)
+    }
+}
+
+private struct ChatImageAttachmentItem: View {
+    let attachment: ChatImageAttachment
+    let removable: Bool
+    let maxItemSize: CGFloat
+    let onPreview: (ChatImageAttachment) -> Void
+    let onRemove: ((ChatImageAttachment) -> Void)?
+
+    var body: some View {
+        ZStack(alignment: .topTrailing) {
+            Button {
+                onPreview(attachment)
+            } label: {
+                Group {
+                    if let image = chatSwiftUIImage(from: attachment.data) {
+                        image
+                            .resizable()
+                            .scaledToFill()
+                    } else {
+                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                            .fill(Color.secondary.opacity(0.15))
+                            .overlay(
+                                Image(systemName: "photo")
+                                    .foregroundStyle(.secondary)
+                            )
+                    }
+                }
+                .frame(width: maxItemSize, height: maxItemSize)
+                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .stroke(Color.white.opacity(0.25), lineWidth: 0.8)
+                )
+            }
+            .buttonStyle(.plain)
+
+            if removable, let onRemove {
+                Button {
+                    onRemove(attachment)
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 18, weight: .semibold))
+                        .symbolRenderingMode(.palette)
+                        .foregroundStyle(.white, .black.opacity(0.65))
+                        .padding(4)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(Text("Remove image"))
+            }
+        }
+    }
+}
+
+struct ChatImagePreviewSheet: View {
+    let attachment: ChatImageAttachment
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            ZStack {
+                Color.black.ignoresSafeArea()
+
+                if let image = chatSwiftUIImage(from: attachment.data) {
+                    image
+                        .resizable()
+                        .scaledToFit()
+                        .padding(18)
+                } else {
+                    ContentUnavailableView("Image unavailable", systemImage: "photo.badge.exclamationmark")
+                        .foregroundStyle(.white.opacity(0.85))
+                }
+            }
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") { dismiss() }
+                }
+            }
+        }
+    }
+}
+
+private func chatSwiftUIImage(from data: Data) -> Image? {
+#if os(iOS) || os(tvOS) || os(watchOS)
+    guard let image = UIImage(data: data) else { return nil }
+    return Image(uiImage: image)
+#elseif os(macOS)
+    guard let image = NSImage(data: data) else { return nil }
+    return Image(nsImage: image)
+#else
+    return nil
+#endif
 }

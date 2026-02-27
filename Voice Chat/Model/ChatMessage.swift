@@ -18,6 +18,7 @@ final class ChatMessage {
 
     // MARK: - Content
     var content: String
+    var imageAttachmentsData: Data?
     var isUser: Bool
     var isActive: Bool
     var createdAt: Date
@@ -26,13 +27,22 @@ final class ChatMessage {
     var modelIdentifier: String?
     var apiBaseURL: String?
     var requestID: UUID?
+    var providerResponseID: String?
     var streamStartedAt: Date?
     var streamFirstTokenAt: Date?
     var streamCompletedAt: Date?
     var timeToFirstToken: TimeInterval?
     var streamDuration: TimeInterval?
     var generationDuration: TimeInterval?
+    var inputTokenCount: Int?
+    var outputTokenCount: Int?
+    var reasoningOutputTokenCount: Int?
+    var tokensPerSecond: Double?
     var deltaCount: Int = 0
+    var tokenCountSource: String?
+    var timeToFirstTokenSource: String?
+    var tokensPerSecondSource: String?
+    var finishReasonSource: String?
     var characterCount: Int = 0
     var promptMessageCount: Int?
     var promptCharacterCount: Int?
@@ -47,6 +57,7 @@ final class ChatMessage {
     // MARK: - Init
     init(
         content: String,
+        imageAttachments: [ChatImageAttachment] = [],
         isUser: Bool,
         isActive: Bool = true,
         createdAt: Date = Date(),
@@ -54,13 +65,22 @@ final class ChatMessage {
         modelIdentifier: String? = nil,
         apiBaseURL: String? = nil,
         requestID: UUID? = nil,
+        providerResponseID: String? = nil,
         streamStartedAt: Date? = nil,
         streamFirstTokenAt: Date? = nil,
         streamCompletedAt: Date? = nil,
         timeToFirstToken: TimeInterval? = nil,
         streamDuration: TimeInterval? = nil,
         generationDuration: TimeInterval? = nil,
+        inputTokenCount: Int? = nil,
+        outputTokenCount: Int? = nil,
+        reasoningOutputTokenCount: Int? = nil,
+        tokensPerSecond: Double? = nil,
         deltaCount: Int = 0,
+        tokenCountSource: String? = nil,
+        timeToFirstTokenSource: String? = nil,
+        tokensPerSecondSource: String? = nil,
+        finishReasonSource: String? = nil,
         characterCount: Int = 0,
         promptMessageCount: Int? = nil,
         promptCharacterCount: Int? = nil,
@@ -73,19 +93,29 @@ final class ChatMessage {
         self.id = UUID()
         self.activeChildMessageID = activeChildMessageID
         self.content = content
+        self.imageAttachmentsData = ChatImageAttachment.encodeList(imageAttachments)
         self.isUser = isUser
         self.isActive = isActive
         self.createdAt = createdAt
         self.modelIdentifier = modelIdentifier
         self.apiBaseURL = apiBaseURL
         self.requestID = requestID
+        self.providerResponseID = providerResponseID
         self.streamStartedAt = streamStartedAt
         self.streamFirstTokenAt = streamFirstTokenAt
         self.streamCompletedAt = streamCompletedAt
         self.timeToFirstToken = timeToFirstToken
         self.streamDuration = streamDuration
         self.generationDuration = generationDuration
+        self.inputTokenCount = inputTokenCount
+        self.outputTokenCount = outputTokenCount
+        self.reasoningOutputTokenCount = reasoningOutputTokenCount
+        self.tokensPerSecond = tokensPerSecond
         self.deltaCount = deltaCount
+        self.tokenCountSource = tokenCountSource
+        self.timeToFirstTokenSource = timeToFirstTokenSource
+        self.tokensPerSecondSource = tokensPerSecondSource
+        self.finishReasonSource = finishReasonSource
         self.characterCount = characterCount
         self.promptMessageCount = promptMessageCount
         self.promptCharacterCount = promptCharacterCount
@@ -94,5 +124,26 @@ final class ChatMessage {
         self.session = session
         self.parentMessage = parentMessage
         self.childMessages = childMessages
+    }
+}
+
+extension ChatMessage {
+    // Stored as `deltaCount` for backward store compatibility; semantically this is token count.
+    var tokenCount: Int {
+        get { deltaCount }
+        set { deltaCount = newValue }
+    }
+
+    var imageAttachments: [ChatImageAttachment] {
+        get { ChatImageAttachment.decodeList(from: imageAttachmentsData) }
+        set { imageAttachmentsData = ChatImageAttachment.encodeList(newValue) }
+    }
+
+    var hasImageAttachments: Bool {
+        !(imageAttachmentsData?.isEmpty ?? true) && !imageAttachments.isEmpty
+    }
+
+    var imageAttachmentsFingerprint: Int {
+        imageAttachmentsData?.hashValue ?? 0
     }
 }

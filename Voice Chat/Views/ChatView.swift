@@ -9,6 +9,10 @@ import SwiftUI
 import Foundation
 import SwiftData
 import Combine
+#if os(iOS) || os(macOS)
+import PhotosUI
+import UniformTypeIdentifiers
+#endif
 
 #if os(macOS)
 import AppKit
@@ -33,6 +37,7 @@ private struct VoiceMessageEqKey: Equatable, Sendable {
     let id: UUID
     let isUser: Bool
     let isActive: Bool
+    let imageAttachmentsFP: Int
     let showActionButtons: Bool
     let branchControlsEnabled: Bool
     let contentFP: ContentFingerprint
@@ -77,8 +82,15 @@ struct ChatView: View {
     @State private var pendingRefreshAfterHydration: Bool = false
     @State private var refreshGeneration = UUID()
     @State private var showStartVoiceModeInterruptAlert: Bool = false
+    @State private var showUnsupportedImageSendAlert: Bool = false
     @State private var expectAssistantResponseHaptics: Bool = false
     @State private var didTriggerResponseStartHaptic: Bool = false
+#if os(iOS) || os(macOS)
+    @State private var showPhotoPicker: Bool = false
+    @State private var pickedPhotoItems: [PhotosPickerItem] = []
+    @State private var pendingPreviewAttachment: ChatImageAttachment?
+    @State private var photoImportTask: Task<Void, Never>?
+#endif
 
 #if os(macOS)
     @State private var returnKeyMonitor: Any?
@@ -116,8 +128,13 @@ struct ChatView: View {
         textFieldHeight + InputMetrics.outerV * 2
     }
 
+    private var pendingAttachmentStripHeight: CGFloat {
+        guard !viewModel.pendingImageAttachments.isEmpty else { return 0 }
+        return 88
+    }
+
     private var floatingInputPanelHeight: CGFloat {
-        floatingInputButtonHeight + composerOuterVerticalPadding * 2
+        floatingInputButtonHeight + composerOuterVerticalPadding * 2 + pendingAttachmentStripHeight
     }
 
     private var composerBottomPadding: CGFloat {
@@ -168,6 +185,14 @@ struct ChatView: View {
 
     private var trimmedUserMessage: String {
         viewModel.userMessage.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var canSendDraft: Bool {
+        !trimmedUserMessage.isEmpty || viewModel.hasPendingImageAttachments
+    }
+
+    private var currentModelSupportsImageInput: Bool {
+        viewModel.currentModelSupportsImageInput()
     }
 
     private func refreshVisibleMessages(hydrating: Bool = false) {
@@ -475,6 +500,10 @@ struct ChatView: View {
             pendingRefreshAfterHydration = false
             expectAssistantResponseHaptics = false
             didTriggerResponseStartHaptic = false
+#if os(iOS) || os(macOS)
+            photoImportTask?.cancel()
+            photoImportTask = nil
+#endif
         }
 
 #if os(iOS) || os(tvOS)
@@ -492,6 +521,26 @@ struct ChatView: View {
         .sheet(item: $textSelectionSheetItem) { item in
             TextSelectionSheet(text: item.text)
         }
+#endif
+#if os(iOS) || os(macOS)
+        .photosPicker(
+            isPresented: $showPhotoPicker,
+            selection: $pickedPhotoItems,
+            maxSelectionCount: 8,
+            matching: .images
+        )
+        .onChange(of: pickedPhotoItems) { _, newItems in
+            importPickedPhotoItems(newItems)
+        }
+#if os(iOS)
+        .fullScreenCover(item: $pendingPreviewAttachment) { attachment in
+            ChatImagePreviewSheet(attachment: attachment)
+        }
+#else
+        .sheet(item: $pendingPreviewAttachment) { attachment in
+            ChatImagePreviewSheet(attachment: attachment)
+        }
+#endif
 #endif
         .onReceive(viewModel.messageContentDidChange) { update in
             applyContentFingerprintUpdate(update)
@@ -565,6 +614,21 @@ struct ChatView: View {
         } message: {
             Text("There are other tasks still running. Continuing will interrupt them and start voice mode.")
         }
+        .alert("Current model does not support image input",
+               isPresented: $showUnsupportedImageSendAlert) {
+            Button("Cancel", role: .cancel) { }
+            Button("Continue", role: .destructive) {
+                if !performSend(ignoringUnsupportedImageInputs: true) {
+                    errorCenter.publish(
+                        title: NSLocalizedString("Nothing to send", comment: "Shown when sending is skipped because no text remains after removing unsupported image inputs"),
+                        message: NSLocalizedString("All selected images were ignored because this model only accepts text input.", comment: "Shown when selected images are dropped for a text-only model"),
+                        category: .textModel
+                    )
+                }
+            }
+        } message: {
+            Text("This conversation contains images, but the selected model only accepts text. Continue to ignore all images in this request and send text only.")
+        }
     }
 
     private var hasOtherActivityForVoiceModeStart: Bool {
@@ -587,11 +651,23 @@ struct ChatView: View {
 
     @discardableResult
     private func sendIfPossible() -> Bool {
-        let trimmed = trimmedUserMessage
-        guard !trimmed.isEmpty, !viewModel.isLoading else { return false }
+        guard canSendDraft, !viewModel.isLoading else { return false }
+        if viewModel.shouldWarnAboutUnsupportedImageInputBeforeSending() {
+            showUnsupportedImageSendAlert = true
+            return false
+        }
+        return performSend(ignoringUnsupportedImageInputs: false)
+    }
+
+    @discardableResult
+    private func performSend(ignoringUnsupportedImageInputs: Bool) -> Bool {
         expectAssistantResponseHaptics = true
         didTriggerResponseStartHaptic = false
-        viewModel.sendMessage()
+        guard viewModel.sendMessage(ignoringUnsupportedImageInputs: ignoringUnsupportedImageInputs) else {
+            expectAssistantResponseHaptics = false
+            didTriggerResponseStartHaptic = false
+            return false
+        }
         triggerTextHaptic(.lightTap)
         return true
     }
@@ -653,6 +729,13 @@ struct ChatView: View {
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             }
 
+            if !viewModel.pendingImageAttachments.isEmpty {
+                pendingAttachmentStrip
+                    .padding(.top, 8)
+                    .padding(.horizontal, 10)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+
             composerInputRow
                 .padding(.vertical, composerOuterVerticalPadding)
                 .padding(.leading, 10)
@@ -709,6 +792,8 @@ struct ChatView: View {
 
     private var composerInputRow: some View {
         HStack(alignment: .center, spacing: 10) {
+            composerAttachmentButton
+
             ZStack(alignment: .topLeading) {
                 if viewModel.userMessage.isEmpty {
                     Text("Type your message...")
@@ -751,6 +836,46 @@ struct ChatView: View {
 
             floatingTrailingButton
         }
+    }
+
+    @ViewBuilder
+    private var composerAttachmentButton: some View {
+#if os(iOS) || os(macOS)
+        if currentModelSupportsImageInput {
+            Menu {
+                Button {
+                    showPhotoPicker = true
+                } label: {
+                    Label("Choose Photos", systemImage: "photo.on.rectangle.angled")
+                }
+            } label: {
+                Image(systemName: "plus.circle.fill")
+                    .font(.system(size: 26, weight: .semibold))
+                    .symbolRenderingMode(.hierarchical)
+                    .foregroundStyle(ChatTheme.accent)
+                    .frame(width: 30, height: 30)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(Text("Add image"))
+        }
+#endif
+    }
+
+    private var pendingAttachmentStrip: some View {
+        ChatImageAttachmentStrip(
+            attachments: viewModel.pendingImageAttachments,
+            removable: true,
+            maxItemSize: 72,
+            onPreview: { attachment in
+#if os(iOS) || os(macOS)
+                pendingPreviewAttachment = attachment
+#endif
+            },
+            onRemove: { attachment in
+                viewModel.removePendingImageAttachment(id: attachment.id)
+            }
+        )
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private var editingAccessory: some View {
@@ -815,18 +940,7 @@ struct ChatView: View {
                         .accessibilityLabel("Stop Generation")
                 }
                 .buttonStyle(.plain)
-            } else if trimmedUserMessage.isEmpty {
-                Button {
-                    openRealtimeVoiceOverlay()
-                } label: {
-                    Image(systemName: "waveform.circle.fill")
-                        .font(.system(size: 28, weight: .semibold))
-                        .symbolRenderingMode(.hierarchical)
-                        .foregroundStyle(ChatTheme.accent)
-                        .accessibilityLabel("Start Realtime Voice Conversation")
-                }
-                .buttonStyle(.plain)
-            } else {
+            } else if canSendDraft {
                 Button {
                     sendIfPossible()
                 } label: {
@@ -835,6 +949,17 @@ struct ChatView: View {
                         .symbolRenderingMode(.hierarchical)
                         .foregroundStyle(ChatTheme.accent)
                         .accessibilityLabel("Send Message")
+                }
+                .buttonStyle(.plain)
+            } else {
+                Button {
+                    openRealtimeVoiceOverlay()
+                } label: {
+                    Image(systemName: "waveform.circle.fill")
+                        .font(.system(size: 28, weight: .semibold))
+                        .symbolRenderingMode(.hierarchical)
+                        .foregroundStyle(ChatTheme.accent)
+                        .accessibilityLabel("Start Realtime Voice Conversation")
                 }
                 .buttonStyle(.plain)
             }
@@ -928,6 +1053,7 @@ struct ChatView: View {
                     id: message.id,
                     isUser: message.isUser,
                     isActive: message.isActive,
+                    imageAttachmentsFP: message.imageAttachmentsFingerprint,
                     showActionButtons: showButtons,
                     branchControlsEnabled: branchControlsEnabled,
                     contentFP: fingerprint,
@@ -1030,6 +1156,60 @@ struct ChatView: View {
             textSelectionSheetItem = TextSelectionSheetItem(text: selectionText)
         }
     }
+
+#if os(iOS) || os(macOS)
+    private func importPickedPhotoItems(_ items: [PhotosPickerItem]) {
+        guard !items.isEmpty else { return }
+        photoImportTask?.cancel()
+        let snapshot = items
+        photoImportTask = Task {
+            var imported: [ChatImageAttachment] = []
+            imported.reserveCapacity(snapshot.count)
+
+            for item in snapshot {
+                guard !Task.isCancelled else { return }
+                guard let data = try? await item.loadTransferable(type: Data.self), !data.isEmpty else { continue }
+
+                let mimeType = preferredImageMIMEType(for: item, data: data)
+                imported.append(ChatImageAttachment(mimeType: mimeType, data: data))
+            }
+
+            await MainActor.run {
+                guard !Task.isCancelled else { return }
+                if !imported.isEmpty {
+                    viewModel.pendingImageAttachments.append(contentsOf: imported)
+                }
+                pickedPhotoItems.removeAll()
+            }
+        }
+    }
+
+    private func preferredImageMIMEType(for item: PhotosPickerItem, data: Data) -> String {
+        if let type = item.supportedContentTypes.first(where: { $0.conforms(to: .image) }),
+           let mime = type.preferredMIMEType {
+            return mime
+        }
+        return inferredMIMEType(from: data)
+    }
+
+    private func inferredMIMEType(from data: Data) -> String {
+        if data.starts(with: [0xFF, 0xD8, 0xFF]) { return "image/jpeg" }
+        if data.starts(with: [0x89, 0x50, 0x4E, 0x47]) { return "image/png" }
+        if data.starts(with: [0x47, 0x49, 0x46, 0x38]) { return "image/gif" }
+
+        if data.count >= 12 {
+            let marker = String(decoding: data[4..<12], as: UTF8.self).lowercased()
+            if marker.contains("heic") || marker.contains("heif") {
+                return "image/heic"
+            }
+            if marker.contains("webp") {
+                return "image/webp"
+            }
+        }
+
+        return "image/jpeg"
+    }
+#endif
 
     private func openRealtimeVoiceOverlay() {
         guard !voiceOverlayVM.isPresented else { return }
