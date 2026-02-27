@@ -190,7 +190,6 @@
 "Finish Reason" = "終了理由";
 "Error Description" = "エラー内容";
 "Token Count" = "トークン数";
-"Input Tokens" = "入力トークン数";
 "Output Tokens" = "出力トークン数";
 "Reasoning Output Tokens" = "推論出力トークン数";
 "Tokens Per Second" = "1秒あたりトークン数";

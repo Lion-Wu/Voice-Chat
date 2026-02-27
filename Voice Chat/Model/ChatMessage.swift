@@ -34,7 +34,6 @@ final class ChatMessage {
     var timeToFirstToken: TimeInterval?
     var streamDuration: TimeInterval?
     var generationDuration: TimeInterval?
-    var inputTokenCount: Int?
     var outputTokenCount: Int?
     var reasoningOutputTokenCount: Int?
     var tokensPerSecond: Double?
@@ -72,7 +71,6 @@ final class ChatMessage {
         timeToFirstToken: TimeInterval? = nil,
         streamDuration: TimeInterval? = nil,
         generationDuration: TimeInterval? = nil,
-        inputTokenCount: Int? = nil,
         outputTokenCount: Int? = nil,
         reasoningOutputTokenCount: Int? = nil,
         tokensPerSecond: Double? = nil,
@@ -107,7 +105,6 @@ final class ChatMessage {
         self.timeToFirstToken = timeToFirstToken
         self.streamDuration = streamDuration
         self.generationDuration = generationDuration
-        self.inputTokenCount = inputTokenCount
         self.outputTokenCount = outputTokenCount
         self.reasoningOutputTokenCount = reasoningOutputTokenCount
         self.tokensPerSecond = tokensPerSecond

@@ -186,7 +186,6 @@
 "Finish Reason" = "Finish Reason";
 "Error Description" = "Error Description";
 "Token Count" = "Token Count";
-"Input Tokens" = "Input Tokens";
 "Output Tokens" = "Output Tokens";
 "Reasoning Output Tokens" = "Reasoning Output Tokens";
 "Tokens Per Second" = "Tokens Per Second";

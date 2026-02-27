@@ -27,7 +27,6 @@ struct Choice: Codable {
 
 struct ChatResponseMetadata: Sendable {
     var providerResponseID: String?
-    var inputTokenCount: Int?
     var outputTokenCount: Int?
     var reasoningOutputTokenCount: Int?
     var tokensPerSecond: Double?
@@ -38,7 +37,6 @@ struct ChatResponseMetadata: Sendable {
 
     var hasAnyValue: Bool {
         providerResponseID != nil ||
-        inputTokenCount != nil ||
         outputTokenCount != nil ||
         reasoningOutputTokenCount != nil ||
         tokensPerSecond != nil ||
@@ -50,9 +48,6 @@ struct ChatResponseMetadata: Sendable {
         if let providerResponseID = update.providerResponseID,
            !providerResponseID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             self.providerResponseID = providerResponseID
-        }
-        if let inputTokenCount = update.inputTokenCount {
-            self.inputTokenCount = inputTokenCount
         }
         if let outputTokenCount = update.outputTokenCount {
             self.outputTokenCount = outputTokenCount
@@ -76,7 +71,6 @@ struct ChatResponseMetadata: Sendable {
 }
 
 struct ChatCompletionUsage: Codable {
-    var prompt_tokens: Int?
     var completion_tokens: Int?
     var total_tokens: Int?
     var completion_tokens_details: ChatCompletionUsageDetails?
@@ -255,7 +249,6 @@ private struct LMStudioChatStreamCompletedResponse: Decodable {
 }
 
 private struct LMStudioChatStreamStats: Decodable {
-    let input_tokens: Double?
     let total_output_tokens: Double?
     let reasoning_output_tokens: Double?
     let tokens_per_second: Double?
@@ -380,7 +373,6 @@ private struct AnthropicStreamErrorPayload: Decodable {
 }
 
 private struct AnthropicStreamUsage: Decodable {
-    let input_tokens: Int?
     let output_tokens: Int?
 }
 
@@ -1035,9 +1027,6 @@ final class ChatService: NSObject, URLSessionDataDelegate, @unchecked Sendable {
                 metadata.providerResponseID = responseID
             }
             if let usage = dictionary["usage"] as? [String: Any] {
-                if let input = usage["prompt_tokens"] as? NSNumber {
-                    metadata.inputTokenCount = input.intValue
-                }
                 if let output = usage["completion_tokens"] as? NSNumber {
                     metadata.outputTokenCount = output.intValue
                 }
@@ -1047,14 +1036,6 @@ final class ChatService: NSObject, URLSessionDataDelegate, @unchecked Sendable {
                 }
             }
             if let timings = dictionary["timings"] as? [String: Any] {
-                if metadata.inputTokenCount == nil {
-                    let promptN = (timings["prompt_n"] as? NSNumber)?.intValue ?? 0
-                    let cacheN = (timings["cache_n"] as? NSNumber)?.intValue ?? 0
-                    let totalPrompt = promptN + cacheN
-                    if totalPrompt > 0 {
-                        metadata.inputTokenCount = totalPrompt
-                    }
-                }
                 if metadata.outputTokenCount == nil,
                    let predictedN = timings["predicted_n"] as? NSNumber {
                     metadata.outputTokenCount = predictedN.intValue
@@ -1083,17 +1064,11 @@ final class ChatService: NSObject, URLSessionDataDelegate, @unchecked Sendable {
                 metadata.providerResponseID = responseID
             }
             if let usage = dictionary["usage"] as? [String: Any] {
-                if let input = usage["input_tokens"] as? NSNumber {
-                    metadata.inputTokenCount = input.intValue
-                }
                 if let output = usage["output_tokens"] as? NSNumber {
                     metadata.outputTokenCount = output.intValue
                 }
             } else if let message = dictionary["message"] as? [String: Any],
                       let usage = message["usage"] as? [String: Any] {
-                if let input = usage["input_tokens"] as? NSNumber {
-                    metadata.inputTokenCount = input.intValue
-                }
                 if let output = usage["output_tokens"] as? NSNumber {
                     metadata.outputTokenCount = output.intValue
                 }
@@ -1116,9 +1091,6 @@ final class ChatService: NSObject, URLSessionDataDelegate, @unchecked Sendable {
             }
 
             if let stats = dictionary["stats"] as? [String: Any] {
-                if let input = stats["input_tokens"] as? NSNumber {
-                    metadata.inputTokenCount = input.intValue
-                }
                 if let output = stats["total_output_tokens"] as? NSNumber {
                     metadata.outputTokenCount = output.intValue
                 }
@@ -1140,9 +1112,6 @@ final class ChatService: NSObject, URLSessionDataDelegate, @unchecked Sendable {
                     metadata.providerResponseID = responseID
                 }
                 if let stats = result["stats"] as? [String: Any] {
-                    if metadata.inputTokenCount == nil, let input = stats["input_tokens"] as? NSNumber {
-                        metadata.inputTokenCount = input.intValue
-                    }
                     if metadata.outputTokenCount == nil, let output = stats["total_output_tokens"] as? NSNumber {
                         metadata.outputTokenCount = output.intValue
                     }
@@ -1165,9 +1134,6 @@ final class ChatService: NSObject, URLSessionDataDelegate, @unchecked Sendable {
                     metadata.providerResponseID = responseID
                 }
                 if let stats = response["stats"] as? [String: Any] {
-                    if metadata.inputTokenCount == nil, let input = stats["input_tokens"] as? NSNumber {
-                        metadata.inputTokenCount = input.intValue
-                    }
                     if metadata.outputTokenCount == nil, let output = stats["total_output_tokens"] as? NSNumber {
                         metadata.outputTokenCount = output.intValue
                     }
@@ -1534,19 +1500,10 @@ final class ChatService: NSObject, URLSessionDataDelegate, @unchecked Sendable {
             metadata.providerResponseID = responseID
         }
         if let usage = chunk.usage {
-            metadata.inputTokenCount = usage.prompt_tokens
             metadata.outputTokenCount = usage.completion_tokens
             metadata.reasoningOutputTokenCount = usage.completion_tokens_details?.reasoning_tokens
         }
         if let timings = chunk.timings {
-            if metadata.inputTokenCount == nil {
-                let promptN = timings.prompt_n ?? 0
-                let cacheN = timings.cache_n ?? 0
-                let totalPrompt = promptN + cacheN
-                if totalPrompt > 0 {
-                    metadata.inputTokenCount = totalPrompt
-                }
-            }
             if metadata.outputTokenCount == nil, let predictedN = timings.predicted_n {
                 metadata.outputTokenCount = predictedN
             }
@@ -1607,7 +1564,6 @@ final class ChatService: NSObject, URLSessionDataDelegate, @unchecked Sendable {
         }
         let usage = event.usage ?? event.message?.usage
         if let usage {
-            metadata.inputTokenCount = usage.input_tokens
             metadata.outputTokenCount = usage.output_tokens
         }
         if let stopReason = event.delta?.stop_reason ?? event.message?.stop_reason,
@@ -1713,7 +1669,6 @@ final class ChatService: NSObject, URLSessionDataDelegate, @unchecked Sendable {
             metadata.providerResponseID = responseID
         }
         if let stats = event.stats ?? event.result?.stats ?? event.response?.stats {
-            metadata.inputTokenCount = normalizedTokenCount(stats.input_tokens)
             metadata.outputTokenCount = normalizedTokenCount(stats.total_output_tokens)
             metadata.reasoningOutputTokenCount = normalizedTokenCount(stats.reasoning_output_tokens)
             metadata.tokensPerSecond = stats.tokens_per_second

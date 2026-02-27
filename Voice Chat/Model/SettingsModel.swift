@@ -391,11 +391,12 @@ final class SettingsManager: ObservableObject {
         let trimmed = modelIdentifier.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return false }
 
-        if let manualOverride = chatModelImageInputOverrides[trimmed] {
-            return manualOverride
-        }
+        // Provider-reported model capabilities should override stale manual toggles.
         if let explicit = chatModelImageInputSupport[trimmed] {
             return explicit
+        }
+        if let manualOverride = chatModelImageInputOverrides[trimmed] {
+            return manualOverride
         }
         if let inferred = Self.inferImageInputSupportFromModelIdentifier(trimmed) {
             return inferred
@@ -412,17 +413,29 @@ final class SettingsManager: ObservableObject {
         guard !normalized.isEmpty else { return nil }
 
         let knownVisionHints = [
-            "gpt-4o", "gpt-4.1", "gpt-4.5", "o4", "o3",
+            // OpenAI
+            "gpt-5", "gpt-5.1", "gpt-5.2", "gpt-4o", "gpt-4.1", "gpt-4.5", "o1", "o3", "o4",
+            // Anthropic
             "claude-3", "claude-4",
-            "gemini", "pixtral", "llava", "qwen-vl", "qwen2-vl", "internvl",
+            // Google
+            "gemini", "gemma-3", "gemma-3n",
+            // xAI
+            "grok-3", "grok-4",
+            // Mistral
+            "pixtral", "mistral-large-25", "mistral-medium-25", "mistral-small-25", "ministral-",
+            // Cohere
+            "aya-vision", "command-a-vision",
+            // Alibaba / Qwen
+            "qwen-vl", "qwen2-vl", "qwen2.5-vl", "qwen3-vl", "qvq", "qwen-omni", "qwen2.5-omni", "qwen3-omni",
+            // Meta / open-source VLM families
+            "llama-3.2-vision", "llama-4-scout", "llama-4-maverick",
+            "llava", "internvl", "minicpm-v", "paligemma", "idefics", "moondream",
+            "deepseek-vl", "glm-4v",
+            // Generic signals
             "vision", "multimodal", "vlm"
         ]
 
         if knownVisionHints.contains(where: { normalized.contains($0) }) {
-            return true
-        }
-
-        if normalized.contains("deepseek-vl") || normalized.contains("glm-4v") {
             return true
         }
 
