@@ -354,7 +354,7 @@ final class SettingsViewModel: ObservableObject {
         }
 
         settingsManager.noteDetectedChatEndpoint(candidate, for: apiURL)
-        settingsManager.updateChatModelImageInputSupport(supportMap)
+        settingsManager.updateChatModelImageInputSupport(supportMap, for: apiURL)
         availableModels = models
         if !availableModels.contains(selectedModel),
            let firstModel = availableModels.first {

@@ -1230,7 +1230,7 @@ struct ChatView: View {
             viewModel.userMessage = text
             expectAssistantResponseHaptics = false
             didTriggerResponseStartHaptic = false
-            viewModel.sendMessage()
+            _ = sendIfPossible()
         }
     }
 

@@ -185,6 +185,75 @@ private struct LMStudioChatStreamEvent: Decodable {
     let error: LMStudioChatStreamErrorPayload?
     let result: LMStudioChatStreamResult?
     let response: LMStudioChatStreamCompletedResponse?
+
+    private enum CodingKeys: String, CodingKey {
+        case type
+        case content
+        case delta
+        case text
+        case output_text
+        case stats
+        case response_id
+        case error
+        case result
+        case response
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+
+        type = Self.decodeLooseText(from: container, forKey: .type)
+        content = Self.decodeLooseText(from: container, forKey: .content)
+        delta = Self.decodeLooseText(from: container, forKey: .delta)
+        text = Self.decodeLooseText(from: container, forKey: .text)
+        output_text = Self.decodeLooseText(from: container, forKey: .output_text)
+        response_id = Self.decodeLooseText(from: container, forKey: .response_id)
+
+        stats = try? container.decodeIfPresent(LMStudioChatStreamStats.self, forKey: .stats)
+        error = try? container.decodeIfPresent(LMStudioChatStreamErrorPayload.self, forKey: .error)
+        result = try? container.decodeIfPresent(LMStudioChatStreamResult.self, forKey: .result)
+        response = try? container.decodeIfPresent(LMStudioChatStreamCompletedResponse.self, forKey: .response)
+    }
+
+    private static func decodeLooseText(
+        from container: KeyedDecodingContainer<CodingKeys>,
+        forKey key: CodingKeys
+    ) -> String? {
+        if let direct = try? container.decodeIfPresent(String.self, forKey: key) {
+            return direct
+        }
+        if let fallback = try? container.decodeIfPresent(AnyDecodable.self, forKey: key) {
+            let flattened = flattenLooseValue(fallback.value)
+            return flattened.isEmpty ? nil : flattened
+        }
+        return nil
+    }
+
+    private static func flattenLooseValue(_ value: Any) -> String {
+        if let text = value as? String {
+            return text
+        }
+        if let number = value as? NSNumber {
+            return number.stringValue
+        }
+        if let object = value as? [String: AnyDecodable] {
+            for key in ["content", "text", "delta", "output_text", "message", "value"] {
+                if let candidate = object[key] {
+                    let flattened = flattenLooseValue(candidate.value)
+                    if !flattened.isEmpty {
+                        return flattened
+                    }
+                }
+            }
+            return object.keys.sorted().compactMap { key in
+                object[key].map { flattenLooseValue($0.value) }
+            }.joined()
+        }
+        if let array = value as? [Any] {
+            return array.map(flattenLooseValue).joined()
+        }
+        return ""
+    }
 }
 
 private struct LMStudioChatStreamErrorPayload: Decodable {
@@ -1702,7 +1771,7 @@ final class ChatService: NSObject, URLSessionDataDelegate, @unchecked Sendable {
                 sentThinkClose = true
             }
 
-        case "message.delta", "response.output_text.delta", "response.content":
+        case "message", "message.delta", "response.output_text.delta", "response.content":
             if newFormatActive && !isLegacyThinkStream && sentThinkOpen && !sentThinkClose {
                 emitDelta(thinkCloseLine)
                 sentThinkClose = true

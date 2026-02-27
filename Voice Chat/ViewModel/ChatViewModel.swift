@@ -458,6 +458,17 @@ final class ChatViewModel: ObservableObject {
         applyChatConfiguration(deferred, interruptActiveRequest: false)
     }
 
+    /// Applies hint-only deferred configuration during retry windows where no stream is active.
+    private func applyDeferredChatConfigurationForRetryIfNeeded() {
+        guard let deferred = deferredChatConfiguration else { return }
+        guard deferred != chatConfiguration else {
+            deferredChatConfiguration = nil
+            return
+        }
+        guard !requiresHardChatServiceReset(from: chatConfiguration, to: deferred) else { return }
+        applyChatConfiguration(deferred, interruptActiveRequest: false)
+    }
+
     // MARK: - Helpers (stable ordering & safe trimming)
 
     private func persistSession(reason: SessionPersistReason = .throttled) {
@@ -1334,6 +1345,7 @@ final class ChatViewModel: ObservableObject {
                     return
                 }
 
+                self.applyDeferredChatConfigurationForRetryIfNeeded()
                 let currentMessages = self.activeBranchMessages()
                 let developerPrompt = self.resolvedDeveloperPrompt(isVoiceMode: shouldUseVoicePrompt)
                 self.chatService.fetchStreamedData(

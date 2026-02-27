@@ -328,8 +328,34 @@ final class SettingsManager: ObservableObject {
         self.hapticFeedbackEnabled = Defaults.hapticFeedbackEnabled
     }
 
-    func updateChatModelImageInputSupport(_ supportByModel: [String: Bool]) {
-        chatModelImageInputSupport = supportByModel
+    private func scopedImageSupportPrefix(for apiBaseURL: String) -> String? {
+        guard let endpointKey = ChatAPIEndpointResolver.normalizedAPIBaseKey(apiBaseURL) else { return nil }
+        return "\(endpointKey)|"
+    }
+
+    private func scopedImageSupportKey(apiBaseURL: String, modelIdentifier: String) -> String? {
+        let trimmedModel = modelIdentifier.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedModel.isEmpty else { return nil }
+        guard let prefix = scopedImageSupportPrefix(for: apiBaseURL) else { return nil }
+        return "\(prefix)\(trimmedModel)"
+    }
+
+    private func explicitImageInputSupport(for modelIdentifier: String, apiBaseURL: String) -> Bool? {
+        guard let key = scopedImageSupportKey(apiBaseURL: apiBaseURL, modelIdentifier: modelIdentifier) else { return nil }
+        return chatModelImageInputSupport[key]
+    }
+
+    func updateChatModelImageInputSupport(_ supportByModel: [String: Bool], for apiBaseURL: String) {
+        guard let prefix = scopedImageSupportPrefix(for: apiBaseURL) else { return }
+
+        var updated = chatModelImageInputSupport
+        updated.keys.filter { $0.hasPrefix(prefix) }.forEach { updated.removeValue(forKey: $0) }
+
+        for (modelID, supportsImageInput) in supportByModel {
+            guard let key = scopedImageSupportKey(apiBaseURL: apiBaseURL, modelIdentifier: modelID) else { continue }
+            updated[key] = supportsImageInput
+        }
+        chatModelImageInputSupport = updated
     }
 
     func noteDetectedChatProvider(_ provider: ChatProvider, for apiBaseURL: String) {
@@ -381,7 +407,7 @@ final class SettingsManager: ObservableObject {
     func isImageInputSupportUnknown(for modelIdentifier: String) -> Bool {
         let trimmed = modelIdentifier.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return false }
-        if chatModelImageInputSupport[trimmed] != nil {
+        if explicitImageInputSupport(for: trimmed, apiBaseURL: chatSettings.apiURL) != nil {
             return false
         }
         return Self.inferImageInputSupportFromModelIdentifier(trimmed) == nil
@@ -392,7 +418,7 @@ final class SettingsManager: ObservableObject {
         guard !trimmed.isEmpty else { return false }
 
         // Provider-reported model capabilities should override stale manual toggles.
-        if let explicit = chatModelImageInputSupport[trimmed] {
+        if let explicit = explicitImageInputSupport(for: trimmed, apiBaseURL: chatSettings.apiURL) {
             return explicit
         }
         if let manualOverride = chatModelImageInputOverrides[trimmed] {
@@ -1471,7 +1497,7 @@ final class SettingsManager: ObservableObject {
                 supportMap[model.id] = support
             }
         }
-        updateChatModelImageInputSupport(supportMap)
+        updateChatModelImageInputSupport(supportMap, for: rawBase)
 
         let selected = chatSettings.selectedModel.trimmingCharacters(in: .whitespacesAndNewlines)
         let availableModelIDs = Set(bestModels.map(\.id))
