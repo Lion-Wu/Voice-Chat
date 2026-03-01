@@ -11,6 +11,7 @@ import SwiftData
 import Combine
 #if os(iOS) || os(macOS)
 import PhotosUI
+import QuickLook
 import UniformTypeIdentifiers
 #endif
 
@@ -88,7 +89,7 @@ struct ChatView: View {
 #if os(iOS) || os(macOS)
     @State private var showPhotoPicker: Bool = false
     @State private var pickedPhotoItems: [PhotosPickerItem] = []
-    @State private var pendingPreviewAttachment: ChatImageAttachment?
+    @State private var pendingPreviewFileURL: URL?
     @State private var photoImportTask: Task<Void, Never>?
 #endif
 
@@ -503,6 +504,8 @@ struct ChatView: View {
 #if os(iOS) || os(macOS)
             photoImportTask?.cancel()
             photoImportTask = nil
+            ChatImageQuickLookSupport.cleanupTemporaryPreviewURL(pendingPreviewFileURL)
+            pendingPreviewFileURL = nil
 #endif
         }
 
@@ -532,15 +535,11 @@ struct ChatView: View {
         .onChange(of: pickedPhotoItems) { _, newItems in
             importPickedPhotoItems(newItems)
         }
-#if os(iOS)
-        .fullScreenCover(item: $pendingPreviewAttachment) { attachment in
-            ChatImagePreviewSheet(attachment: attachment)
+        .quickLookPreview($pendingPreviewFileURL)
+        .onChange(of: pendingPreviewFileURL) { oldValue, newValue in
+            guard oldValue != newValue else { return }
+            ChatImageQuickLookSupport.cleanupTemporaryPreviewURL(oldValue)
         }
-#else
-        .sheet(item: $pendingPreviewAttachment) { attachment in
-            ChatImagePreviewSheet(attachment: attachment)
-        }
-#endif
 #endif
         .onReceive(viewModel.messageContentDidChange) { update in
             applyContentFingerprintUpdate(update)
@@ -868,7 +867,7 @@ struct ChatView: View {
             maxItemSize: 72,
             onPreview: { attachment in
 #if os(iOS) || os(macOS)
-                pendingPreviewAttachment = attachment
+                presentPendingAttachmentPreview(attachment)
 #endif
             },
             onRemove: { attachment in
@@ -1158,6 +1157,14 @@ struct ChatView: View {
     }
 
 #if os(iOS) || os(macOS)
+    private func presentPendingAttachmentPreview(_ attachment: ChatImageAttachment) {
+        let previous = pendingPreviewFileURL
+        pendingPreviewFileURL = ChatImageQuickLookSupport.prepareTemporaryPreviewURL(for: attachment)
+        if previous != pendingPreviewFileURL {
+            ChatImageQuickLookSupport.cleanupTemporaryPreviewURL(previous)
+        }
+    }
+
     private func importPickedPhotoItems(_ items: [PhotosPickerItem]) {
         guard !items.isEmpty else { return }
         photoImportTask?.cancel()

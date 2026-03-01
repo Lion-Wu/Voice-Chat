@@ -6,6 +6,10 @@
 //
 
 import SwiftUI
+#if os(iOS) || os(macOS)
+import QuickLook
+import UniformTypeIdentifiers
+#endif
 #if os(iOS) || os(tvOS) || os(watchOS)
 import UIKit
 #elseif os(macOS)
@@ -15,7 +19,7 @@ import AppKit
 struct VoiceMessageView: View {
     @Bindable var message: ChatMessage
     @EnvironmentObject var audioManager: GlobalAudioManager
-    @State private var messagePreviewAttachment: ChatImageAttachment?
+    @State private var messagePreviewFileURL: URL?
 
     let showActionButtons: Bool
     let branchControlsEnabled: Bool
@@ -73,7 +77,7 @@ struct VoiceMessageView: View {
                             text: message.content,
                             attachments: userAttachments,
                             onPreviewImage: { attachment in
-                                messagePreviewAttachment = attachment
+                                presentMessageAttachmentPreview(attachment)
                             }
                         )
                         .transition(.opacity.combined(with: .scale(scale: 0.98)))
@@ -97,13 +101,15 @@ struct VoiceMessageView: View {
                 onEditUserMessage: onEditUserMessage,
                 copyToClipboard: copyToClipboard
             ))
-#if os(iOS)
-            .fullScreenCover(item: $messagePreviewAttachment) { attachment in
-                ChatImagePreviewSheet(attachment: attachment)
+#if os(iOS) || os(macOS)
+            .quickLookPreview($messagePreviewFileURL)
+            .onChange(of: messagePreviewFileURL) { oldValue, newValue in
+                guard oldValue != newValue else { return }
+                ChatImageQuickLookSupport.cleanupTemporaryPreviewURL(oldValue)
             }
-#else
-            .sheet(item: $messagePreviewAttachment) { attachment in
-                ChatImagePreviewSheet(attachment: attachment)
+            .onDisappear {
+                ChatImageQuickLookSupport.cleanupTemporaryPreviewURL(messagePreviewFileURL)
+                messagePreviewFileURL = nil
             }
 #endif
         }
@@ -117,6 +123,16 @@ struct VoiceMessageView: View {
         NSPasteboard.general.setString(text, forType: .string)
         #endif
     }
+
+    #if os(iOS) || os(macOS)
+    private func presentMessageAttachmentPreview(_ attachment: ChatImageAttachment) {
+        let previous = messagePreviewFileURL
+        messagePreviewFileURL = ChatImageQuickLookSupport.prepareTemporaryPreviewURL(for: attachment)
+        if previous != messagePreviewFileURL {
+            ChatImageQuickLookSupport.cleanupTemporaryPreviewURL(previous)
+        }
+    }
+    #endif
 
     private func versionsForCurrentMessage() -> [ChatMessage] {
         let candidates: [ChatMessage]
@@ -650,33 +666,73 @@ private struct ChatImageAttachmentItem: View {
     }
 }
 
-struct ChatImagePreviewSheet: View {
-    let attachment: ChatImageAttachment
-    @Environment(\.dismiss) private var dismiss
+#if os(iOS) || os(macOS)
+@MainActor
+enum ChatImageQuickLookSupport {
+    private static let directoryName = "VoiceChatQuickLook"
 
-    var body: some View {
-        NavigationStack {
-            ZStack {
-                Color.black.ignoresSafeArea()
+    static func prepareTemporaryPreviewURL(for attachment: ChatImageAttachment) -> URL? {
+        let fileManager = FileManager.default
+        let directoryURL = fileManager.temporaryDirectory
+            .appendingPathComponent(directoryName, isDirectory: true)
 
-                if let image = chatSwiftUIImage(from: attachment.data) {
-                    image
-                        .resizable()
-                        .scaledToFit()
-                        .padding(18)
-                } else {
-                    ContentUnavailableView("Image unavailable", systemImage: "photo.badge.exclamationmark")
-                        .foregroundStyle(.white.opacity(0.85))
-                }
-            }
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Done") { dismiss() }
-                }
-            }
+        do {
+            try fileManager.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+        } catch {
+            return nil
+        }
+
+        let fileExtension = preferredFileExtension(for: attachment.mimeType)
+        let filename = "attachment-\(attachment.id.uuidString)-\(UUID().uuidString).\(fileExtension)"
+        let fileURL = directoryURL.appendingPathComponent(filename, isDirectory: false)
+
+        do {
+            try attachment.data.write(to: fileURL, options: .atomic)
+            return fileURL
+        } catch {
+            return nil
+        }
+    }
+
+    static func cleanupTemporaryPreviewURL(_ fileURL: URL?) {
+        guard let fileURL else { return }
+        try? FileManager.default.removeItem(at: fileURL)
+    }
+
+    private static func preferredFileExtension(for mimeType: String) -> String {
+        let normalized = mimeType
+            .split(separator: ";", maxSplits: 1, omittingEmptySubsequences: true)
+            .first?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased() ?? ""
+
+        if let type = UTType(mimeType: normalized),
+           let fileExtension = type.preferredFilenameExtension,
+           !fileExtension.isEmpty {
+            return fileExtension
+        }
+
+        switch normalized {
+        case "image/jpeg", "image/jpg":
+            return "jpg"
+        case "image/png":
+            return "png"
+        case "image/gif":
+            return "gif"
+        case "image/webp":
+            return "webp"
+        case "image/heic", "image/heif":
+            return "heic"
+        case "image/tiff":
+            return "tiff"
+        case "image/bmp":
+            return "bmp"
+        default:
+            return "jpg"
         }
     }
 }
+#endif
 
 private func chatSwiftUIImage(from data: Data) -> Image? {
 #if os(iOS) || os(tvOS) || os(watchOS)
