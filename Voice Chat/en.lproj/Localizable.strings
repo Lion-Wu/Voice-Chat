@@ -259,6 +259,7 @@
 "Stream payload exceeded safety limit" = "Stream payload exceeded safety limit";
 "Server returned an empty response" = "Server returned an empty response";
 "Anthropic API error" = "Anthropic API error";
+"OpenAI Compatible API error" = "OpenAI Compatible API error";
 "LM Studio REST API error" = "LM Studio REST API error";
 "Unknown provider detection error" = "Unknown provider detection error";
 "No models returned from %@" = "No models returned from %@";
@@ -268,3 +269,6 @@
 "llama.cpp" = "llama.cpp";
 "OpenAI Compatible" = "OpenAI Compatible";
 "Unknown" = "Unknown";
+"API Format" = "API Format";
+"Automatic" = "Automatic";
+"Detected API Format: %@" = "Detected API Format: %@";

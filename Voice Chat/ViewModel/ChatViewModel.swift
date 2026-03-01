@@ -114,8 +114,8 @@ final class ChatViewModel: ObservableObject {
             apiBaseURL: resolvedSettings.chatSettings.apiURL,
             modelIdentifier: resolvedSettings.chatSettings.selectedModel,
             apiKey: resolvedSettings.chatSettings.apiKey,
-            providerHint: resolvedSettings.detectedChatProvider(for: resolvedSettings.chatSettings.apiURL),
-            requestStyleHint: resolvedSettings.detectedChatRequestStyle(for: resolvedSettings.chatSettings.apiURL)
+            providerHint: resolvedSettings.resolvedChatProvider(for: resolvedSettings.chatSettings.apiURL),
+            requestStyleHint: resolvedSettings.resolvedChatRequestStyle(for: resolvedSettings.chatSettings.apiURL)
         )
         self.chatServiceFactory = chatServiceFactory ?? { ChatService(configurationProvider: $0) }
         self.chatService = chatService ?? self.chatServiceFactory(self.chatConfiguration)
@@ -405,8 +405,8 @@ final class ChatViewModel: ObservableObject {
             apiBaseURL: settings.apiURL,
             modelIdentifier: settings.selectedModel,
             apiKey: settings.apiKey,
-            providerHint: settingsManager.detectedChatProvider(for: settings.apiURL),
-            requestStyleHint: settingsManager.detectedChatRequestStyle(for: settings.apiURL)
+            providerHint: settingsManager.resolvedChatProvider(for: settings.apiURL),
+            requestStyleHint: settingsManager.resolvedChatRequestStyle(for: settings.apiURL)
         )
         updateChatConfiguration(latest)
     }

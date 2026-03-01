@@ -28,6 +28,18 @@ struct SettingsView: View {
     @State private var measuredContentSize: CGSize = .zero
 #endif
 
+    private var detectedChatAPIFormatName: String {
+        let base = viewModel.apiURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let detected = settingsManager.detectedChatProvider(for: base),
+           detected != .unknown {
+            return detected.displayName
+        }
+        if let official = ChatAPIEndpointResolver.officialProviderHint(for: base) {
+            return official.displayName
+        }
+        return NSLocalizedString("Unknown", comment: "Provider display name")
+    }
+
     var body: some View {
         #if os(macOS)
         applyCommonModifiers(
@@ -398,61 +410,65 @@ struct SettingsView: View {
             || !(settingsManager.lastApplyError?.isEmpty ?? true)
             || (settingsManager.lastPresetApplyAt != nil && settingsManager.lastPresetApplySucceeded)
 
-        return HStack { Spacer() }
-            .frame(minHeight: 22)
-            .overlay(alignment: .leading) {
-                if settingsManager.isApplyingPreset {
-                    HStack(spacing: 8) {
-                        ProgressView()
-                            #if os(macOS)
-                            .controlSize(.small)
-                            #endif
-                        if settingsManager.isRetryingPresetApply {
-                            Text(String(format: NSLocalizedString("Retrying (attempt %d)...", comment: "Shown while auto retry is waiting to reconnect"), max(1, settingsManager.presetApplyRetryAttempt)))
-                                .foregroundStyle(.secondary)
-                                .lineLimit(1)
-                                .truncationMode(.tail)
-                        } else {
-                            Text("Applying preset...")
-                                .foregroundStyle(.secondary)
-                                .lineLimit(1)
-                                .truncationMode(.tail)
-                        }
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    #if os(macOS)
-                    .help(settingsManager.presetApplyRetryLastError ?? "")
-                    #endif
-                } else if let err = settingsManager.lastApplyError, !err.isEmpty {
-                    HStack(spacing: 8) {
-                        Image(systemName: "exclamationmark.triangle.fill")
-                            .foregroundStyle(.orange)
-                        Text(err)
+        return Group {
+            if settingsManager.isApplyingPreset {
+                HStack(spacing: 8) {
+                    ProgressView()
+                        #if os(macOS)
+                        .controlSize(.small)
+                        #endif
+                    if settingsManager.isRetryingPresetApply {
+                        Text(String(format: NSLocalizedString("Retrying (attempt %d)...", comment: "Shown while auto retry is waiting to reconnect"), max(1, settingsManager.presetApplyRetryAttempt)))
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                    } else {
+                        Text("Applying preset...")
                             .foregroundStyle(.secondary)
                             .lineLimit(1)
                             .truncationMode(.tail)
                     }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    #if os(macOS)
-                    .help(err)
-                    #endif
-                } else if settingsManager.lastPresetApplyAt != nil, settingsManager.lastPresetApplySucceeded {
-                    HStack(spacing: 8) {
-                        Image(systemName: "checkmark.circle.fill")
-                            .foregroundStyle(.green)
-                        Text("Preset applied successfully.")
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                            .truncationMode(.tail)
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                    Spacer(minLength: 0)
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                #if os(macOS)
+                .help(settingsManager.presetApplyRetryLastError ?? "")
+                #endif
+            } else if let err = settingsManager.lastApplyError, !err.isEmpty {
+                HStack(alignment: .top, spacing: 8) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .foregroundStyle(.orange)
+                        .padding(.top, 1)
+                    Text(err)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.leading)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Spacer(minLength: 0)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                #if os(macOS)
+                .help(err)
+                #endif
+            } else if settingsManager.lastPresetApplyAt != nil, settingsManager.lastPresetApplySucceeded {
+                HStack(spacing: 8) {
+                    Image(systemName: "checkmark.circle.fill")
+                        .foregroundStyle(.green)
+                    Text("Preset applied successfully.")
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                    Spacer(minLength: 0)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            } else {
+                EmptyView()
             }
-            .opacity(shouldShowMessage ? 1 : 0)
-            .accessibilityHidden(!shouldShowMessage)
-            #if !os(macOS)
-            .listRowSeparator(shouldShowMessage ? .visible : .hidden)
-            #endif
+        }
+        .opacity(shouldShowMessage ? 1 : 0)
+        .accessibilityHidden(!shouldShowMessage)
+        #if !os(macOS)
+        .listRowSeparator(shouldShowMessage ? .visible : .hidden)
+        #endif
     }
 
     @ViewBuilder
@@ -577,6 +593,34 @@ struct SettingsView: View {
                              placeholder: "http://localhost:1234",
                              text: $viewModel.apiURL)
 
+            LabeledContent("API Format") {
+                Picker("", selection: $viewModel.selectedChatAPIFormatPreference) {
+                    Text("Automatic").tag(ChatAPIFormatPreference.automatic)
+                    Text("OpenAI").tag(ChatAPIFormatPreference.openAI)
+                    Text("Anthropic").tag(ChatAPIFormatPreference.anthropic)
+                    Text("LM Studio").tag(ChatAPIFormatPreference.lmStudio)
+                    Text("llama.cpp").tag(ChatAPIFormatPreference.llamaCpp)
+                    Text("OpenAI Compatible").tag(ChatAPIFormatPreference.openAICompatible)
+                }
+                .labelsHidden()
+                .pickerStyle(.menu)
+            }
+
+            if viewModel.selectedChatAPIFormatPreference == .automatic {
+                Text(
+                    String(
+                        format: NSLocalizedString(
+                            "Detected API Format: %@",
+                            comment: "Shows the auto-detected API format under the API format picker"
+                        ),
+                        detectedChatAPIFormatName
+                    )
+                )
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            }
+
             LabeledSecureField(
                 label: "API Key",
                 placeholder: "Enter API key",
@@ -635,13 +679,14 @@ struct SettingsView: View {
                         .frame(maxWidth: .infinity, alignment: .trailing)
                         .help(viewModel.modelRetryLastError ?? "")
                     } else if let message = viewModel.chatServerErrorMessage, !message.isEmpty {
-                        HStack(spacing: 8) {
+                        HStack(alignment: .top, spacing: 8) {
                             Image(systemName: "exclamationmark.triangle.fill")
                                 .foregroundStyle(.orange)
+                                .padding(.top, 1)
                             Text(message)
                                 .foregroundStyle(.secondary)
-                                .lineLimit(1)
-                                .truncationMode(.tail)
+                                .multilineTextAlignment(.leading)
+                                .fixedSize(horizontal: false, vertical: true)
                         }
                         .frame(maxWidth: .infinity, alignment: .trailing)
                         .help(message)
@@ -683,13 +728,14 @@ struct SettingsView: View {
                         }
                         .frame(maxWidth: .infinity, alignment: .trailing)
                     } else if let message = viewModel.chatServerErrorMessage, !message.isEmpty {
-                        HStack(spacing: 8) {
+                        HStack(alignment: .top, spacing: 8) {
                             Image(systemName: "exclamationmark.triangle.fill")
                                 .foregroundStyle(.orange)
+                                .padding(.top, 1)
                             Text(message)
                                 .foregroundStyle(.secondary)
-                                .lineLimit(1)
-                                .truncationMode(.tail)
+                                .multilineTextAlignment(.leading)
+                                .fixedSize(horizontal: false, vertical: true)
                         }
                         .frame(maxWidth: .infinity, alignment: .trailing)
                     }

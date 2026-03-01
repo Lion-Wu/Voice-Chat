@@ -263,6 +263,7 @@
 "Stream payload exceeded safety limit" = "ストリーム応答データが安全上限を超えました";
 "Server returned an empty response" = "サーバーが空の応答を返しました";
 "Anthropic API error" = "Anthropic API エラー";
+"OpenAI Compatible API error" = "OpenAI 互換 API エラー";
 "LM Studio REST API error" = "LM Studio REST API エラー";
 "Unknown provider detection error" = "不明なプロバイダー検出エラー";
 "No models returned from %@" = "%@ からモデルが返されませんでした";
@@ -272,3 +273,6 @@
 "llama.cpp" = "llama.cpp";
 "OpenAI Compatible" = "OpenAI 互換";
 "Unknown" = "不明";
+"API Format" = "API 形式";
+"Automatic" = "自動";
+"Detected API Format: %@" = "検出された API 形式: %@";

@@ -9,7 +9,7 @@ import Foundation
 
 // MARK: - Streaming Chunk Models
 
-struct ChatCompletionChunk: Codable {
+struct ChatCompletionChunk: Decodable {
     var id: String?
     var object: String?
     var created: Int?
@@ -19,7 +19,7 @@ struct ChatCompletionChunk: Codable {
     var timings: LlamaServerTimings?
 }
 
-struct Choice: Codable {
+struct Choice: Decodable {
     var index: Int?
     var finish_reason: String?
     var delta: Delta?
@@ -70,17 +70,17 @@ struct ChatResponseMetadata: Sendable {
     }
 }
 
-struct ChatCompletionUsage: Codable {
+struct ChatCompletionUsage: Decodable {
     var completion_tokens: Int?
     var total_tokens: Int?
     var completion_tokens_details: ChatCompletionUsageDetails?
 }
 
-struct ChatCompletionUsageDetails: Codable {
+struct ChatCompletionUsageDetails: Decodable {
     var reasoning_tokens: Int?
 }
 
-struct LlamaServerTimings: Codable {
+struct LlamaServerTimings: Decodable {
     var cache_n: Int?
     var prompt_n: Int?
     var predicted_n: Int?
@@ -167,10 +167,57 @@ struct AnyDict: Decodable {
     }
 }
 
-struct Delta: Codable {
+struct Delta: Decodable {
     var role: String?
     var content: String?
     var reasoning: ReasoningValue?
+
+    private enum CodingKeys: String, CodingKey {
+        case role
+        case content
+        case reasoning
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        role = try? container.decodeIfPresent(String.self, forKey: .role)
+        reasoning = try? container.decodeIfPresent(ReasoningValue.self, forKey: .reasoning)
+
+        if let text = try? container.decodeIfPresent(String.self, forKey: .content) {
+            content = text
+            return
+        }
+        if let loose = try? container.decodeIfPresent(AnyDecodable.self, forKey: .content) {
+            let flattened = Self.flattenedContentText(from: loose.value)
+            content = flattened.isEmpty ? nil : flattened
+            return
+        }
+        content = nil
+    }
+
+    private static func flattenedContentText(from value: Any) -> String {
+        if let text = value as? String {
+            return text
+        }
+        if let number = value as? NSNumber {
+            return number.stringValue
+        }
+        if let object = value as? [String: AnyDecodable] {
+            for key in ["text", "content", "value", "delta"] {
+                if let candidate = object[key] {
+                    let flattened = flattenedContentText(from: candidate.value)
+                    if !flattened.isEmpty {
+                        return flattened
+                    }
+                }
+            }
+            return object.values.map { flattenedContentText(from: $0.value) }.joined()
+        }
+        if let array = value as? [Any] {
+            return array.map(flattenedContentText(from:)).joined()
+        }
+        return ""
+    }
 }
 
 /// LM Studio REST API stream event model (`/api/v1/chat`).
@@ -544,10 +591,14 @@ final class ChatService: NSObject, URLSessionDataDelegate, @unchecked Sendable {
     // Reasoning / body state tracking
     private var isLegacyThinkStream = false
     private var sawAnyAssistantToken = false
+    private var sawAnyPrimaryAssistantToken = false
     private var newFormatActive = false
     private var sentThinkOpen = false
     private var sentThinkClose = false
     private var streamFinishedEmitted = false
+    private var lastProcessedSSESequenceNumber: Int?
+    private var reasoningDeltaItemIDs = Set<String>()
+    private var outputTextDeltaItemIDs = Set<String>()
 
     // SSE parsing buffer
     private var ssePartialLine: String = ""
@@ -686,7 +737,7 @@ final class ChatService: NSObject, URLSessionDataDelegate, @unchecked Sendable {
                 model: model,
                 messagePayload: payload,
                 developerPrompt: developerPrompt,
-                style: firstEndpoint.style
+                endpoint: firstEndpoint
             )
         } catch {
             onError?(error)
@@ -774,10 +825,20 @@ final class ChatService: NSObject, URLSessionDataDelegate, @unchecked Sendable {
         model: String,
         messagePayload: [[String: Any]],
         developerPrompt: String?,
-        style: ChatRequestStyle
+        endpoint: ChatAPIEndpointCandidate
     ) throws -> Data {
+        let style = endpoint.style
         switch style {
         case .openAIChatCompletions:
+            if isOpenAIResponsesEndpoint(endpoint.chatURL) {
+                let requestBody: [String: Any] = [
+                    "model": model,
+                    "stream": true,
+                    "input": openAIResponsesInput(from: messagePayload)
+                ]
+                return try JSONSerialization.data(withJSONObject: requestBody, options: [])
+            }
+
             let requestBody: [String: Any] = [
                 "model": model,
                 "stream": true,
@@ -816,13 +877,80 @@ final class ChatService: NSObject, URLSessionDataDelegate, @unchecked Sendable {
         }
     }
 
+    private func isOpenAIResponsesEndpoint(_ url: URL) -> Bool {
+        let canonicalPath = url.path
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+            .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        return canonicalPath.hasSuffix("responses")
+    }
+
+    private func openAIResponsesInput(from messagePayload: [[String: Any]]) -> [[String: Any]] {
+        var input: [[String: Any]] = []
+        input.reserveCapacity(messagePayload.count)
+
+        for item in messagePayload {
+            let rawRole = ((item["role"] as? String) ?? "user").lowercased()
+            let role: String
+            switch rawRole {
+            case "assistant", "system", "developer":
+                role = rawRole
+            default:
+                role = "user"
+            }
+
+            var parts: [[String: Any]] = []
+            if let text = item["content"] as? String {
+                parts.append([
+                    "type": "input_text",
+                    "text": text
+                ])
+            } else if let content = item["content"] as? [[String: Any]] {
+                for part in content {
+                    let partType = ((part["type"] as? String) ?? "").lowercased()
+                    if partType == "text", let text = part["text"] as? String {
+                        parts.append([
+                            "type": "input_text",
+                            "text": text
+                        ])
+                    } else if let dataURL = lmStudioRESTImageDataURL(from: part) {
+                        parts.append([
+                            "type": "input_image",
+                            "image_url": dataURL
+                        ])
+                    }
+                }
+            }
+
+            if parts.isEmpty { continue }
+            input.append([
+                "role": role,
+                "content": parts
+            ])
+        }
+
+        if input.isEmpty {
+            input.append([
+                "role": "user",
+                "content": [
+                    ["type": "input_text", "text": ""]
+                ]
+            ])
+        }
+        return input
+    }
+
     private func resetStreamState() {
         isLegacyThinkStream = false
         sawAnyAssistantToken = false
+        sawAnyPrimaryAssistantToken = false
         newFormatActive = false
         sentThinkOpen = false
         sentThinkClose = false
         streamFinishedEmitted = false
+        lastProcessedSSESequenceNumber = nil
+        reasoningDeltaItemIDs.removeAll(keepingCapacity: true)
+        outputTextDeltaItemIDs.removeAll(keepingCapacity: true)
         anthropicThinkingActive = false
         ssePartialLine = ""
         ssePendingEventType = nil
@@ -1095,11 +1223,25 @@ final class ChatService: NSObject, URLSessionDataDelegate, @unchecked Sendable {
                !responseID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 metadata.providerResponseID = responseID
             }
+            if metadata.providerResponseID == nil,
+               let responseID = dictionary["response_id"] as? String,
+               !responseID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                metadata.providerResponseID = responseID
+            }
             if let usage = dictionary["usage"] as? [String: Any] {
                 if let output = usage["completion_tokens"] as? NSNumber {
                     metadata.outputTokenCount = output.intValue
                 }
+                if metadata.outputTokenCount == nil,
+                   let output = usage["output_tokens"] as? NSNumber {
+                    metadata.outputTokenCount = output.intValue
+                }
                 if let details = usage["completion_tokens_details"] as? [String: Any],
+                   let reasoning = details["reasoning_tokens"] as? NSNumber {
+                    metadata.reasoningOutputTokenCount = reasoning.intValue
+                }
+                if metadata.reasoningOutputTokenCount == nil,
+                   let details = usage["output_tokens_details"] as? [String: Any],
                    let reasoning = details["reasoning_tokens"] as? NSNumber {
                     metadata.reasoningOutputTokenCount = reasoning.intValue
                 }
@@ -1113,12 +1255,47 @@ final class ChatService: NSObject, URLSessionDataDelegate, @unchecked Sendable {
                    let predictedPerSecond = timings["predicted_per_second"] as? NSNumber {
                     metadata.tokensPerSecond = predictedPerSecond.doubleValue
                 }
+                if metadata.timeToFirstTokenSeconds == nil,
+                   let ttf = timings["time_to_first_token_seconds"] as? NSNumber {
+                    metadata.timeToFirstTokenSeconds = ttf.doubleValue
+                }
             }
             if let choices = dictionary["choices"] as? [[String: Any]],
                let first = choices.first,
                let finish = first["finish_reason"] as? String,
                !finish.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 metadata.finishReason = finish
+            }
+
+            if let response = dictionary["response"] as? [String: Any] {
+                if metadata.providerResponseID == nil,
+                   let responseID = response["id"] as? String,
+                   !responseID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    metadata.providerResponseID = responseID
+                }
+                if let usage = response["usage"] as? [String: Any] {
+                    if metadata.outputTokenCount == nil {
+                        if let output = usage["completion_tokens"] as? NSNumber {
+                            metadata.outputTokenCount = output.intValue
+                        } else if let output = usage["output_tokens"] as? NSNumber {
+                            metadata.outputTokenCount = output.intValue
+                        }
+                    }
+                    if metadata.reasoningOutputTokenCount == nil {
+                        if let details = usage["completion_tokens_details"] as? [String: Any],
+                           let reasoning = details["reasoning_tokens"] as? NSNumber {
+                            metadata.reasoningOutputTokenCount = reasoning.intValue
+                        } else if let details = usage["output_tokens_details"] as? [String: Any],
+                                  let reasoning = details["reasoning_tokens"] as? NSNumber {
+                            metadata.reasoningOutputTokenCount = reasoning.intValue
+                        }
+                    }
+                }
+                if metadata.finishReason == nil,
+                   let status = response["status"] as? String,
+                   !status.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    metadata.finishReason = status
+                }
             }
             return metadata
 
@@ -1294,6 +1471,49 @@ final class ChatService: NSObject, URLSessionDataDelegate, @unchecked Sendable {
     }
 
     private func extractOpenAIAssistantText(from dictionary: [String: Any]) -> String? {
+        if let output = dictionary["output"] as? [[String: Any]],
+           let text = extractOpenAIResponseOutputText(output) {
+            return text
+        }
+
+        if let response = dictionary["response"] as? [String: Any] {
+            if let output = response["output"] as? [[String: Any]],
+               let text = extractOpenAIResponseOutputText(output) {
+                return text
+            }
+            if let outputText = response["output_text"] {
+                let text = flattenedText(from: outputText).trimmingCharacters(in: .whitespacesAndNewlines)
+                if !text.isEmpty {
+                    return text
+                }
+            }
+            if let textValue = response["text"] {
+                let text = flattenedText(from: textValue).trimmingCharacters(in: .whitespacesAndNewlines)
+                if !text.isEmpty {
+                    return text
+                }
+            }
+        }
+
+        if let item = dictionary["item"] as? [String: Any] {
+            let itemType = ((item["type"] as? String) ?? "").trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            if itemType == "reasoning" || itemType.contains("tool") {
+                return nil
+            }
+            if let content = item["content"] {
+                let text = flattenedText(from: content).trimmingCharacters(in: .whitespacesAndNewlines)
+                if !text.isEmpty {
+                    return text
+                }
+            }
+            if let textValue = item["text"] {
+                let text = flattenedText(from: textValue).trimmingCharacters(in: .whitespacesAndNewlines)
+                if !text.isEmpty {
+                    return text
+                }
+            }
+        }
+
         if let choices = dictionary["choices"] as? [[String: Any]] {
             for choice in choices {
                 if let message = choice["message"] as? [String: Any],
@@ -1313,6 +1533,20 @@ final class ChatService: NSObject, URLSessionDataDelegate, @unchecked Sendable {
             }
         }
 
+        if let outputText = dictionary["output_text"] {
+            let text = flattenedText(from: outputText).trimmingCharacters(in: .whitespacesAndNewlines)
+            if !text.isEmpty {
+                return text
+            }
+        }
+
+        if let textValue = dictionary["text"] {
+            let text = flattenedText(from: textValue).trimmingCharacters(in: .whitespacesAndNewlines)
+            if !text.isEmpty {
+                return text
+            }
+        }
+
         if let content = dictionary["content"] {
             let text = flattenedText(from: content).trimmingCharacters(in: .whitespacesAndNewlines)
             if !text.isEmpty {
@@ -1328,6 +1562,56 @@ final class ChatService: NSObject, URLSessionDataDelegate, @unchecked Sendable {
             }
         }
 
+        return nil
+    }
+
+    private func extractOpenAIResponseOutputText(_ output: [[String: Any]]) -> String? {
+        for item in output {
+            let itemType = ((item["type"] as? String) ?? "").lowercased()
+
+            if itemType == "message" || itemType.isEmpty {
+                if let content = item["content"] as? [[String: Any]] {
+                    let merged = content.compactMap { part -> String? in
+                        let partType = ((part["type"] as? String) ?? "").lowercased()
+                        guard partType == "output_text" || partType == "text" || partType.isEmpty else {
+                            return nil
+                        }
+                        if let text = part["text"] as? String, !text.isEmpty {
+                            return text
+                        }
+                        if let content = part["content"] as? String, !content.isEmpty {
+                            return content
+                        }
+                        return nil
+                    }
+                        .joined()
+                        .trimmingCharacters(in: .whitespacesAndNewlines)
+                    if !merged.isEmpty {
+                        return merged
+                    }
+                }
+
+                if let content = item["content"] {
+                    let text = flattenedText(from: content).trimmingCharacters(in: .whitespacesAndNewlines)
+                    if !text.isEmpty {
+                        return text
+                    }
+                }
+            }
+
+            if itemType == "output_text" || itemType == "text" {
+                if let text = item["text"] as? String,
+                   !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    return text
+                }
+                if let content = item["content"] {
+                    let text = flattenedText(from: content).trimmingCharacters(in: .whitespacesAndNewlines)
+                    if !text.isEmpty {
+                        return text
+                    }
+                }
+            }
+        }
         return nil
     }
 
@@ -1519,10 +1803,10 @@ final class ChatService: NSObject, URLSessionDataDelegate, @unchecked Sendable {
             if payloadString == "[DONE]" {
                 ssePendingEventType = nil
                 if self.newFormatActive && self.sentThinkOpen && !self.sentThinkClose && !self.isLegacyThinkStream {
-                    self.emitDelta(thinkCloseLine)
+                    self.emitDelta(thinkCloseLine, marksPrimaryOutput: false)
                     self.sentThinkClose = true
                 }
-                if self.sawAnyAssistantToken {
+                if self.sawAnyPrimaryAssistantToken {
                     emitStreamFinishedOnce()
                     stopWatchdog()
                 }
@@ -1534,10 +1818,8 @@ final class ChatService: NSObject, URLSessionDataDelegate, @unchecked Sendable {
 
             switch activeStyle {
             case .openAIChatCompletions:
-                if let decoded = try? decoder.decode(ChatCompletionChunk.self, from: jsonData),
-                   decoded.choices != nil || decoded.usage != nil || decoded.id != nil || decoded.timings != nil {
+                if self.handleOpenAICompatibleStreamPayload(jsonData, fallbackType: ssePendingEventType) {
                     ssePendingEventType = nil
-                    self.handleDecodedChunk(decoded)
                 }
 
             case .anthropicMessages:
@@ -1558,6 +1840,386 @@ final class ChatService: NSObject, URLSessionDataDelegate, @unchecked Sendable {
         if processCount >= 0 {
             let remainder = lines.suffix(from: max(0, processCount)).joined(separator: "\n")
             ssePartialLine = remainder
+        }
+    }
+
+    private func handleOpenAICompatibleStreamPayload(_ jsonData: Data, fallbackType: String?) -> Bool {
+        if let decoded = try? decoder.decode(ChatCompletionChunk.self, from: jsonData),
+           decoded.choices != nil || decoded.usage != nil || decoded.id != nil || decoded.timings != nil {
+            handleDecodedChunk(decoded)
+            return true
+        }
+
+        guard let object = try? JSONSerialization.jsonObject(with: jsonData, options: []),
+              let dictionary = object as? [String: Any] else {
+            return false
+        }
+
+        if let sequenceNumber = extractSSESequenceNumber(from: dictionary) {
+            if let lastProcessed = lastProcessedSSESequenceNumber, sequenceNumber <= lastProcessed {
+                return true
+            }
+            lastProcessedSSESequenceNumber = sequenceNumber
+        }
+
+        if let streamError = extractSSEStreamErrorMessage(from: dictionary) {
+            failCurrentStreamWithServerError(streamError)
+            return true
+        }
+
+        let metadata = extractResponseMetadata(from: dictionary, style: .openAIChatCompletions)
+        if metadata.hasAnyValue {
+            mergeResponseMetadata(metadata)
+        }
+
+        let rawType = (dictionary["type"] as? String) ?? fallbackType ?? ""
+        let eventType = rawType.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+
+        if eventType.isEmpty {
+            if let chunk = extractOpenAICompatibleStreamDeltaText(from: dictionary), !chunk.isEmpty {
+                emitDelta(chunk)
+                return true
+            }
+            return metadata.hasAnyValue
+        }
+
+        switch eventType {
+        case "response.created", "response.in_progress", "response.output_item.added", "response.content_part.added":
+            return true
+
+        case "response.reasoning_text.delta":
+            newFormatActive = true
+            if !isLegacyThinkStream && !sentThinkOpen {
+                emitDelta(thinkOpenLine, marksPrimaryOutput: false)
+                sentThinkOpen = true
+            }
+            if let itemID = extractSSEItemID(from: dictionary) {
+                reasoningDeltaItemIDs.insert(itemID)
+            }
+            if let chunk = extractOpenAICompatibleStreamDeltaText(from: dictionary), !chunk.isEmpty {
+                emitDelta(chunk, marksPrimaryOutput: false)
+            }
+            return true
+
+        case "response.reasoning_text.done":
+            newFormatActive = true
+            if !isLegacyThinkStream && !sentThinkOpen {
+                emitDelta(thinkOpenLine, marksPrimaryOutput: false)
+                sentThinkOpen = true
+            }
+            let itemID = extractSSEItemID(from: dictionary)
+            let sawReasoningDeltaForItem: Bool
+            if let itemID {
+                sawReasoningDeltaForItem = reasoningDeltaItemIDs.contains(itemID)
+            } else {
+                sawReasoningDeltaForItem = !reasoningDeltaItemIDs.isEmpty
+            }
+            if !sawReasoningDeltaForItem,
+               let chunk = extractOpenAICompatibleStreamDeltaText(from: dictionary),
+               !chunk.isEmpty {
+                emitDelta(chunk, marksPrimaryOutput: false)
+            }
+            return true
+
+        case "response.output_text.delta", "response.content_part.delta", "response.delta", "message.delta":
+            if newFormatActive && !isLegacyThinkStream && sentThinkOpen && !sentThinkClose {
+                emitDelta(thinkCloseLine, marksPrimaryOutput: false)
+                sentThinkClose = true
+            }
+            if let itemID = extractSSEItemID(from: dictionary) {
+                outputTextDeltaItemIDs.insert(itemID)
+            }
+            if let chunk = extractOpenAICompatibleStreamDeltaText(from: dictionary), !chunk.isEmpty {
+                emitDelta(chunk)
+            }
+            return true
+
+        case "response.output_text.done", "response.content_part.done":
+            if eventType == "response.content_part.done",
+               let partType = extractSSEPartType(from: dictionary),
+               partType.contains("reasoning") {
+                return true
+            }
+            if newFormatActive && !isLegacyThinkStream && sentThinkOpen && !sentThinkClose {
+                emitDelta(thinkCloseLine, marksPrimaryOutput: false)
+                sentThinkClose = true
+            }
+            let itemID = extractSSEItemID(from: dictionary)
+            let sawOutputDeltaForItem: Bool
+            if let itemID {
+                sawOutputDeltaForItem = outputTextDeltaItemIDs.contains(itemID)
+            } else {
+                sawOutputDeltaForItem = false
+            }
+            if !sawOutputDeltaForItem,
+               !sawAnyPrimaryAssistantToken,
+               let chunk = extractOpenAICompatibleStreamDeltaText(from: dictionary),
+               !chunk.isEmpty {
+                emitDelta(chunk)
+            }
+            return true
+
+        case "response.output_item.done":
+            if let itemType = extractSSEItemType(from: dictionary),
+               (itemType.contains("reasoning") || itemType.contains("tool")) {
+                return true
+            }
+            if newFormatActive && !isLegacyThinkStream && sentThinkOpen && !sentThinkClose {
+                emitDelta(thinkCloseLine, marksPrimaryOutput: false)
+                sentThinkClose = true
+            }
+            if !sawAnyPrimaryAssistantToken {
+                if let chunk = extractOpenAICompatibleStreamDeltaText(from: dictionary),
+                   !chunk.isEmpty {
+                    emitDelta(chunk)
+                } else if let recovered = extractOpenAIAssistantText(from: dictionary),
+                          !recovered.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    emitDelta(recovered)
+                }
+            }
+            return true
+
+        case "response.completed", "response.done":
+            if newFormatActive && !isLegacyThinkStream && sentThinkOpen && !sentThinkClose {
+                emitDelta(thinkCloseLine, marksPrimaryOutput: false)
+                sentThinkClose = true
+            }
+            if !sawAnyPrimaryAssistantToken {
+                if let response = dictionary["response"] as? [String: Any],
+                   let recovered = extractOpenAIAssistantText(from: response),
+                   !recovered.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    emitDelta(recovered)
+                } else if let recovered = extractOpenAIAssistantText(from: dictionary),
+                          !recovered.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    emitDelta(recovered)
+                }
+            }
+            if sawAnyPrimaryAssistantToken || sawAnyAssistantToken {
+                emitStreamFinishedOnce()
+                stopWatchdog()
+            }
+            return true
+
+        case "response.failed", "error":
+            let message = extractOpenAICompatibleStreamErrorMessage(from: dictionary) ?? NSLocalizedString(
+                "OpenAI Compatible API error",
+                comment: "Fallback error shown when OpenAI-compatible stream returns an error event without a message"
+            )
+            failCurrentStreamWithServerError(message)
+            return true
+
+        default:
+            if let chunk = extractOpenAICompatibleStreamDeltaText(from: dictionary), !chunk.isEmpty {
+                if eventType.contains("reasoning") {
+                    newFormatActive = true
+                    if !isLegacyThinkStream && !sentThinkOpen {
+                        emitDelta(thinkOpenLine, marksPrimaryOutput: false)
+                        sentThinkOpen = true
+                    }
+                    emitDelta(chunk, marksPrimaryOutput: false)
+                } else {
+                    if newFormatActive && !isLegacyThinkStream && sentThinkOpen && !sentThinkClose {
+                        emitDelta(thinkCloseLine, marksPrimaryOutput: false)
+                        sentThinkClose = true
+                    }
+                    emitDelta(chunk)
+                }
+                return true
+            }
+            if !sawAnyPrimaryAssistantToken,
+               let recovered = extractOpenAIAssistantText(from: dictionary),
+               !recovered.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                if newFormatActive && !isLegacyThinkStream && sentThinkOpen && !sentThinkClose {
+                    emitDelta(thinkCloseLine, marksPrimaryOutput: false)
+                    sentThinkClose = true
+                }
+                emitDelta(recovered)
+                return true
+            }
+            return metadata.hasAnyValue
+        }
+    }
+
+    private func extractSSESequenceNumber(from dictionary: [String: Any]) -> Int? {
+        if let number = dictionary["sequence_number"] as? NSNumber {
+            return number.intValue
+        }
+        if let number = dictionary["sequence_number"] as? Int {
+            return number
+        }
+        if let raw = dictionary["sequence_number"] as? String {
+            return Int(raw.trimmingCharacters(in: .whitespacesAndNewlines))
+        }
+        return nil
+    }
+
+    private func extractSSEItemID(from dictionary: [String: Any]) -> String? {
+        if let itemID = dictionary["item_id"] as? String {
+            let trimmed = itemID.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmed.isEmpty {
+                return trimmed
+            }
+        }
+        if let item = dictionary["item"] as? [String: Any],
+           let itemID = item["id"] as? String {
+            let trimmed = itemID.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmed.isEmpty {
+                return trimmed
+            }
+        }
+        return nil
+    }
+
+    private func extractSSEItemType(from dictionary: [String: Any]) -> String? {
+        guard let item = dictionary["item"] as? [String: Any],
+              let type = item["type"] as? String else {
+            return nil
+        }
+        let normalized = type.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return normalized.isEmpty ? nil : normalized
+    }
+
+    private func extractSSEPartType(from dictionary: [String: Any]) -> String? {
+        guard let part = dictionary["part"] as? [String: Any],
+              let type = part["type"] as? String else {
+            return nil
+        }
+        let normalized = type.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return normalized.isEmpty ? nil : normalized
+    }
+
+    private func extractOpenAICompatibleStreamDeltaText(from dictionary: [String: Any]) -> String? {
+        func extract(_ value: Any?) -> String? {
+            guard let value else { return nil }
+            let text = flattenedText(from: value)
+            return text.isEmpty ? nil : text
+        }
+
+        let itemCandidate: [String: Any]? = {
+            guard let item = dictionary["item"] as? [String: Any] else { return nil }
+            let itemType = ((item["type"] as? String) ?? "").trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            if itemType == "reasoning" || itemType.contains("tool") {
+                return nil
+            }
+            return item
+        }()
+
+        let directCandidates: [Any?] = [
+            dictionary["delta"],
+            dictionary["text"],
+            dictionary["output_text"],
+            dictionary["content"],
+            itemCandidate?["text"],
+            itemCandidate?["output_text"],
+            itemCandidate?["content"],
+            (dictionary["part"] as? [String: Any])?["text"],
+            (dictionary["part"] as? [String: Any])?["content"]
+        ]
+        for candidate in directCandidates {
+            if let text = extract(candidate) {
+                return text
+            }
+        }
+
+        if let choices = dictionary["choices"] as? [[String: Any]] {
+            for choice in choices {
+                if let delta = choice["delta"] as? [String: Any],
+                   let text = extract(delta["content"]) {
+                    return text
+                }
+                if let message = choice["message"] as? [String: Any],
+                   let text = extract(message["content"]) {
+                    return text
+                }
+                if let text = extract(choice["text"]) {
+                    return text
+                }
+                if let text = extract(choice["content"]) {
+                    return text
+                }
+            }
+        }
+
+        if let response = dictionary["response"] as? [String: Any] {
+            if let text = extract(response["output_text"]) {
+                return text
+            }
+            if let text = extract(response["text"]) {
+                return text
+            }
+            if let output = response["output"] as? [[String: Any]],
+               let text = extractOpenAIResponseOutputText(output) {
+                return text
+            }
+        }
+        return nil
+    }
+
+    private func extractOpenAICompatibleStreamErrorMessage(from dictionary: [String: Any]) -> String? {
+        if let error = dictionary["error"] as? [String: Any],
+           let message = error["message"] as? String {
+            let trimmed = message.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? nil : trimmed
+        }
+        if let message = dictionary["message"] as? String {
+            let trimmed = message.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? nil : trimmed
+        }
+        return nil
+    }
+
+    private func extractSSEStreamErrorMessage(from dictionary: [String: Any]) -> String? {
+        if let errorObject = dictionary["error"] as? [String: Any],
+           let message = errorObject["message"] as? String {
+            let trimmed = message.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmed.isEmpty { return trimmed }
+        }
+
+        if let type = dictionary["type"] as? String,
+           type.lowercased().contains("error"),
+           let message = dictionary["message"] as? String {
+            let trimmed = message.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmed.isEmpty { return trimmed }
+        }
+
+        return nil
+    }
+
+    private func extractSSEStreamErrorMessage(from rawBodyData: Data) -> String? {
+        guard !rawBodyData.isEmpty,
+              let rawBody = String(data: rawBodyData, encoding: .utf8),
+              !rawBody.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return nil
+        }
+
+        let lines = rawBody.split(whereSeparator: \.isNewline)
+        for rawLine in lines {
+            let line = String(rawLine).trimmingCharacters(in: .whitespacesAndNewlines)
+            guard line.hasPrefix("data:") else { continue }
+            let payload = String(line.dropFirst("data:".count)).trimmingCharacters(in: .whitespaces)
+            guard !payload.isEmpty, payload != "[DONE]",
+                  let payloadData = payload.data(using: .utf8),
+                  let object = try? JSONSerialization.jsonObject(with: payloadData, options: []),
+                  let dictionary = object as? [String: Any] else {
+                continue
+            }
+            if let message = extractSSEStreamErrorMessage(from: dictionary) {
+                return message
+            }
+        }
+
+        return nil
+    }
+
+    private func failCurrentStreamWithServerError(_ message: String) {
+        isCancelled = true
+        dataTask?.cancel()
+        dataTask = nil
+        stopConnectionWatchdog()
+        stopWatchdog()
+        clearActiveEndpointCandidate()
+        Task { @MainActor in
+            self.onError?(ChatNetworkError.serverError(statusCode: httpStatusCode, message: message))
         }
     }
 
@@ -1599,15 +2261,15 @@ final class ChatService: NSObject, URLSessionDataDelegate, @unchecked Sendable {
             if let r = delta.reasoning?.text, !r.isEmpty {
                 newFormatActive = true
                 if !isLegacyThinkStream && !sentThinkOpen {
-                    emitDelta(thinkOpenLine)
+                    emitDelta(thinkOpenLine, marksPrimaryOutput: false)
                     sentThinkOpen = true
                 }
-                emitDelta(r)
+                emitDelta(r, marksPrimaryOutput: false)
             }
 
             if !deltaText.isEmpty {
                 if newFormatActive && !isLegacyThinkStream && sentThinkOpen && !sentThinkClose {
-                    emitDelta(thinkCloseLine)
+                    emitDelta(thinkCloseLine, marksPrimaryOutput: false)
                     sentThinkClose = true
                 }
                 emitDelta(deltaText)
@@ -1648,16 +2310,16 @@ final class ChatService: NSObject, URLSessionDataDelegate, @unchecked Sendable {
             let blockType = (event.content_block?.type ?? "").lowercased()
             if blockType.contains("thinking") {
                 if !sentThinkOpen {
-                    emitDelta(thinkOpenLine)
+                    emitDelta(thinkOpenLine, marksPrimaryOutput: false)
                     sentThinkOpen = true
                 }
                 anthropicThinkingActive = true
                 if let thinking = event.content_block?.thinking, !thinking.isEmpty {
-                    emitDelta(thinking)
+                    emitDelta(thinking, marksPrimaryOutput: false)
                 }
             } else if blockType == "text" {
                 if anthropicThinkingActive && sentThinkOpen && !sentThinkClose {
-                    emitDelta(thinkCloseLine)
+                    emitDelta(thinkCloseLine, marksPrimaryOutput: false)
                     sentThinkClose = true
                     anthropicThinkingActive = false
                 }
@@ -1670,17 +2332,17 @@ final class ChatService: NSObject, URLSessionDataDelegate, @unchecked Sendable {
             let deltaType = (event.delta?.type ?? "").lowercased()
             if deltaType.contains("thinking") {
                 if !sentThinkOpen {
-                    emitDelta(thinkOpenLine)
+                    emitDelta(thinkOpenLine, marksPrimaryOutput: false)
                     sentThinkOpen = true
                 }
                 anthropicThinkingActive = true
                 let thinking = event.delta?.thinking ?? event.delta?.text ?? ""
                 if !thinking.isEmpty {
-                    emitDelta(thinking)
+                    emitDelta(thinking, marksPrimaryOutput: false)
                 }
             } else {
                 if anthropicThinkingActive && sentThinkOpen && !sentThinkClose {
-                    emitDelta(thinkCloseLine)
+                    emitDelta(thinkCloseLine, marksPrimaryOutput: false)
                     sentThinkClose = true
                     anthropicThinkingActive = false
                 }
@@ -1691,14 +2353,14 @@ final class ChatService: NSObject, URLSessionDataDelegate, @unchecked Sendable {
 
         case "content_block_stop":
             if anthropicThinkingActive && sentThinkOpen && !sentThinkClose {
-                emitDelta(thinkCloseLine)
+                emitDelta(thinkCloseLine, marksPrimaryOutput: false)
                 sentThinkClose = true
                 anthropicThinkingActive = false
             }
 
         case "message_stop":
             if anthropicThinkingActive && sentThinkOpen && !sentThinkClose {
-                emitDelta(thinkCloseLine)
+                emitDelta(thinkCloseLine, marksPrimaryOutput: false)
                 sentThinkClose = true
                 anthropicThinkingActive = false
             }
@@ -1751,29 +2413,29 @@ final class ChatService: NSObject, URLSessionDataDelegate, @unchecked Sendable {
         case "reasoning.start":
             newFormatActive = true
             if !isLegacyThinkStream && !sentThinkOpen {
-                emitDelta(thinkOpenLine)
+                emitDelta(thinkOpenLine, marksPrimaryOutput: false)
                 sentThinkOpen = true
             }
 
         case "reasoning.delta":
             newFormatActive = true
             if !isLegacyThinkStream && !sentThinkOpen {
-                emitDelta(thinkOpenLine)
+                emitDelta(thinkOpenLine, marksPrimaryOutput: false)
                 sentThinkOpen = true
             }
             if let content = event.content, !content.isEmpty {
-                emitDelta(content)
+                emitDelta(content, marksPrimaryOutput: false)
             }
 
         case "reasoning.end":
             if newFormatActive && !isLegacyThinkStream && sentThinkOpen && !sentThinkClose {
-                emitDelta(thinkCloseLine)
+                emitDelta(thinkCloseLine, marksPrimaryOutput: false)
                 sentThinkClose = true
             }
 
         case "message", "message.delta", "response.output_text.delta", "response.content":
             if newFormatActive && !isLegacyThinkStream && sentThinkOpen && !sentThinkClose {
-                emitDelta(thinkCloseLine)
+                emitDelta(thinkCloseLine, marksPrimaryOutput: false)
                 sentThinkClose = true
             }
             let chunk = [
@@ -1795,10 +2457,10 @@ final class ChatService: NSObject, URLSessionDataDelegate, @unchecked Sendable {
 
         case "chat.end", "response.completed":
             if newFormatActive && !isLegacyThinkStream && sentThinkOpen && !sentThinkClose {
-                emitDelta(thinkCloseLine)
+                emitDelta(thinkCloseLine, marksPrimaryOutput: false)
                 sentThinkClose = true
             }
-            if !sawAnyAssistantToken {
+            if !sawAnyPrimaryAssistantToken {
                 let fullText = [
                     event.result?.primaryMessageText,
                     event.response?.primaryMessageText,
@@ -1813,7 +2475,7 @@ final class ChatService: NSObject, URLSessionDataDelegate, @unchecked Sendable {
                     emitDelta(fullText)
                 }
             }
-            if !sawAnyAssistantToken {
+            if !sawAnyPrimaryAssistantToken {
                 if let pendingLMStudioStreamErrorMessage,
                    !pendingLMStudioStreamErrorMessage.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     isCancelled = true
@@ -1842,11 +2504,14 @@ final class ChatService: NSObject, URLSessionDataDelegate, @unchecked Sendable {
         }
     }
 
-    private func emitDelta(_ piece: String) {
+    private func emitDelta(_ piece: String, marksPrimaryOutput: Bool = true) {
         guard !isCancelled else { return }
         lastDeltaAt = Date()
         Task { @MainActor in self.onDelta?(piece) }
         sawAnyAssistantToken = true
+        if marksPrimaryOutput {
+            sawAnyPrimaryAssistantToken = true
+        }
     }
 
     func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
@@ -1885,7 +2550,7 @@ final class ChatService: NSObject, URLSessionDataDelegate, @unchecked Sendable {
             return
         }
 
-        if !sawAnyAssistantToken {
+        if !sawAnyPrimaryAssistantToken {
             let activeStyle = activeEndpointCandidate?.style ?? .openAIChatCompletions
             let parsedBufferedResponse = parseBufferedSuccessResponse(successResponseData, style: activeStyle)
             if parsedBufferedResponse.metadata.hasAnyValue {
@@ -1902,6 +2567,14 @@ final class ChatService: NSObject, URLSessionDataDelegate, @unchecked Sendable {
                 clearActiveEndpointCandidate()
                 Task { @MainActor in
                     self.onError?(ChatNetworkError.serverError(statusCode: httpStatusCode, message: recoveredError))
+                }
+                return
+            }
+            if let recoveredSSEError = extractSSEStreamErrorMessage(from: successResponseData),
+               !recoveredSSEError.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                clearActiveEndpointCandidate()
+                Task { @MainActor in
+                    self.onError?(ChatNetworkError.serverError(statusCode: httpStatusCode, message: recoveredSSEError))
                 }
                 return
             }

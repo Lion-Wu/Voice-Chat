@@ -144,6 +144,28 @@ final class AppEnvironment: ObservableObject {
             }
             .store(in: &cancellables)
 
+        let chatPresetRoutingSignaturePublisher = settingsManager.$chatServerPresets
+            .combineLatest(settingsManager.$selectedChatServerPresetID.removeDuplicates())
+            .map { presets, selectedID in
+                guard let selectedID,
+                      let preset = presets.first(where: { $0.id == selectedID }) else {
+                    return ""
+                }
+                let normalizedBase = ChatAPIEndpointResolver.normalizedAPIBaseKey(preset.apiURL)
+                    ?? preset.apiURL.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+                let format = (preset.apiFormatPreferenceRaw ?? "")
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                return "\(selectedID.uuidString)|\(normalizedBase)|\(format)"
+            }
+            .removeDuplicates()
+
+        chatPresetRoutingSignaturePublisher
+            .dropFirst()
+            .sink { [weak self] _ in
+                self?.chatSessionsViewModel.refreshChatConfigurationIfNeeded()
+            }
+            .store(in: &cancellables)
+
         settingsManager.$serverSettings
             .removeDuplicates()
             .sink { [weak self] _ in

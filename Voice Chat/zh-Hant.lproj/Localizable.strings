@@ -263,6 +263,7 @@
 "Stream payload exceeded safety limit" = "串流回應資料超出安全限制";
 "Server returned an empty response" = "伺服器回傳了空回應";
 "Anthropic API error" = "Anthropic API 錯誤";
+"OpenAI Compatible API error" = "OpenAI 相容 API 錯誤";
 "LM Studio REST API error" = "LM Studio REST API 錯誤";
 "Unknown provider detection error" = "未知的提供者偵測錯誤";
 "No models returned from %@" = "%@ 未回傳任何模型";
@@ -272,3 +273,6 @@
 "llama.cpp" = "llama.cpp";
 "OpenAI Compatible" = "OpenAI 相容";
 "Unknown" = "未知";
+"API Format" = "API 格式";
+"Automatic" = "自動";
+"Detected API Format: %@" = "偵測到的 API 格式：%@";

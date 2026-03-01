@@ -62,13 +62,6 @@ final class SettingsViewModel: ObservableObject {
 
     private struct ModelFetchPayload {
         let models: [ModelInfo]
-        let rawData: Data
-    }
-
-    private struct ModelProbeResult {
-        let candidate: ChatAPIEndpointCandidate
-        let models: [ModelInfo]
-        let score: Int
     }
 
     // MARK: - Preset bindings for the UI
@@ -100,6 +93,9 @@ final class SettingsViewModel: ObservableObject {
         }
     }
     @Published var chatServerPresetName: String = "" { didSet { saveSelectedChatServerPresetName() } }
+    @Published var selectedChatAPIFormatPreference: ChatAPIFormatPreference = .automatic {
+        didSet { saveSelectedChatServerPresetAPIFormatPreference() }
+    }
 
     @Published var presetList: [PresetSummary] = []
     @Published var selectedPresetID: UUID? {
@@ -154,6 +150,7 @@ final class SettingsViewModel: ObservableObject {
 
     private var suppressChatServerPresetDidSet = false
     private var suppressSaveChatServerPreset = false
+    private var suppressSaveChatServerPresetFormat = false
 
     private var suppressPresetDidSet = false
     private var suppressSavePreset = false
@@ -173,6 +170,7 @@ final class SettingsViewModel: ObservableObject {
         apiURL = ""
         selectedModel = ""
         chatAPIKey = ""
+        selectedChatAPIFormatPreference = .automatic
 
         selectedVoiceServerPresetID = nil
 
@@ -227,10 +225,7 @@ final class SettingsViewModel: ObservableObject {
             return
         }
 
-        let endpointCandidates = ChatAPIEndpointResolver.endpointCandidates(
-            for: apiURL,
-            preferredProvider: settingsManager.detectedChatProvider(for: apiURL)
-        )
+        let endpointCandidates = modelDetectionCandidates(for: apiURL)
         guard !endpointCandidates.isEmpty else {
             isLoadingModels = false
             chatServerErrorMessage = NSLocalizedString("Invalid Server URL", comment: "Shown when the model list URL cannot be parsed")
@@ -255,39 +250,34 @@ final class SettingsViewModel: ObservableObject {
         modelFetchTask = Task { [weak self, requestID, initialRetryPolicy, probeRetryPolicy, endpointCandidates, apiURL] in
             guard let self else { return }
             var lastError: Error?
-            var probes: [ModelProbeResult] = []
-            probes.reserveCapacity(endpointCandidates.count)
 
-            for candidate in endpointCandidates {
+            for (index, candidate) in endpointCandidates.enumerated() {
                 guard self.modelFetchRequestID == requestID else { return }
                 self.isRetryingModels = false
                 self.modelRetryAttempt = 0
                 self.modelRetryLastError = nil
 
                 do {
-                    let retryPolicy = probes.isEmpty ? initialRetryPolicy : probeRetryPolicy
+                    let retryPolicy = index == 0 ? initialRetryPolicy : probeRetryPolicy
                     let payload = try await self.requestModels(
                         from: candidate,
                         requestID: requestID,
                         retryPolicy: retryPolicy
                     )
-                    let decodedModels = payload.models
-                    let score = self.scoreModelsPayload(candidate: candidate, payload: payload)
-                    probes.append(ModelProbeResult(candidate: candidate, models: decodedModels, score: score))
 
                     guard self.modelFetchRequestID == requestID else { return }
-                    guard !decodedModels.isEmpty else {
+                    self.applyDetectedModels(payload.models, from: candidate, apiURL: apiURL)
+                    if payload.models.isEmpty {
                         let providerName = candidate.provider.displayName
-                        let preview = String(
+                        self.chatServerErrorMessage = String(
                             format: NSLocalizedString(
                                 "No models returned from %@",
                                 comment: "Shown when a provider endpoint responds successfully but with an empty models list"
                             ),
                             providerName
                         )
-                        lastError = HTTPStatusError(statusCode: 404, bodyPreview: preview)
-                        continue
                     }
+                    return
                 } catch {
                     lastError = error
                     continue
@@ -299,24 +289,6 @@ final class SettingsViewModel: ObservableObject {
             self.isRetryingModels = false
             self.modelRetryAttempt = 0
             self.modelRetryLastError = nil
-
-            if let bestProbe = self.bestProbe(from: probes), !bestProbe.models.isEmpty {
-                self.applyDetectedModels(bestProbe.models, from: bestProbe.candidate, apiURL: apiURL)
-                return
-            }
-
-            if let bestProbe = self.bestProbe(from: probes) {
-                self.settingsManager.noteDetectedChatEndpoint(bestProbe.candidate, for: apiURL)
-                let providerName = bestProbe.candidate.provider.displayName
-                self.chatServerErrorMessage = String(
-                    format: NSLocalizedString(
-                        "No models returned from %@",
-                        comment: "Shown when a provider endpoint responds successfully but with an empty models list"
-                    ),
-                    providerName
-                )
-                return
-            }
 
             if let statusError = lastError as? HTTPStatusError {
                 self.chatServerErrorMessage = String(
@@ -335,6 +307,26 @@ final class SettingsViewModel: ObservableObject {
             )
             self.chatServerErrorMessage = message
         }
+    }
+
+    private func modelDetectionCandidates(for apiURL: String) -> [ChatAPIEndpointCandidate] {
+        let preference = settingsManager.chatAPIFormatPreference(for: settingsManager.selectedChatServerPresetID)
+        if preference != .automatic {
+            if let forced = ChatAPIEndpointResolver.endpointCandidate(for: apiURL, formatPreference: preference) {
+                return [forced]
+            }
+            return []
+        }
+
+        if let official = ChatAPIEndpointResolver.officialProviderHint(for: apiURL),
+           let pinned = ChatAPIEndpointResolver.endpointCandidate(for: apiURL, provider: official) {
+            return [pinned]
+        }
+
+        return ChatAPIEndpointResolver.autoDetectionCandidates(
+            for: apiURL,
+            preferredProvider: settingsManager.detectedChatProvider(for: apiURL)
+        )
     }
 
     private func applyDetectedModels(_ decodedModels: [ModelInfo], from candidate: ChatAPIEndpointCandidate, apiURL: String) {
@@ -360,142 +352,6 @@ final class SettingsViewModel: ObservableObject {
            let firstModel = availableModels.first {
             selectedModel = firstModel
         }
-    }
-
-    private func bestProbe(from probes: [ModelProbeResult]) -> ModelProbeResult? {
-        probes.max { lhs, rhs in
-            if lhs.score != rhs.score {
-                return lhs.score < rhs.score
-            }
-            let lhsStyleRank = stylePreferenceRank(lhs.candidate.style)
-            let rhsStyleRank = stylePreferenceRank(rhs.candidate.style)
-            if lhsStyleRank != rhsStyleRank {
-                return lhsStyleRank < rhsStyleRank
-            }
-            let lhsProviderRank = providerPreferenceRank(lhs.candidate.provider)
-            let rhsProviderRank = providerPreferenceRank(rhs.candidate.provider)
-            if lhsProviderRank != rhsProviderRank {
-                return lhsProviderRank < rhsProviderRank
-            }
-            return lhs.models.count < rhs.models.count
-        }
-    }
-
-    private func stylePreferenceRank(_ style: ChatRequestStyle) -> Int {
-        switch style {
-        case .lmStudioRESTV1:
-            return 4
-        case .lmStudioRESTV1LegacyMessage:
-            return 3
-        case .anthropicMessages:
-            return 2
-        case .openAIChatCompletions:
-            return 1
-        }
-    }
-
-    private func providerPreferenceRank(_ provider: ChatProvider) -> Int {
-        switch provider {
-        case .lmStudio:
-            return 6
-        case .anthropic:
-            return 5
-        case .openAI:
-            return 4
-        case .llamaCpp:
-            return 3
-        case .openAICompatible:
-            return 2
-        case .unknown:
-            return 1
-        }
-    }
-
-    private func scoreModelsPayload(candidate: ChatAPIEndpointCandidate, payload: ModelFetchPayload) -> Int {
-        let models = payload.models
-        guard !models.isEmpty else { return .min / 4 }
-
-        var score = 1000 + min(models.count, 200)
-
-        var explicitImageMetadataCount = 0
-        var richMetadataCount = 0
-        for model in models {
-            let hasExplicitImageMetadata =
-                model.supports_image_input != nil ||
-                model.supports_vision != nil ||
-                model.vision != nil ||
-                model.multimodal != nil
-            if hasExplicitImageMetadata {
-                explicitImageMetadataCount += 1
-            }
-
-            let hasRichMetadata =
-                model.capabilities != nil ||
-                model.details != nil ||
-                model.model_info != nil ||
-                model.type != nil ||
-                model.arch != nil ||
-                (model.input_modalities?.isEmpty == false) ||
-                (model.modalities?.isEmpty == false)
-            if hasRichMetadata {
-                richMetadataCount += 1
-            }
-        }
-        score += explicitImageMetadataCount * 50
-        score += richMetadataCount * 16
-
-        let topLevelKeys = topLevelJSONKeys(from: payload.rawData)
-        if topLevelKeys.contains("models") {
-            score += 320
-        }
-        if topLevelKeys.contains("data") {
-            score += 160
-        }
-        if topLevelKeys.contains("object") {
-            score += 20
-        }
-
-        switch candidate.style {
-        case .lmStudioRESTV1:
-            score += 420
-            if !topLevelKeys.contains("models") {
-                score -= 80
-            }
-        case .lmStudioRESTV1LegacyMessage:
-            score += 360
-            if !topLevelKeys.contains("models") {
-                score -= 80
-            }
-        case .anthropicMessages:
-            score += 200
-        case .openAIChatCompletions:
-            score += 140
-        }
-
-        switch candidate.provider {
-        case .lmStudio:
-            score += 180
-        case .anthropic:
-            score += 120
-        case .openAI:
-            score += 100
-        case .llamaCpp:
-            score += 80
-        case .openAICompatible:
-            score += 60
-        case .unknown:
-            break
-        }
-
-        return score
-    }
-
-    private func topLevelJSONKeys(from data: Data) -> Set<String> {
-        guard let object = try? JSONSerialization.jsonObject(with: data, options: []),
-              let dictionary = object as? [String: Any] else {
-            return []
-        }
-        return Set(dictionary.keys.map { $0.lowercased() })
     }
 
     private func normalizedAPIKeyForXAPIKeyHeader(_ raw: String) -> String {
@@ -568,7 +424,7 @@ final class SettingsViewModel: ObservableObject {
             let modelList = try JSONDecoder().decode(ModelListResponse.self, from: data)
             return modelList.data
         }.value
-        return ModelFetchPayload(models: decodedModels, rawData: data)
+        return ModelFetchPayload(models: decodedModels)
     }
 
     func refreshFromSettingsManager() {
@@ -710,15 +566,21 @@ final class SettingsViewModel: ObservableObject {
 
     func loadSelectedChatServerPresetFields() {
         suppressSaveChatServerPreset = true
-        defer { suppressSaveChatServerPreset = false }
+        suppressSaveChatServerPresetFormat = true
+        defer {
+            suppressSaveChatServerPreset = false
+            suppressSaveChatServerPresetFormat = false
+        }
 
         guard let id = settingsManager.selectedChatServerPresetID,
               let p = settingsManager.chatServerPresets.first(where: { $0.id == id }) else {
             chatServerPresetName = ""
+            selectedChatAPIFormatPreference = .automatic
             return
         }
 
         chatServerPresetName = p.name
+        selectedChatAPIFormatPreference = settingsManager.chatAPIFormatPreference(for: id)
     }
 
     private func saveSelectedChatServerPresetName() {
@@ -726,6 +588,16 @@ final class SettingsViewModel: ObservableObject {
               let id = settingsManager.selectedChatServerPresetID else { return }
         settingsManager.updateChatServerPreset(id: id, name: chatServerPresetName)
         reloadChatServerPresetListAndSelection()
+    }
+
+    private func saveSelectedChatServerPresetAPIFormatPreference() {
+        guard !suppressSaveChatServerPresetFormat,
+              let id = settingsManager.selectedChatServerPresetID else { return }
+        settingsManager.updateChatServerPreset(
+            id: id,
+            apiFormatPreference: selectedChatAPIFormatPreference
+        )
+        fetchAvailableModels()
     }
 
     func addChatServerPreset() {

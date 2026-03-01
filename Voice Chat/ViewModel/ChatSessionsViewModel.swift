@@ -58,8 +58,8 @@ final class ChatSessionsViewModel: ObservableObject {
             apiBaseURL: self.settingsManager.chatSettings.apiURL,
             modelIdentifier: self.settingsManager.chatSettings.selectedModel,
             apiKey: self.settingsManager.chatSettings.apiKey,
-            providerHint: self.settingsManager.detectedChatProvider(for: self.settingsManager.chatSettings.apiURL),
-            requestStyleHint: self.settingsManager.detectedChatRequestStyle(for: self.settingsManager.chatSettings.apiURL)
+            providerHint: self.settingsManager.resolvedChatProvider(for: self.settingsManager.chatSettings.apiURL),
+            requestStyleHint: self.settingsManager.resolvedChatRequestStyle(for: self.settingsManager.chatSettings.apiURL)
         )
         self.selectedSessionID = draftSession.id
     }
@@ -69,8 +69,8 @@ final class ChatSessionsViewModel: ObservableObject {
             apiBaseURL: settingsManager.chatSettings.apiURL,
             modelIdentifier: settingsManager.chatSettings.selectedModel,
             apiKey: settingsManager.chatSettings.apiKey,
-            providerHint: settingsManager.detectedChatProvider(for: settingsManager.chatSettings.apiURL),
-            requestStyleHint: settingsManager.detectedChatRequestStyle(for: settingsManager.chatSettings.apiURL)
+            providerHint: settingsManager.resolvedChatProvider(for: settingsManager.chatSettings.apiURL),
+            requestStyleHint: settingsManager.resolvedChatRequestStyle(for: settingsManager.chatSettings.apiURL)
         )
     }
 

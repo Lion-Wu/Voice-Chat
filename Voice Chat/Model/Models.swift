@@ -40,6 +40,45 @@ enum ChatRequestStyle: String, Codable, Sendable {
     case anthropicMessages
 }
 
+enum ChatAPIFormatPreference: String, Codable, CaseIterable, Sendable {
+    case automatic
+    case openAI
+    case anthropic
+    case lmStudio
+    case llamaCpp
+    case openAICompatible
+
+    var providerHint: ChatProvider? {
+        switch self {
+        case .automatic:
+            return nil
+        case .openAI:
+            return .openAI
+        case .anthropic:
+            return .anthropic
+        case .lmStudio:
+            return .lmStudio
+        case .llamaCpp:
+            return .llamaCpp
+        case .openAICompatible:
+            return .openAICompatible
+        }
+    }
+
+    var requestStyleHint: ChatRequestStyle? {
+        switch self {
+        case .automatic:
+            return nil
+        case .openAI, .llamaCpp, .openAICompatible:
+            return .openAIChatCompletions
+        case .anthropic:
+            return .anthropicMessages
+        case .lmStudio:
+            return .lmStudioRESTV1
+        }
+    }
+}
+
 struct ChatAPIEndpointCandidate: Hashable, Sendable {
     let provider: ChatProvider
     let style: ChatRequestStyle
@@ -48,6 +87,98 @@ struct ChatAPIEndpointCandidate: Hashable, Sendable {
 }
 
 enum ChatAPIEndpointResolver {
+    static func officialProviderHint(for base: String) -> ChatProvider? {
+        guard let comps = normalizedComponents(from: base) else { return nil }
+        let host = (comps.host ?? "").lowercased()
+
+        if hostMatchesOfficialDomain(host, domain: "openai.com") {
+            return .openAI
+        }
+        if hostMatchesOfficialDomain(host, domain: "anthropic.com") {
+            return .anthropic
+        }
+        return nil
+    }
+
+    static func endpointCandidate(
+        for base: String,
+        formatPreference: ChatAPIFormatPreference
+    ) -> ChatAPIEndpointCandidate? {
+        guard let provider = formatPreference.providerHint else { return nil }
+        return endpointCandidate(
+            for: base,
+            provider: provider,
+            preferredStyle: formatPreference.requestStyleHint
+        )
+    }
+
+    static func endpointCandidate(
+        for base: String,
+        provider: ChatProvider,
+        preferredStyle: ChatRequestStyle? = nil
+    ) -> ChatAPIEndpointCandidate? {
+        guard let comps = normalizedComponents(from: base) else { return nil }
+        var candidates: [ChatAPIEndpointCandidate] = []
+        appendCandidates(for: provider, base: comps, to: &candidates)
+        guard !candidates.isEmpty else { return nil }
+
+        if let preferredStyle,
+           let preferred = candidates.first(where: { $0.style == preferredStyle }) {
+            return preferred
+        }
+        return candidates.first
+    }
+
+    static func autoDetectionCandidates(
+        for base: String,
+        preferredProvider: ChatProvider? = nil
+    ) -> [ChatAPIEndpointCandidate] {
+        guard let comps = normalizedComponents(from: base) else { return [] }
+        let path = canonicalPath(comps.path).lowercased()
+        let host = (comps.host ?? "").lowercased()
+        let port = comps.port
+        let isLocal = isLocalHost(host)
+        let looksLlamaCpp = host.contains("llama") || path.contains("llama.cpp") || (isLocal && (port == 8080 || port == 8081))
+
+        if let official = officialProviderHint(for: base),
+           let pinned = endpointCandidate(for: base, provider: official) {
+            return [pinned]
+        }
+
+        var candidates: [ChatAPIEndpointCandidate] = []
+        candidates.reserveCapacity(4)
+
+        func appendUnique(_ candidate: ChatAPIEndpointCandidate?) {
+            guard let candidate else { return }
+            if candidates.contains(where: { $0.style == candidate.style && $0.chatURL == candidate.chatURL }) {
+                return
+            }
+            candidates.append(candidate)
+        }
+
+        appendUnique(endpointCandidate(for: base, provider: .lmStudio, preferredStyle: .lmStudioRESTV1))
+        appendUnique(endpointCandidate(for: base, provider: .lmStudio, preferredStyle: .lmStudioRESTV1LegacyMessage))
+
+        if isLocal || looksLlamaCpp {
+            appendUnique(endpointCandidate(for: base, provider: .llamaCpp, preferredStyle: .openAIChatCompletions))
+        }
+
+        appendUnique(endpointCandidate(for: base, provider: .openAICompatible, preferredStyle: .openAIChatCompletions))
+
+        if candidates.isEmpty {
+            var fallback = endpointCandidates(for: base, preferredProvider: preferredProvider)
+            if let preferredProvider {
+                let preferredOnly = fallback.filter { $0.provider == preferredProvider }
+                if !preferredOnly.isEmpty {
+                    fallback = preferredOnly
+                }
+            }
+            return fallback
+        }
+
+        return candidates
+    }
+
     static func normalizedAPIBaseKey(_ base: String) -> String? {
         guard var comps = normalizedComponents(from: base) else { return nil }
         comps.path = canonicalPath(comps.path)
@@ -113,25 +244,21 @@ enum ChatAPIEndpointResolver {
             if let preferred, preferred != .unknown {
                 append(preferred)
             }
-            if isLocal {
-                append(.lmStudio)
-                append(.llamaCpp)
-                append(.openAICompatible)
-                append(.anthropic)
-            } else {
-                append(.lmStudio)
+            append(.lmStudio)
+            append(.llamaCpp)
+            append(.openAICompatible)
+            if !isLocal {
+                // Keep explicit cloud providers as later fallbacks for non-local endpoints.
                 append(.openAI)
-                append(.openAICompatible)
                 append(.anthropic)
-                append(.llamaCpp)
             }
         }
 
         append(.lmStudio)
-        append(.openAI)
-        append(.openAICompatible)
-        append(.anthropic)
         append(.llamaCpp)
+        append(.openAICompatible)
+        append(.openAI)
+        append(.anthropic)
 
         return order
     }
@@ -263,8 +390,61 @@ enum ChatAPIEndpointResolver {
     }
 
     private static func isLocalHost(_ host: String) -> Bool {
-        let normalized = host.lowercased()
-        return normalized == "localhost" || normalized == "127.0.0.1" || normalized == "::1"
+        let normalized = host
+            .lowercased()
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if normalized == "localhost" || normalized == "127.0.0.1" || normalized == "::1" {
+            return true
+        }
+        if normalized.hasSuffix(".local") {
+            return true
+        }
+        if isPrivateIPv4Host(normalized) || isPrivateIPv6Host(normalized) {
+            return true
+        }
+        return false
+    }
+
+    private static func isPrivateIPv4Host(_ host: String) -> Bool {
+        let parts = host.split(separator: ".", omittingEmptySubsequences: false)
+        guard parts.count == 4 else { return false }
+        let octets = parts.compactMap { Int($0) }
+        guard octets.count == 4, octets.allSatisfy({ (0...255).contains($0) }) else { return false }
+
+        switch (octets[0], octets[1]) {
+        case (10, _):
+            return true
+        case (172, 16...31):
+            return true
+        case (192, 168):
+            return true
+        case (169, 254):
+            return true
+        case (127, _):
+            return true
+        default:
+            return false
+        }
+    }
+
+    private static func isPrivateIPv6Host(_ host: String) -> Bool {
+        guard host.contains(":") else { return false }
+        let normalized = host.trimmingCharacters(in: CharacterSet(charactersIn: "[]")).lowercased()
+        if normalized == "::1" { return true }
+        if normalized.hasPrefix("fc") || normalized.hasPrefix("fd") {
+            return true // Unique local address
+        }
+        if normalized.hasPrefix("fe80:") {
+            return true // Link-local unicast
+        }
+        return false
+    }
+
+    private static func hostMatchesOfficialDomain(_ host: String, domain: String) -> Bool {
+        if host == domain {
+            return true
+        }
+        return host.hasSuffix(".\(domain)")
     }
 
     private static func openAICompatibleURLs(from base: URLComponents) -> (chat: URL, models: URL)? {
@@ -274,20 +454,27 @@ enum ChatAPIEndpointResolver {
         let chatPath: String
         let modelsPath: String
 
-        if path.hasSuffix("/v1/chat/completions") || path.hasSuffix("/api/v0/chat/completions") {
+        // Prefer explicit endpoint style from URL:
+        // - `/chat/completions` => Chat Completions
+        // - `/responses` => Responses API
+        // If style is not explicit, default to Responses API.
+        if path.hasSuffix("/chat/completions") {
             chatPath = path
             modelsPath = String(path.dropLast("/chat/completions".count)) + "/models"
-        } else if path.hasSuffix("/v1/models") || path.hasSuffix("/api/v0/models") {
+        } else if path.hasSuffix("/responses") {
+            chatPath = path
+            modelsPath = String(path.dropLast("/responses".count)) + "/models"
+        } else if path.hasSuffix("/models") {
             modelsPath = path
-            chatPath = String(path.dropLast("/models".count)) + "/chat/completions"
-        } else if path.hasSuffix("/v1/chat") || path.hasSuffix("/api/v0/chat") {
+            chatPath = String(path.dropLast("/models".count)) + "/responses"
+        } else if path.hasSuffix("/chat") {
             chatPath = path + "/completions"
             modelsPath = String(path.dropLast("/chat".count)) + "/models"
         } else if path.hasSuffix("/v1") || path.hasSuffix("/api/v0") {
-            chatPath = path + "/chat/completions"
+            chatPath = path + "/responses"
             modelsPath = path + "/models"
         } else {
-            chatPath = joinPath(path, "/v1/chat/completions")
+            chatPath = joinPath(path, "/v1/responses")
             modelsPath = joinPath(path, "/v1/models")
         }
 
