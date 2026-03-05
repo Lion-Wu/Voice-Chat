@@ -16,6 +16,11 @@ import UIKit
 /// Central place to build and share app-scoped dependencies.
 @MainActor
 final class AppEnvironment: ObservableObject {
+    private struct ChatEndpointSignature: Equatable {
+        let apiURL: String
+        let apiKey: String
+    }
+
     let audioManager: GlobalAudioManager
     let settingsManager: SettingsManager
     let chatSessionsViewModel: ChatSessionsViewModel
@@ -88,6 +93,7 @@ final class AppEnvironment: ObservableObject {
 
         Task { [settingsManager] in
             await settingsManager.applyPresetOnLaunchIfNeeded()
+            await settingsManager.prefetchChatModelsOnLaunchIfNeeded()
         }
     }
 
@@ -100,6 +106,63 @@ final class AppEnvironment: ObservableObject {
                 guard let self else { return }
                 self.chatSessionsViewModel.refreshChatConfigurationIfNeeded()
                 self.kickReachabilityCheck()
+            }
+            .store(in: &cancellables)
+
+        let endpointSignaturePublisher = settingsManager.$chatSettings
+            .map { settings in
+                ChatEndpointSignature(
+                    apiURL: settings.apiURL.trimmingCharacters(in: .whitespacesAndNewlines),
+                    apiKey: settings.apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
+                )
+            }
+            .removeDuplicates()
+
+        endpointSignaturePublisher
+            .dropFirst()
+            .debounce(for: .milliseconds(650), scheduler: RunLoop.main)
+            .sink { [settingsManager] _ in
+                Task { [settingsManager] in
+                    await settingsManager.refreshChatProviderHintsAndModels()
+                }
+            }
+            .store(in: &cancellables)
+
+        settingsManager.$detectedChatProviderHints
+            .removeDuplicates()
+            .dropFirst()
+            .sink { [weak self] _ in
+                self?.chatSessionsViewModel.refreshChatConfigurationIfNeeded()
+            }
+            .store(in: &cancellables)
+
+        settingsManager.$detectedChatRequestStyleHints
+            .removeDuplicates()
+            .dropFirst()
+            .sink { [weak self] _ in
+                self?.chatSessionsViewModel.refreshChatConfigurationIfNeeded()
+            }
+            .store(in: &cancellables)
+
+        let chatPresetRoutingSignaturePublisher = settingsManager.$chatServerPresets
+            .combineLatest(settingsManager.$selectedChatServerPresetID.removeDuplicates())
+            .map { presets, selectedID in
+                guard let selectedID,
+                      let preset = presets.first(where: { $0.id == selectedID }) else {
+                    return ""
+                }
+                let normalizedBase = ChatAPIEndpointResolver.normalizedAPIBaseKey(preset.apiURL)
+                    ?? preset.apiURL.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+                let format = (preset.apiFormatPreferenceRaw ?? "")
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                return "\(selectedID.uuidString)|\(normalizedBase)|\(format)"
+            }
+            .removeDuplicates()
+
+        chatPresetRoutingSignaturePublisher
+            .dropFirst()
+            .sink { [weak self] _ in
+                self?.chatSessionsViewModel.refreshChatConfigurationIfNeeded()
             }
             .store(in: &cancellables)
 

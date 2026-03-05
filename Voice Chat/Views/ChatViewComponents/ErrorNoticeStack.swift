@@ -114,7 +114,7 @@ struct ErrorNoticeStack: View {
         AppErrorNotice(
             id: UUID(),
             title: "TTS server unreachable",
-            message: "Could not connect to http://127.0.0.1:9880",
+            message: "Could not connect to http://localhost:9880",
             category: .tts,
             timestamp: Date(),
             severity: .banner

@@ -60,6 +60,10 @@ final class SettingsViewModel: ObservableObject {
     private var modelFetchRequestID = UUID()
     private var modelFetchTask: Task<Void, Never>?
 
+    private struct ModelFetchPayload {
+        let models: [ModelInfo]
+    }
+
     // MARK: - Preset bindings for the UI
     struct PresetSummary: Identifiable, Equatable {
         var id: UUID
@@ -89,6 +93,9 @@ final class SettingsViewModel: ObservableObject {
         }
     }
     @Published var chatServerPresetName: String = "" { didSet { saveSelectedChatServerPresetName() } }
+    @Published var selectedChatAPIFormatPreference: ChatAPIFormatPreference = .automatic {
+        didSet { saveSelectedChatServerPresetAPIFormatPreference() }
+    }
 
     @Published var presetList: [PresetSummary] = []
     @Published var selectedPresetID: UUID? {
@@ -143,6 +150,7 @@ final class SettingsViewModel: ObservableObject {
 
     private var suppressChatServerPresetDidSet = false
     private var suppressSaveChatServerPreset = false
+    private var suppressSaveChatServerPresetFormat = false
 
     private var suppressPresetDidSet = false
     private var suppressSavePreset = false
@@ -162,6 +170,7 @@ final class SettingsViewModel: ObservableObject {
         apiURL = ""
         selectedModel = ""
         chatAPIKey = ""
+        selectedChatAPIFormatPreference = .automatic
 
         selectedVoiceServerPresetID = nil
 
@@ -174,6 +183,26 @@ final class SettingsViewModel: ObservableObject {
 
         refreshFromSettingsManager()
         bindInitialStoreSync()
+    }
+
+    var shouldShowUnknownModelImageInputToggle: Bool {
+        let model = selectedModel.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !model.isEmpty else { return false }
+        return settingsManager.isImageInputSupportUnknown(for: model)
+    }
+
+    var isSelectedUnknownModelImageInputEnabled: Bool {
+        let model = selectedModel.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !model.isEmpty else { return false }
+        return settingsManager.imageInputManualOverride(for: model) == true
+    }
+
+    func setSelectedUnknownModelImageInputEnabled(_ enabled: Bool) {
+        let model = selectedModel.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !model.isEmpty else { return }
+        // Persist explicit per-model choice for unknown-capability models.
+        settingsManager.setImageInputManualOverride(enabled, for: model)
+        objectWillChange.send()
     }
 
     // MARK: - Networking (List Models)
@@ -196,134 +225,206 @@ final class SettingsViewModel: ObservableObject {
             return
         }
 
-        guard let url = buildModelsURL(from: apiURL) else {
+        let endpointCandidates = modelDetectionCandidates(for: apiURL)
+        guard !endpointCandidates.isEmpty else {
             isLoadingModels = false
             chatServerErrorMessage = NSLocalizedString("Invalid Server URL", comment: "Shown when the model list URL cannot be parsed")
             return
         }
 
-        var request = URLRequest(url: url, timeoutInterval: 30)
-        let rawKey = chatAPIKey.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !rawKey.isEmpty {
-            let headerValue = rawKey.lowercased().hasPrefix("bearer ") ? rawKey : "Bearer \(rawKey)"
-            request.setValue(headerValue, forHTTPHeaderField: "Authorization")
-        }
-
-        let retryPolicy = NetworkRetryPolicy(
-            maxAttempts: 4,
+        let initialRetryPolicy = NetworkRetryPolicy(
+            maxAttempts: 2,
             baseDelay: 0.5,
             maxDelay: 4.0,
             backoffFactor: 1.6,
             jitterRatio: 0.2
         )
+        let probeRetryPolicy = NetworkRetryPolicy(
+            maxAttempts: 1,
+            baseDelay: 0.25,
+            maxDelay: 1.0,
+            backoffFactor: 1.2,
+            jitterRatio: 0.1
+        )
 
-        modelFetchTask = Task { [weak self, request, requestID, retryPolicy] in
+        modelFetchTask = Task { [weak self, requestID, initialRetryPolicy, probeRetryPolicy, endpointCandidates, apiURL] in
             guard let self else { return }
-            do {
-                let data = try await NetworkRetry.run(
-                    policy: retryPolicy,
-                    onRetry: { nextAttempt, _, error in
-                        await MainActor.run {
-                            guard self.modelFetchRequestID == requestID else { return }
-                            self.isRetryingModels = true
-                            self.modelRetryAttempt = max(1, nextAttempt - 1)
-                            self.modelRetryLastError = error.localizedDescription
-                        }
-                    },
-                    operation: {
-                        let (data, resp) = try await URLSession.shared.data(for: request)
-                        if let http = resp as? HTTPURLResponse,
-                           !(200...299).contains(http.statusCode) {
-                            let preview = String(data: data, encoding: .utf8)?
-                                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-                            let snippet = preview.isEmpty ? nil : String(preview.prefix(180))
-                            throw HTTPStatusError(statusCode: http.statusCode, bodyPreview: snippet)
-                        }
-                        return data
-                    }
-                )
+            var lastError: Error?
 
-                let models: [String]
+            for (index, candidate) in endpointCandidates.enumerated() {
+                guard self.modelFetchRequestID == requestID else { return }
+                self.isRetryingModels = false
+                self.modelRetryAttempt = 0
+                self.modelRetryLastError = nil
+
                 do {
-                    models = try await Task.detached(priority: .utility) { @Sendable in
-                        let modelList = try JSONDecoder().decode(ModelListResponse.self, from: data)
-                        return modelList.data.map(\.id)
-                    }.value
-                } catch {
-                    guard self.modelFetchRequestID == requestID else { return }
-                    self.isLoadingModels = false
-                    self.isRetryingModels = false
-                    self.modelRetryAttempt = 0
-                    self.modelRetryLastError = nil
-                    self.chatServerErrorMessage = NSLocalizedString("Unable to parse model list", comment: "Decoding the model list failed")
-                    return
-                }
-
-                guard self.modelFetchRequestID == requestID else { return }
-                self.isLoadingModels = false
-                self.isRetryingModels = false
-                self.modelRetryAttempt = 0
-                self.modelRetryLastError = nil
-                self.chatServerErrorMessage = nil
-
-                self.availableModels = models
-                if !self.availableModels.contains(self.selectedModel),
-                   let firstModel = self.availableModels.first {
-                    self.selectedModel = firstModel
-                }
-            } catch {
-                guard self.modelFetchRequestID == requestID else { return }
-                self.isLoadingModels = false
-                self.isRetryingModels = false
-                self.modelRetryAttempt = 0
-                self.modelRetryLastError = nil
-
-                if let statusError = error as? HTTPStatusError {
-                    self.chatServerErrorMessage = String(
-                        format: NSLocalizedString(
-                            "Chat server responded with status %d.",
-                            comment: "Displayed when the chat server returns an error"
-                        ),
-                        statusError.statusCode
+                    let retryPolicy = index == 0 ? initialRetryPolicy : probeRetryPolicy
+                    let payload = try await self.requestModels(
+                        from: candidate,
+                        requestID: requestID,
+                        retryPolicy: retryPolicy
                     )
-                    return
-                }
 
-                let message = String(
-                    format: NSLocalizedString("Request failed: %@", comment: "Model list request failed"),
-                    error.localizedDescription
+                    guard self.modelFetchRequestID == requestID else { return }
+                    self.applyDetectedModels(payload.models, from: candidate, apiURL: apiURL)
+                    if payload.models.isEmpty {
+                        let providerName = candidate.provider.displayName
+                        self.chatServerErrorMessage = String(
+                            format: NSLocalizedString(
+                                "No models returned from %@",
+                                comment: "Shown when a provider endpoint responds successfully but with an empty models list"
+                            ),
+                            providerName
+                        )
+                    }
+                    return
+                } catch {
+                    lastError = error
+                    continue
+                }
+            }
+
+            guard self.modelFetchRequestID == requestID else { return }
+            self.isLoadingModels = false
+            self.isRetryingModels = false
+            self.modelRetryAttempt = 0
+            self.modelRetryLastError = nil
+
+            if let statusError = lastError as? HTTPStatusError {
+                self.chatServerErrorMessage = String(
+                    format: NSLocalizedString(
+                        "Chat server responded with status %d.",
+                        comment: "Displayed when the chat server returns an error"
+                    ),
+                    statusError.statusCode
                 )
-                self.chatServerErrorMessage = message
+                return
+            }
+
+            let message = String(
+                format: NSLocalizedString("Request failed: %@", comment: "Model list request failed"),
+                lastError?.localizedDescription ?? NSLocalizedString("Unknown provider detection error", comment: "Used when provider detection fails without details")
+            )
+            self.chatServerErrorMessage = message
+        }
+    }
+
+    private func modelDetectionCandidates(for apiURL: String) -> [ChatAPIEndpointCandidate] {
+        let preference = settingsManager.chatAPIFormatPreference(for: settingsManager.selectedChatServerPresetID)
+        if preference != .automatic {
+            if let forced = ChatAPIEndpointResolver.endpointCandidate(for: apiURL, formatPreference: preference) {
+                return [forced]
+            }
+            return []
+        }
+
+        if let official = ChatAPIEndpointResolver.officialProviderHint(for: apiURL),
+           let pinned = ChatAPIEndpointResolver.endpointCandidate(for: apiURL, provider: official) {
+            return [pinned]
+        }
+
+        return ChatAPIEndpointResolver.autoDetectionCandidates(
+            for: apiURL,
+            preferredProvider: settingsManager.detectedChatProvider(for: apiURL)
+        )
+    }
+
+    private func applyDetectedModels(_ decodedModels: [ModelInfo], from candidate: ChatAPIEndpointCandidate, apiURL: String) {
+        isLoadingModels = false
+        isRetryingModels = false
+        modelRetryAttempt = 0
+        modelRetryLastError = nil
+        chatServerErrorMessage = nil
+
+        let models = decodedModels.map(\.id)
+        var supportMap: [String: Bool] = [:]
+        supportMap.reserveCapacity(decodedModels.count)
+        for model in decodedModels {
+            if let support = model.supportsImageInputHint {
+                supportMap[model.id] = support
+            }
+        }
+
+        settingsManager.noteDetectedChatEndpoint(candidate, for: apiURL)
+        settingsManager.updateChatModelImageInputSupport(supportMap, for: apiURL)
+        availableModels = models
+        if !availableModels.contains(selectedModel),
+           let firstModel = availableModels.first {
+            selectedModel = firstModel
+        }
+    }
+
+    private func normalizedAPIKeyForXAPIKeyHeader(_ raw: String) -> String {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return "" }
+        if trimmed.lowercased().hasPrefix("bearer ") {
+            return String(trimmed.dropFirst("bearer ".count)).trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        return trimmed
+    }
+
+    private func applyModelRequestHeaders(
+        to request: inout URLRequest,
+        candidate: ChatAPIEndpointCandidate,
+        rawAPIKey: String
+    ) {
+        switch candidate.style {
+        case .anthropicMessages:
+            let xAPIKey = normalizedAPIKeyForXAPIKeyHeader(rawAPIKey)
+            if !xAPIKey.isEmpty {
+                request.setValue(xAPIKey, forHTTPHeaderField: "x-api-key")
+            }
+            request.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
+
+        case .openAIChatCompletions, .lmStudioRESTV1, .lmStudioRESTV1LegacyMessage:
+            let trimmed = rawAPIKey.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmed.isEmpty {
+                let headerValue = trimmed.lowercased().hasPrefix("bearer ") ? trimmed : "Bearer \(trimmed)"
+                request.setValue(headerValue, forHTTPHeaderField: "Authorization")
             }
         }
     }
 
-    private func buildModelsURL(from base: String) -> URL? {
-        var sanitized = base.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !sanitized.isEmpty else { return nil }
+    private func requestModels(
+        from candidate: ChatAPIEndpointCandidate,
+        requestID: UUID,
+        retryPolicy: NetworkRetryPolicy
+    ) async throws -> ModelFetchPayload {
+        var mutableRequest = URLRequest(url: candidate.modelsURL, timeoutInterval: 30)
+        mutableRequest.httpMethod = "GET"
+        let rawAPIKey = chatAPIKey
+        applyModelRequestHeaders(to: &mutableRequest, candidate: candidate, rawAPIKey: rawAPIKey)
+        let request = mutableRequest
 
-        if !sanitized.contains("://") {
-            sanitized = "http://\(sanitized)"
-        }
-        while sanitized.hasSuffix("/") { sanitized.removeLast() }
+        let data = try await NetworkRetry.run(
+            policy: retryPolicy,
+            onRetry: { [weak self] nextAttempt, _, error in
+                guard let self else { return }
+                await MainActor.run {
+                    guard self.modelFetchRequestID == requestID else { return }
+                    self.isRetryingModels = true
+                    self.modelRetryAttempt = max(1, nextAttempt - 1)
+                    self.modelRetryLastError = "\(candidate.provider.displayName): \(error.localizedDescription)"
+                }
+            },
+            operation: {
+                let (data, resp) = try await URLSession.shared.data(for: request)
+                if let http = resp as? HTTPURLResponse,
+                   !(200...299).contains(http.statusCode) {
+                    let preview = String(data: data, encoding: .utf8)?
+                        .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                    let snippet = preview.isEmpty ? nil : String(preview.prefix(180))
+                    throw HTTPStatusError(statusCode: http.statusCode, bodyPreview: snippet)
+                }
+                return data
+            }
+        )
 
-        guard var comps = URLComponents(string: sanitized) else { return nil }
-        var path = comps.path
-        while path.hasSuffix("/") { path.removeLast() }
-
-        if path.hasSuffix("/v1/models") {
-            // Keep as-is.
-        } else if path.hasSuffix("/v1/chat/completions") {
-            comps.path = String(path.dropLast("/chat/completions".count)) + "/models"
-        } else if path.hasSuffix("/v1/chat") {
-            comps.path = String(path.dropLast("/chat".count)) + "/models"
-        } else if path.hasSuffix("/v1") {
-            comps.path = path + "/models"
-        } else {
-            comps.path = path + "/v1/models"
-        }
-
-        return comps.url
+        let decodedModels: [ModelInfo] = try await Task.detached(priority: .utility) { @Sendable in
+            let modelList = try JSONDecoder().decode(ModelListResponse.self, from: data)
+            return modelList.data
+        }.value
+        return ModelFetchPayload(models: decodedModels)
     }
 
     func refreshFromSettingsManager() {
@@ -465,15 +566,21 @@ final class SettingsViewModel: ObservableObject {
 
     func loadSelectedChatServerPresetFields() {
         suppressSaveChatServerPreset = true
-        defer { suppressSaveChatServerPreset = false }
+        suppressSaveChatServerPresetFormat = true
+        defer {
+            suppressSaveChatServerPreset = false
+            suppressSaveChatServerPresetFormat = false
+        }
 
         guard let id = settingsManager.selectedChatServerPresetID,
               let p = settingsManager.chatServerPresets.first(where: { $0.id == id }) else {
             chatServerPresetName = ""
+            selectedChatAPIFormatPreference = .automatic
             return
         }
 
         chatServerPresetName = p.name
+        selectedChatAPIFormatPreference = settingsManager.chatAPIFormatPreference(for: id)
     }
 
     private func saveSelectedChatServerPresetName() {
@@ -481,6 +588,16 @@ final class SettingsViewModel: ObservableObject {
               let id = settingsManager.selectedChatServerPresetID else { return }
         settingsManager.updateChatServerPreset(id: id, name: chatServerPresetName)
         reloadChatServerPresetListAndSelection()
+    }
+
+    private func saveSelectedChatServerPresetAPIFormatPreference() {
+        guard !suppressSaveChatServerPresetFormat,
+              let id = settingsManager.selectedChatServerPresetID else { return }
+        settingsManager.updateChatServerPreset(
+            id: id,
+            apiFormatPreference: selectedChatAPIFormatPreference
+        )
+        fetchAvailableModels()
     }
 
     func addChatServerPreset() {
