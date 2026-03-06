@@ -39,6 +39,7 @@ private struct VoiceMessageEqKey: Equatable, Sendable {
     let isUser: Bool
     let isActive: Bool
     let imageAttachmentsFP: Int
+    let branchRenderEpoch: Int
     let showActionButtons: Bool
     let branchControlsEnabled: Bool
     let contentFP: ContentFingerprint
@@ -82,6 +83,7 @@ struct ChatView: View {
     @State private var hydrationTask: Task<Void, Never>?
     @State private var pendingRefreshAfterHydration: Bool = false
     @State private var refreshGeneration = UUID()
+    @State private var branchRenderEpoch: Int = 0
     @State private var showStartVoiceModeInterruptAlert: Bool = false
     @State private var showUnsupportedImageSendAlert: Bool = false
     @State private var expectAssistantResponseHaptics: Bool = false
@@ -552,6 +554,7 @@ struct ChatView: View {
             }
         }
         .onReceive(viewModel.branchDidChange) {
+            branchRenderEpoch &+= 1
             refreshVisibleMessages()
         }
         .onChange(of: viewModel.isLoading) { oldValue, newValue in
@@ -1037,6 +1040,7 @@ struct ChatView: View {
     private func messageListCore() -> some View {
         let branchControlsEnabled = !(viewModel.isLoading || viewModel.isPriming || viewModel.isEditing)
         let developerModeEnabled = settingsManager.developerModeEnabled
+        let visibleMessageIDs = visibleMessages.map(\.id)
 
         VStack(spacing: 12) {
             ForEach(visibleMessages) { message in
@@ -1053,6 +1057,7 @@ struct ChatView: View {
                     isUser: message.isUser,
                     isActive: message.isActive,
                     imageAttachmentsFP: message.imageAttachmentsFingerprint,
+                    branchRenderEpoch: branchRenderEpoch,
                     showActionButtons: showButtons,
                     branchControlsEnabled: branchControlsEnabled,
                     contentFP: fingerprint,
@@ -1090,7 +1095,6 @@ struct ChatView: View {
                 }
                 .id(message.id)
                 .transition(.move(edge: .bottom).combined(with: .opacity))
-                .animation(.spring(response: 0.35, dampingFraction: 0.85), value: visibleMessages.map(\.id))
             }
 
             if viewModel.isRetrying {
@@ -1113,6 +1117,7 @@ struct ChatView: View {
                 Color.clear.preference(key: ContentHeightKey.self, value: contentGeo.size.height)
             }
         )
+        .animation(.spring(response: 0.35, dampingFraction: 0.85), value: visibleMessageIDs)
     }
 
     private func scrollToBottom(animated: Bool = true) {

@@ -1126,19 +1126,19 @@ final class ChatViewModel: ObservableObject {
     private func handleAssistantDelta(_ piece: String) {
         guard isPriming || isLoading || sending else { return }
         markRetryProgressIfNeeded()
-        objectWillChange.send()
 
         if isPriming { isPriming = false }
         let now = Date()
 
         let message: ChatMessage
         let fingerprint: ContentFingerprint
+        let didCreateAssistantMessage: Bool
         if let id = currentAssistantMessageID,
-           let existing = chatSession.messages.first(where: { $0.id == id }) {
+           let existing = messageLookup()[id] {
             let previousFingerprint = (streamingAssistantMessageID == existing.id) ? streamingAssistantFingerprint : nil
             existing.content += piece
-            markSessionMessageActivity(at: now)
             message = existing
+            didCreateAssistantMessage = false
             if let previousFingerprint {
                 fingerprint = previousFingerprint.appending(piece)
             } else {
@@ -1167,6 +1167,7 @@ final class ChatViewModel: ObservableObject {
             branchDidChange.send(())
             currentAssistantMessageID = sys.id
             message = sys
+            didCreateAssistantMessage = true
             fingerprint = ContentFingerprint.make(piece)
         }
         streamingAssistantMessageID = message.id
@@ -1175,7 +1176,9 @@ final class ChatViewModel: ObservableObject {
         applyStreamMetadata(to: message, firstTokenTimestamp: now)
         bumpStreamCounters(for: message, delta: piece)
         isLoading = true
-        persistSession(reason: .throttled)
+        if didCreateAssistantMessage {
+            persistSession(reason: .immediate)
+        }
         messageContentDidChange.send(.init(messageID: message.id, fingerprint: fingerprint))
     }
 

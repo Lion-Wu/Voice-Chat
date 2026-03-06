@@ -10,6 +10,7 @@ import SwiftUI
 import QuickLook
 import UniformTypeIdentifiers
 #endif
+import ImageIO
 #if os(iOS) || os(tvOS) || os(watchOS)
 import UIKit
 #elseif os(macOS)
@@ -17,7 +18,7 @@ import AppKit
 #endif
 
 struct VoiceMessageView: View {
-    @Bindable var message: ChatMessage
+    let message: ChatMessage
     @EnvironmentObject var audioManager: GlobalAudioManager
     @State private var messagePreviewFileURL: URL?
 
@@ -356,7 +357,7 @@ struct ErrorBubbleView: View {
 }
 
 struct SystemTextBubble: View {
-    @Bindable var message: ChatMessage
+    let message: ChatMessage
     @State private var showThink = false
     @State private var isShowingMessageDetails = false
 
@@ -627,7 +628,7 @@ private struct ChatImageAttachmentItem: View {
                 onPreview(attachment)
             } label: {
                 Group {
-                    if let image = chatSwiftUIImage(from: attachment.data) {
+                    if let image = chatSwiftUIImage(for: attachment, maxItemSize: maxItemSize) {
                         image
                             .resizable()
                             .scaledToFill()
@@ -734,14 +735,107 @@ enum ChatImageQuickLookSupport {
 }
 #endif
 
-private func chatSwiftUIImage(from data: Data) -> Image? {
+private final class ChatImageThumbnailCache: @unchecked Sendable {
+    static let shared = ChatImageThumbnailCache()
+
+    #if os(iOS) || os(tvOS) || os(watchOS)
+    private let cache = NSCache<NSString, UIImage>()
+    #elseif os(macOS)
+    private let cache = NSCache<NSString, NSImage>()
+    #endif
+
+    private init() {
+        cache.countLimit = 256
+    }
+
+    #if os(iOS) || os(tvOS) || os(watchOS)
+    func image(for attachment: ChatImageAttachment, maxPixelSize: Int) -> UIImage? {
+        let key = cacheKey(for: attachment, maxPixelSize: maxPixelSize)
+        if let cached = cache.object(forKey: key) {
+            return cached
+        }
+        guard let decoded = decodeThumbnail(from: attachment.data, maxPixelSize: maxPixelSize) else {
+            return nil
+        }
+        cache.setObject(decoded, forKey: key)
+        return decoded
+    }
+    #elseif os(macOS)
+    func image(for attachment: ChatImageAttachment, maxPixelSize: Int) -> NSImage? {
+        let key = cacheKey(for: attachment, maxPixelSize: maxPixelSize)
+        if let cached = cache.object(forKey: key) {
+            return cached
+        }
+        guard let decoded = decodeThumbnail(from: attachment.data, maxPixelSize: maxPixelSize) else {
+            return nil
+        }
+        cache.setObject(decoded, forKey: key)
+        return decoded
+    }
+    #endif
+
+    private func cacheKey(for attachment: ChatImageAttachment, maxPixelSize: Int) -> NSString {
+        "\(attachment.id.uuidString)-\(max(1, maxPixelSize))" as NSString
+    }
+}
+
+@MainActor
+private func chatSwiftUIImage(for attachment: ChatImageAttachment, maxItemSize: CGFloat) -> Image? {
+    let maxPixelSize = max(1, Int((maxItemSize * chatThumbnailDisplayScale()).rounded(.up)))
 #if os(iOS) || os(tvOS) || os(watchOS)
-    guard let image = UIImage(data: data) else { return nil }
+    guard let image = ChatImageThumbnailCache.shared.image(for: attachment, maxPixelSize: maxPixelSize) else { return nil }
     return Image(uiImage: image)
 #elseif os(macOS)
-    guard let image = NSImage(data: data) else { return nil }
+    guard let image = ChatImageThumbnailCache.shared.image(for: attachment, maxPixelSize: maxPixelSize) else { return nil }
     return Image(nsImage: image)
 #else
     return nil
 #endif
 }
+
+@MainActor
+private func chatThumbnailDisplayScale() -> CGFloat {
+#if os(iOS) || os(tvOS) || os(watchOS)
+    return UIScreen.main.scale
+#elseif os(macOS)
+    return NSScreen.main?.backingScaleFactor ?? 2
+#else
+    return 1
+#endif
+}
+
+#if os(iOS) || os(tvOS) || os(watchOS)
+private func decodeThumbnail(from data: Data, maxPixelSize: Int) -> UIImage? {
+    guard let source = CGImageSourceCreateWithData(data as CFData, nil) else {
+        return UIImage(data: data)
+    }
+    let options: [CFString: Any] = [
+        kCGImageSourceCreateThumbnailFromImageAlways: true,
+        kCGImageSourceCreateThumbnailWithTransform: true,
+        kCGImageSourceShouldCache: false,
+        kCGImageSourceShouldCacheImmediately: false,
+        kCGImageSourceThumbnailMaxPixelSize: max(1, maxPixelSize)
+    ]
+    guard let cgImage = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else {
+        return UIImage(data: data)
+    }
+    return UIImage(cgImage: cgImage)
+}
+#elseif os(macOS)
+private func decodeThumbnail(from data: Data, maxPixelSize: Int) -> NSImage? {
+    guard let source = CGImageSourceCreateWithData(data as CFData, nil) else {
+        return NSImage(data: data)
+    }
+    let options: [CFString: Any] = [
+        kCGImageSourceCreateThumbnailFromImageAlways: true,
+        kCGImageSourceCreateThumbnailWithTransform: true,
+        kCGImageSourceShouldCache: false,
+        kCGImageSourceShouldCacheImmediately: false,
+        kCGImageSourceThumbnailMaxPixelSize: max(1, maxPixelSize)
+    ]
+    guard let cgImage = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else {
+        return NSImage(data: data)
+    }
+    return NSImage(cgImage: cgImage, size: NSSize(width: cgImage.width, height: cgImage.height))
+}
+#endif
