@@ -783,7 +783,9 @@ struct SettingsView: View {
     @ViewBuilder
     private func developerSection(hideHeader: Bool = false) -> some View {
         Section {
+            #if !os(macOS)
             Toggle("Haptic Feedback", isOn: $viewModel.hapticFeedbackEnabled)
+            #endif
             Toggle(
                 "Developer Mode",
                 isOn: Binding(
