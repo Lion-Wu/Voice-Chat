@@ -393,3 +393,11 @@ extension ChatSessionsViewModel: ChatSessionPersisting {
         }
     }
 }
+
+extension ChatSessionsViewModel: ChatSessionActivityPublishing {
+    func publishLiveActivity(for session: ChatSession) {
+        guard shouldPersist(session) else { return }
+        guard session.id != draftSession.id || pendingOrderingUpdates[session.id] != nil else { return }
+        scheduleInMemoryOrderingUpdate(with: session, shouldPromoteDraft: false)
+    }
+}

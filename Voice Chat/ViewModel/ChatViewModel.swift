@@ -54,7 +54,7 @@ final class ChatViewModel: ObservableObject {
     private let settingsManager: SettingsManager
     private let reachability: ServerReachabilityMonitor
     private let audioManager: GlobalAudioManager
-    private weak var sessionPersistence: ChatSessionPersisting?
+    private weak var sessionPersistence: (any ChatSessionPersisting & ChatSessionActivityPublishing)?
 
     private var sending = false
 
@@ -105,7 +105,7 @@ final class ChatViewModel: ObservableObject {
         settingsManager: SettingsManager? = nil,
         reachability: ServerReachabilityMonitor? = nil,
         audioManager: GlobalAudioManager? = nil,
-        sessionPersistence: ChatSessionPersisting? = nil
+        sessionPersistence: (any ChatSessionPersisting & ChatSessionActivityPublishing)? = nil
     ) {
         self.chatSession = chatSession
         let resolvedSettings = settingsManager ?? SettingsManager.shared
@@ -474,6 +474,10 @@ final class ChatViewModel: ObservableObject {
     private func persistSession(reason: SessionPersistReason = .throttled) {
         sessionPersistence?.ensureSessionTracked(chatSession)
         sessionPersistence?.persist(session: chatSession, reason: reason)
+    }
+
+    private func publishLiveSessionActivity() {
+        sessionPersistence?.publishLiveActivity(for: chatSession)
     }
 
     private func markSessionMessageActivity(at date: Date) {
@@ -1139,6 +1143,7 @@ final class ChatViewModel: ObservableObject {
             existing.content += piece
             // Streaming deltas count as chat activity for sidebar ordering/grouping.
             markSessionMessageActivity(at: now)
+            publishLiveSessionActivity()
             message = existing
             didCreateAssistantMessage = false
             if let previousFingerprint {
