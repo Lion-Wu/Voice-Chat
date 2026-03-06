@@ -54,7 +54,7 @@ final class ChatViewModel: ObservableObject {
     private let settingsManager: SettingsManager
     private let reachability: ServerReachabilityMonitor
     private let audioManager: GlobalAudioManager
-    private weak var sessionPersistence: ChatSessionPersisting?
+    private weak var sessionPersistence: (any ChatSessionPersisting & ChatSessionActivityPublishing)?
 
     private var sending = false
 
@@ -105,7 +105,7 @@ final class ChatViewModel: ObservableObject {
         settingsManager: SettingsManager? = nil,
         reachability: ServerReachabilityMonitor? = nil,
         audioManager: GlobalAudioManager? = nil,
-        sessionPersistence: ChatSessionPersisting? = nil
+        sessionPersistence: (any ChatSessionPersisting & ChatSessionActivityPublishing)? = nil
     ) {
         self.chatSession = chatSession
         let resolvedSettings = settingsManager ?? SettingsManager.shared
@@ -474,6 +474,10 @@ final class ChatViewModel: ObservableObject {
     private func persistSession(reason: SessionPersistReason = .throttled) {
         sessionPersistence?.ensureSessionTracked(chatSession)
         sessionPersistence?.persist(session: chatSession, reason: reason)
+    }
+
+    private func publishLiveSessionActivity() {
+        sessionPersistence?.publishLiveActivity(for: chatSession)
     }
 
     private func markSessionMessageActivity(at date: Date) {
@@ -1126,19 +1130,22 @@ final class ChatViewModel: ObservableObject {
     private func handleAssistantDelta(_ piece: String) {
         guard isPriming || isLoading || sending else { return }
         markRetryProgressIfNeeded()
-        objectWillChange.send()
 
         if isPriming { isPriming = false }
         let now = Date()
 
         let message: ChatMessage
         let fingerprint: ContentFingerprint
+        let didCreateAssistantMessage: Bool
         if let id = currentAssistantMessageID,
-           let existing = chatSession.messages.first(where: { $0.id == id }) {
+           let existing = messageLookup()[id] {
             let previousFingerprint = (streamingAssistantMessageID == existing.id) ? streamingAssistantFingerprint : nil
             existing.content += piece
+            // Streaming deltas count as chat activity for sidebar ordering/grouping.
             markSessionMessageActivity(at: now)
+            publishLiveSessionActivity()
             message = existing
+            didCreateAssistantMessage = false
             if let previousFingerprint {
                 fingerprint = previousFingerprint.appending(piece)
             } else {
@@ -1167,6 +1174,7 @@ final class ChatViewModel: ObservableObject {
             branchDidChange.send(())
             currentAssistantMessageID = sys.id
             message = sys
+            didCreateAssistantMessage = true
             fingerprint = ContentFingerprint.make(piece)
         }
         streamingAssistantMessageID = message.id
@@ -1175,7 +1183,13 @@ final class ChatViewModel: ObservableObject {
         applyStreamMetadata(to: message, firstTokenTimestamp: now)
         bumpStreamCounters(for: message, delta: piece)
         isLoading = true
-        persistSession(reason: .throttled)
+        if didCreateAssistantMessage {
+            persistSession(reason: .immediate)
+        } else {
+            // Preserve streamed content durability across app suspends/crashes without
+            // reintroducing per-token synchronous writes.
+            persistSession(reason: .throttled)
+        }
         messageContentDidChange.send(.init(messageID: message.id, fingerprint: fingerprint))
     }
 

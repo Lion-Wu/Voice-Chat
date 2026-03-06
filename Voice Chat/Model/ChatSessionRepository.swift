@@ -22,6 +22,12 @@ protocol ChatSessionPersisting: AnyObject {
     func persist(session: ChatSession, reason: SessionPersistReason) -> Bool
 }
 
+/// Live session activity bridge used for sidebar ordering during streaming.
+@MainActor
+protocol ChatSessionActivityPublishing: AnyObject {
+    func publishLiveActivity(for session: ChatSession)
+}
+
 /// Abstraction over session persistence so view models remain testable and MVVM-friendly.
 @MainActor
 protocol ChatSessionRepository: ChatSessionPersisting {

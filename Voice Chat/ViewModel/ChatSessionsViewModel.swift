@@ -204,8 +204,9 @@ final class ChatSessionsViewModel: ObservableObject {
         guard shouldPersist(session) else { return false }
         let didPersist = repository.persist(session: session, reason: reason)
 
-        // Keep throttled live-ordering updates for tracked sessions, but never promote draft on failed writes.
-        let shouldScheduleOrderingUpdate = didPersist || (reason == .throttled && session.id != draftSession.id)
+        // Streaming live-ordering is published separately; persistence only needs to
+        // reorder sessions when a write actually lands.
+        let shouldScheduleOrderingUpdate = didPersist
         if shouldScheduleOrderingUpdate {
             let shouldPromoteDraft = didPersist && session.id == draftSession.id
             scheduleInMemoryOrderingUpdate(with: session, shouldPromoteDraft: shouldPromoteDraft)
@@ -391,5 +392,13 @@ extension ChatSessionsViewModel: ChatSessionPersisting {
         } else {
             addSession(session)
         }
+    }
+}
+
+extension ChatSessionsViewModel: ChatSessionActivityPublishing {
+    func publishLiveActivity(for session: ChatSession) {
+        guard shouldPersist(session) else { return }
+        guard session.id != draftSession.id || pendingOrderingUpdates[session.id] != nil else { return }
+        scheduleInMemoryOrderingUpdate(with: session, shouldPromoteDraft: false)
     }
 }
