@@ -6,6 +6,9 @@
 //
 
 import Foundation
+#if canImport(UIKit)
+import UIKit
+#endif
 
 // MARK: - Streaming Chunk Models
 
@@ -631,6 +634,13 @@ final class ChatService: NSObject, URLSessionDataDelegate, @unchecked Sendable {
     private var pendingLMStudioStreamErrorMessage: String?
     private var activeEndpointCandidate: ChatAPIEndpointCandidate?
     private var pendingResponseMetadata = ChatResponseMetadata.empty
+#if canImport(UIKit)
+    // UIKit background tasks only provide a finite grace period for in-flight work.
+    private let backgroundTaskName = "VoiceChat.TextStreaming"
+    private var backgroundTaskGeneration: UInt64 = 0
+    @MainActor private var backgroundTaskGenerationOnMain: UInt64 = 0
+    @MainActor private var backgroundTaskIdentifier: UIBackgroundTaskIdentifier = .invalid
+#endif
 
     private final class DelegateProxy: NSObject, URLSessionDataDelegate, @unchecked Sendable {
         weak var owner: ChatService?
@@ -693,6 +703,18 @@ final class ChatService: NSObject, URLSessionDataDelegate, @unchecked Sendable {
         session?.invalidateAndCancel()
         stopConnectionWatchdog()
         stopWatchdog()
+#if canImport(UIKit)
+        let teardownBackgroundTask = {
+            MainActor.assumeIsolated {
+                self.endBackgroundExecutionOnMain(for: UInt64.max)
+            }
+        }
+        if Thread.isMainThread {
+            teardownBackgroundTask()
+        } else {
+            DispatchQueue.main.sync(execute: teardownBackgroundTask)
+        }
+#endif
     }
 
     /// Called on the main actor to avoid crossing actor boundaries with SwiftData models.
@@ -787,6 +809,7 @@ final class ChatService: NSObject, URLSessionDataDelegate, @unchecked Sendable {
         streamStartAt = Date()
         didEstablishConnection = false
         lastDeltaAt = nil
+        beginBackgroundExecutionForCurrentRequest()
         startWatchdog()
         startConnectionWatchdog()
 
@@ -963,6 +986,7 @@ final class ChatService: NSObject, URLSessionDataDelegate, @unchecked Sendable {
         pendingLMStudioStreamErrorMessage = nil
         pendingResponseMetadata = .empty
         stopConnectionWatchdog()
+        endBackgroundExecutionForCurrentRequest()
     }
 
     private func clearActiveEndpointCandidate() {
@@ -2218,6 +2242,7 @@ final class ChatService: NSObject, URLSessionDataDelegate, @unchecked Sendable {
         stopConnectionWatchdog()
         stopWatchdog()
         clearActiveEndpointCandidate()
+        endBackgroundExecutionForCurrentRequest()
         Task { @MainActor in
             self.onError?(ChatNetworkError.serverError(statusCode: httpStatusCode, message: message))
         }
@@ -2379,6 +2404,7 @@ final class ChatService: NSObject, URLSessionDataDelegate, @unchecked Sendable {
             stopConnectionWatchdog()
             stopWatchdog()
             clearActiveEndpointCandidate()
+            endBackgroundExecutionForCurrentRequest()
             Task { @MainActor in
                 self.onError?(ChatNetworkError.serverError(statusCode: nil, message: resolved))
             }
@@ -2483,6 +2509,7 @@ final class ChatService: NSObject, URLSessionDataDelegate, @unchecked Sendable {
                     dataTask = nil
                     stopConnectionWatchdog()
                     clearActiveEndpointCandidate()
+                    endBackgroundExecutionForCurrentRequest()
                     Task { @MainActor in
                         self.onError?(ChatNetworkError.serverError(statusCode: httpStatusCode, message: pendingLMStudioStreamErrorMessage))
                     }
@@ -2519,6 +2546,7 @@ final class ChatService: NSObject, URLSessionDataDelegate, @unchecked Sendable {
         stopConnectionWatchdog()
         stopWatchdog()
         dataTask = nil
+        endBackgroundExecutionForCurrentRequest()
 
         if isCancelled {
             return
@@ -2611,6 +2639,7 @@ final class ChatService: NSObject, URLSessionDataDelegate, @unchecked Sendable {
                     self.dataTask = nil
                     self.stopConnectionWatchdog()
                     self.stopWatchdog()
+                    self.endBackgroundExecutionForCurrentRequest()
                     Task { @MainActor in
                         self.onError?(ChatNetworkError.timeout(NSLocalizedString("Connection timed out", comment: "Shown when the chat server request exceeds the timeout")))
                     }
@@ -2624,6 +2653,7 @@ final class ChatService: NSObject, URLSessionDataDelegate, @unchecked Sendable {
                     self.dataTask = nil
                     self.stopConnectionWatchdog()
                     self.stopWatchdog()
+                    self.endBackgroundExecutionForCurrentRequest()
                     Task { @MainActor in
                         self.onError?(ChatNetworkError.timeout(NSLocalizedString("Connection timed out", comment: "Shown when the chat server request exceeds the timeout")))
                     }
@@ -2659,6 +2689,7 @@ final class ChatService: NSObject, URLSessionDataDelegate, @unchecked Sendable {
             self.dataTask = nil
             self.stopWatchdog()
             self.stopConnectionWatchdog()
+            self.endBackgroundExecutionForCurrentRequest()
             Task { @MainActor in
                 self.onError?(ChatNetworkError.timeout(NSLocalizedString("Connection timed out", comment: "Shown when connecting to the chat server takes too long")))
             }
@@ -2670,6 +2701,119 @@ final class ChatService: NSObject, URLSessionDataDelegate, @unchecked Sendable {
     private func stopConnectionWatchdog() {
         connectionWatchdog?.cancel()
         connectionWatchdog = nil
+    }
+
+    private func beginBackgroundExecutionForCurrentRequest() {
+#if canImport(UIKit)
+        backgroundTaskGeneration &+= 1
+        let generation = backgroundTaskGeneration
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            self.beginBackgroundExecutionOnMain(for: generation)
+        }
+#endif
+    }
+
+    private func endBackgroundExecutionForCurrentRequest() {
+#if canImport(UIKit)
+        backgroundTaskGeneration &+= 1
+        let generation = backgroundTaskGeneration
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            self.endBackgroundExecutionOnMain(for: generation)
+        }
+#endif
+    }
+
+#if canImport(UIKit)
+    @MainActor
+    private func beginBackgroundExecutionOnMain(for generation: UInt64) {
+        guard generation >= backgroundTaskGenerationOnMain else { return }
+        backgroundTaskGenerationOnMain = generation
+        endBackgroundExecutionOnMainInternal()
+
+        var identifier: UIBackgroundTaskIdentifier = .invalid
+        identifier = UIApplication.shared.beginBackgroundTask(withName: backgroundTaskName) { [weak self] in
+            guard let self else { return }
+            MainActor.assumeIsolated {
+                self.handleBackgroundExecutionExpirationOnMain(taskIdentifier: identifier, generation: generation)
+            }
+        }
+        backgroundTaskIdentifier = identifier
+
+        guard identifier != .invalid else {
+            guard UIApplication.shared.applicationState == .background else { return }
+            handleBackgroundExecutionUnavailableOnMain(for: generation)
+            return
+        }
+    }
+
+    @MainActor
+    private func endBackgroundExecutionOnMain(for generation: UInt64) {
+        guard generation >= backgroundTaskGenerationOnMain else { return }
+        backgroundTaskGenerationOnMain = generation
+        endBackgroundExecutionOnMainInternal()
+    }
+
+    @MainActor
+    private func endBackgroundExecutionOnMainInternal() {
+        guard backgroundTaskIdentifier != .invalid else { return }
+        UIApplication.shared.endBackgroundTask(backgroundTaskIdentifier)
+        backgroundTaskIdentifier = .invalid
+    }
+
+    @MainActor
+    private func handleBackgroundExecutionUnavailableOnMain(for generation: UInt64) {
+        guard generation >= backgroundTaskGenerationOnMain else { return }
+        let shouldReportError = stateQueue.sync { [self] in
+            cancelCurrentStreamForBackgroundInterruption()
+        }
+        guard shouldReportError else { return }
+        onError?(ChatNetworkError.timeout(
+            NSLocalizedString(
+                "Background execution unavailable",
+                comment: "Shown when iOS cannot grant background runtime for an active text generation stream"
+            )
+        ))
+    }
+
+    @MainActor
+    private func handleBackgroundExecutionExpirationOnMain(
+        taskIdentifier: UIBackgroundTaskIdentifier,
+        generation: UInt64
+    ) {
+        guard taskIdentifier != .invalid else { return }
+        guard generation >= backgroundTaskGenerationOnMain else { return }
+        guard backgroundTaskIdentifier == taskIdentifier else { return }
+
+        backgroundTaskGenerationOnMain = generation
+        let shouldReportError = stateQueue.sync { [self] in
+            cancelCurrentStreamForBackgroundInterruption()
+        }
+        UIApplication.shared.endBackgroundTask(taskIdentifier)
+        if backgroundTaskIdentifier == taskIdentifier {
+            backgroundTaskIdentifier = .invalid
+        }
+
+        guard shouldReportError else { return }
+        onError?(ChatNetworkError.timeout(
+            NSLocalizedString(
+                "Background execution time expired",
+                comment: "Shown when iOS ends background time for an active text generation stream"
+            )
+        ))
+    }
+#endif
+
+    private func cancelCurrentStreamForBackgroundInterruption() -> Bool {
+        guard dataTask != nil else { return false }
+        isCancelled = true
+        dataTask?.cancel()
+        dataTask = nil
+        stopConnectionWatchdog()
+        stopWatchdog()
+        clearActiveEndpointCandidate()
+        return true
     }
 
     private func markConnectionEstablishedIfNeeded() {
