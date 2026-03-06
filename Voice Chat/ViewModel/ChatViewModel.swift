@@ -1185,6 +1185,10 @@ final class ChatViewModel: ObservableObject {
         isLoading = true
         if didCreateAssistantMessage {
             persistSession(reason: .immediate)
+        } else {
+            // Preserve streamed content durability across app suspends/crashes without
+            // reintroducing per-token synchronous writes.
+            persistSession(reason: .throttled)
         }
         messageContentDidChange.send(.init(messageID: message.id, fingerprint: fingerprint))
     }
