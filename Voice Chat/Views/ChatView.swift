@@ -443,8 +443,18 @@ struct ChatView: View {
                         .environmentObject(audioManager)
                     Spacer()
                 }
-                .transition(.move(edge: .top).combined(with: .opacity))
-                .animation(.easeInOut, value: shouldDisplayAudioPlayer)
+                .transition(
+                    .asymmetric(
+                        insertion: .offset(y: -18)
+                            .combined(with: .scale(scale: 0.96, anchor: .top))
+                            .combined(with: .opacity),
+                        removal: .offset(y: -10)
+                            .combined(with: .scale(scale: 0.985, anchor: .top))
+                            .combined(with: .opacity)
+                    )
+                )
+                .zIndex(1)
+                .animation(.audioPlayerVisibility, value: shouldDisplayAudioPlayer)
             }
         }
         #if os(macOS)

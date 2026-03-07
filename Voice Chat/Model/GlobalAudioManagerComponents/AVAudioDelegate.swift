@@ -49,10 +49,7 @@ extension GlobalAudioManager {
                     self.isBuffering = self.isAudioPlaying
                     self.stopAudioTimer()
                     self.startStallWatchdog()
-                    if self.isRealtimeMode {
-                        self.isLoading = true
-                        self.isAudioPlaying = false
-                    }
+                    if self.isRealtimeMode { self.isLoading = true }
                 }
             }
         }

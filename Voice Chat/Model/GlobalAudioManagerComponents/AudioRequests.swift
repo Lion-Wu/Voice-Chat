@@ -49,7 +49,10 @@ extension GlobalAudioManager {
                advanceSequenceOnSuccess,
                index == currentChunkIndex {
                 currentChunkIndex = index + 1
+                refreshPlaybackLoadState()
                 sendNextSegment()
+            } else {
+                refreshPlaybackLoadState()
             }
             return
         }
@@ -60,6 +63,7 @@ extension GlobalAudioManager {
             return
         }
         inFlightIndexes.insert(index)
+        refreshPlaybackLoadState()
 
         let s = settingsManager
         let refAudioPath = s.selectedPreset?.refAudioPath ?? ""
@@ -84,6 +88,7 @@ extension GlobalAudioManager {
         guard let body = try? JSONSerialization.data(withJSONObject: params) else {
             self.surfaceTTSIssue(NSLocalizedString("Unable to serialize JSON", comment: "Shown when encoding the TTS request body fails"))
             inFlightIndexes.remove(index)
+            refreshPlaybackLoadState()
             // In realtime mode continue with the queue to avoid stalling.
             if isRealtimeMode { processRealtimeQueueIfNeeded() }
             return
@@ -109,6 +114,7 @@ extension GlobalAudioManager {
 
                 defer {
                     self.inFlightIndexes.remove(index)
+                    self.refreshPlaybackLoadState()
                     if self.isRealtimeMode {
                         self.processRealtimeQueueIfNeeded()
                     }
@@ -216,6 +222,7 @@ extension GlobalAudioManager {
                         self.surfaceTTSIssue(NSLocalizedString("Received audio data could not be played.", comment: "Shown when AVAudioPlayer fails to read TTS audio data"))
                     }
                     self.recalcTotalDuration()
+                    self.refreshPlaybackLoadState()
                 }
 
                 if self.playbackFinished() {
@@ -224,7 +231,7 @@ extension GlobalAudioManager {
                 }
 
                 if index == self.currentPlayingIndex {
-                    let shouldAutoplay = self.isRealtimeMode ? true : self.isAudioPlaying
+                    let shouldAutoplay = self.isAudioPlaying
                     let resumeTime: TimeInterval? = {
                         if let seek = self.seekTime { return seek }
                         return self.isBuffering ? self.currentTime : nil
@@ -237,8 +244,8 @@ extension GlobalAudioManager {
                     )
 
                     if self.isRealtimeMode {
-                        self.isLoading = !didStart
-                        self.isAudioPlaying = didStart
+                        self.isLoading = false
+                        self.isAudioPlaying = shouldAutoplay && didStart
                     } else {
                         self.isLoading = false
                     }
@@ -253,6 +260,7 @@ extension GlobalAudioManager {
                    advanceSequenceOnSuccess,
                    index == self.currentChunkIndex {
                     self.currentChunkIndex = index + 1
+                    self.refreshPlaybackLoadState()
                     self.sendNextSegment()
                 }
             }

@@ -83,13 +83,11 @@ extension GlobalAudioManager {
             return false
         }
         guard let chunkOpt = audioChunks[safe: index], let data = chunkOpt else {
-            isBuffering = true
+            isBuffering = shouldPlay
             stopAudioTimer()
             startStallWatchdog()
-            if isRealtimeMode {
-                isLoading = true
-                isAudioPlaying = false
-            }
+            if shouldPlay { isAudioPlaying = true }
+            if isRealtimeMode { isLoading = true }
             return false
         }
 
