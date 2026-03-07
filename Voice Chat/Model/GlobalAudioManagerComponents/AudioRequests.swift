@@ -244,9 +244,9 @@ extension GlobalAudioManager {
                     )
 
                     if self.isRealtimeMode {
-                        self.isLoading = false
                         self.isPlaybackRequested = shouldAutoplay
                         self.isAudioPlaying = shouldAutoplay && didStart
+                        self.isLoading = shouldAutoplay && !didStart
                     } else {
                         self.isLoading = false
                     }
