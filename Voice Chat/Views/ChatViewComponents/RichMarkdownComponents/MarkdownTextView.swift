@@ -126,9 +126,7 @@ final class MarkdownUIKitTextView: UITextView {
         }
 
         if needsIntrinsicRecalc || cachedIntrinsicHeight <= 0.5 {
-            cachedIntrinsicHeight = computeFullHeight(forWidth: targetWidth)
-            needsIntrinsicRecalc = false
-            invalidateIntrinsicContentSize()
+            updateCachedIntrinsicHeight(computeFullHeight(forWidth: targetWidth))
             return
         }
 
@@ -156,8 +154,9 @@ final class MarkdownUIKitTextView: UITextView {
                 textLayoutManager.ensureLayout(for: documentRange)
             }
 
-            cachedIntrinsicHeight = computeTextKit2Height(textLayoutManager, documentRange: documentRange) + insets
-            invalidateIntrinsicContentSize()
+            updateCachedIntrinsicHeight(
+                computeTextKit2Height(textLayoutManager, documentRange: documentRange) + insets
+            )
             return
         }
         #endif
@@ -170,8 +169,17 @@ final class MarkdownUIKitTextView: UITextView {
         )
         layoutManager.ensureLayout(forCharacterRange: resolvedRange)
         let used = layoutManager.usedRect(for: textContainer)
-        cachedIntrinsicHeight = used.height + insets
-        invalidateIntrinsicContentSize()
+        updateCachedIntrinsicHeight(used.height + insets)
+    }
+
+    private func updateCachedIntrinsicHeight(_ height: CGFloat) {
+        let resolved = ceil(max(0, height))
+        let didChange = abs(resolved - cachedIntrinsicHeight) > 0.5
+        cachedIntrinsicHeight = resolved
+        needsIntrinsicRecalc = false
+        if didChange {
+            invalidateIntrinsicContentSize()
+        }
     }
 
     private var verticalInsets: CGFloat {
@@ -584,9 +592,7 @@ final class MarkdownAppKitTextView: NSTextView {
         }
 
         if needsIntrinsicRecalc || cachedIntrinsicHeight <= 0.5 {
-            cachedIntrinsicHeight = computeFullHeight(forWidth: targetWidth)
-            needsIntrinsicRecalc = false
-            invalidateIntrinsicContentSize()
+            updateCachedIntrinsicHeight(computeFullHeight(forWidth: targetWidth))
             return
         }
 
@@ -611,8 +617,9 @@ final class MarkdownAppKitTextView: NSTextView {
             } else {
                 textLayoutManager.ensureLayout(for: documentRange)
             }
-            cachedIntrinsicHeight = computeTextKit2Height(textLayoutManager, documentRange: documentRange) + insets
-            invalidateIntrinsicContentSize()
+            updateCachedIntrinsicHeight(
+                computeTextKit2Height(textLayoutManager, documentRange: documentRange) + insets
+            )
             return
         }
 
@@ -624,9 +631,18 @@ final class MarkdownAppKitTextView: NSTextView {
             )
             layoutManager.ensureLayout(forCharacterRange: range)
             let used = layoutManager.usedRect(for: textContainer)
-            cachedIntrinsicHeight = used.height + insets
+            updateCachedIntrinsicHeight(used.height + insets)
         }
-        invalidateIntrinsicContentSize()
+    }
+
+    private func updateCachedIntrinsicHeight(_ height: CGFloat) {
+        let resolved = ceil(max(0, height))
+        let didChange = abs(resolved - cachedIntrinsicHeight) > 0.5
+        cachedIntrinsicHeight = resolved
+        needsIntrinsicRecalc = false
+        if didChange {
+            invalidateIntrinsicContentSize()
+        }
     }
 
     private var verticalInsets: CGFloat {

@@ -80,6 +80,7 @@ struct SidebarView: View {
     // Deletion confirmation
     @State private var showDeleteChatAlert: Bool = false
     @State private var pendingDeleteSessionIDs: [UUID] = []
+    private let renderCache = MessageRenderCache.shared
 
     private var filteredSessions: [ChatSession] {
         let keyword = searchKeyword
@@ -381,8 +382,13 @@ struct SidebarView: View {
     }
 
     private func subtitle(for session: ChatSession) -> String {
-        if let last = session.messages.max(by: { $0.createdAt < $1.createdAt })?.content {
-            let parts = last.extractThinkParts()
+        if let last = session.messages.max(by: { $0.createdAt < $1.createdAt }) {
+            let fingerprint = ContentFingerprint.make(last.content)
+            let parts = renderCache.thinkParts(
+                for: last.id,
+                content: last.content,
+                fingerprint: fingerprint
+            )
             let trimmed = parts.body.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !trimmed.isEmpty else { return "No recent replies" }
             let snippet = trimmed.prefix(60)

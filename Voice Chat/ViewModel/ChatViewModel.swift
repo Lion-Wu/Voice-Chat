@@ -476,10 +476,6 @@ final class ChatViewModel: ObservableObject {
         sessionPersistence?.persist(session: chatSession, reason: reason)
     }
 
-    private func publishLiveSessionActivity() {
-        sessionPersistence?.publishLiveActivity(for: chatSession)
-    }
-
     private func markSessionMessageActivity(at date: Date) {
         chatSession.registerMessageActivity(at: date)
     }
@@ -1141,9 +1137,6 @@ final class ChatViewModel: ObservableObject {
            let existing = messageLookup()[id] {
             let previousFingerprint = (streamingAssistantMessageID == existing.id) ? streamingAssistantFingerprint : nil
             existing.content += piece
-            // Streaming deltas count as chat activity for sidebar ordering/grouping.
-            markSessionMessageActivity(at: now)
-            publishLiveSessionActivity()
             message = existing
             didCreateAssistantMessage = false
             if let previousFingerprint {
