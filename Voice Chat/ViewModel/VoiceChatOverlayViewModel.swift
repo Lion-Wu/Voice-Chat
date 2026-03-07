@@ -395,6 +395,7 @@ final class VoiceChatOverlayViewModel: ObservableObject {
     private func startListening() {
         guard autoResumeEnabled else { return }
         guard isPresented else { return }
+        guard !audioManager.isPlaybackRequested else { return }
         guard !audioManager.isAudioPlaying else { return }
         guard !audioManager.isLoading else { return }
         if let activeChatViewModel, activeChatViewModel.isLoading || activeChatViewModel.isPriming {
@@ -650,6 +651,7 @@ final class VoiceChatOverlayViewModel: ObservableObject {
         guard autoResumeEnabled, isPresented else { return }
         // Avoid restarting the microphone while we're in the middle of sending/loading a response.
         guard loadingWatchdogTask == nil else { return }
+        guard !audioManager.isPlaybackRequested else { return }
         guard !audioManager.isAudioPlaying else { return }
         guard !audioManager.isLoading else { return }
         guard !speechInputManager.isRecording else { return }

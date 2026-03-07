@@ -9,13 +9,17 @@ import SwiftUI
 
 struct LoadingIndicatorView: View {
     @State private var phase: CGFloat = 0
+    var tint: Color = .secondary
+    var dotSize: CGFloat = 8
+    var spacing: CGFloat = 6
+
     var body: some View {
-        HStack(spacing: 6) {
-            Circle().frame(width: 8, height: 8).opacity(dotOpacity(0))
-            Circle().frame(width: 8, height: 8).opacity(dotOpacity(0.2))
-            Circle().frame(width: 8, height: 8).opacity(dotOpacity(0.4))
+        HStack(spacing: spacing) {
+            Circle().frame(width: dotSize, height: dotSize).opacity(dotOpacity(0))
+            Circle().frame(width: dotSize, height: dotSize).opacity(dotOpacity(0.2))
+            Circle().frame(width: dotSize, height: dotSize).opacity(dotOpacity(0.4))
         }
-        .foregroundColor(.secondary)
+        .foregroundStyle(tint)
         .onAppear {
             withAnimation(.easeInOut(duration: 0.9).repeatForever(autoreverses: true)) {
                 phase = 1

@@ -17,6 +17,7 @@ final class GlobalAudioManager: NSObject, ObservableObject, AVAudioPlayerDelegat
     // MARK: - Public State
     @Published var isShowingAudioPlayer: Bool = false
     @Published var isAudioPlaying: Bool = false
+    @Published var isPlaybackRequested: Bool = false
     var currentTime: TimeInterval = 0 {
         didSet {
             guard abs(currentTime - oldValue) >= 0.0005 else { return }
@@ -49,6 +50,18 @@ final class GlobalAudioManager: NSObject, ObservableObject, AVAudioPlayerDelegat
             retryLastErrorSubject.send(retryLastError)
         }
     }
+    var totalDuration: TimeInterval = 0 {
+        didSet {
+            guard abs(totalDuration - oldValue) >= 0.0005 else { return }
+            totalDurationSubject.send(totalDuration)
+        }
+    }
+    var isPlaybackFullyLoaded: Bool = true {
+        didSet {
+            guard isPlaybackFullyLoaded != oldValue else { return }
+            isPlaybackFullyLoadedSubject.send(isPlaybackFullyLoaded)
+        }
+    }
 
     // Realtime output level (0...1) for speaking animations.
     var outputLevel: Float = 0 {
@@ -63,6 +76,8 @@ final class GlobalAudioManager: NSObject, ObservableObject, AVAudioPlayerDelegat
     private let isRetryingSubject = CurrentValueSubject<Bool, Never>(false)
     private let retryAttemptSubject = CurrentValueSubject<Int, Never>(0)
     private let retryLastErrorSubject = CurrentValueSubject<String?, Never>(nil)
+    private let totalDurationSubject = CurrentValueSubject<TimeInterval, Never>(0)
+    private let isPlaybackFullyLoadedSubject = CurrentValueSubject<Bool, Never>(true)
 
     var currentTimePublisher: AnyPublisher<TimeInterval, Never> {
         currentTimeSubject.eraseToAnyPublisher()
@@ -88,10 +103,18 @@ final class GlobalAudioManager: NSObject, ObservableObject, AVAudioPlayerDelegat
         retryLastErrorSubject.eraseToAnyPublisher()
     }
 
+    var totalDurationPublisher: AnyPublisher<TimeInterval, Never> {
+        totalDurationSubject.eraseToAnyPublisher()
+    }
+
+    var isPlaybackFullyLoadedPublisher: AnyPublisher<Bool, Never> {
+        isPlaybackFullyLoadedSubject.eraseToAnyPublisher()
+    }
+
     // MARK: - Players & Timers
     var audioPlayer: AVAudioPlayer?
     var nextAudioPlayer: AVAudioPlayer?
-    var audioTimer: Timer?
+    var audioDisplayDriver: AudioDisplayLinkDriver?
 
     // Watchdog
     var stallWatchdog: Timer?
@@ -102,7 +125,6 @@ final class GlobalAudioManager: NSObject, ObservableObject, AVAudioPlayerDelegat
     var textSegments: [String] = []
     var audioChunks: [Data?] = []
     var chunkDurations: [TimeInterval] = []
-    var totalDuration: TimeInterval = 0
 
     var currentChunkIndex: Int = 0
     var currentPlayingIndex: Int = 0
@@ -156,6 +178,44 @@ final class GlobalAudioManager: NSObject, ObservableObject, AVAudioPlayerDelegat
         return URLSession(configuration: config)
     }()
 
+    func refreshPlaybackLoadState() {
+        let hasTrackedAudioWork =
+            !textSegments.isEmpty ||
+            !audioChunks.isEmpty ||
+            !inFlightIndexes.isEmpty ||
+            !pendingRealtimeIndexes.isEmpty ||
+            isLoading ||
+            isRealtimeMode
+
+        guard hasTrackedAudioWork else {
+            isPlaybackFullyLoaded = true
+            return
+        }
+
+        let hasMissingAudio = audioChunks.contains { $0 == nil }
+        let hasOutstandingRequests = !inFlightIndexes.isEmpty
+
+        if isRealtimeMode {
+            isPlaybackFullyLoaded =
+                realtimeFinalized &&
+                !hasMissingAudio &&
+                !hasOutstandingRequests &&
+                pendingRealtimeIndexes.isEmpty
+            return
+        }
+
+        if textSegments.isEmpty && audioChunks.isEmpty {
+            isPlaybackFullyLoaded = !isLoading && !hasOutstandingRequests
+            return
+        }
+
+        let hasQueuedSegments = currentChunkIndex < textSegments.count
+        isPlaybackFullyLoaded =
+            !hasMissingAudio &&
+            !hasOutstandingRequests &&
+            !hasQueuedSegments
+    }
+
     // MARK: - Entry (Full-text mode)
     func startProcessing(text: String) {
         currentGenerationID = UUID()
@@ -165,11 +225,12 @@ final class GlobalAudioManager: NSObject, ObservableObject, AVAudioPlayerDelegat
         pendingRealtimeIndexes.removeAll()
 
         resetPlayer()
-        withAnimation(.spring(response: 0.28, dampingFraction: 0.85, blendDuration: 0.12)) {
+        withAnimation(.audioPlayerVisibility) {
             isShowingAudioPlayer = true
         }
         isLoading = true
-        isAudioPlaying = true
+        isPlaybackRequested = true
+        isAudioPlaying = false
         currentTime = 0
 
         textSegments = []
@@ -178,6 +239,7 @@ final class GlobalAudioManager: NSObject, ObservableObject, AVAudioPlayerDelegat
         totalDuration = 0
         currentChunkIndex = 0
         currentPlayingIndex = 0
+        refreshPlaybackLoadState()
 
         let streamingEnabled = settingsManager.voiceSettings.enableStreaming
         let worker = segmentationWorker
@@ -207,11 +269,11 @@ final class GlobalAudioManager: NSObject, ObservableObject, AVAudioPlayerDelegat
         pendingRealtimeIndexes.removeAll()
 
         resetPlayer()
-        withAnimation(.spring(response: 0.28, dampingFraction: 0.85, blendDuration: 0.12)) {
+        withAnimation(.audioPlayerVisibility) {
             isShowingAudioPlayer = true
         }
-        // Realtime mode should not mark playback as active until audio actually starts.
         isLoading = true
+        isPlaybackRequested = true
         isAudioPlaying = false
         currentTime = 0
 
@@ -222,6 +284,7 @@ final class GlobalAudioManager: NSObject, ObservableObject, AVAudioPlayerDelegat
 
         currentChunkIndex = 0
         currentPlayingIndex = 0
+        refreshPlaybackLoadState()
     }
 
     /// Appends a segment to be converted to speech. Realtime mode enqueues the work, while
@@ -232,6 +295,7 @@ final class GlobalAudioManager: NSObject, ObservableObject, AVAudioPlayerDelegat
         textSegments.append(text)
         audioChunks.append(nil)
         chunkDurations.append(0)
+        refreshPlaybackLoadState()
         // In realtime mode enqueue the index so that only one request is active at a time.
         enqueueRealtimeIndex(idx)
     }
@@ -240,20 +304,25 @@ final class GlobalAudioManager: NSObject, ObservableObject, AVAudioPlayerDelegat
     func finishRealtimeStream() {
         guard isRealtimeMode else { return }
         realtimeFinalized = true
+        refreshPlaybackLoadState()
         // If every chunk has finished loading and playing, `finishPlayback()` will be triggered automatically.
         concludeRealtimeIfIdle()
     }
 
     // MARK: - Play/Pause
     func togglePlayback() {
-        if !isAudioPlaying && playbackFinished() {
+        let playbackRequestedOrActive = isPlaybackRequested || isAudioPlaying
+
+        if !playbackRequestedOrActive && playbackFinished() {
             currentPlayingIndex = 0
             currentTime = 0
         }
 
-        if !isAudioPlaying {
+        if !playbackRequestedOrActive {
             // User requested playback.
+            isPlaybackRequested = true
             if playbackFinished() {
+                isPlaybackRequested = false
                 isAudioPlaying = false
                 return
             }
@@ -270,33 +339,29 @@ final class GlobalAudioManager: NSObject, ObservableObject, AVAudioPlayerDelegat
             } else {
                 isBuffering = true
                 startStallWatchdog()
-                if isRealtimeMode {
-                    // In realtime mode keep showing the loading state until audio data arrives.
-                    isLoading = true
-                    isAudioPlaying = false
-                } else {
-                    // Keep non-realtime playback behavior unchanged.
-                    isAudioPlaying = true
-                }
+                isAudioPlaying = false
+                if isRealtimeMode { isLoading = true }
             }
         } else {
             // Pause
+            isPlaybackRequested = false
             isAudioPlaying = false
             audioPlayer?.pause()
             stopAudioTimer()
             startStallWatchdog()
             isBuffering = false
+            isLoading = false
         }
     }
 
     // MARK: - Seek
-    func forward15Seconds() { seek(to: currentTime + 15, shouldPlay: isAudioPlaying) }
-    func backward15Seconds() { seek(to: currentTime - 15, shouldPlay: isAudioPlaying) }
+    func forward15Seconds() { seek(to: currentTime + 15, shouldPlay: isPlaybackRequested || isAudioPlaying) }
+    func backward15Seconds() { seek(to: currentTime - 15, shouldPlay: isPlaybackRequested || isAudioPlaying) }
 
     func seek(to time: TimeInterval, shouldPlay: Bool = false) {
-        guard totalDuration > 0 || !chunkDurations.isEmpty else { return }
-
         let maxKnown = max(totalDuration, startTime(forSegment: chunkDurations.count))
+        guard maxKnown > 0.0005 else { return }
+
         var newT = time
         if maxKnown > 0 {
             newT = max(0, min(time, maxKnown))
@@ -327,11 +392,9 @@ final class GlobalAudioManager: NSObject, ObservableObject, AVAudioPlayerDelegat
             seekTime = newT
             stopAudioTimer()
             startStallWatchdog()
-            // Realtime mode treats missing segments as loading and keeps playback paused.
-            if isRealtimeMode {
-                isLoading = true
-                if shouldPlay { isAudioPlaying = false }
-            }
+            isPlaybackRequested = shouldPlay
+            if shouldPlay { isAudioPlaying = false }
+            if isRealtimeMode { isLoading = shouldPlay }
             if !inFlightIndexes.contains(target) {
                 sendTTSRequest(for: textSegments[target], index: target)
             }
@@ -341,8 +404,9 @@ final class GlobalAudioManager: NSObject, ObservableObject, AVAudioPlayerDelegat
     // MARK: - Reset / Close
     func closeAudioPlayer() {
         resetPlayer()
+        isPlaybackRequested = false
         isAudioPlaying = false
-        withAnimation(.spring(response: 0.28, dampingFraction: 0.85, blendDuration: 0.12)) {
+        withAnimation(.audioPlayerVisibility) {
             isShowingAudioPlayer = false
         }
         isLoading = false
@@ -381,9 +445,12 @@ final class GlobalAudioManager: NSObject, ObservableObject, AVAudioPlayerDelegat
         currentChunkIndex = 0
         currentPlayingIndex = 0
         currentTime = 0
+        isPlaybackRequested = false
+        isAudioPlaying = false
         isBuffering = false
         isSeeking = false
         seekTime = nil
+        isPlaybackFullyLoaded = true
         errorMessage = nil
         isRetrying = false
         retryAttempt = 0
@@ -402,10 +469,13 @@ final class GlobalAudioManager: NSObject, ObservableObject, AVAudioPlayerDelegat
         totalDuration = 0
         currentChunkIndex = 0
         currentPlayingIndex = 0
+        refreshPlaybackLoadState()
 
         guard !segments.isEmpty else {
             isLoading = false
+            isPlaybackRequested = false
             isAudioPlaying = false
+            isPlaybackFullyLoaded = true
             return
         }
         sendNextSegment()
@@ -422,6 +492,7 @@ final class GlobalAudioManager: NSObject, ObservableObject, AVAudioPlayerDelegat
             sendTTSRequest(for: textSegments[index], index: index)
         } else {
             pendingRealtimeIndexes.append(index)
+            refreshPlaybackLoadState()
         }
     }
 
@@ -444,8 +515,12 @@ final class GlobalAudioManager: NSObject, ObservableObject, AVAudioPlayerDelegat
             stopAudioTimer()
             stopStallWatchdog()
             isLoading = false
+            isPlaybackRequested = false
             isAudioPlaying = false
-            isShowingAudioPlayer = false
+            isPlaybackFullyLoaded = true
+            withAnimation(.audioPlayerVisibility) {
+                isShowingAudioPlayer = false
+            }
             outputLevel = 0
             return
         }
