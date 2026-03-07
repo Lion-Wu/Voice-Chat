@@ -52,6 +52,7 @@ extension GlobalAudioManager {
     func finishPlayback() {
         currentPlayingIndex = max(0, audioChunks.count - 1)
         currentTime = max(currentTime, totalDuration)
+        isPlaybackRequested = false
         isAudioPlaying = false
         isBuffering = false
         isSeeking = false
@@ -79,6 +80,7 @@ extension GlobalAudioManager {
     @discardableResult
     func playAudioChunk(at index: Int, fromTime t: TimeInterval? = nil, shouldPlay: Bool = true) -> Bool {
         guard index >= 0, index < audioChunks.count else {
+            if !shouldPlay { isPlaybackRequested = false }
             isBuffering = false
             return false
         }
@@ -86,8 +88,9 @@ extension GlobalAudioManager {
             isBuffering = shouldPlay
             stopAudioTimer()
             startStallWatchdog()
-            if shouldPlay { isAudioPlaying = true }
-            if isRealtimeMode { isLoading = true }
+            isPlaybackRequested = shouldPlay
+            isAudioPlaying = false
+            if isRealtimeMode { isLoading = shouldPlay }
             return false
         }
 
@@ -127,6 +130,7 @@ extension GlobalAudioManager {
             isSeeking = false
 
             if shouldPlay {
+                isPlaybackRequested = true
                 if allChunksLoaded() && (segStart + p.currentTime) >= (totalDuration - endEpsilon) {
                     finishPlayback()
                     return false
@@ -138,6 +142,8 @@ extension GlobalAudioManager {
                 isAudioPlaying = true
                 if isRealtimeMode { isLoading = false }
             } else {
+                isPlaybackRequested = false
+                isAudioPlaying = false
                 stopAudioTimer()
                 startStallWatchdog()
             }
@@ -149,9 +155,10 @@ extension GlobalAudioManager {
             self.surfaceTTSIssue(message, autoDismiss: 12)
             isBuffering = true
             startStallWatchdog()
+            isPlaybackRequested = shouldPlay
+            isAudioPlaying = false
             if isRealtimeMode {
-                isLoading = true
-                isAudioPlaying = false
+                isLoading = shouldPlay
             }
             return false
         }

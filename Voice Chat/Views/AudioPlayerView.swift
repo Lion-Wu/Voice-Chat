@@ -40,7 +40,7 @@ struct AudioPlayerView: View {
     }
 
     private var shouldDisableTransportControls: Bool {
-        audioManager.isLoading && !audioManager.isAudioPlaying
+        audioManager.isLoading && !audioManager.isPlaybackRequested && !audioManager.isAudioPlaying
     }
 
     private var hasLoadedAudioChunk: Bool {
@@ -64,7 +64,7 @@ struct AudioPlayerView: View {
     }
 
     private var showsPlaybackBufferingSpinner: Bool {
-        audioManager.isAudioPlaying && (
+        audioManager.isPlaybackRequested && (
             showsInitialLoadingView ||
             displayedIsBuffering ||
             audioManager.isBuffering
@@ -417,7 +417,8 @@ struct AudioPlayerView: View {
     let audio: GlobalAudioManager = {
         let audio = GlobalAudioManager()
         audio.isShowingAudioPlayer = true
-        audio.isAudioPlaying = true
+        audio.isPlaybackRequested = true
+        audio.isAudioPlaying = false
         audio.isLoading = true
         audio.currentTime = 0
         audio.totalDuration = 0

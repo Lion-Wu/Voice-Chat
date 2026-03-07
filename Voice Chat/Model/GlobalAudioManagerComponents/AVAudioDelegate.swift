@@ -33,23 +33,27 @@ extension GlobalAudioManager {
                 let segStart = self.startTime(forSegment: self.currentPlayingIndex)
                 self.currentTime = segStart
 
-                if self.isAudioPlaying {
+                if self.isPlaybackRequested {
                     self.audioPlayer?.currentTime = 0
                     self.audioPlayer?.play()
                     self.startAudioTimer()
                     self.startStallWatchdog()
+                    self.isAudioPlaying = true
+                } else {
+                    self.isAudioPlaying = false
                 }
                 self.prepareNextAudioChunk(at: self.currentPlayingIndex + 1)
             } else {
                 if let chunkOpt = self.audioChunks[safe: self.currentPlayingIndex], let _ = chunkOpt {
                     _ = self.playAudioChunk(at: self.currentPlayingIndex,
                                             fromTime: self.startTime(forSegment: self.currentPlayingIndex),
-                                            shouldPlay: self.isAudioPlaying)
+                                            shouldPlay: self.isPlaybackRequested)
                 } else {
-                    self.isBuffering = self.isAudioPlaying
+                    self.isBuffering = self.isPlaybackRequested
+                    self.isAudioPlaying = false
                     self.stopAudioTimer()
                     self.startStallWatchdog()
-                    if self.isRealtimeMode { self.isLoading = true }
+                    if self.isRealtimeMode { self.isLoading = self.isPlaybackRequested }
                 }
             }
         }

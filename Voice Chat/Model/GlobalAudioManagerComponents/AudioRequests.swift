@@ -231,7 +231,7 @@ extension GlobalAudioManager {
                 }
 
                 if index == self.currentPlayingIndex {
-                    let shouldAutoplay = self.isAudioPlaying
+                    let shouldAutoplay = self.isPlaybackRequested
                     let resumeTime: TimeInterval? = {
                         if let seek = self.seekTime { return seek }
                         return self.isBuffering ? self.currentTime : nil
@@ -245,6 +245,7 @@ extension GlobalAudioManager {
 
                     if self.isRealtimeMode {
                         self.isLoading = false
+                        self.isPlaybackRequested = shouldAutoplay
                         self.isAudioPlaying = shouldAutoplay && didStart
                     } else {
                         self.isLoading = false
