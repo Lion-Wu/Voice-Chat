@@ -33,6 +33,8 @@ struct LoadingIndicatorView: View {
 }
 
 struct AssistantAlignedLoadingBubble: View {
+    var maxBubbleWidth: CGFloat? = nil
+
     var body: some View {
         HStack {
             VStack(alignment: .leading) {
@@ -43,7 +45,7 @@ struct AssistantAlignedLoadingBubble: View {
                         .background(PlatformColor.secondaryBackground.opacity(0.6), in: RoundedRectangle(cornerRadius: ChatTheme.bubbleRadius, style: .continuous))
                     Spacer(minLength: 0)
                 }
-                .frame(maxWidth: contentMaxWidthForAssistant(), alignment: .leading)
+                .frame(maxWidth: contentMaxWidthForAssistant(availableWidth: maxBubbleWidth), alignment: .leading)
             }
             .frame(maxWidth: .infinity, alignment: .center)
         }
@@ -59,6 +61,7 @@ struct AssistantAlignedLoadingBubble: View {
 struct AssistantAlignedRetryingBubble: View {
     let attempt: Int
     let lastError: String?
+    var maxBubbleWidth: CGFloat? = nil
 
     private var title: String {
         String(format: NSLocalizedString("Retrying (attempt %d)...", comment: "Shown while auto retry is waiting to reconnect"), max(1, attempt))
@@ -95,7 +98,7 @@ struct AssistantAlignedRetryingBubble: View {
 
                     Spacer(minLength: 0)
                 }
-                .frame(maxWidth: contentMaxWidthForAssistant(), alignment: .leading)
+                .frame(maxWidth: contentMaxWidthForAssistant(availableWidth: maxBubbleWidth), alignment: .leading)
             }
             .frame(maxWidth: .infinity, alignment: .center)
         }

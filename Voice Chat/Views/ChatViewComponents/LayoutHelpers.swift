@@ -12,30 +12,30 @@ import UIKit
 #endif
 
 @MainActor
-func contentMaxWidthForAssistant() -> CGFloat {
-    #if os(iOS) || os(tvOS) || os(watchOS)
-    return min(UIScreen.main.bounds.width - 16, 680)
-    #elseif os(macOS)
-    return min((NSScreen.main?.frame.width ?? 1200) - 80, 900)
+func contentMaxWidthForAssistant(availableWidth: CGFloat? = nil) -> CGFloat {
+    #if os(macOS)
+    let maximumWidth: CGFloat = 900
+    let horizontalInset: CGFloat = 80
     #else
-    return 680
+    let maximumWidth: CGFloat = 680
+    let horizontalInset: CGFloat = 16
     #endif
+
+    guard let availableWidth else { return maximumWidth }
+    return min(max(availableWidth - horizontalInset, 0), maximumWidth)
 }
 
 @MainActor
-func contentMaxWidthForUser() -> CGFloat {
-    #if os(iOS) || os(tvOS) || os(watchOS)
-    return min(UIScreen.main.bounds.width - 16, 680)
-    #elseif os(macOS)
-    return min((NSScreen.main?.frame.width ?? 1200) - 80, 900)
-    #else
-    return 680
-    #endif
+func contentMaxWidthForUser(availableWidth: CGFloat? = nil) -> CGFloat {
+    contentMaxWidthForAssistant(availableWidth: availableWidth)
 }
 
 @MainActor
-func contentColumnMaxWidth() -> CGFloat {
-    return max(contentMaxWidthForAssistant(), contentMaxWidthForUser())
+func contentColumnMaxWidth(availableWidth: CGFloat? = nil) -> CGFloat {
+    max(
+        contentMaxWidthForAssistant(availableWidth: availableWidth),
+        contentMaxWidthForUser(availableWidth: availableWidth)
+    )
 }
 
 @MainActor

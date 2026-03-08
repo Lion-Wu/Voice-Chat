@@ -55,6 +55,29 @@ struct RealtimeVoiceOverlayView: View {
         return nil
     }
 
+    private var voiceControlAccessibilityValue: String {
+        switch viewModel.state {
+        case .listening:
+            String(localized: "Listening")
+        case .speaking:
+            String(localized: "Speaking")
+        case .loading:
+            String(localized: "Connecting")
+        case .error:
+            String(localized: "Error")
+        }
+    }
+
+    private var voiceControlAccessibilityHint: String {
+        if overlayErrorText != nil {
+            return String(localized: "Double-tap to reconnect.")
+        }
+        if viewModel.state == .loading {
+            return String(localized: "Wait for the voice session to finish connecting.")
+        }
+        return String(localized: "Double-tap to control realtime voice. Use the Hold to talk action for push-to-talk.")
+    }
+
     var body: some View {
         ZStack {
             PlatformColor.systemBackground
@@ -73,6 +96,7 @@ struct RealtimeVoiceOverlayView: View {
                             .padding(8)
                     }
                     .buttonStyle(.plain)
+                    .accessibilityLabel("Close realtime voice overlay")
                 }
                 .padding(.top, 8)
                 .padding(.horizontal, 8)
@@ -96,6 +120,17 @@ struct RealtimeVoiceOverlayView: View {
                     .shadow(color: .black.opacity(isCirclePressed ? 0.28 : 0.25), radius: isCirclePressed ? 22 : 16, x: 0, y: isCirclePressed ? 8 : 6)
                     .contentShape(Circle())
                     .highPriorityGesture(circlePressGesture)
+                }
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel("Realtime voice control")
+                .accessibilityValue(voiceControlAccessibilityValue)
+                .accessibilityHint(voiceControlAccessibilityHint)
+                .accessibilityAddTraits(.isButton)
+                .accessibilityAction {
+                    triggerTapAction()
+                }
+                .accessibilityAction(named: Text("Hold to talk")) {
+                    viewModel.performHoldToTalkAccessibilityAction()
                 }
 
                 if let message = overlayErrorText {

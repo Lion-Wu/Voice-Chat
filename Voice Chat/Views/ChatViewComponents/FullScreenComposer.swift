@@ -15,7 +15,7 @@ struct FullScreenComposer: View {
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
-        NavigationView {
+        NavigationStack {
             TextEditor(text: $text)
                 .font(.system(size: 17))
                 .padding()
