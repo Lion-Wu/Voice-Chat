@@ -25,6 +25,7 @@ struct VoiceMessageView: View {
     let showActionButtons: Bool
     let branchControlsEnabled: Bool
     let developerModeEnabled: Bool
+    let maxBubbleWidth: CGFloat?
     let contentFingerprint: ContentFingerprint
     let onSelectText: (String) -> Void
     let onRegenerate: (ChatMessage) -> Void
@@ -35,6 +36,32 @@ struct VoiceMessageView: View {
     private let thinkPreviewLines: Int = 6
     private let thinkFontSize: CGFloat = 14
 
+    init(
+        message: ChatMessage,
+        showActionButtons: Bool,
+        branchControlsEnabled: Bool,
+        developerModeEnabled: Bool,
+        maxBubbleWidth: CGFloat? = nil,
+        contentFingerprint: ContentFingerprint,
+        onSelectText: @escaping (String) -> Void,
+        onRegenerate: @escaping (ChatMessage) -> Void,
+        onEditUserMessage: @escaping (ChatMessage) -> Void,
+        onSwitchVersion: @escaping (ChatMessage) -> Void,
+        onRetry: @escaping (ChatMessage) -> Void
+    ) {
+        self.message = message
+        self.showActionButtons = showActionButtons
+        self.branchControlsEnabled = branchControlsEnabled
+        self.developerModeEnabled = developerModeEnabled
+        self.maxBubbleWidth = maxBubbleWidth
+        self.contentFingerprint = contentFingerprint
+        self.onSelectText = onSelectText
+        self.onRegenerate = onRegenerate
+        self.onEditUserMessage = onEditUserMessage
+        self.onSwitchVersion = onSwitchVersion
+        self.onRetry = onRetry
+    }
+
     @ViewBuilder
     var body: some View {
         if message.content.hasPrefix("!error:") {
@@ -43,7 +70,7 @@ struct VoiceMessageView: View {
                     ErrorBubbleView(text: String(message.content.dropFirst("!error:".count)).trimmingCharacters(in: .whitespacesAndNewlines)) {
                         onRetry(message)
                     }
-                    .frame(maxWidth: contentMaxWidthForAssistant(), alignment: .center)
+                    .frame(maxWidth: contentMaxWidthForAssistant(availableWidth: maxBubbleWidth), alignment: .center)
                     .frame(maxWidth: .infinity, alignment: .center)
                 }
 
@@ -59,6 +86,7 @@ struct VoiceMessageView: View {
                 thinkFontSize: thinkFontSize,
                 showActionButtons: showActionButtons,
                 developerModeEnabled: developerModeEnabled,
+                maxBubbleWidth: maxBubbleWidth,
                 contentFingerprint: contentFingerprint,
                 onCopy: { copyToClipboard(message.content.extractThinkParts().body) },
                 onRegenerate: { onRegenerate(message) },
@@ -75,6 +103,7 @@ struct VoiceMessageView: View {
                         UserTextBubble(
                             text: message.content,
                             attachments: userAttachments,
+                            maxBubbleWidth: maxBubbleWidth,
                             onPreviewImage: { attachment in
                                 presentMessageAttachmentPreview(attachment)
                             }
@@ -187,7 +216,7 @@ struct VoiceMessageView: View {
                     onSwitchVersion(versions[idx + 1])
                 }
             )
-            .frame(maxWidth: contentMaxWidthForUser(), alignment: .trailing)
+            .frame(maxWidth: contentMaxWidthForUser(availableWidth: maxBubbleWidth), alignment: .trailing)
             .frame(maxWidth: .infinity, alignment: .trailing)
         }
     }
@@ -212,7 +241,7 @@ struct VoiceMessageView: View {
                     onSwitchVersion(versions[idx + 1])
                 }
             )
-            .frame(maxWidth: contentMaxWidthForAssistant(), alignment: .leading)
+            .frame(maxWidth: contentMaxWidthForAssistant(availableWidth: maxBubbleWidth), alignment: .leading)
             .frame(maxWidth: .infinity, alignment: .center)
         }
     }
@@ -536,6 +565,7 @@ struct SystemTextBubble: View {
     let thinkFontSize: CGFloat
     let showActionButtons: Bool
     let developerModeEnabled: Bool
+    let maxBubbleWidth: CGFloat?
     let contentFingerprint: ContentFingerprint
 
     let onCopy: () -> Void
@@ -554,14 +584,14 @@ struct SystemTextBubble: View {
                     previewLines: thinkPreviewLines,
                     thinkFontSize: thinkFontSize
                 )
-                    .frame(maxWidth: contentMaxWidthForAssistant(), alignment: .leading)
+                    .frame(maxWidth: contentMaxWidthForAssistant(availableWidth: maxBubbleWidth), alignment: .leading)
             }
         }
 
         let bodyView = Group {
             if !parts.body.isEmpty {
                 RichMarkdownView(markdown: parts.body)
-                    .frame(maxWidth: contentMaxWidthForAssistant(), alignment: .leading)
+                    .frame(maxWidth: contentMaxWidthForAssistant(availableWidth: maxBubbleWidth), alignment: .leading)
                     .frame(maxWidth: .infinity, alignment: .center)
             }
         }
@@ -625,7 +655,7 @@ struct SystemTextBubble: View {
                         .foregroundStyle(.secondary)
                     }
                 }
-                .frame(maxWidth: contentMaxWidthForAssistant(), alignment: .leading)
+                .frame(maxWidth: contentMaxWidthForAssistant(availableWidth: maxBubbleWidth), alignment: .leading)
                 .transition(.opacity.combined(with: .move(edge: .top)))
             }
         }
@@ -641,6 +671,7 @@ struct SystemTextBubble: View {
 struct UserTextBubble: View {
     let text: String
     let attachments: [ChatImageAttachment]
+    let maxBubbleWidth: CGFloat?
     let onPreviewImage: (ChatImageAttachment) -> Void
     @State private var expanded = false
     private let maxCharacters = 1000
@@ -658,7 +689,7 @@ struct UserTextBubble: View {
                     onRemove: nil,
                     horizontalAlignment: .trailing
                 )
-                .frame(maxWidth: contentMaxWidthForUser(), alignment: .trailing)
+                .frame(maxWidth: contentMaxWidthForUser(availableWidth: maxBubbleWidth), alignment: .trailing)
             }
 
             if !display.isEmpty {
@@ -666,7 +697,7 @@ struct UserTextBubble: View {
                     .foregroundColor(.white)
                     .fixedSize(horizontal: false, vertical: true)
                     .bubbleStyle(isUser: true)
-                    .frame(maxWidth: contentMaxWidthForUser(), alignment: .trailing)
+                    .frame(maxWidth: contentMaxWidthForUser(availableWidth: maxBubbleWidth), alignment: .trailing)
             }
 
             if text.count > maxCharacters {
@@ -676,7 +707,7 @@ struct UserTextBubble: View {
                 .font(.caption)
                 .foregroundColor(.secondary)
                 .padding(.top, 2)
-                .frame(maxWidth: contentMaxWidthForUser(), alignment: .trailing)
+                .frame(maxWidth: contentMaxWidthForUser(availableWidth: maxBubbleWidth), alignment: .trailing)
             }
         }
         .frame(maxWidth: .infinity, alignment: .trailing)

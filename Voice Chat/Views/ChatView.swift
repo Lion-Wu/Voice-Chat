@@ -63,6 +63,7 @@ struct ChatView: View {
     @ObservedObject var viewModel: ChatViewModel
     @State private var textFieldHeight: CGFloat = InputMetrics.defaultHeight
     @State private var editingBannerHeight: CGFloat = 0
+    @State private var availableMessageWidth: CGFloat = 680
     @FocusState private var isInputFocused: Bool
 
     @State private var textSelectionSheetItem: TextSelectionSheetItem?
@@ -421,7 +422,11 @@ struct ChatView: View {
                                 .defaultScrollAnchor(shouldAnchorBottom ? .bottom : .top)
                                 .scrollDismissesKeyboard(.interactively)
                                 .onTapGesture { isInputFocused = false }
+                                .onChange(of: outerGeo.size.width) { _, newWidth in
+                                    updateAvailableMessageWidth(newWidth)
+                                }
                                 .onAppear {
+                                    updateAvailableMessageWidth(outerGeo.size.width)
                                     scrollProxy = proxy
                                     DispatchQueue.main.async {
                                         scrollToBottom(animated: false)
@@ -1036,7 +1041,7 @@ struct ChatView: View {
         let content = messageListCore()
             .padding(.horizontal, messageListHorizontalPadding)
             .padding(.top, 12)
-            .frame(maxWidth: contentColumnMaxWidth())
+            .frame(maxWidth: contentColumnMaxWidth(availableWidth: availableMessageWidth))
             .frame(maxWidth: .infinity, alignment: .center)
 
         if scrollTargetsEnabled {
@@ -1053,7 +1058,7 @@ struct ChatView: View {
         let visibleMessageIDs = visibleMessages.map(\.id)
 
         VStack(spacing: 12) {
-            ForEach(visibleMessages) { message in
+            ForEach(visibleMessages, id: \.id) { (message: ChatMessage) in
                 // Hide action buttons only for the assistant message that is actively streaming.
                 // Using "last visible message" can briefly hide buttons on the previous assistant
                 // reply while a new user message is being appended.
@@ -1080,6 +1085,7 @@ struct ChatView: View {
                         showActionButtons: showButtons,
                         branchControlsEnabled: branchControlsEnabled,
                         developerModeEnabled: developerModeEnabled,
+                        maxBubbleWidth: availableMessageWidth,
                         contentFingerprint: fingerprint,
                         onSelectText: { showSelectTextSheet(with: $0) },
                         onRegenerate: {
@@ -1108,9 +1114,13 @@ struct ChatView: View {
             }
 
             if viewModel.isRetrying {
-                AssistantAlignedRetryingBubble(attempt: viewModel.retryAttempt, lastError: viewModel.retryLastError)
+                AssistantAlignedRetryingBubble(
+                    attempt: viewModel.retryAttempt,
+                    lastError: viewModel.retryLastError,
+                    maxBubbleWidth: availableMessageWidth
+                )
             } else if viewModel.isPriming {
-                AssistantAlignedLoadingBubble()
+                AssistantAlignedLoadingBubble(maxBubbleWidth: availableMessageWidth)
             }
 
             Color.clear
@@ -1159,6 +1169,12 @@ struct ChatView: View {
                 showScrollToBottomButton = shouldShow
             }
         }
+    }
+
+    private func updateAvailableMessageWidth(_ width: CGFloat) {
+        let cleanedWidth = max(width, 0)
+        guard abs(cleanedWidth - availableMessageWidth) > 0.5 else { return }
+        availableMessageWidth = cleanedWidth
     }
 
     private func showSelectTextSheet(with text: String) {
@@ -1258,7 +1274,7 @@ struct ChatView: View {
 
     private var conversationLoadingPlaceholder: some View {
         VStack(spacing: 18) {
-            AssistantAlignedLoadingBubble()
+            AssistantAlignedLoadingBubble(maxBubbleWidth: availableMessageWidth)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .padding(.top, 40)

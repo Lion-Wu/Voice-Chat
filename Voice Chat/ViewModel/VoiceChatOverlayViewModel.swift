@@ -168,6 +168,14 @@ final class VoiceChatOverlayViewModel: ObservableObject {
         }
     }
 
+    func performHoldToTalkAccessibilityAction() {
+        if speechInputManager.isHoldToSpeakActive || isStartingRecording {
+            handleCircleLongPressEnded()
+        } else {
+            handleCircleLongPressBegan()
+        }
+    }
+
     func dismissErrorMessage() {
         showErrorBanner = false
     }

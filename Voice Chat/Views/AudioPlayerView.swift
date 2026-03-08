@@ -215,7 +215,7 @@ struct AudioPlayerView: View {
     private var controlsRow: some View {
         HStack {
             HStack(spacing: 12) {
-                ControlButton(icon: "gobackward.15") {
+                ControlButton(icon: "gobackward.15", accessibilityLabel: "Back 15 seconds") {
                     audioManager.backward15Seconds()
                 }
                 .disabled(shouldDisableSeekControls)
@@ -230,7 +230,7 @@ struct AudioPlayerView: View {
                 )
                 .disabled(shouldDisableTransportControls)
 
-                ControlButton(icon: "goforward.15") {
+                ControlButton(icon: "goforward.15", accessibilityLabel: "Forward 15 seconds") {
                     audioManager.forward15Seconds()
                 }
                 .disabled(shouldDisableSeekControls)
@@ -300,6 +300,7 @@ struct AudioPlayerView: View {
 
     struct ControlButton: View {
         let icon: String
+        let accessibilityLabel: LocalizedStringKey
         let action: () -> Void
 
         var body: some View {
@@ -309,7 +310,7 @@ struct AudioPlayerView: View {
                 Image(systemName: icon)
                     .font(.system(size: 14, weight: .semibold))
                     .foregroundStyle(Color.primary)
-                    .frame(width: 34, height: 34)
+                    .frame(width: 44, height: 44)
                     .background(
                         RoundedRectangle(cornerRadius: 12, style: .continuous)
                             .fill(Color.primary.opacity(0.08))
@@ -319,7 +320,8 @@ struct AudioPlayerView: View {
                             .strokeBorder(Color.primary.opacity(0.06), lineWidth: 1)
                     )
             }
-            .buttonStyle(PlainButtonStyle())
+            .buttonStyle(.plain)
+            .accessibilityLabel(accessibilityLabel)
         }
     }
 
@@ -327,6 +329,10 @@ struct AudioPlayerView: View {
         let isLoading: Bool
         let isPlaying: Bool
         let action: () -> Void
+
+        private var accessibilityLabel: LocalizedStringKey {
+            isPlaying ? "Pause audio" : "Play audio"
+        }
 
         var body: some View {
             Button {
@@ -351,7 +357,9 @@ struct AudioPlayerView: View {
                         .strokeBorder(Color.accentColor.opacity(0.24), lineWidth: 1)
                 )
             }
-            .buttonStyle(PlainButtonStyle())
+            .frame(minWidth: 44, minHeight: 44)
+            .buttonStyle(.plain)
+            .accessibilityLabel(accessibilityLabel)
         }
     }
 
@@ -364,13 +372,14 @@ struct AudioPlayerView: View {
             } label: {
                 Image(systemName: "xmark")
                     .font(.system(size: 12, weight: .bold))
-                    .frame(width: 28, height: 28)
+                    .frame(width: 44, height: 44)
                     .background(
                         RoundedRectangle(cornerRadius: 10, style: .continuous)
                             .fill(Color.primary.opacity(0.08))
                     )
             }
-            .buttonStyle(PlainButtonStyle())
+            .buttonStyle(.plain)
+            .accessibilityLabel("Close audio player")
         }
     }
 }
