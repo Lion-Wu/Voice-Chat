@@ -12,6 +12,7 @@
 "Collapse" = "收起";
 "Connection timed out" = "连接超时";
 "Copy" = "复制";
+"Copied" = "已复制";
 "Current Preset" = "当前预设";
 "cut0: No Split" = "cut0：不拆分";
 "cut1: every 4 sentences" = "cut1：每 4 句拆分";

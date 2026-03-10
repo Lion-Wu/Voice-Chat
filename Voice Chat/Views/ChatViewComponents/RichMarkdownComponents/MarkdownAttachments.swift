@@ -260,12 +260,16 @@ final class MarkdownCodeBlockAttachment: MarkdownAttachment, @unchecked Sendable
     private var cachedSize: CGSize = .zero
     private var cachedWidth: CGFloat = 0
     private var lastLayout: Layout?
+    private var isShowingCopyFeedback = false
+    private var copyFeedbackTask: Task<Void, Never>?
 
     #if os(macOS)
     weak var hostedView: MarkdownCodeBlockView?
     #endif
 
     private static let viewProviderFileType = MarkdownAttachmentFileTypes.viewBacked
+    private static let copyFeedbackText = "✓"
+    private static let copyFeedbackDuration = Duration.seconds(1.2)
 
     private func configureTextAttachmentViewIfAvailable() {
         #if os(iOS) || os(tvOS)
@@ -369,6 +373,10 @@ final class MarkdownCodeBlockAttachment: MarkdownAttachment, @unchecked Sendable
         #endif
     }
 
+    deinit {
+        copyFeedbackTask?.cancel()
+    }
+
     #if os(macOS)
     @MainActor
     #endif
@@ -455,6 +463,7 @@ final class MarkdownCodeBlockAttachment: MarkdownAttachment, @unchecked Sendable
         return layout.copyButtonRect.contains(point)
     }
 
+    @MainActor
     func copyToPasteboard() {
         #if os(iOS) || os(tvOS) || os(watchOS)
         UIPasteboard.general.string = code
@@ -463,6 +472,7 @@ final class MarkdownCodeBlockAttachment: MarkdownAttachment, @unchecked Sendable
         pasteboard.clearContents()
         pasteboard.setString(code, forType: .string)
         #endif
+        showCopyFeedback()
     }
 
     override func attachmentBounds(
@@ -511,11 +521,14 @@ final class MarkdownCodeBlockAttachment: MarkdownAttachment, @unchecked Sendable
         let headerHeight = max(24, headerLineHeight + headerPadding.height * 2)
         let headerRect = CGRect(x: border, y: border, width: viewportContentWidth, height: headerHeight)
 
-        let copyTextSize = measureText(copyLabel, font: style.headerFont)
+        let displayedCopyText = activeCopyButtonText
+        let copyTextSize = measureText(displayedCopyText, font: style.headerFont)
+        let feedbackTextSize = measureText(Self.copyFeedbackText, font: style.headerFont)
+        let normalCopyTextSize = measureText(copyLabel, font: style.headerFont)
         let copyButtonHeight = max(18, headerLineHeight + headerPadding.height)
         let iconSize = max(10, min(14, copyButtonHeight - 6))
         let iconSpacing: CGFloat = 6
-        let idealCopyWidth = copyTextSize.width + headerPadding.width * 2
+        let idealCopyWidth = max(normalCopyTextSize.width, feedbackTextSize.width) + headerPadding.width * 2
         let availableCopyWidth = max(0, viewportContentWidth - headerPadding.width)
         let copyButtonWidth = min(idealCopyWidth, availableCopyWidth)
         let copyButtonY = border + (headerHeight - copyButtonHeight) / 2
@@ -526,7 +539,7 @@ final class MarkdownCodeBlockAttachment: MarkdownAttachment, @unchecked Sendable
             width: min(copyButtonWidth, availableCopyWidth),
             height: copyButtonHeight
         )
-        let iconFits = copyButtonRect.width >= copyTextSize.width + iconSize + iconSpacing
+        let iconFits = !isShowingCopyFeedback && copyButtonRect.width >= copyTextSize.width + iconSize + iconSpacing
         let copyIconRect: CGRect
         let copyTextRect: CGRect
         if iconFits {
@@ -665,11 +678,11 @@ final class MarkdownCodeBlockAttachment: MarkdownAttachment, @unchecked Sendable
 
         let copyAttributes: [NSAttributedString.Key: Any] = [
             .font: style.headerFont,
-            .foregroundColor: style.copyTextColor
+            .foregroundColor: activeCopyButtonColor
         ]
-        let copyString = NSAttributedString(string: copyLabel, attributes: copyAttributes)
+        let copyString = NSAttributedString(string: activeCopyButtonText, attributes: copyAttributes)
         if layout.copyIconRect != .zero {
-            drawCopyIcon(in: context, rect: layout.copyIconRect, color: style.copyTextColor)
+            drawCopyIcon(in: context, rect: layout.copyIconRect, color: activeCopyButtonColor)
         }
         copyString.draw(
             with: layout.copyTextRect,
@@ -736,6 +749,49 @@ final class MarkdownCodeBlockAttachment: MarkdownAttachment, @unchecked Sendable
         #elseif os(macOS)
         return NSLayoutManager().defaultLineHeight(for: font)
         #endif
+    }
+
+    private var activeCopyButtonText: String {
+        isShowingCopyFeedback ? Self.copyFeedbackText : copyLabel
+    }
+
+    private var activeCopyButtonColor: MarkdownPlatformColor {
+        isShowingCopyFeedback ? .systemGreen : style.copyTextColor
+    }
+
+    @MainActor
+    private func showCopyFeedback() {
+        copyFeedbackTask?.cancel()
+        isShowingCopyFeedback = true
+        updateRenderedCopyFeedbackIfNeeded()
+        copyFeedbackTask = Task { [weak self] in
+            try? await Task.sleep(for: Self.copyFeedbackDuration)
+            guard !Task.isCancelled else { return }
+            await MainActor.run {
+                guard let self else { return }
+                self.isShowingCopyFeedback = false
+                self.updateRenderedCopyFeedbackIfNeeded()
+                self.copyFeedbackTask = nil
+            }
+        }
+    }
+
+    @MainActor
+    private func updateRenderedCopyFeedbackIfNeeded() {
+        guard !allowsTextAttachmentView else { return }
+        let renderWidth = max(maxWidth, cachedWidth)
+        guard renderWidth > 1 else { return }
+        let layout = layoutBlock(maxWidth: renderWidth)
+        cachedSize = layout.size
+        cachedWidth = renderWidth
+        lastLayout = layout
+        let viewportWidth = layout.codeRect.width + style.codePadding.width * 2
+        horizontalScrollRange = max(0, layout.contentWidth - viewportWidth)
+        if horizontalScrollOffset > horizontalScrollRange {
+            horizontalScrollOffset = horizontalScrollRange
+        }
+        cachedImage = drawBlock(layout: layout)
+        setAttachmentImage(cachedImage)
     }
 
     private func drawCopyIcon(in context: CGContext, rect: CGRect, color: MarkdownPlatformColor) {

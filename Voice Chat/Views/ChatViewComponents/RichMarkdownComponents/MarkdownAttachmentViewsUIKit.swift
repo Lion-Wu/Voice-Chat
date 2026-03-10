@@ -41,6 +41,11 @@ private final class MarkdownCodeBlockView: UIView, UIScrollViewDelegate {
     private var needsImmediateLayout: Bool = true
     private weak var attachment: MarkdownCodeBlockAttachment?
     private var pendingScrollOffsetX: CGFloat?
+    private var isShowingCopyFeedback = false
+    private var copyFeedbackTask: Task<Void, Never>?
+
+    private static let copyFeedbackText = "✓"
+    private static let copyFeedbackDuration = Duration.seconds(1.2)
 
     init(
         code: String,
@@ -76,13 +81,12 @@ private final class MarkdownCodeBlockView: UIView, UIScrollViewDelegate {
         self.languageLabel.text = languageText
         headerView.addSubview(self.languageLabel)
 
-        copyButton.setTitle(copyText, for: .normal)
         copyButton.titleLabel?.font = style.headerFont
-        copyButton.setTitleColor(style.copyTextColor, for: .normal)
         copyButton.backgroundColor = style.copyBackground
         copyButton.titleLabel?.lineBreakMode = .byTruncatingTail
         copyButton.clipsToBounds = true
         copyButton.addTarget(self, action: #selector(handleCopy), for: .touchUpInside)
+        updateCopyButtonAppearance()
         headerView.addSubview(copyButton)
 
         scrollView.showsHorizontalScrollIndicator = true
@@ -114,6 +118,10 @@ private final class MarkdownCodeBlockView: UIView, UIScrollViewDelegate {
 
     required init?(coder: NSCoder) {
         return nil
+    }
+
+    deinit {
+        copyFeedbackTask?.cancel()
     }
 
     func sizeThatFitsWidth(_ width: CGFloat) -> CGSize {
@@ -194,7 +202,7 @@ private final class MarkdownCodeBlockView: UIView, UIScrollViewDelegate {
         languageText = languageLabel
         copyText = copyLabel
         self.languageLabel.text = languageLabel
-        copyButton.setTitle(copyLabel, for: .normal)
+        updateCopyButtonAppearance()
 
         let layoutWidth = max(1, bounds.width > 0 ? bounds.width : max(cachedWidth, MeasurementSizing.initialContainerWidth))
         let priorLayout = cachedLayout
@@ -267,6 +275,7 @@ private final class MarkdownCodeBlockView: UIView, UIScrollViewDelegate {
         #if os(iOS)
         UIPasteboard.general.string = code
         #endif
+        showCopyFeedback()
     }
 
     private func layoutsApproximatelyEqual(_ lhs: Layout?, _ rhs: Layout) -> Bool {
@@ -335,9 +344,10 @@ private final class MarkdownCodeBlockView: UIView, UIScrollViewDelegate {
         let separatorFrame = CGRect(x: border, y: headerFrame.maxY, width: viewportContentWidth, height: border)
 
         let copyTextSize = measureText(copyText, font: style.headerFont)
+        let feedbackTextSize = measureText(Self.copyFeedbackText, font: style.headerFont)
         let copyButtonHeight = max(18, headerLineHeight + headerPadding.height)
         let availableCopyWidth = max(0, viewportContentWidth - headerPadding.width)
-        let idealCopyWidth = copyTextSize.width + headerPadding.width * 2
+        let idealCopyWidth = max(copyTextSize.width, feedbackTextSize.width) + headerPadding.width * 2
         let copyButtonWidth = min(idealCopyWidth, availableCopyWidth)
         let copyButtonX = viewportContentWidth - copyButtonWidth - headerPadding.width
         let copyButtonY = (headerHeight - copyButtonHeight) / 2
@@ -391,6 +401,30 @@ private final class MarkdownCodeBlockView: UIView, UIScrollViewDelegate {
             scrollView.setContentOffset(CGPoint(x: clamped, y: 0), animated: false)
         }
         attachment?.setHostedHorizontalOffset(clamped)
+    }
+
+    private func showCopyFeedback() {
+        copyFeedbackTask?.cancel()
+        isShowingCopyFeedback = true
+        updateCopyButtonAppearance()
+        copyFeedbackTask = Task { [weak self] in
+            try? await Task.sleep(for: Self.copyFeedbackDuration)
+            guard !Task.isCancelled else { return }
+            await MainActor.run {
+                guard let self else { return }
+                self.isShowingCopyFeedback = false
+                self.updateCopyButtonAppearance()
+                self.copyFeedbackTask = nil
+            }
+        }
+    }
+
+    private func updateCopyButtonAppearance() {
+        let title = isShowingCopyFeedback ? Self.copyFeedbackText : copyText
+        let color = isShowingCopyFeedback ? UIColor.systemGreen : style.copyTextColor
+        copyButton.setTitle(title, for: .normal)
+        copyButton.setTitleColor(color, for: .normal)
+        copyButton.accessibilityLabel = isShowingCopyFeedback ? NSLocalizedString("Copied", comment: "") : copyText
     }
 
     func scrollViewDidScroll(_ scrollView: UIScrollView) {

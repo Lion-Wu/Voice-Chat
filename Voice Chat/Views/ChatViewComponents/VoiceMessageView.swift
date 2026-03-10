@@ -560,6 +560,8 @@ private extension View {
 struct SystemTextBubble: View {
     let message: ChatMessage
     @State private var isShowingMessageDetails = false
+    @State private var isShowingCopyFeedback = false
+    @State private var copyFeedbackToken = 0
 
     let thinkPreviewLines: Int
     let thinkFontSize: CGFloat
@@ -601,18 +603,19 @@ struct SystemTextBubble: View {
             bodyView
             if parts.isClosed && !parts.body.isEmpty && showActionButtons {
                 HStack(spacing: 6) {
-                    Button { onCopy() } label: {
-                        Image(systemName: "doc.on.doc")
+                    Button { handleCopy() } label: {
+                        Image(systemName: isShowingCopyFeedback ? "checkmark" : "doc.on.doc")
                             #if os(macOS)
                             .font(.system(size: 12, weight: .semibold))
                             #else
                             .font(.system(size: 16, weight: .semibold))
                             #endif
                             .padding(2)
-                            .accessibilityLabel("Copy")
+                            .frame(minWidth: 18, minHeight: 18)
                     }
                     .buttonStyle(.plain)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(isShowingCopyFeedback ? Color.green : .secondary)
+                    .accessibilityLabel(isShowingCopyFeedback ? Text("Copied") : Text("Copy"))
 
                     Button { onRegenerate() } label: {
                         Image(systemName: "arrow.clockwise")
@@ -662,9 +665,30 @@ struct SystemTextBubble: View {
         .tint(ChatTheme.accent)
         .frame(maxWidth: .infinity, alignment: .center)
         .textSelection(.enabled)
+        .task(id: copyFeedbackToken) {
+            guard copyFeedbackToken > 0 else { return }
+            try? await Task.sleep(for: .seconds(1.2))
+            await MainActor.run {
+                withAnimation(.easeInOut(duration: 0.18)) {
+                    isShowingCopyFeedback = false
+                }
+            }
+        }
+        .onDisappear {
+            isShowingCopyFeedback = false
+            copyFeedbackToken = 0
+        }
         .sheet(isPresented: $isShowingMessageDetails) {
             MessageDetailsView(message: message)
         }
+    }
+
+    private func handleCopy() {
+        onCopy()
+        withAnimation(.easeInOut(duration: 0.18)) {
+            isShowingCopyFeedback = true
+        }
+        copyFeedbackToken += 1
     }
 }
 
