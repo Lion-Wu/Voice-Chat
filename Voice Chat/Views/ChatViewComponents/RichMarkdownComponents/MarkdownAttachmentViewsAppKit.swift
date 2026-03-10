@@ -40,6 +40,11 @@ final class MarkdownCodeBlockView: NSView {
     private let codeTextView = NSTextView()
     private var cachedLayout: Layout?
     private var cachedWidth: CGFloat = 0
+    private var isShowingCopyFeedback = false
+    private var copyFeedbackTask: Task<Void, Never>?
+
+    private static let copyFeedbackText = "✓"
+    private static let copyFeedbackDuration = Duration.seconds(1.2)
 
     init(
         code: String,
@@ -78,16 +83,11 @@ final class MarkdownCodeBlockView: NSView {
         languageLabel.stringValue = languageText
         headerView.addSubview(languageLabel)
 
-        copyButton.title = copyText
         copyButton.target = self
         copyButton.action = #selector(handleCopy)
         copyButton.isBordered = false
         copyButton.bezelStyle = .regularSquare
-        let copyAttributes: [NSAttributedString.Key: Any] = [
-            .font: style.headerFont,
-            .foregroundColor: style.copyTextColor
-        ]
-        copyButton.attributedTitle = NSAttributedString(string: copyText, attributes: copyAttributes)
+        updateCopyButtonAppearance()
         headerView.addSubview(copyButton)
 
         scrollView.drawsBackground = false
@@ -122,6 +122,10 @@ final class MarkdownCodeBlockView: NSView {
 
     required init?(coder: NSCoder) {
         return nil
+    }
+
+    deinit {
+        copyFeedbackTask?.cancel()
     }
 
     func sizeThatFitsWidth(_ width: CGFloat) -> CGSize {
@@ -206,11 +210,7 @@ final class MarkdownCodeBlockView: NSView {
         languageText = languageLabel
         copyText = copyLabel
         self.languageLabel.stringValue = languageLabel
-        let copyAttributes: [NSAttributedString.Key: Any] = [
-            .font: style.headerFont,
-            .foregroundColor: style.copyTextColor
-        ]
-        copyButton.attributedTitle = NSAttributedString(string: copyLabel, attributes: copyAttributes)
+        updateCopyButtonAppearance()
 
         cachedLayout = nil
         needsLayout = true
@@ -249,6 +249,7 @@ final class MarkdownCodeBlockView: NSView {
         let pasteboard = NSPasteboard.general
         pasteboard.clearContents()
         pasteboard.setString(code, forType: .string)
+        showCopyFeedback()
     }
 
     private func computeLayout(width: CGFloat) -> Layout {
@@ -263,8 +264,9 @@ final class MarkdownCodeBlockView: NSView {
         let separatorFrame = CGRect(x: border, y: headerFrame.maxY - border, width: viewportContentWidth, height: border)
 
         let copyTextSize = measureText(copyText, font: style.headerFont)
+        let feedbackTextSize = measureText(Self.copyFeedbackText, font: style.headerFont)
         let copyButtonHeight = max(18, headerLineHeight + headerPadding.height)
-        let idealCopyWidth = copyTextSize.width + headerPadding.width * 2
+        let idealCopyWidth = max(copyTextSize.width, feedbackTextSize.width) + headerPadding.width * 2
         let availableCopyWidth = max(0, viewportContentWidth - headerPadding.width)
         let copyButtonWidth = min(idealCopyWidth, availableCopyWidth)
         let copyFrame = CGRect(
@@ -316,6 +318,34 @@ final class MarkdownCodeBlockView: NSView {
 
     private func lineHeight(for font: MarkdownPlatformFont) -> CGFloat {
         NSLayoutManager().defaultLineHeight(for: font)
+    }
+
+    private func showCopyFeedback() {
+        copyFeedbackTask?.cancel()
+        isShowingCopyFeedback = true
+        updateCopyButtonAppearance()
+        copyFeedbackTask = Task { [weak self] in
+            try? await Task.sleep(for: Self.copyFeedbackDuration)
+            guard !Task.isCancelled else { return }
+            await MainActor.run {
+                guard let self else { return }
+                self.isShowingCopyFeedback = false
+                self.updateCopyButtonAppearance()
+                self.copyFeedbackTask = nil
+            }
+        }
+    }
+
+    private func updateCopyButtonAppearance() {
+        let title = isShowingCopyFeedback ? Self.copyFeedbackText : copyText
+        let color = isShowingCopyFeedback ? NSColor.systemGreen : style.copyTextColor
+        let attributes: [NSAttributedString.Key: Any] = [
+            .font: style.headerFont,
+            .foregroundColor: color
+        ]
+        copyButton.title = title
+        copyButton.attributedTitle = NSAttributedString(string: title, attributes: attributes)
+        copyButton.toolTip = isShowingCopyFeedback ? NSLocalizedString("Copied", comment: "") : copyText
     }
 
     private func updateMeasuredMaxLineWidth(reset: Bool, changedCharacterRange: NSRange?) {
