@@ -405,7 +405,7 @@ struct ChatView: View {
                 // Conversation content area
                 Group {
                     if isHydratingSession {
-                        conversationLoadingPlaceholder
+                        hydrationMaskView
                     } else if !voiceOverlayVM.isPresented {
                         GeometryReader { outerGeo in
                             ScrollViewReader { proxy in
@@ -1272,12 +1272,9 @@ struct ChatView: View {
         }
     }
 
-    private var conversationLoadingPlaceholder: some View {
-        VStack(spacing: 18) {
-            AssistantAlignedLoadingBubble(maxBubbleWidth: availableMessageWidth)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .padding(.top, 40)
+    private var hydrationMaskView: some View {
+        Color.clear
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
 

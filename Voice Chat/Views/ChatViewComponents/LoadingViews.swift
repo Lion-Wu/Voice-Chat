@@ -8,27 +8,53 @@
 import SwiftUI
 
 struct LoadingIndicatorView: View {
-    @State private var phase: CGFloat = 0
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     var tint: Color = .secondary
     var dotSize: CGFloat = 8
     var spacing: CGFloat = 6
 
+    private let cycleDuration: TimeInterval = 1.1
+    private let phaseOffset: Double = 0.16
+
     var body: some View {
-        HStack(spacing: spacing) {
-            Circle().frame(width: dotSize, height: dotSize).opacity(dotOpacity(0))
-            Circle().frame(width: dotSize, height: dotSize).opacity(dotOpacity(0.2))
-            Circle().frame(width: dotSize, height: dotSize).opacity(dotOpacity(0.4))
-        }
-        .foregroundStyle(tint)
-        .onAppear {
-            withAnimation(.easeInOut(duration: 0.9).repeatForever(autoreverses: true)) {
-                phase = 1
+        TimelineView(.animation(minimumInterval: reduceMotion ? 0.6 : (1.0 / 30.0))) { context in
+            let progress = animationProgress(at: context.date)
+
+            HStack(spacing: spacing) {
+                ForEach(0..<3, id: \.self) { index in
+                    let emphasis = dotEmphasis(index: index, progress: progress)
+                    Circle()
+                        .fill(tint)
+                        .frame(width: dotSize, height: dotSize)
+                        .scaleEffect(reduceMotion ? 1 : 0.78 + (0.38 * emphasis))
+                        .offset(y: reduceMotion ? 0 : -(dotSize * 0.22 * emphasis))
+                        .opacity(0.34 + (0.66 * emphasis))
+                        .shadow(
+                            color: tint.opacity(reduceMotion ? 0 : 0.08 + (0.12 * emphasis)),
+                            radius: reduceMotion ? 0 : (dotSize * 0.45),
+                            y: reduceMotion ? 0 : (dotSize * 0.08)
+                        )
+                }
             }
+            .frame(height: dotSize * 1.5)
+            .accessibilityHidden(true)
         }
     }
-    private func dotOpacity(_ delay: CGFloat) -> Double {
-        let value = sin((phase + delay) * .pi)
-        return Double(0.35 + 0.65 * max(0, value))
+
+    private func animationProgress(at date: Date) -> Double {
+        let elapsed = date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: cycleDuration)
+        return elapsed / cycleDuration
+    }
+
+    private func dotEmphasis(index: Int, progress: Double) -> Double {
+        let shifted = progress - (Double(index) * phaseOffset)
+        let wrapped = shifted >= 0 ? shifted : (shifted + 1)
+        let wave = sin(wrapped * (.pi * 2))
+        let normalized = max(0, wave)
+        if reduceMotion {
+            return 0.45 + (0.55 * normalized)
+        }
+        return normalized
     }
 }
 
@@ -42,7 +68,14 @@ struct AssistantAlignedLoadingBubble: View {
                     LoadingIndicatorView()
                         .padding(.vertical, 10)
                         .padding(.horizontal, 12)
-                        .background(PlatformColor.secondaryBackground.opacity(0.6), in: RoundedRectangle(cornerRadius: ChatTheme.bubbleRadius, style: .continuous))
+                        .background(
+                            RoundedRectangle(cornerRadius: ChatTheme.bubbleRadius, style: .continuous)
+                                .fill(PlatformColor.secondaryBackground.opacity(0.72))
+                                .overlay {
+                                    RoundedRectangle(cornerRadius: ChatTheme.bubbleRadius, style: .continuous)
+                                        .strokeBorder(.white.opacity(0.06))
+                                }
+                        )
                     Spacer(minLength: 0)
                 }
                 .frame(maxWidth: contentMaxWidthForAssistant(availableWidth: maxBubbleWidth), alignment: .leading)
