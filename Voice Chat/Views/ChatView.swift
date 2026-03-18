@@ -161,6 +161,71 @@ private struct ImageAttachmentDropDelegate: DropDelegate {
 }
 #endif
 
+#if os(iOS)
+private struct SystemCameraCapturePicker: UIViewControllerRepresentable {
+    @Binding var isPresented: Bool
+    let onCapture: (Data, String?) -> Void
+    let onFailure: () -> Void
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(parent: self)
+    }
+
+    func makeUIViewController(context: Context) -> UIImagePickerController {
+        let picker = UIImagePickerController()
+        picker.delegate = context.coordinator
+        picker.sourceType = .camera
+        picker.cameraCaptureMode = .photo
+        picker.mediaTypes = [UTType.image.identifier]
+        picker.allowsEditing = false
+        picker.showsCameraControls = true
+        if UIImagePickerController.isCameraDeviceAvailable(.rear) {
+            picker.cameraDevice = .rear
+        }
+        return picker
+    }
+
+    func updateUIViewController(_ uiViewController: UIImagePickerController, context: Context) {
+        context.coordinator.parent = self
+    }
+
+    final class Coordinator: NSObject, UINavigationControllerDelegate, UIImagePickerControllerDelegate {
+        var parent: SystemCameraCapturePicker
+
+        init(parent: SystemCameraCapturePicker) {
+            self.parent = parent
+        }
+
+        func imagePickerControllerDidCancel(_ picker: UIImagePickerController) {
+            parent.isPresented = false
+        }
+
+        func imagePickerController(
+            _ picker: UIImagePickerController,
+            didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey: Any]
+        ) {
+            defer { parent.isPresented = false }
+
+            if let imageURL = info[.imageURL] as? URL,
+               let fileData = try? Data(contentsOf: imageURL),
+               !fileData.isEmpty {
+                let mimeType = UTType(filenameExtension: imageURL.pathExtension)?.preferredMIMEType
+                parent.onCapture(fileData, mimeType)
+                return
+            }
+
+            let selectedImage = (info[.editedImage] ?? info[.originalImage]) as? UIImage
+            guard let imageData = selectedImage?.jpegData(compressionQuality: 0.92), !imageData.isEmpty else {
+                parent.onFailure()
+                return
+            }
+
+            parent.onCapture(imageData, "image/jpeg")
+        }
+    }
+}
+#endif
+
 struct ChatView: View {
     @EnvironmentObject var chatSessionsViewModel: ChatSessionsViewModel
     @EnvironmentObject var audioManager: GlobalAudioManager
@@ -221,6 +286,9 @@ struct ChatView: View {
     @State private var activePhotoImportID: UUID?
     @State private var isImageDropTargeted: Bool = false
     @State private var imageDropSuppressionState: ImageDropSuppressionState?
+#endif
+#if os(iOS) || os(macOS)
+    @State private var showSystemCameraCapture: Bool = false
 #endif
 
 #if os(macOS)
@@ -609,6 +677,36 @@ struct ChatView: View {
                 FullScreenComposer(text: $viewModel.userMessage) {
                     isInputFocused = true
                 }
+            }
+#endif
+#if os(iOS)
+            .fullScreenCover(isPresented: $showSystemCameraCapture) {
+                SystemCameraCapturePicker(
+                    isPresented: $showSystemCameraCapture,
+                    onCapture: { data, mimeType in
+                        importCapturedPhotoData(data, mimeType: mimeType)
+                    },
+                    onFailure: {
+                        presentCameraCaptureFailureNotice()
+                    }
+                )
+                .ignoresSafeArea()
+            }
+#endif
+#if os(macOS)
+            .sheet(isPresented: $showSystemCameraCapture) {
+                MacCameraCaptureSheet(
+                    onCapture: { data, mimeType in
+                        importCapturedPhotoData(data, mimeType: mimeType)
+                        showSystemCameraCapture = false
+                    },
+                    onFailure: {
+                        presentCameraCaptureFailureNotice()
+                    },
+                    onDismiss: {
+                        showSystemCameraCapture = false
+                    }
+                )
             }
 #endif
 #if os(iOS)
@@ -1090,6 +1188,18 @@ struct ChatView: View {
                         presentImageAttachmentLimitNotice()
                         return
                     }
+                    presentSystemCameraCapture()
+                } label: {
+                    Label("Take Photo", systemImage: "camera")
+                }
+
+                Divider()
+
+                Button {
+                    guard remainingPendingImageAttachmentSlots > 0 else {
+                        presentImageAttachmentLimitNotice()
+                        return
+                    }
                     showPhotoPicker = true
                 } label: {
                     Label("Choose Photos", systemImage: "photo.on.rectangle.angled")
@@ -1457,6 +1567,57 @@ struct ChatView: View {
         }
     }
 
+#if os(iOS)
+    private func presentSystemCameraCapture() {
+        guard UIImagePickerController.isSourceTypeAvailable(.camera),
+              UIImagePickerController.availableMediaTypes(for: .camera)?.contains(UTType.image.identifier) == true else {
+            presentCameraUnavailableNotice()
+            return
+        }
+        showSystemCameraCapture = true
+    }
+
+    private func importCapturedPhotoData(_ data: Data, mimeType: String?) {
+        guard currentModelSupportsImageInput else { return }
+        guard !data.isEmpty else {
+            presentCameraCaptureFailureNotice()
+            return
+        }
+        guard remainingPendingImageAttachmentSlots > 0 else {
+            presentImageAttachmentLimitNotice()
+            return
+        }
+
+        let payload = ImageImportPayload(data: data, mimeType: mimeType)
+        startImageImport {
+            await Self.loadImageAttachments(from: [payload], limit: $0)
+        }
+    }
+#endif
+
+#if os(macOS)
+    private func presentSystemCameraCapture() {
+        showSystemCameraCapture = true
+    }
+
+    private func importCapturedPhotoData(_ data: Data, mimeType: String?) {
+        guard currentModelSupportsImageInput else { return }
+        guard !data.isEmpty else {
+            presentCameraCaptureFailureNotice()
+            return
+        }
+        guard remainingPendingImageAttachmentSlots > 0 else {
+            presentImageAttachmentLimitNotice()
+            return
+        }
+
+        let payload = ImageImportPayload(data: data, mimeType: mimeType)
+        startImageImport {
+            await Self.loadImageAttachments(from: [payload], limit: $0)
+        }
+    }
+#endif
+
     private func importSelectedImageFiles(_ result: Result<[URL], any Error>) {
         switch result {
         case .success(let urls):
@@ -1628,6 +1789,24 @@ struct ChatView: View {
             category: .textModel
         )
     }
+
+#if os(iOS) || os(macOS)
+    private func presentCameraUnavailableNotice() {
+        errorCenter.publish(
+            title: NSLocalizedString("Camera Unavailable", comment: "Title shown when the device cannot present the system camera UI"),
+            message: NSLocalizedString("This device does not support photo capture.", comment: "Shown when the current device cannot take photos with the system camera UI"),
+            category: .textModel
+        )
+    }
+
+    private func presentCameraCaptureFailureNotice() {
+        errorCenter.publish(
+            title: NSLocalizedString("Camera Capture Failed", comment: "Title shown when the system camera UI returns no usable photo"),
+            message: NSLocalizedString("The captured photo could not be imported.", comment: "Shown when a captured photo cannot be converted into an attachment"),
+            category: .textModel
+        )
+    }
+#endif
 
     nonisolated private static func loadImageAttachments(from items: [PhotosPickerItem], limit: Int) async -> [ChatImageAttachment] {
         guard limit > 0 else { return [] }
