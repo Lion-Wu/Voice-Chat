@@ -257,9 +257,15 @@
 "All selected images were ignored because this model only accepts text input." = "このモデルはテキスト入力のみ対応のため、選択した画像はすべて無視されました。";
 "This conversation contains images, but the selected model only accepts text. Continue to ignore all images in this request and send text only." = "この会話には画像が含まれていますが、選択中のモデルはテキストのみ対応です。今回のリクエストでは画像を無視してテキストのみ送信しますか？";
 "Choose Photos" = "写真を選択";
+"Choose Files" = "ファイルを選択";
 "Add image" = "画像を追加";
+"Drop images anywhere to attach" = "チャット画面のどこにドロップしても画像を添付できます";
 "Remove image" = "画像を削除";
 "Image unavailable" = "画像を表示できません";
+"Image Import Failed" = "画像の読み込みに失敗しました";
+"Too Many Images" = "画像が多すぎます";
+"A message can include up to %lld image attachments." = "1件のメッセージには最大 %lld 個の画像添付を含められます。";
+"This message can include %lld additional image attachments. Extra images were ignored." = "このメッセージにはあと %lld 個の画像添付を追加できます。超過した画像は無視されました。";
 "Nothing to send" = "送信する内容がありません";
 "Stream payload exceeded safety limit" = "ストリーム応答データが安全上限を超えました";
 "Server returned an empty response" = "サーバーが空の応答を返しました";

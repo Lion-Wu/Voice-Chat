@@ -257,9 +257,15 @@
 "All selected images were ignored because this model only accepts text input." = "由于当前模型仅支持文本输入，已忽略所有已选择的图片。";
 "This conversation contains images, but the selected model only accepts text. Continue to ignore all images in this request and send text only." = "当前会话包含图像，但所选模型仅支持文本。是否继续并在本次请求中忽略所有图像，仅发送文本？";
 "Choose Photos" = "选择照片";
+"Choose Files" = "选择文件";
 "Add image" = "添加图片";
+"Drop images anywhere to attach" = "拖到聊天界面的任意位置即可附加图片";
 "Remove image" = "移除图片";
 "Image unavailable" = "图片不可用";
+"Image Import Failed" = "图片导入失败";
+"Too Many Images" = "图片过多";
+"A message can include up to %lld image attachments." = "一条消息最多可包含 %lld 个图片附件。";
+"This message can include %lld additional image attachments. Extra images were ignored." = "当前消息还可添加 %lld 个图片附件，超出的图片已被忽略。";
 "Nothing to send" = "无可发送内容";
 "Stream payload exceeded safety limit" = "流式响应数据超过安全限制";
 "Server returned an empty response" = "服务器返回了空响应";

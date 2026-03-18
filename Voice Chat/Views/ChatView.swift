@@ -17,6 +17,8 @@ import UniformTypeIdentifiers
 
 #if os(macOS)
 import AppKit
+#elseif os(iOS)
+import UIKit
 #endif
 
 // MARK: - Equatable Rendering Helpers
@@ -55,6 +57,110 @@ private struct TextSelectionSheetItem: Identifiable {
     let text: String
 }
 
+private struct ChatViewPlatformTitleModifier: ViewModifier {
+    let title: String
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        #if os(macOS)
+        content.navigationTitle(title)
+        #else
+        content
+        #endif
+    }
+}
+
+#if os(iOS) || os(macOS)
+private struct ImageDropSuppressionState {
+    let signature: String
+    let expiresAt: Date
+}
+
+private struct ImageAttachmentDropDelegate: DropDelegate {
+    let isEnabled: Bool
+    @Binding var isTargeted: Bool
+    @Binding var suppressionState: ImageDropSuppressionState?
+    let acceptedTypeIdentifiers: [String]
+    let filterProviders: ([NSItemProvider]) -> [NSItemProvider]
+    let importProviders: ([NSItemProvider]) -> Void
+
+    func validateDrop(info: DropInfo) -> Bool {
+        !imageProviders(from: info).isEmpty
+    }
+
+    func dropEntered(info: DropInfo) {
+        guard !isSuppressed(info: info) else {
+            isTargeted = false
+            return
+        }
+        isTargeted = !imageProviders(from: info).isEmpty
+    }
+
+    func dropUpdated(info: DropInfo) -> DropProposal? {
+        guard !isSuppressed(info: info) else {
+            isTargeted = false
+            return nil
+        }
+        let hasImageProviders = !imageProviders(from: info).isEmpty
+        isTargeted = hasImageProviders
+        return hasImageProviders ? DropProposal(operation: .copy) : nil
+    }
+
+    func dropExited(info: DropInfo) {
+        isTargeted = false
+        if suppressionExpired {
+            suppressionState = nil
+        }
+    }
+
+    func performDrop(info: DropInfo) -> Bool {
+        let rawProviders = info.itemProviders(for: acceptedTypeIdentifiers)
+        let providers = filterProviders(rawProviders)
+        if !rawProviders.isEmpty {
+            suppressionState = ImageDropSuppressionState(
+                signature: Self.providerSignature(for: rawProviders),
+                expiresAt: Date().addingTimeInterval(1.5)
+            )
+        }
+        isTargeted = false
+        guard !providers.isEmpty else {
+            return false
+        }
+        importProviders(providers)
+        return true
+    }
+
+    private func imageProviders(from info: DropInfo) -> [NSItemProvider] {
+        guard isEnabled, !isSuppressed(info: info) else { return [] }
+        return filterProviders(info.itemProviders(for: acceptedTypeIdentifiers))
+    }
+
+    private func isSuppressed(info: DropInfo) -> Bool {
+        guard let suppressionState else { return false }
+        guard !suppressionExpired else {
+            self.suppressionState = nil
+            return false
+        }
+
+        return suppressionState.signature == Self.providerSignature(for: info.itemProviders(for: acceptedTypeIdentifiers))
+    }
+
+    private var suppressionExpired: Bool {
+        guard let suppressionState else { return true }
+        return Date() >= suppressionState.expiresAt
+    }
+
+    private static func providerSignature(for providers: [NSItemProvider]) -> String {
+        providers.map { provider in
+            let name = provider.suggestedName ?? ""
+            let types = provider.registeredTypeIdentifiers.sorted().joined(separator: ",")
+            return "\(name)|\(types)"
+        }
+        .joined(separator: "||")
+    }
+}
+#endif
+
 struct ChatView: View {
     @EnvironmentObject var chatSessionsViewModel: ChatSessionsViewModel
     @EnvironmentObject var audioManager: GlobalAudioManager
@@ -90,10 +196,31 @@ struct ChatView: View {
     @State private var expectAssistantResponseHaptics: Bool = false
     @State private var didTriggerResponseStartHaptic: Bool = false
 #if os(iOS) || os(macOS)
+    private enum ImageImportSource {
+        case photoPicker
+        case other
+    }
+
+    private struct ImageImportPayload: Sendable {
+        let data: Data
+        let mimeType: String?
+    }
+
+    private static let maxPendingImageAttachments = 9
+    nonisolated private static let imageProcessingQueue = DispatchQueue(
+        label: "com.lionwu.voicechat.image-processing",
+        qos: .utility,
+        attributes: .concurrent
+    )
+
     @State private var showPhotoPicker: Bool = false
+    @State private var showFileImporter: Bool = false
     @State private var pickedPhotoItems: [PhotosPickerItem] = []
     @State private var pendingPreviewFileURL: URL?
-    @State private var photoImportTask: Task<Void, Never>?
+    @State private var imageImportTasks: [UUID: Task<Void, Never>] = [:]
+    @State private var activePhotoImportID: UUID?
+    @State private var isImageDropTargeted: Bool = false
+    @State private var imageDropSuppressionState: ImageDropSuppressionState?
 #endif
 
 #if os(macOS)
@@ -397,6 +524,260 @@ struct ChatView: View {
     }
 
     var body: some View {
+        chatViewContent
+    }
+
+    private var chatViewContent: some View {
+        dropEnabledChatView
+    }
+
+    private var layoutDecoratedChatView: some View {
+        mainChatLayout
+            .modifier(ChatViewPlatformTitleModifier(title: viewModel.chatSession.title))
+            .overlay(alignment: .bottom) {
+                ZStack(alignment: .bottom) {
+                    composerShadowShelf
+
+                    VStack(spacing: 12) {
+                        if showScrollToBottomButton {
+                            scrollToBottomButton
+                                .transition(
+                                    .move(edge: .bottom)
+                                        .combined(with: .opacity)
+                                )
+                        }
+
+                        floatingInputPanel
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.bottom, composerBottomPadding)
+                }
+            }
+            .overlay(alignment: .bottom) {
+                if !errorCenter.notices.isEmpty {
+                    ErrorNoticeStack(
+                        notices: errorCenter.notices,
+                        onDismiss: { notice in
+                            errorCenter.dismiss(notice)
+                        }
+                    )
+                    .padding(.bottom, noticeBottomPadding)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                    .zIndex(0)
+                }
+            }
+    }
+
+    private var lifecycleManagedChatView: some View {
+        layoutDecoratedChatView
+#if os(iOS) || os(tvOS)
+            .ignoresSafeArea(.container, edges: .bottom)
+            .ignoresSafeArea(.keyboard, edges: .bottom)
+#endif
+            .onPreferenceChange(EditingBannerHeightKey.self, perform: updateEditingBannerHeightIfNeeded)
+            .onAppear {
+                refreshVisibleMessages(hydrating: true)
+#if os(macOS)
+                registerReturnKeyMonitor()
+#endif
+            }
+            .onDisappear {
+#if os(macOS)
+                unregisterReturnKeyMonitor()
+#endif
+                hydrationTask?.cancel()
+                hydrationTask = nil
+                isHydratingSession = false
+                pendingRefreshAfterHydration = false
+                expectAssistantResponseHaptics = false
+                didTriggerResponseStartHaptic = false
+#if os(iOS) || os(macOS)
+                for task in imageImportTasks.values {
+                    task.cancel()
+                }
+                imageImportTasks.removeAll()
+                ChatImageQuickLookSupport.cleanupTemporaryPreviewURL(pendingPreviewFileURL)
+                pendingPreviewFileURL = nil
+#endif
+            }
+    }
+
+    private var presentationManagedChatView: some View {
+        lifecycleManagedChatView
+#if os(iOS) || os(tvOS)
+            .fullScreenCover(isPresented: $showFullScreenComposer) {
+                FullScreenComposer(text: $viewModel.userMessage) {
+                    isInputFocused = true
+                }
+            }
+#endif
+#if os(iOS)
+            .fullScreenCover(item: $textSelectionSheetItem) { item in
+                TextSelectionSheet(text: item.text)
+            }
+#else
+            .sheet(item: $textSelectionSheetItem) { item in
+                TextSelectionSheet(text: item.text)
+            }
+#endif
+#if os(iOS) || os(macOS)
+            .photosPicker(
+                isPresented: $showPhotoPicker,
+                selection: $pickedPhotoItems,
+                maxSelectionCount: max(1, remainingPendingImageAttachmentSlots),
+                matching: .images
+            )
+            .fileImporter(
+                isPresented: $showFileImporter,
+                allowedContentTypes: [.image],
+                allowsMultipleSelection: true,
+                onCompletion: importSelectedImageFiles
+            )
+            .onChange(of: pickedPhotoItems) { _, newItems in
+                importPickedPhotoItems(newItems)
+            }
+            .quickLookPreview($pendingPreviewFileURL)
+            .onChange(of: pendingPreviewFileURL) { oldValue, newValue in
+                guard oldValue != newValue else { return }
+                ChatImageQuickLookSupport.cleanupTemporaryPreviewURL(oldValue)
+            }
+#endif
+    }
+
+    private var messageContentObservedChatView: some View {
+        presentationManagedChatView
+            .onReceive(viewModel.messageContentDidChange) { update in
+                applyContentFingerprintUpdate(update)
+                guard textHapticsEnabled else { return }
+                guard expectAssistantResponseHaptics, !didTriggerResponseStartHaptic else { return }
+                if let message = viewModel.chatSession.messages.first(where: { $0.id == update.messageID }),
+                   !message.isUser {
+                    didTriggerResponseStartHaptic = true
+                    triggerTextHaptic(.selection)
+                }
+            }
+    }
+
+    private var branchObservedChatView: some View {
+        messageContentObservedChatView
+            .onReceive(viewModel.branchDidChange) {
+                branchRenderEpoch &+= 1
+                refreshVisibleMessages()
+            }
+    }
+
+    private var loadingObservedChatView: some View {
+        branchObservedChatView
+            .onChange(of: viewModel.isLoading) { oldValue, newValue in
+                guard oldValue, !newValue else { return }
+                guard expectAssistantResponseHaptics else { return }
+                guard textHapticsEnabled else {
+                    expectAssistantResponseHaptics = false
+                    didTriggerResponseStartHaptic = false
+                    return
+                }
+
+                defer {
+                    expectAssistantResponseHaptics = false
+                    didTriggerResponseStartHaptic = false
+                }
+
+                let finishReason = viewModel
+                    .orderedMessagesCached()
+                    .last(where: { !$0.isUser })?
+                    .finishReason
+
+                switch finishReason {
+                case "completed":
+                    if didTriggerResponseStartHaptic {
+                        triggerTextHaptic(.successStrong)
+                    } else {
+                        triggerTextHaptic(.success)
+                    }
+                case "error":
+                    triggerTextHaptic(.error)
+                default:
+                    break
+                }
+            }
+    }
+
+    private var sessionObservedChatView: some View {
+        loadingObservedChatView
+            .onChange(of: viewModel.chatSession.id) { _, _ in
+                MessageRenderCache.shared.clear()
+                expectAssistantResponseHaptics = false
+                didTriggerResponseStartHaptic = false
+                refreshVisibleMessages(hydrating: true)
+            }
+            .onChange(of: viewModel.chatSession.messages.count) { _, _ in
+                refreshVisibleMessages()
+            }
+            .onChange(of: viewModel.editingBaseMessageID) { _, _ in
+                refreshVisibleMessages()
+            }
+    }
+
+    private var visibleCountObservedChatView: some View {
+        sessionObservedChatView
+            .onChange(of: visibleMessages.count) { _, _ in
+                if !showScrollToBottomButton {
+                    scrollToBottom()
+                }
+            }
+    }
+
+    private var alertManagedChatView: some View {
+        visibleCountObservedChatView
+            .alert("Other activity is still running",
+                   isPresented: $showStartVoiceModeInterruptAlert) {
+                Button("Cancel", role: .cancel) { }
+                Button("Continue", role: .destructive) {
+                    interruptAllActivitiesForVoiceModeStart()
+                    startRealtimeVoiceOverlay()
+                }
+            } message: {
+                Text("There are other tasks still running. Continuing will interrupt them and start voice mode.")
+            }
+            .alert("Current model does not support image input",
+                   isPresented: $showUnsupportedImageSendAlert) {
+                Button("Cancel", role: .cancel) { }
+                Button("Continue", role: .destructive) {
+                    if !performSend(ignoringUnsupportedImageInputs: true) {
+                        errorCenter.publish(
+                            title: NSLocalizedString("Nothing to send", comment: "Shown when sending is skipped because no text remains after removing unsupported image inputs"),
+                            message: NSLocalizedString("All selected images were ignored because this model only accepts text input.", comment: "Shown when selected images are dropped for a text-only model"),
+                            category: .textModel
+                        )
+                    }
+                }
+            } message: {
+                Text("This conversation contains images, but the selected model only accepts text. Continue to ignore all images in this request and send text only.")
+            }
+    }
+
+    private var dropEnabledChatView: some View {
+        alertManagedChatView
+#if os(iOS) || os(macOS)
+            .contentShape(Rectangle())
+            .overlay {
+                fullChatImageDropOverlay
+            }
+            .onDrop(
+                of: acceptedImageDropTypeIdentifiers,
+                delegate: ImageAttachmentDropDelegate(
+                    isEnabled: currentModelSupportsImageInput,
+                    isTargeted: $isImageDropTargeted,
+                    suppressionState: $imageDropSuppressionState,
+                    acceptedTypeIdentifiers: acceptedImageDropTypeIdentifiers,
+                    filterProviders: { $0.filter(Self.itemProviderMayContainImage) },
+                    importProviders: importDroppedImageProviders
+                )
+            )
+#endif
+    }
+
+    private var mainChatLayout: some View {
         ZStack(alignment: .top) {
 
             VStack(spacing: 0) {
@@ -462,191 +843,32 @@ struct ChatView: View {
                 .animation(.audioPlayerVisibility, value: shouldDisplayAudioPlayer)
             }
         }
-        #if os(macOS)
-        .navigationTitle(viewModel.chatSession.title)
-        #endif
-        .overlay(alignment: .bottom) {
-            ZStack(alignment: .bottom) {
-                composerShadowShelf
+    }
 
-                VStack(spacing: 12) {
-                    if showScrollToBottomButton {
-                        scrollToBottomButton
-                            .transition(
-                                .move(edge: .bottom)
-                                    .combined(with: .opacity)
-                            )
-                    }
-
-                    floatingInputPanel
-                }
-                .padding(.horizontal, 16)
-                .padding(.bottom, composerBottomPadding)
-            }
-        }
-        .overlay(alignment: .bottom) {
-            if !errorCenter.notices.isEmpty {
-                ErrorNoticeStack(
-                    notices: errorCenter.notices,
-                    onDismiss: { notice in
-                        errorCenter.dismiss(notice)
-                    }
-                )
-                .padding(.bottom, noticeBottomPadding)
-                .transition(.move(edge: .bottom).combined(with: .opacity))
-                .zIndex(0)
-            }
-        }
-        #if os(iOS) || os(tvOS)
-        .ignoresSafeArea(.container, edges: .bottom)
-        .ignoresSafeArea(.keyboard, edges: .bottom)
-        #endif
-        .onPreferenceChange(EditingBannerHeightKey.self, perform: updateEditingBannerHeightIfNeeded)
-        .onAppear {
-            refreshVisibleMessages(hydrating: true)
-#if os(macOS)
-            registerReturnKeyMonitor()
-#endif
-        }
-        .onDisappear {
-#if os(macOS)
-            unregisterReturnKeyMonitor()
-#endif
-            hydrationTask?.cancel()
-            hydrationTask = nil
-            isHydratingSession = false
-            pendingRefreshAfterHydration = false
-            expectAssistantResponseHaptics = false
-            didTriggerResponseStartHaptic = false
 #if os(iOS) || os(macOS)
-            photoImportTask?.cancel()
-            photoImportTask = nil
-            ChatImageQuickLookSupport.cleanupTemporaryPreviewURL(pendingPreviewFileURL)
-            pendingPreviewFileURL = nil
-#endif
-        }
-
-#if os(iOS) || os(tvOS)
-        .fullScreenCover(isPresented: $showFullScreenComposer) {
-            FullScreenComposer(text: $viewModel.userMessage) {
-                isInputFocused = true
-            }
-        }
-#endif
-#if os(iOS)
-        .fullScreenCover(item: $textSelectionSheetItem) { item in
-            TextSelectionSheet(text: item.text)
-        }
-#else
-        .sheet(item: $textSelectionSheetItem) { item in
-            TextSelectionSheet(text: item.text)
-        }
-#endif
-#if os(iOS) || os(macOS)
-        .photosPicker(
-            isPresented: $showPhotoPicker,
-            selection: $pickedPhotoItems,
-            maxSelectionCount: 8,
-            matching: .images
-        )
-        .onChange(of: pickedPhotoItems) { _, newItems in
-            importPickedPhotoItems(newItems)
-        }
-        .quickLookPreview($pendingPreviewFileURL)
-        .onChange(of: pendingPreviewFileURL) { oldValue, newValue in
-            guard oldValue != newValue else { return }
-            ChatImageQuickLookSupport.cleanupTemporaryPreviewURL(oldValue)
-        }
-#endif
-        .onReceive(viewModel.messageContentDidChange) { update in
-            applyContentFingerprintUpdate(update)
-            guard textHapticsEnabled else { return }
-            guard expectAssistantResponseHaptics, !didTriggerResponseStartHaptic else { return }
-            if let message = viewModel.chatSession.messages.first(where: { $0.id == update.messageID }),
-               !message.isUser {
-                didTriggerResponseStartHaptic = true
-                triggerTextHaptic(.selection)
-            }
-        }
-        .onReceive(viewModel.branchDidChange) {
-            branchRenderEpoch &+= 1
-            refreshVisibleMessages()
-        }
-        .onChange(of: viewModel.isLoading) { oldValue, newValue in
-            guard oldValue, !newValue else { return }
-            guard expectAssistantResponseHaptics else { return }
-            guard textHapticsEnabled else {
-                expectAssistantResponseHaptics = false
-                didTriggerResponseStartHaptic = false
-                return
-            }
-
-            defer {
-                expectAssistantResponseHaptics = false
-                didTriggerResponseStartHaptic = false
-            }
-
-            let finishReason = viewModel
-                .orderedMessagesCached()
-                .last(where: { !$0.isUser })?
-                .finishReason
-
-            switch finishReason {
-            case "completed":
-                if didTriggerResponseStartHaptic {
-                    triggerTextHaptic(.successStrong)
-                } else {
-                    triggerTextHaptic(.success)
+    @ViewBuilder
+    private var fullChatImageDropOverlay: some View {
+        if isImageDropTargeted && currentModelSupportsImageInput {
+            RoundedRectangle(cornerRadius: 28, style: .continuous)
+                .fill(ChatTheme.accent.opacity(0.08))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 28, style: .continuous)
+                        .stroke(ChatTheme.accent, style: StrokeStyle(lineWidth: 2, dash: [8, 6]))
                 }
-            case "error":
-                triggerTextHaptic(.error)
-            default:
-                break
-            }
-        }
-        .onChange(of: viewModel.chatSession.id) { _, _ in
-            MessageRenderCache.shared.clear()
-            expectAssistantResponseHaptics = false
-            didTriggerResponseStartHaptic = false
-            refreshVisibleMessages(hydrating: true)
-        }
-        .onChange(of: viewModel.chatSession.messages.count) { _, _ in
-            refreshVisibleMessages()
-        }
-        .onChange(of: viewModel.editingBaseMessageID) { _, _ in
-            refreshVisibleMessages()
-        }
-        .onChange(of: visibleMessages.count) { _, _ in
-            if !showScrollToBottomButton {
-                scrollToBottom()
-            }
-        }
-        .alert("Other activity is still running",
-               isPresented: $showStartVoiceModeInterruptAlert) {
-            Button("Cancel", role: .cancel) { }
-            Button("Continue", role: .destructive) {
-                interruptAllActivitiesForVoiceModeStart()
-                startRealtimeVoiceOverlay()
-            }
-        } message: {
-            Text("There are other tasks still running. Continuing will interrupt them and start voice mode.")
-        }
-        .alert("Current model does not support image input",
-               isPresented: $showUnsupportedImageSendAlert) {
-            Button("Cancel", role: .cancel) { }
-            Button("Continue", role: .destructive) {
-                if !performSend(ignoringUnsupportedImageInputs: true) {
-                    errorCenter.publish(
-                        title: NSLocalizedString("Nothing to send", comment: "Shown when sending is skipped because no text remains after removing unsupported image inputs"),
-                        message: NSLocalizedString("All selected images were ignored because this model only accepts text input.", comment: "Shown when selected images are dropped for a text-only model"),
-                        category: .textModel
-                    )
+                .padding(12)
+                .overlay {
+                    Label("Drop images anywhere to attach", systemImage: "photo.badge.plus")
+                        .font(.headline)
+                        .foregroundStyle(ChatTheme.accent)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 12)
+                        .background(.regularMaterial, in: Capsule())
                 }
-            }
-        } message: {
-            Text("This conversation contains images, but the selected model only accepts text. Continue to ignore all images in this request and send text only.")
+                .allowsHitTesting(false)
+                .transition(.opacity)
         }
     }
+#endif
 
     private var hasOtherActivityForVoiceModeStart: Bool {
         let hasText = chatSessionsViewModel.hasActiveTextRequests
@@ -825,7 +1047,10 @@ struct ChatView: View {
                     text: $viewModel.userMessage,
                     height: $textFieldHeight,
                     maxLines: platformMaxLines(),
-                    onOverflowChange: handleOverflowChange
+                    allowsImagePasting: currentModelSupportsImageInput,
+                    maxPastedImages: remainingPendingImageAttachmentSlots,
+                    onOverflowChange: handleOverflowChange,
+                    onPasteImages: importPastedImages
                 )
                 .focused($isInputFocused)
                 .frame(height: textFieldHeight)
@@ -861,9 +1086,23 @@ struct ChatView: View {
         if currentModelSupportsImageInput {
             Menu {
                 Button {
+                    guard remainingPendingImageAttachmentSlots > 0 else {
+                        presentImageAttachmentLimitNotice()
+                        return
+                    }
                     showPhotoPicker = true
                 } label: {
                     Label("Choose Photos", systemImage: "photo.on.rectangle.angled")
+                }
+
+                Button {
+                    guard remainingPendingImageAttachmentSlots > 0 else {
+                        presentImageAttachmentLimitNotice()
+                        return
+                    }
+                    showFileImporter = true
+                } label: {
+                    Label("Choose Files", systemImage: "folder")
                 }
             } label: {
                 Image(systemName: "plus.circle.fill")
@@ -1188,6 +1427,10 @@ struct ChatView: View {
     }
 
 #if os(iOS) || os(macOS)
+    private var acceptedImageDropTypeIdentifiers: [String] {
+        [UTType.image.identifier, UTType.fileURL.identifier]
+    }
+
     private func presentPendingAttachmentPreview(_ attachment: ChatImageAttachment) {
         let previous = pendingPreviewFileURL
         pendingPreviewFileURL = ChatImageQuickLookSupport.prepareTemporaryPreviewURL(for: attachment)
@@ -1198,42 +1441,516 @@ struct ChatView: View {
 
     private func importPickedPhotoItems(_ items: [PhotosPickerItem]) {
         guard !items.isEmpty else { return }
-        photoImportTask?.cancel()
-        let snapshot = items
-        photoImportTask = Task {
+        let remainingSlots = remainingPendingImageAttachmentSlots
+        guard remainingSlots > 0 else {
+            pickedPhotoItems.removeAll()
+            presentImageAttachmentLimitNotice()
+            return
+        }
+        if items.count > remainingSlots {
+            presentImageAttachmentOverflowNotice(remainingSlots: remainingSlots)
+        }
+        let snapshot = Array(items.prefix(remainingSlots))
+        startImageImport(source: .photoPicker, cancelsEarlierPhotoImports: true) {
+            limit in
+            await Self.loadImageAttachments(from: snapshot, limit: limit)
+        }
+    }
+
+    private func importSelectedImageFiles(_ result: Result<[URL], any Error>) {
+        switch result {
+        case .success(let urls):
+            guard currentModelSupportsImageInput else { return }
+            guard !urls.isEmpty else { return }
+            let remainingSlots = remainingPendingImageAttachmentSlots
+            guard remainingSlots > 0 else {
+                presentImageAttachmentLimitNotice()
+                return
+            }
+            if urls.count > remainingSlots {
+                presentImageAttachmentOverflowNotice(remainingSlots: remainingSlots)
+            }
+            let limitedURLs = Array(urls.prefix(remainingSlots))
+            startImageImport {
+                limit in
+                await Self.loadImageAttachments(fromFileURLs: limitedURLs, limit: limit)
+            }
+        case .failure(let error):
+            guard !Self.isUserCancelledImageImport(error) else { return }
+            errorCenter.publish(
+                title: NSLocalizedString("Image Import Failed", comment: "Title shown when importing selected image files fails"),
+                message: error.localizedDescription,
+                category: .textModel
+            )
+        }
+    }
+
+    private func importDroppedImageProviders(_ providers: [NSItemProvider]) {
+        guard currentModelSupportsImageInput else { return }
+        guard !providers.isEmpty else { return }
+        let remainingSlots = remainingPendingImageAttachmentSlots
+        guard remainingSlots > 0 else {
+            presentImageAttachmentLimitNotice()
+            return
+        }
+        if providers.count > remainingSlots {
+            presentImageAttachmentOverflowNotice(remainingSlots: remainingSlots)
+        }
+        let limitedProviders = Array(providers.prefix(remainingSlots))
+        startImageImport {
+            limit in
+            await Self.loadImageAttachments(fromItemProviders: limitedProviders, limit: limit)
+        }
+    }
+
+    private func importPastedImages(_ payloads: [(data: Data, mimeType: String?)]) {
+        guard currentModelSupportsImageInput else { return }
+        if payloads.count > remainingPendingImageAttachmentSlots {
+            presentImageAttachmentOverflowNotice(remainingSlots: remainingPendingImageAttachmentSlots)
+        }
+        let importPayloads = payloads.map { payload in
+            ImageImportPayload(data: payload.data, mimeType: payload.mimeType)
+        }
+        startImageImport {
+            await Self.loadImageAttachments(from: importPayloads, limit: $0)
+        }
+    }
+
+    private func startImageImport(
+        source: ImageImportSource = .other,
+        cancelsEarlierPhotoImports: Bool = false,
+        _ loader: @escaping (Int) async -> [ChatImageAttachment]
+    ) {
+        let importLimit = remainingPendingImageAttachmentSlots
+        guard importLimit > 0 else {
+            if source == .photoPicker {
+                pickedPhotoItems.removeAll()
+                activePhotoImportID = nil
+            }
+            return
+        }
+
+        let importID = UUID()
+        if cancelsEarlierPhotoImports, let activePhotoImportID {
+            imageImportTasks[activePhotoImportID]?.cancel()
+            imageImportTasks[activePhotoImportID] = nil
+        }
+
+        let task = Task(priority: .utility) {
+            let imported = await loader(importLimit)
+            guard !Task.isCancelled else {
+                await MainActor.run {
+                    if activePhotoImportID == importID {
+                        activePhotoImportID = nil
+                    }
+                    imageImportTasks[importID] = nil
+                }
+                return
+            }
+            await MainActor.run {
+                if source == .photoPicker, activePhotoImportID != importID {
+                    imageImportTasks[importID] = nil
+                    return
+                }
+                guard currentModelSupportsImageInput else {
+                    if source == .photoPicker {
+                        pickedPhotoItems.removeAll()
+                        activePhotoImportID = nil
+                    }
+                    imageImportTasks[importID] = nil
+                    return
+                }
+                appendPendingImageAttachments(imported)
+                if source == .photoPicker {
+                    pickedPhotoItems.removeAll()
+                    activePhotoImportID = nil
+                }
+                imageImportTasks[importID] = nil
+            }
+        }
+        imageImportTasks[importID] = task
+        if source == .photoPicker {
+            activePhotoImportID = importID
+        }
+    }
+
+    private func appendPendingImageAttachments(_ attachments: [ChatImageAttachment]) {
+        guard !attachments.isEmpty else { return }
+        let remainingSlots = max(0, Self.maxPendingImageAttachments - viewModel.pendingImageAttachments.count)
+        guard remainingSlots > 0 else {
+            presentImageAttachmentLimitNotice()
+            return
+        }
+        if attachments.count > remainingSlots {
+            presentImageAttachmentOverflowNotice(remainingSlots: remainingSlots)
+        }
+
+        let limitedAttachments = Array(attachments.prefix(remainingSlots))
+        guard !limitedAttachments.isEmpty else { return }
+
+        viewModel.pendingImageAttachments.append(contentsOf: limitedAttachments)
+        isInputFocused = true
+    }
+
+    private var remainingPendingImageAttachmentSlots: Int {
+        max(0, Self.maxPendingImageAttachments - viewModel.pendingImageAttachments.count)
+    }
+
+    private func presentImageAttachmentLimitNotice() {
+        errorCenter.publish(
+            title: NSLocalizedString("Too Many Images", comment: "Title shown when no more image attachments can be added"),
+            message: String(
+                format: NSLocalizedString(
+                    "A message can include up to %lld image attachments.",
+                    comment: "Shown when the user reaches the per-message image attachment cap"
+                ),
+                Int64(Self.maxPendingImageAttachments)
+            ),
+            category: .textModel
+        )
+    }
+
+    private func presentImageAttachmentOverflowNotice(remainingSlots: Int) {
+        guard remainingSlots > 0 else {
+            presentImageAttachmentLimitNotice()
+            return
+        }
+
+        errorCenter.publish(
+            title: NSLocalizedString("Too Many Images", comment: "Title shown when the user imports more images than the current draft can accept"),
+            message: String(
+                format: NSLocalizedString(
+                    "This message can include %lld additional image attachments. Extra images were ignored.",
+                    comment: "Shown when imported images exceed the remaining attachment slots in the current draft"
+                ),
+                Int64(remainingSlots)
+            ),
+            category: .textModel
+        )
+    }
+
+    nonisolated private static func loadImageAttachments(from items: [PhotosPickerItem], limit: Int) async -> [ChatImageAttachment] {
+        guard limit > 0 else { return [] }
+        var imported: [ChatImageAttachment] = []
+        imported.reserveCapacity(min(items.count, limit))
+
+        for item in items {
+            guard !Task.isCancelled else { return imported }
+            guard imported.count < limit else { return imported }
+            guard let data = try? await item.loadTransferable(type: Data.self), !data.isEmpty else { continue }
+
+            let mimeType = preferredImageMIMEType(for: item, data: data)
+            guard let attachment = await makeImageAttachmentAsync(data: data, mimeTypeHint: mimeType) else { continue }
+            imported.append(attachment)
+        }
+
+        return imported
+    }
+
+    nonisolated private static func loadImageAttachments(fromFileURLs urls: [URL], limit: Int) async -> [ChatImageAttachment] {
+        guard limit > 0 else { return [] }
+        let worker = Task.detached(priority: .utility) {
             var imported: [ChatImageAttachment] = []
-            imported.reserveCapacity(snapshot.count)
+            imported.reserveCapacity(min(urls.count, limit))
 
-            for item in snapshot {
-                guard !Task.isCancelled else { return }
-                guard let data = try? await item.loadTransferable(type: Data.self), !data.isEmpty else { continue }
-
-                let mimeType = preferredImageMIMEType(for: item, data: data)
-                imported.append(ChatImageAttachment(mimeType: mimeType, data: data))
+            for url in urls {
+                guard !Task.isCancelled else { return imported }
+                guard imported.count < limit else { return imported }
+                guard let attachment = await loadImageAttachmentAsync(fromFileURL: url) else { continue }
+                imported.append(attachment)
             }
 
-            await MainActor.run {
-                guard !Task.isCancelled else { return }
-                if !imported.isEmpty {
-                    viewModel.pendingImageAttachments.append(contentsOf: imported)
+            return imported
+        }
+
+        return await withTaskCancellationHandler {
+            await worker.value
+        } onCancel: {
+            worker.cancel()
+        }
+    }
+
+    nonisolated private static func loadImageAttachments(from payloads: [ImageImportPayload], limit: Int) async -> [ChatImageAttachment] {
+        guard limit > 0 else { return [] }
+        let worker = Task.detached(priority: .utility) {
+            var imported: [ChatImageAttachment] = []
+            imported.reserveCapacity(min(payloads.count, limit))
+
+            for payload in payloads {
+                guard !Task.isCancelled else { return imported }
+                guard imported.count < limit else { return imported }
+                guard let attachment = await makeImageAttachmentAsync(data: payload.data, mimeTypeHint: payload.mimeType) else {
+                    continue
                 }
-                pickedPhotoItems.removeAll()
+                imported.append(attachment)
+            }
+
+            return imported
+        }
+
+        return await withTaskCancellationHandler {
+            await worker.value
+        } onCancel: {
+            worker.cancel()
+        }
+    }
+
+    private static func loadImageAttachments(fromItemProviders providers: [NSItemProvider], limit: Int) async -> [ChatImageAttachment] {
+        guard limit > 0 else { return [] }
+        var imported: [ChatImageAttachment] = []
+        imported.reserveCapacity(min(providers.count, limit))
+
+        for provider in providers {
+            guard !Task.isCancelled else { return imported }
+            guard imported.count < limit else { return imported }
+            guard let attachment = await loadImageAttachment(from: provider) else { continue }
+            imported.append(attachment)
+        }
+
+        return imported
+    }
+
+    private static func loadImageAttachment(from provider: NSItemProvider) async -> ChatImageAttachment? {
+        let imageType = provider.registeredTypeIdentifiers
+            .compactMap(UTType.init)
+            .first(where: { $0.conforms(to: .image) })
+
+        if let imageType,
+           let data = try? await provider.loadDataRepresentationAsync(forTypeIdentifier: imageType.identifier) {
+            return await makeImageAttachmentAsync(data: data, mimeTypeHint: imageType.preferredMIMEType)
+        }
+
+        guard provider.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier),
+              let url = try? await provider.loadFileURLAsync() else {
+            return nil
+        }
+
+        return await loadImageAttachmentAsync(fromFileURL: url)
+    }
+
+    nonisolated private static func itemProviderMayContainImage(_ provider: NSItemProvider) -> Bool {
+        let registeredTypes = provider.registeredTypeIdentifiers.compactMap(UTType.init)
+        if registeredTypes.contains(where: { $0.conforms(to: .image) }) {
+            return true
+        }
+
+        guard provider.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) else {
+            return false
+        }
+
+        guard let suggestedName = provider.suggestedName,
+              !suggestedName.isEmpty else {
+            return true
+        }
+
+        let pathExtension = URL(fileURLWithPath: suggestedName).pathExtension
+        guard !pathExtension.isEmpty,
+              let suggestedType = UTType(filenameExtension: pathExtension) else {
+            return false
+        }
+
+        return suggestedType.conforms(to: .image)
+    }
+
+    nonisolated private static func loadImageAttachment(fromFileURL url: URL) -> ChatImageAttachment? {
+        let didStartSecurityScope = url.startAccessingSecurityScopedResource()
+        defer {
+            if didStartSecurityScope {
+                url.stopAccessingSecurityScopedResource()
+            }
+        }
+
+        let contentType = (try? url.resourceValues(forKeys: [.contentTypeKey]))?.contentType
+        if let contentType, !contentType.conforms(to: .image) {
+            return nil
+        }
+
+        guard let data = try? Data(contentsOf: url), !data.isEmpty else { return nil }
+        if contentType == nil, sniffedImageMIMEType(from: data) == nil {
+            return nil
+        }
+        return makeImageAttachment(data: data, mimeTypeHint: contentType?.preferredMIMEType)
+    }
+
+    nonisolated private static func loadImageAttachmentAsync(fromFileURL url: URL) async -> ChatImageAttachment? {
+        await withCheckedContinuation { continuation in
+            imageProcessingQueue.async {
+                continuation.resume(returning: loadImageAttachment(fromFileURL: url))
             }
         }
     }
 
-    private func preferredImageMIMEType(for item: PhotosPickerItem, data: Data) -> String {
+    nonisolated private static func makeImageAttachmentAsync(data: Data, mimeTypeHint: String?) async -> ChatImageAttachment? {
+        await withCheckedContinuation { continuation in
+            imageProcessingQueue.async {
+                continuation.resume(returning: makeImageAttachment(data: data, mimeTypeHint: mimeTypeHint))
+            }
+        }
+    }
+
+    nonisolated private static func makeImageAttachment(data: Data, mimeTypeHint: String?) -> ChatImageAttachment? {
+        guard !data.isEmpty else { return nil }
+        let resolvedMIMEType = sniffedImageMIMEType(from: data)
+            ?? canonicalImageMIMEType(mimeTypeHint ?? "")
+
+        if shouldTranscodeToCompatibleFormat(resolvedMIMEType),
+           let transcodedPayload = transcodeToCompatibleImagePayload(from: data) {
+            return ChatImageAttachment(mimeType: transcodedPayload.mimeType, data: transcodedPayload.data)
+        }
+
+        return ChatImageAttachment(mimeType: resolvedMIMEType, data: data)
+    }
+
+    nonisolated private static func canonicalImageMIMEType(_ mimeType: String) -> String {
+        let normalized = mimeType
+            .split(separator: ";", maxSplits: 1, omittingEmptySubsequences: true)
+            .first?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased() ?? ""
+
+        switch normalized {
+        case "image/jpg":
+            return "image/jpeg"
+        default:
+            return normalized.isEmpty ? "image/jpeg" : normalized
+        }
+    }
+
+    nonisolated private static func isUserCancelledImageImport(_ error: any Error) -> Bool {
+        let nsError = error as NSError
+        if nsError.domain == NSCocoaErrorDomain && nsError.code == NSUserCancelledError {
+            return true
+        }
+
+        if let underlyingError = nsError.userInfo[NSUnderlyingErrorKey] as? NSError {
+            return underlyingError.domain == NSCocoaErrorDomain && underlyingError.code == NSUserCancelledError
+        }
+
+        return false
+    }
+
+    nonisolated private static func shouldTranscodeToCompatibleFormat(_ mimeType: String) -> Bool {
+        canonicalImageMIMEType(mimeType) != "image/jpeg"
+    }
+
+    nonisolated private static func transcodeToCompatibleImagePayload(from data: Data) -> (data: Data, mimeType: String)? {
+        #if os(macOS)
+        guard let image = NSImage(data: data),
+              let cgImage = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else {
+            return nil
+        }
+
+        let outputImage = cgImageUsesTransparency(cgImage) ? opaqueJPEGReadyImage(from: cgImage) ?? cgImage : cgImage
+        let bitmap = NSBitmapImageRep(cgImage: outputImage)
+        let properties: [NSBitmapImageRep.PropertyKey: Any] = [.compressionFactor: 0.9]
+        guard let jpegData = bitmap.representation(using: .jpeg, properties: properties) else {
+            return nil
+        }
+        return (jpegData, "image/jpeg")
+        #else
+        guard let image = UIImage(data: data),
+              let cgImage = image.cgImage else {
+            return nil
+        }
+
+        let outputImage = cgImageUsesTransparency(cgImage) ? opaqueJPEGReadyImage(from: cgImage) ?? cgImage : cgImage
+        let renderedImage = UIImage(cgImage: outputImage, scale: image.scale, orientation: image.imageOrientation)
+        guard let jpegData = renderedImage.jpegData(compressionQuality: 0.9) else {
+            return nil
+        }
+        return (jpegData, "image/jpeg")
+        #endif
+    }
+
+    nonisolated private static func cgImageUsesTransparency(_ image: CGImage) -> Bool {
+        let alphaInfo = image.alphaInfo
+        switch alphaInfo {
+        case .first, .last, .premultipliedFirst, .premultipliedLast, .alphaOnly:
+            break
+        default:
+            return false
+        }
+
+        guard let alphaOffset = alphaComponentOffset(in: image, alphaInfo: alphaInfo) else {
+            return true
+        }
+        guard let provider = image.dataProvider,
+              let data = provider.data,
+              let bytes = CFDataGetBytePtr(data) else {
+            return true
+        }
+
+        let bytesPerPixel = image.bitsPerPixel / 8
+        guard bytesPerPixel > alphaOffset, image.height > 0, image.width > 0 else {
+            return true
+        }
+
+        for row in 0..<image.height {
+            let rowStart = row * image.bytesPerRow
+            for column in 0..<image.width {
+                let alphaIndex = rowStart + (column * bytesPerPixel) + alphaOffset
+                if bytes[alphaIndex] < UInt8.max {
+                    return true
+                }
+            }
+        }
+
+        return false
+    }
+
+    nonisolated private static func alphaComponentOffset(in image: CGImage, alphaInfo: CGImageAlphaInfo) -> Int? {
+        switch alphaInfo {
+        case .alphaOnly:
+            return 0
+        case .first, .premultipliedFirst:
+            return image.bitmapInfo.contains(.byteOrder32Little) ? 3 : 0
+        case .last, .premultipliedLast:
+            return image.bitmapInfo.contains(.byteOrder32Little) ? 0 : 3
+        default:
+            return nil
+        }
+    }
+
+    nonisolated private static func opaqueJPEGReadyImage(from image: CGImage) -> CGImage? {
+        let colorSpace = CGColorSpaceCreateDeviceRGB()
+        guard let context = CGContext(
+            data: nil,
+            width: image.width,
+            height: image.height,
+            bitsPerComponent: 8,
+            bytesPerRow: 0,
+            space: colorSpace,
+            bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue
+        ) else {
+            return nil
+        }
+
+        context.setFillColor(CGColor(red: 1, green: 1, blue: 1, alpha: 1))
+        context.fill(CGRect(x: 0, y: 0, width: image.width, height: image.height))
+        context.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
+        return context.makeImage()
+    }
+
+    nonisolated private static func preferredImageMIMEType(for item: PhotosPickerItem, data: Data) -> String {
         if let type = item.supportedContentTypes.first(where: { $0.conforms(to: .image) }),
            let mime = type.preferredMIMEType {
-            return mime
+            return canonicalImageMIMEType(mime)
         }
         return inferredMIMEType(from: data)
     }
 
-    private func inferredMIMEType(from data: Data) -> String {
+    nonisolated private static func inferredMIMEType(from data: Data) -> String {
+        sniffedImageMIMEType(from: data) ?? "image/jpeg"
+    }
+
+    nonisolated private static func sniffedImageMIMEType(from data: Data) -> String? {
         if data.starts(with: [0xFF, 0xD8, 0xFF]) { return "image/jpeg" }
         if data.starts(with: [0x89, 0x50, 0x4E, 0x47]) { return "image/png" }
         if data.starts(with: [0x47, 0x49, 0x46, 0x38]) { return "image/gif" }
+        if data.starts(with: [0x49, 0x49, 0x2A, 0x00]) || data.starts(with: [0x4D, 0x4D, 0x00, 0x2A]) {
+            return "image/tiff"
+        }
+        if data.starts(with: [0x42, 0x4D]) { return "image/bmp" }
 
         if data.count >= 12 {
             let marker = String(decoding: data[4..<12], as: UTF8.self).lowercased()
@@ -1245,7 +1962,7 @@ struct ChatView: View {
             }
         }
 
-        return "image/jpeg"
+        return nil
     }
 #endif
 

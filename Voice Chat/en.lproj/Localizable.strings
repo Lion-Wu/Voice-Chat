@@ -253,9 +253,15 @@
 "All selected images were ignored because this model only accepts text input." = "All selected images were ignored because this model only accepts text input.";
 "This conversation contains images, but the selected model only accepts text. Continue to ignore all images in this request and send text only." = "This conversation contains images, but the selected model only accepts text. Continue to ignore all images in this request and send text only.";
 "Choose Photos" = "Choose Photos";
+"Choose Files" = "Choose Files";
 "Add image" = "Add image";
+"Drop images anywhere to attach" = "Drop images anywhere to attach";
 "Remove image" = "Remove image";
 "Image unavailable" = "Image unavailable";
+"Image Import Failed" = "Image Import Failed";
+"Too Many Images" = "Too Many Images";
+"A message can include up to %lld image attachments." = "A message can include up to %lld image attachments.";
+"This message can include %lld additional image attachments. Extra images were ignored." = "This message can include %lld additional image attachments. Extra images were ignored.";
 "Nothing to send" = "Nothing to send";
 "Stream payload exceeded safety limit" = "Stream payload exceeded safety limit";
 "Server returned an empty response" = "Server returned an empty response";
