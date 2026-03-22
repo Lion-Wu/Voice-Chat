@@ -79,6 +79,7 @@ final class MarkdownCodeBlockView: NSView {
 
         languageLabel.font = style.headerFont
         languageLabel.textColor = style.headerTextColor
+        languageLabel.alignment = .natural
         languageLabel.lineBreakMode = .byTruncatingTail
         languageLabel.stringValue = languageText
         headerView.addSubview(languageLabel)
@@ -97,11 +98,15 @@ final class MarkdownCodeBlockView: NSView {
         scrollView.borderType = .noBorder
         scrollView.horizontalScrollElasticity = .allowed
         scrollView.verticalScrollElasticity = .none
+        scrollView.userInterfaceLayoutDirection = .leftToRight
         addSubview(scrollView)
 
         codeTextView.drawsBackground = false
         codeTextView.isEditable = false
         codeTextView.isSelectable = true
+        codeTextView.userInterfaceLayoutDirection = .leftToRight
+        codeTextView.baseWritingDirection = .leftToRight
+        codeTextView.alignment = .left
         codeTextView.textContainerInset = .zero
         codeTextView.textContainer?.lineFragmentPadding = 0
         codeTextView.textContainer?.lineBreakMode = .byClipping
@@ -257,6 +262,7 @@ final class MarkdownCodeBlockView: NSView {
         let headerPadding = style.headerPadding
         let codePadding = style.codePadding
         let viewportContentWidth = max(1, width - border * 2)
+        let isRightToLeft = userInterfaceLayoutDirection == .rightToLeft
 
         let headerLineHeight = lineHeight(for: style.headerFont)
         let headerHeight = max(24, headerLineHeight + headerPadding.height * 2)
@@ -269,15 +275,22 @@ final class MarkdownCodeBlockView: NSView {
         let idealCopyWidth = max(copyTextSize.width, feedbackTextSize.width) + headerPadding.width * 2
         let availableCopyWidth = max(0, viewportContentWidth - headerPadding.width)
         let copyButtonWidth = min(idealCopyWidth, availableCopyWidth)
+        let copyButtonX = isRightToLeft
+            ? headerPadding.width
+            : max(0, viewportContentWidth - copyButtonWidth - headerPadding.width)
         let copyFrame = CGRect(
-            x: max(0, viewportContentWidth - copyButtonWidth - headerPadding.width),
+            x: copyButtonX,
             y: (headerHeight - copyButtonHeight) / 2,
             width: min(copyButtonWidth, viewportContentWidth),
             height: copyButtonHeight
         )
 
-        let languageX = headerPadding.width
-        let languageWidth = max(0, copyFrame.minX - languageX - headerPadding.width)
+        let languageX = isRightToLeft
+            ? min(viewportContentWidth, copyFrame.maxX + headerPadding.width)
+            : headerPadding.width
+        let languageWidth = isRightToLeft
+            ? max(0, viewportContentWidth - languageX - headerPadding.width)
+            : max(0, copyFrame.minX - languageX - headerPadding.width)
         let languageFrame = CGRect(
             x: languageX,
             y: (headerHeight - headerLineHeight) / 2,

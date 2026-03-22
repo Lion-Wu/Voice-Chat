@@ -63,6 +63,7 @@ private struct SelectableTextView: UIViewRepresentable {
         textView.backgroundColor = .clear
         textView.textColor = .label
         textView.font = .systemFont(ofSize: 15)
+        textView.textAlignment = .natural
         textView.textContainerInset = UIEdgeInsets(top: 16, left: 16, bottom: 16, right: 16)
         textView.textContainer.lineFragmentPadding = 0
         textView.text = text
@@ -72,6 +73,8 @@ private struct SelectableTextView: UIViewRepresentable {
     }
 
     func updateUIView(_ uiView: UITextView, context: Context) {
+        uiView.semanticContentAttribute = context.environment.layoutDirection == .rightToLeft ? .forceRightToLeft : .forceLeftToRight
+        uiView.textAlignment = .natural
         guard uiView.text != text else { return }
         uiView.text = text
         uiView.disableTextDragAndDrop()

@@ -16,16 +16,18 @@ final class SideMenuContainerViewController: UIViewController {
     private let menuAnimationDuration: TimeInterval = 0.22
     private let maxMainDimmingAlpha: CGFloat = 0.2
 
-    private var sidebarHostingController: UIViewController!
-    private var mainHostingController: UIViewController!
+    private var sidebarHostingController: UIHostingController<AnyView>!
+    private var mainHostingController: UIHostingController<AnyView>!
     private let mainDimmingView = UIView()
 
-    private var sideMenuLeadingConstraint: NSLayoutConstraint!
-    private var mainLeftConstraint: NSLayoutConstraint!
+    private var sideMenuHorizontalConstraint: NSLayoutConstraint!
+    private var mainHorizontalConstraint: NSLayoutConstraint!
     private var mainBottomConstraint: NSLayoutConstraint!
+    private var managedLayoutConstraints: [NSLayoutConstraint] = []
 
     private var isMenuOpen = false
-    private var startMenuLeading: CGFloat = 0
+    private var startMenuOffset: CGFloat = 0
+    private var currentLayoutDirection: UIUserInterfaceLayoutDirection = .leftToRight
 
     var chatSessionsViewModel: ChatSessionsViewModel!
     var audioManager: GlobalAudioManager!
@@ -37,45 +39,23 @@ final class SideMenuContainerViewController: UIViewController {
 
     override func viewDidLoad() {
         super.viewDidLoad()
+        currentLayoutDirection = view.effectiveUserInterfaceLayoutDirection
         configureHierarchy()
         configureConstraints()
         configureGestures()
         configureKeyboardHandling()
     }
 
+    private var closedMenuOffset: CGFloat {
+        currentLayoutDirection == .rightToLeft ? sideMenuWidth : -sideMenuWidth
+    }
+
+    private var swiftUILayoutDirection: LayoutDirection {
+        currentLayoutDirection == .rightToLeft ? .rightToLeft : .leftToRight
+    }
+
     private func configureHierarchy() {
-        let sidebarContent = SidebarView(
-            onConversationTap: { [weak self] session in
-                self?.chatSessionsViewModel.selectedSession = session
-                self?.toggleMenu(open: false, animated: true)
-            },
-            onOpenSettings: { [weak self] in
-                self?.presentSettings()
-            }
-        )
-        .environmentObject(chatSessionsViewModel)
-        .environmentObject(voiceOverlayViewModel)
-        .environmentObject(errorCenter)
-
-        let sidebarView: AnyView
-        if #available(iOS 16, tvOS 16, *) {
-            sidebarView = AnyView(
-                NavigationStack {
-                    sidebarContent
-                        .toolbar(.hidden, for: .navigationBar)
-                }
-            )
-        } else {
-            sidebarView = AnyView(
-                NavigationView {
-                    sidebarContent
-                        .navigationBarHidden(true)
-                }
-                .navigationViewStyle(.stack)
-            )
-        }
-
-        let sidebarVC = UIHostingController(rootView: sidebarView)
+        let sidebarVC = UIHostingController(rootView: makeSidebarRootView())
         self.sidebarHostingController = sidebarVC
 
         addChild(sidebarVC)
@@ -83,21 +63,7 @@ final class SideMenuContainerViewController: UIViewController {
         sidebarVC.view.translatesAutoresizingMaskIntoConstraints = false
         sidebarVC.didMove(toParent: self)
 
-        let mainView = MainContentView(
-            onToggleSidebar: { [weak self] in
-                guard let self = self else { return }
-                self.toggleMenu(open: !self.isMenuOpen, animated: true)
-            }
-        )
-        .environmentObject(chatSessionsViewModel)
-        .environmentObject(audioManager)
-        .environmentObject(settingsManager)
-        // Pass along the shared speech input manager.
-        .environmentObject(speechInputManager)
-        .environmentObject(voiceOverlayViewModel)
-        .environmentObject(errorCenter)
-
-        let mainVC = UIHostingController(rootView: mainView)
+        let mainVC = UIHostingController(rootView: makeMainRootView())
         self.mainHostingController = mainVC
 
         addChild(mainVC)
@@ -107,32 +73,107 @@ final class SideMenuContainerViewController: UIViewController {
         configureMainDimmingOverlay(on: mainVC.view)
     }
 
+    private func makeSidebarRootView() -> AnyView {
+        let sidebarContent = SidebarView(
+            onConversationTap: { [weak self] session in
+                self?.chatSessionsViewModel.selectedSession = session
+                self?.toggleMenu(open: false, animated: true)
+            },
+            onOpenSettings: { [weak self] in
+                self?.presentSettings()
+            }
+        )
+        .environment(\.layoutDirection, swiftUILayoutDirection)
+        .environmentObject(chatSessionsViewModel)
+        .environmentObject(voiceOverlayViewModel)
+        .environmentObject(errorCenter)
+
+        if #available(iOS 16, tvOS 16, *) {
+            return AnyView(
+                NavigationStack {
+                    sidebarContent
+                        .toolbar(.hidden, for: .navigationBar)
+                }
+                .environment(\.layoutDirection, swiftUILayoutDirection)
+            )
+        } else {
+            return AnyView(
+                NavigationView {
+                    sidebarContent
+                        .navigationBarHidden(true)
+                }
+                .navigationViewStyle(.stack)
+                .environment(\.layoutDirection, swiftUILayoutDirection)
+            )
+        }
+    }
+
+    private func makeMainRootView() -> AnyView {
+        AnyView(
+            MainContentView(
+                onToggleSidebar: { [weak self] in
+                    guard let self = self else { return }
+                    self.toggleMenu(open: !self.isMenuOpen, animated: true)
+                }
+            )
+            .environment(\.layoutDirection, swiftUILayoutDirection)
+            .environmentObject(chatSessionsViewModel)
+            .environmentObject(audioManager)
+            .environmentObject(settingsManager)
+            .environmentObject(speechInputManager)
+            .environmentObject(voiceOverlayViewModel)
+            .environmentObject(errorCenter)
+        )
+    }
+
     private func configureConstraints() {
         guard let sidebarView = sidebarHostingController?.view,
               let mainView = mainHostingController?.view else { return }
 
-        sideMenuLeadingConstraint = sidebarView.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: -sideMenuWidth)
-        NSLayoutConstraint.activate([
-            sideMenuLeadingConstraint,
+        let preservedMenuOpen = isMenuOpen
+        let preservedBottomConstant = mainBottomConstraint?.constant ?? 0
+        NSLayoutConstraint.deactivate(managedLayoutConstraints)
+
+        if currentLayoutDirection == .rightToLeft {
+            sideMenuHorizontalConstraint = sidebarView.rightAnchor.constraint(
+                equalTo: view.rightAnchor,
+                constant: preservedMenuOpen ? 0 : closedMenuOffset
+            )
+            mainHorizontalConstraint = mainView.rightAnchor.constraint(
+                equalTo: sidebarView.leftAnchor,
+                constant: 0
+            )
+        } else {
+            sideMenuHorizontalConstraint = sidebarView.leftAnchor.constraint(
+                equalTo: view.leftAnchor,
+                constant: preservedMenuOpen ? 0 : closedMenuOffset
+            )
+            mainHorizontalConstraint = mainView.leftAnchor.constraint(
+                equalTo: sidebarView.rightAnchor,
+                constant: 0
+            )
+        }
+
+        managedLayoutConstraints = [
+            sideMenuHorizontalConstraint,
             sidebarView.topAnchor.constraint(equalTo: view.topAnchor),
             sidebarView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
-            sidebarView.widthAnchor.constraint(equalToConstant: sideMenuWidth)
-        ])
-
-        mainLeftConstraint = mainView.leadingAnchor.constraint(equalTo: sidebarView.trailingAnchor, constant: 0)
-        var mainConstraints: [NSLayoutConstraint] = [
-            mainLeftConstraint,
+            sidebarView.widthAnchor.constraint(equalToConstant: sideMenuWidth),
+            mainHorizontalConstraint,
             mainView.topAnchor.constraint(equalTo: view.topAnchor),
             mainView.widthAnchor.constraint(equalTo: view.widthAnchor)
         ]
 
-        mainBottomConstraint = mainView.bottomAnchor.constraint(equalTo: view.bottomAnchor)
-        mainConstraints.append(mainBottomConstraint)
+        mainBottomConstraint = mainView.bottomAnchor.constraint(
+            equalTo: view.bottomAnchor,
+            constant: preservedBottomConstant
+        )
+        managedLayoutConstraints.append(mainBottomConstraint)
 
-        NSLayoutConstraint.activate(mainConstraints)
+        NSLayoutConstraint.activate(managedLayoutConstraints)
 
-        isMenuOpen = false
-        updateMainDimming(forMenuLeading: sideMenuLeadingConstraint.constant)
+        isMenuOpen = preservedMenuOpen
+        updateMainDimming(forMenuOffset: sideMenuHorizontalConstraint.constant)
     }
 
     private func configureGestures() {
@@ -171,8 +212,11 @@ final class SideMenuContainerViewController: UIViewController {
     }
 
     private func presentSettings() {
-        let settingsView = SettingsView().environmentObject(settingsManager)
+        let settingsView = SettingsView()
+            .environment(\.layoutDirection, swiftUILayoutDirection)
+            .environmentObject(settingsManager)
         let settingsVC = UIHostingController(rootView: settingsView)
+        settingsVC.view.semanticContentAttribute = currentLayoutDirection == .rightToLeft ? .forceRightToLeft : .forceLeftToRight
         settingsVC.modalPresentationStyle = .formSheet
         present(settingsVC, animated: true, completion: nil)
     }
@@ -200,8 +244,13 @@ final class SideMenuContainerViewController: UIViewController {
         toggleMenu(open: false, animated: true)
     }
 
-    private func updateMainDimming(forMenuLeading leading: CGFloat) {
-        let progress = max(0, min(1, 1 + (leading / sideMenuWidth)))
+    private func updateMainDimming(forMenuOffset offset: CGFloat) {
+        let progress: CGFloat
+        if currentLayoutDirection == .rightToLeft {
+            progress = max(0, min(1, 1 - (offset / sideMenuWidth)))
+        } else {
+            progress = max(0, min(1, 1 + (offset / sideMenuWidth)))
+        }
         let alpha = progress * maxMainDimmingAlpha
         mainDimmingView.alpha = alpha
         mainDimmingView.isUserInteractionEnabled = alpha > 0.001
@@ -219,17 +268,17 @@ final class SideMenuContainerViewController: UIViewController {
         }
 
         isMenuOpen = open
-        let finalLeading = open ? 0 : -sideMenuWidth
+        let finalOffset = open ? 0 : closedMenuOffset
 
         if animated {
             UIView.animate(withDuration: menuAnimationDuration, delay: 0, options: [.curveEaseInOut, .beginFromCurrentState], animations: {
-                self.sideMenuLeadingConstraint.constant = finalLeading
-                self.updateMainDimming(forMenuLeading: finalLeading)
+                self.sideMenuHorizontalConstraint.constant = finalOffset
+                self.updateMainDimming(forMenuOffset: finalOffset)
                 self.view.layoutIfNeeded()
             })
         } else {
-            sideMenuLeadingConstraint.constant = finalLeading
-            updateMainDimming(forMenuLeading: finalLeading)
+            sideMenuHorizontalConstraint.constant = finalOffset
+            updateMainDimming(forMenuOffset: finalOffset)
             view.layoutIfNeeded()
         }
 
@@ -244,24 +293,46 @@ final class SideMenuContainerViewController: UIViewController {
 
         switch gesture.state {
         case .began:
-            startMenuLeading = sideMenuLeadingConstraint.constant
+            startMenuOffset = sideMenuHorizontalConstraint.constant
         case .changed:
-            let newLeading = startMenuLeading + translation
-            sideMenuLeadingConstraint.constant = max(-sideMenuWidth, min(0, newLeading))
-            updateMainDimming(forMenuLeading: sideMenuLeadingConstraint.constant)
+            let newOffset = startMenuOffset + translation
+            let minOffset = min(closedMenuOffset, 0)
+            let maxOffset = max(closedMenuOffset, 0)
+            sideMenuHorizontalConstraint.constant = max(minOffset, min(maxOffset, newOffset))
+            updateMainDimming(forMenuOffset: sideMenuHorizontalConstraint.constant)
         case .ended, .cancelled:
             let velocityX = gesture.velocity(in: view).x
-            let currentOffset = sideMenuLeadingConstraint.constant
+            let signedVelocity = currentLayoutDirection == .rightToLeft ? -velocityX : velocityX
+            let currentOffset = sideMenuHorizontalConstraint.constant
             let shouldOpen: Bool
-            if abs(velocityX) > 300 {
-                shouldOpen = velocityX > 0
+            if abs(signedVelocity) > 300 {
+                shouldOpen = signedVelocity > 0
             } else {
-                shouldOpen = (currentOffset > -sideMenuWidth * 0.5)
+                shouldOpen = currentLayoutDirection == .rightToLeft
+                    ? (currentOffset < sideMenuWidth * 0.5)
+                    : (currentOffset > -sideMenuWidth * 0.5)
             }
             toggleMenu(open: shouldOpen, animated: true)
         default:
             break
         }
+    }
+
+    func updateLayoutDirection(_ layoutDirection: LayoutDirection) {
+        let resolvedDirection: UIUserInterfaceLayoutDirection = layoutDirection == .rightToLeft ? .rightToLeft : .leftToRight
+        let semantic: UISemanticContentAttribute = layoutDirection == .rightToLeft ? .forceRightToLeft : .forceLeftToRight
+
+        view.semanticContentAttribute = semantic
+        sidebarHostingController?.view.semanticContentAttribute = semantic
+        mainHostingController?.view.semanticContentAttribute = semantic
+
+        guard currentLayoutDirection != resolvedDirection else { return }
+        currentLayoutDirection = resolvedDirection
+        guard isViewLoaded else { return }
+
+        sidebarHostingController.rootView = makeSidebarRootView()
+        mainHostingController.rootView = makeMainRootView()
+        configureConstraints()
     }
 
     deinit {
@@ -292,11 +363,12 @@ struct SideMenuContainerRepresentable: UIViewControllerRepresentable {
         vc.speechInputManager = speechInputManager
         vc.voiceOverlayViewModel = voiceOverlayViewModel
         vc.errorCenter = errorCenter
+        vc.updateLayoutDirection(context.environment.layoutDirection)
         return vc
     }
 
     func updateUIViewController(_ uiViewController: SideMenuContainerViewController, context: Context) {
-        // No-op
+        uiViewController.updateLayoutDirection(context.environment.layoutDirection)
     }
 }
 

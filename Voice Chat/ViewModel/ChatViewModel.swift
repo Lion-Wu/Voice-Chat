@@ -1397,23 +1397,5 @@ final class ChatViewModel: ObservableObject {
 }
 
 private func isPlaceholderTitle(_ title: String) -> Bool {
-    let locales = [
-        Locale.current.identifier,
-        "en",
-        "zh-Hans",
-        "zh-Hant",
-        "ja"
-    ]
-
-    for identifier in locales {
-        let locale = Locale(identifier: identifier)
-        let localizedDefault = String(
-            localized: "New Chat",
-            locale: locale
-        )
-        if title == localizedDefault {
-            return true
-        }
-    }
-    return false
+    AppLocalization.localizedPlaceholderTitles().contains(title)
 }
