@@ -35,6 +35,7 @@ struct MessageComposerView: UIViewRepresentable {
         context.coordinator.hostView = uiView
         uiView.placeholder = placeholder
         uiView.maxLines = maxLines
+        uiView.applyLayoutDirection(context.environment.layoutDirection)
 
         if uiView.textView.text != text {
             uiView.textView.text = text
@@ -125,6 +126,7 @@ final class ComposerContainerView: UIView {
     let buttonStack = UIStackView()
     let expandButton = UIButton(type: .system)
     let primaryButton = UIButton(type: .system)
+    private var currentLayoutDirection: LayoutDirection = .leftToRight
 
     var placeholder: String = "" {
         didSet { placeholderLabel.text = placeholder }
@@ -176,6 +178,7 @@ final class ComposerContainerView: UIView {
         textView.font = .systemFont(ofSize: 17)
         textView.backgroundColor = .clear
         textView.textColor = .label
+        textView.textAlignment = .natural
         textView.isScrollEnabled = false
         textView.textContainerInset = UIEdgeInsets(top: 6, left: 6, bottom: 6, right: 6)
         textView.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
@@ -183,6 +186,7 @@ final class ComposerContainerView: UIView {
 
         placeholderLabel.font = .systemFont(ofSize: 17)
         placeholderLabel.textColor = .placeholderText
+        placeholderLabel.textAlignment = .natural
         placeholderLabel.translatesAutoresizingMaskIntoConstraints = false
         textView.addSubview(placeholderLabel)
 
@@ -218,6 +222,23 @@ final class ComposerContainerView: UIView {
         textHeightConstraint = textView.heightAnchor.constraint(equalToConstant: InputMetrics.defaultHeight)
         textHeightConstraint.priority = .defaultHigh
         textHeightConstraint.isActive = true
+
+        applyLayoutDirection(.leftToRight)
+    }
+
+    func applyLayoutDirection(_ layoutDirection: LayoutDirection) {
+        guard currentLayoutDirection != layoutDirection else { return }
+        currentLayoutDirection = layoutDirection
+
+        let semantic: UISemanticContentAttribute = layoutDirection == .rightToLeft ? .forceRightToLeft : .forceLeftToRight
+        semanticContentAttribute = semantic
+        containerView.semanticContentAttribute = semantic
+        stackView.semanticContentAttribute = semantic
+        buttonStack.semanticContentAttribute = semantic
+        textView.semanticContentAttribute = semantic
+        placeholderLabel.semanticContentAttribute = semantic
+        textView.textAlignment = .natural
+        placeholderLabel.textAlignment = .natural
     }
 
     func configureButtons(isLoading: Bool, trimmedEmpty: Bool) {

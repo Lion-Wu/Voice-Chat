@@ -135,6 +135,7 @@ struct AutoSizingTextEditor: UIViewRepresentable {
         tv.delegate = context.coordinator
         tv.font = .systemFont(ofSize: 17)
         tv.backgroundColor = .clear
+        tv.textAlignment = .natural
         tv.textContainerInset = UIEdgeInsets(
             top: InputMetrics.innerTop,
             left: InputMetrics.innerLeading,
@@ -150,6 +151,8 @@ struct AutoSizingTextEditor: UIViewRepresentable {
 
     func updateUIView(_ uiView: UITextView, context: Context) {
         // Avoid stomping on in-progress IME composition (e.g., Chinese pinyin) during unrelated SwiftUI updates.
+        uiView.semanticContentAttribute = context.environment.layoutDirection == .rightToLeft ? .forceRightToLeft : .forceLeftToRight
+        uiView.textAlignment = .natural
         if uiView.markedTextRange == nil, uiView.text != text {
             uiView.text = text
         }

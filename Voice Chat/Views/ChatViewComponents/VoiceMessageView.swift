@@ -340,7 +340,18 @@ struct MessageBranchControls: View {
         }
         .foregroundStyle(.secondary)
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("Version \(currentIndex) of \(totalCount)")
+        .accessibilityLabel(
+            Text(
+                String.localizedStringWithFormat(
+                    NSLocalizedString(
+                        "Version %1$d of %2$d",
+                        comment: "Accessibility label describing the current message branch version"
+                    ),
+                    currentIndex,
+                    totalCount
+                )
+            )
+        )
     }
 }
 

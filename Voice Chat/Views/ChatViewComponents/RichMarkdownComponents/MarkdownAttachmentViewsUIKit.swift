@@ -77,6 +77,7 @@ private final class MarkdownCodeBlockView: UIView, UIScrollViewDelegate {
 
         self.languageLabel.font = style.headerFont
         self.languageLabel.textColor = style.headerTextColor
+        self.languageLabel.textAlignment = .natural
         self.languageLabel.lineBreakMode = .byTruncatingTail
         self.languageLabel.text = languageText
         headerView.addSubview(self.languageLabel)
@@ -94,6 +95,7 @@ private final class MarkdownCodeBlockView: UIView, UIScrollViewDelegate {
         scrollView.alwaysBounceHorizontal = true
         scrollView.alwaysBounceVertical = false
         scrollView.clipsToBounds = true
+        scrollView.semanticContentAttribute = .forceLeftToRight
         scrollView.delegate = self
         addSubview(scrollView)
 
@@ -101,6 +103,8 @@ private final class MarkdownCodeBlockView: UIView, UIScrollViewDelegate {
         codeTextView.isEditable = false
         codeTextView.isSelectable = true
         codeTextView.isScrollEnabled = false
+        codeTextView.semanticContentAttribute = .forceLeftToRight
+        codeTextView.textAlignment = .left
         codeTextView.textContainerInset = .zero
         codeTextView.textContainer.lineFragmentPadding = 0
         codeTextView.textContainer.lineBreakMode = .byClipping
@@ -337,6 +341,7 @@ private final class MarkdownCodeBlockView: UIView, UIScrollViewDelegate {
         let headerPadding = style.headerPadding
         let codePadding = style.codePadding
         let viewportContentWidth = max(1, width - border * 2)
+        let isRightToLeft = effectiveUserInterfaceLayoutDirection == .rightToLeft
 
         let headerLineHeight = style.headerFont.lineHeight
         let headerHeight = max(24, headerLineHeight + headerPadding.height * 2)
@@ -349,7 +354,9 @@ private final class MarkdownCodeBlockView: UIView, UIScrollViewDelegate {
         let availableCopyWidth = max(0, viewportContentWidth - headerPadding.width)
         let idealCopyWidth = max(copyTextSize.width, feedbackTextSize.width) + headerPadding.width * 2
         let copyButtonWidth = min(idealCopyWidth, availableCopyWidth)
-        let copyButtonX = viewportContentWidth - copyButtonWidth - headerPadding.width
+        let copyButtonX = isRightToLeft
+            ? headerPadding.width
+            : (viewportContentWidth - copyButtonWidth - headerPadding.width)
         let copyButtonY = (headerHeight - copyButtonHeight) / 2
         let copyFrame = CGRect(
             x: max(0, copyButtonX),
@@ -358,8 +365,12 @@ private final class MarkdownCodeBlockView: UIView, UIScrollViewDelegate {
             height: copyButtonHeight
         )
 
-        let languageX = headerPadding.width
-        let languageWidth = max(0, copyFrame.minX - languageX - headerPadding.width)
+        let languageX = isRightToLeft
+            ? min(viewportContentWidth, copyFrame.maxX + headerPadding.width)
+            : headerPadding.width
+        let languageWidth = isRightToLeft
+            ? max(0, viewportContentWidth - languageX - headerPadding.width)
+            : max(0, copyFrame.minX - languageX - headerPadding.width)
         let languageFrame = CGRect(
             x: languageX,
             y: (headerHeight - headerLineHeight) / 2,

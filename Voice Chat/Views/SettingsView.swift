@@ -370,14 +370,14 @@ struct SettingsView: View {
                              placeholder: "Preset name",
                              text: $viewModel.presetName)
 
-            LabeledTextField(label: "ref_audio_path",
+            LabeledTextField(label: "Reference Audio Path",
                              placeholder: "GPT_SoVITS/refs/xxx.wav",
                              text: $viewModel.presetRefAudioPath)
-            LabeledTextField(label: "prompt_text",
+            LabeledTextField(label: "Reference Text",
                              placeholder: "Reference text (optional)",
                              text: $viewModel.presetPromptText)
-            LabeledTextField(label: "prompt_lang",
-                             placeholder: "auto/zh/en ...",
+            LabeledTextField(label: "Reference Language",
+                             placeholder: "e.g. auto/zh/en",
                              text: $viewModel.presetPromptLang)
 
             LabeledTextField(label: "GPT weights path",
@@ -476,7 +476,7 @@ struct SettingsView: View {
         Section {
             LabeledTextField(
                 label: "Text Language",
-                placeholder: "text_lang (e.g. auto/zh/en)",
+                placeholder: "e.g. auto/zh/en",
                 text: $viewModel.textLang
             )
 
