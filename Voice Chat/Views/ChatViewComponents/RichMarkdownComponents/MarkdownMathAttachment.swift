@@ -109,7 +109,10 @@ final class MarkdownMathAttachment: MarkdownAttachment, @unchecked Sendable {
         glyphPosition position: CGPoint,
         characterIndex charIndex: Int
     ) -> CGRect {
-        let available = attachmentAvailableWidth(maxWidth: maxWidth, lineFragWidth: lineFrag.width)
+        let available = resolvedAvailableWidth(
+            containerWidth: effectiveContainerWidth(textContainer),
+            proposedLineFragmentWidth: lineFrag.width
+        )
         return resolvedBounds(availableWidth: available)
     }
 
@@ -119,6 +122,27 @@ final class MarkdownMathAttachment: MarkdownAttachment, @unchecked Sendable {
 
     func layoutBounds(availableWidth: CGFloat) -> CGRect {
         resolvedBounds(availableWidth: availableWidth)
+    }
+
+    func resolvedAvailableWidth(
+        containerWidth: CGFloat?,
+        proposedLineFragmentWidth lineFragWidth: CGFloat
+    ) -> CGFloat {
+        if displayMode {
+            return attachmentAvailableWidth(
+                maxWidth: maxWidth,
+                lineFragWidth: containerWidth ?? lineFragWidth
+            )
+        }
+
+        // Inline attachments should size against the container width so they can wrap
+        // to the next line instead of shrinking to the current line's residual width.
+        if let containerWidth, containerWidth > 1 {
+            return attachmentAvailableWidth(maxWidth: maxWidth, lineFragWidth: containerWidth)
+        }
+        if maxWidth > 1 { return maxWidth }
+        if lineFragWidth > 1 { return lineFragWidth }
+        return 320
     }
 
     func draw(in context: CGContext, bounds: CGRect) {
@@ -142,6 +166,13 @@ final class MarkdownMathAttachment: MarkdownAttachment, @unchecked Sendable {
             }
         }
         return cachedBounds
+    }
+
+    private func effectiveContainerWidth(_ textContainer: NSTextContainer?) -> CGFloat? {
+        guard let textContainer else { return nil }
+        let width = textContainer.size.width
+        guard width.isFinite, width > 1 else { return nil }
+        return width
     }
 
     private func renderImage(size: CGSize) -> MarkdownPlatformImage? {

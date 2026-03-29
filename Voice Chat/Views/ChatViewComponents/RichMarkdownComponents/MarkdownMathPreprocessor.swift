@@ -1157,7 +1157,7 @@ private struct Parser {
     }
 
     private var literalDollarPrecedingCharacters: Set<Character> {
-        ["/", ".", "-", ":", "@", "?", "=", "&", "#", "%", "\"", "'"]
+        ["/", ".", "-", ":", "@", "?", "=", "&", "#", "%"]
     }
 
     private var mathContinuationPrefixes: Set<Character> {
