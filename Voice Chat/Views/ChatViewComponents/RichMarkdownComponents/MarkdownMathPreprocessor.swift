@@ -814,6 +814,7 @@ private struct Parser {
             let separator = scanner[separatorIndex]
             guard separator == " " || separator == "\t" else { return false }
             cursor = separatorIndex + 1
+            _ = consumeTaskListCheckbox(upTo: limit, cursor: &cursor)
             return true
         }
 
@@ -828,6 +829,24 @@ private struct Parser {
         guard delimiter == "." || delimiter == ")" else { return false }
 
         let separatorIndex = digitsEnd + 1
+        guard separatorIndex < limit else { return false }
+        let separator = scanner[separatorIndex]
+        guard separator == " " || separator == "\t" else { return false }
+
+        cursor = separatorIndex + 1
+        _ = consumeTaskListCheckbox(upTo: limit, cursor: &cursor)
+        return true
+    }
+
+    private func consumeTaskListCheckbox(upTo limit: Int, cursor: inout Int) -> Bool {
+        let checkboxEnd = cursor + 2
+        guard checkboxEnd < limit else { return false }
+        guard scanner[cursor] == "[", scanner[checkboxEnd] == "]" else { return false }
+
+        let state = scanner[cursor + 1]
+        guard state == " " || state == "x" || state == "X" else { return false }
+
+        let separatorIndex = checkboxEnd + 1
         guard separatorIndex < limit else { return false }
         let separator = scanner[separatorIndex]
         guard separator == " " || separator == "\t" else { return false }
