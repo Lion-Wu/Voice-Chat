@@ -15,8 +15,10 @@ final class MarkdownCodeBlockView: NSView {
     }
 
     private enum MeasurementSizing {
-        static let initialContainerWidth: CGFloat = 10_000
-        static let maxContainerWidth: CGFloat = 10_000_000
+        // Keep offscreen measurement bounded so long code lines don't trigger pathological
+        // TextKit relayout cascades while we search for the widest visible line.
+        static let initialContainerWidth: CGFloat = 4_096
+        static let maxContainerWidth: CGFloat = 131_072
         static let widthCapThreshold: CGFloat = 1
     }
 
@@ -138,9 +140,8 @@ final class MarkdownCodeBlockView: NSView {
         if abs(targetWidth - cachedWidth) > 0.5 || cachedLayout == nil {
             cachedLayout = computeLayout(width: targetWidth)
             cachedWidth = targetWidth
+            needsLayout = true
         }
-        needsLayout = true
-        layoutSubtreeIfNeeded()
         return cachedLayout?.size ?? CGSize(width: targetWidth, height: 0)
     }
 
@@ -505,9 +506,8 @@ final class MarkdownTableView: NSView {
         if abs(targetWidth - cachedWidth) > 0.5 || cachedLayout == nil {
             cachedLayout = computeLayout(width: targetWidth)
             cachedWidth = targetWidth
+            needsLayout = true
         }
-        needsLayout = true
-        layoutSubtreeIfNeeded()
         return cachedLayout?.tableSize ?? CGSize(width: targetWidth, height: 0)
     }
 
@@ -1016,14 +1016,25 @@ private final class MarkdownQuoteView: NSView {
     private let content: NSAttributedString
     private let style: MarkdownQuoteStyle
     private let borderView = NSView()
-    private let textView = NSTextView()
+    private let textView: MarkdownAppKitTextView
     private var cachedLayout: Layout?
     private var cachedWidth: CGFloat = 0
 
     init(content: NSAttributedString, style: MarkdownQuoteStyle) {
         self.content = content
         self.style = style
+        if #available(macOS 12.0, *) {
+            self.textView = MarkdownAppKitTextView(usingTextLayoutManager: true)
+        } else {
+            let textStorage = NSTextStorage()
+            let layoutManager = NSLayoutManager()
+            textStorage.addLayoutManager(layoutManager)
+            let textContainer = NSTextContainer(size: NSSize(width: 0, height: CGFloat.greatestFiniteMagnitude))
+            layoutManager.addTextContainer(textContainer)
+            self.textView = MarkdownAppKitTextView(frame: .zero, textContainer: textContainer)
+        }
         super.init(frame: .zero)
+        MarkdownAttachmentViewProviderRegistry.registerIfNeeded()
 
         borderView.wantsLayer = true
         borderView.layer?.backgroundColor = style.borderColor.cgColor
@@ -1032,8 +1043,16 @@ private final class MarkdownQuoteView: NSView {
         textView.drawsBackground = false
         textView.isEditable = false
         textView.isSelectable = true
+        textView.importsGraphics = true
         textView.textContainerInset = .zero
         textView.textContainer?.lineFragmentPadding = 0
+        textView.textContainer?.widthTracksTextView = true
+        textView.textContainer?.heightTracksTextView = false
+        textView.textContainer?.containerSize = NSSize(width: 0, height: CGFloat.greatestFiniteMagnitude)
+        textView.isHorizontallyResizable = false
+        textView.isVerticallyResizable = true
+        textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
+        textView.isRichText = true
         textView.layoutManager?.allowsNonContiguousLayout = false
         textView.layoutManager?.usesFontLeading = true
         textView.textStorage?.setAttributedString(content)
@@ -1049,8 +1068,8 @@ private final class MarkdownQuoteView: NSView {
         if abs(targetWidth - cachedWidth) > 0.5 || cachedLayout == nil {
             cachedLayout = computeLayout(width: targetWidth)
             cachedWidth = targetWidth
+            needsLayout = true
         }
-        needsLayout = true
         return cachedLayout?.size ?? CGSize(width: targetWidth, height: 0)
     }
 
@@ -1113,8 +1132,8 @@ private final class MarkdownRuleView: NSView {
         if abs(targetWidth - cachedWidth) > 0.5 {
             cachedWidth = targetWidth
             cachedSize = CGSize(width: targetWidth, height: verticalPadding * 2 + thickness)
+            needsLayout = true
         }
-        needsLayout = true
         return cachedSize
     }
 
@@ -1142,6 +1161,7 @@ final class MarkdownAttachmentViewProvider: NSTextAttachmentViewProvider, @unche
         case table
         case quote
         case rule
+        case math
         case unknown
     }
 
@@ -1300,6 +1320,26 @@ final class MarkdownAttachmentViewProvider: NSTextAttachmentViewProvider, @unche
                 )
                 return AttachmentLayout(view: UncheckedSendableBox(value: resolvedView), bounds: bounds, cacheKey: key)
 
+            case let mathAttachment as MarkdownMathAttachment:
+                if let cached = cachedLayoutIfPossible(kind: .math, contentVersion: mathAttachment.contentVersion) {
+                    return cached
+                }
+                let resolvedView: MarkdownMathView
+                if let existing = currentViewBox.value as? MarkdownMathView {
+                    resolvedView = existing
+                } else {
+                    resolvedView = MarkdownMathView(attachment: mathAttachment)
+                }
+                resolvedView.applyUpdate(from: mathAttachment)
+                _ = resolvedView.sizeThatFitsWidth(available)
+                let bounds = mathAttachment.layoutBounds(availableWidth: available)
+                let key = BoundsCacheKey(
+                    kind: .math,
+                    contentVersion: mathAttachment.contentVersion,
+                    availableWidthKey: availableWidthKey
+                )
+                return AttachmentLayout(view: UncheckedSendableBox(value: resolvedView), bounds: bounds, cacheKey: key)
+
             default:
                 if let cached = cachedLayoutIfPossible(kind: .unknown, contentVersion: attachment.contentVersion) {
                     return cached
@@ -1352,6 +1392,8 @@ final class MarkdownAttachmentViewProvider: NSTextAttachmentViewProvider, @unche
                 thickness: attachment.thickness,
                 verticalPadding: attachment.verticalPadding
             )
+        case let attachment as MarkdownMathAttachment:
+            return MarkdownMathView(attachment: attachment)
         default:
             return NSView()
         }

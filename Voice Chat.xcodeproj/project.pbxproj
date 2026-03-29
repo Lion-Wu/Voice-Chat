@@ -21,6 +21,11 @@
 		B4E916D52B4BDBD900E49A6B /* ChatModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B4E916D42B4BDBD900E49A6B /* ChatModel.swift */; };
 		B4E916DF2B4BF0E500E49A6B /* VoiceViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B4E916DE2B4BF0E500E49A6B /* VoiceViewModel.swift */; };
 		B62024477293B49C915D33FD /* MarkdownAttachmentViewsUIKit.swift in Sources */ = {isa = PBXBuildFile; fileRef = E412283226A67A4F5019F147 /* MarkdownAttachmentViewsUIKit.swift */; };
+		B7A0A0013A10000100AA0001 /* MarkdownMathPreprocessor.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7A0A0113A10000100AA0001 /* MarkdownMathPreprocessor.swift */; };
+		B7A0A0023A10000100AA0001 /* MarkdownMathCore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7A0A0123A10000100AA0001 /* MarkdownMathCore.swift */; };
+		B7A0A0033A10000100AA0001 /* MarkdownMathAttachment.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7A0A0133A10000100AA0001 /* MarkdownMathAttachment.swift */; };
+		B7A0A0043A10000100AA0001 /* MarkdownMathViewsUIKit.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7A0A0143A10000100AA0001 /* MarkdownMathViewsUIKit.swift */; };
+		B7A0A0053A10000100AA0001 /* MarkdownMathViewsAppKit.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7A0A0153A10000100AA0001 /* MarkdownMathViewsAppKit.swift */; };
 		C0F1447A06E3F50BC2585521 /* MarkdownAttachmentViewsAppKit.swift in Sources */ = {isa = PBXBuildFile; fileRef = 27E86C1B8F2522CFBCEA84C5 /* MarkdownAttachmentViewsAppKit.swift */; };
 		C4442FE0C1135115CFA62BDD /* AppChrome.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4570041CD56B63DCA44B5C0 /* AppChrome.swift */; };
 		D66C517B8B2A28EEC0566BFE /* MarkdownTextView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9FD5410AC9490AAD00A24145 /* MarkdownTextView.swift */; };
@@ -87,6 +92,11 @@
 		7AEA24E21CCE3BFA49920260 /* MarkdownAttachments.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownAttachments.swift; sourceTree = "<group>"; };
 		92A53B05B12C4E0689036C84 /* TextSelectionSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextSelectionSheet.swift; sourceTree = "<group>"; };
 		9FD5410AC9490AAD00A24145 /* MarkdownTextView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownTextView.swift; sourceTree = "<group>"; };
+		B7A0A0113A10000100AA0001 /* MarkdownMathPreprocessor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownMathPreprocessor.swift; sourceTree = "<group>"; };
+		B7A0A0123A10000100AA0001 /* MarkdownMathCore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownMathCore.swift; sourceTree = "<group>"; };
+		B7A0A0133A10000100AA0001 /* MarkdownMathAttachment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownMathAttachment.swift; sourceTree = "<group>"; };
+		B7A0A0143A10000100AA0001 /* MarkdownMathViewsUIKit.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownMathViewsUIKit.swift; sourceTree = "<group>"; };
+		B7A0A0153A10000100AA0001 /* MarkdownMathViewsAppKit.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownMathViewsAppKit.swift; sourceTree = "<group>"; };
 		B329D6572B394979000A17C9 /* Voice Chat.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Voice Chat.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		B329D65A2B394979000A17C9 /* Voice_ChatApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Voice_ChatApp.swift; sourceTree = "<group>"; };
 		B329D65E2B39497A000A17C9 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
@@ -177,6 +187,11 @@
 				2B1C505F6C6E82CEFFD96AAE /* MarkdownTextCoordinator.swift */,
 				221380AED73400A2E5CF1BF5 /* MarkdownStyle.swift */,
 				6D65F433F37BABBAEEFE71C5 /* MarkdownAttributedStringRenderer.swift */,
+				B7A0A0113A10000100AA0001 /* MarkdownMathPreprocessor.swift */,
+				B7A0A0123A10000100AA0001 /* MarkdownMathCore.swift */,
+				B7A0A0133A10000100AA0001 /* MarkdownMathAttachment.swift */,
+				B7A0A0143A10000100AA0001 /* MarkdownMathViewsUIKit.swift */,
+				B7A0A0153A10000100AA0001 /* MarkdownMathViewsAppKit.swift */,
 				B9E3106DB55A775AF7BE384A /* MarkdownAttachmentsCore.swift */,
 				E412283226A67A4F5019F147 /* MarkdownAttachmentViewsUIKit.swift */,
 				27E86C1B8F2522CFBCEA84C5 /* MarkdownAttachmentViewsAppKit.swift */,
@@ -446,6 +461,11 @@
 				AE2A1D0A31C597D5386EF5B3 /* MarkdownTextCoordinator.swift in Sources */,
 				2C90EB6374B89DA85430464C /* MarkdownStyle.swift in Sources */,
 				EE43A506B09B5C0111462EB7 /* MarkdownAttributedStringRenderer.swift in Sources */,
+				B7A0A0013A10000100AA0001 /* MarkdownMathPreprocessor.swift in Sources */,
+				B7A0A0023A10000100AA0001 /* MarkdownMathCore.swift in Sources */,
+				B7A0A0033A10000100AA0001 /* MarkdownMathAttachment.swift in Sources */,
+				B7A0A0043A10000100AA0001 /* MarkdownMathViewsUIKit.swift in Sources */,
+				B7A0A0053A10000100AA0001 /* MarkdownMathViewsAppKit.swift in Sources */,
 				127355D0ADD6A6B0D5494FD8 /* MarkdownAttachmentsCore.swift in Sources */,
 				B62024477293B49C915D33FD /* MarkdownAttachmentViewsUIKit.swift in Sources */,
 				C0F1447A06E3F50BC2585521 /* MarkdownAttachmentViewsAppKit.swift in Sources */,

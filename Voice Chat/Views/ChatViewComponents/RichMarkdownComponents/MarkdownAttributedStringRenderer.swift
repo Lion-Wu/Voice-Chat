@@ -24,6 +24,7 @@ final class MarkdownAttributedStringRenderer {
     private let style: MarkdownStyle
     private let maxImageWidth: CGFloat?
     private var attachments: [MarkdownAttachment] = []
+    private var mathResult = MarkdownMathPreprocessor.Result(markdown: "", segments: [])
 
     init(style: MarkdownStyle, maxImageWidth: CGFloat?) {
         self.style = style
@@ -31,7 +32,10 @@ final class MarkdownAttributedStringRenderer {
     }
 
     func render(markdown: String) -> MarkdownRenderResult {
-        let document = Document(parsing: markdown)
+        attachments = []
+        mathResult = MarkdownMathPreprocessor.preprocess(markdown)
+        let parsedDocument = Document(parsing: mathResult.markdown)
+        let document = restoreNonTextMathFields(in: parsedDocument)
         let output = NSMutableAttributedString()
         renderChildrenBlocks(document, into: output, listDepth: 0, baseAttributes: style.baseAttributes)
         finalizeRenderedOutput(output)
@@ -54,6 +58,12 @@ final class MarkdownAttributedStringRenderer {
         }
     }
 
+    private func restoreNonTextMathFields(in document: Document) -> Document {
+        guard !mathResult.segments.isEmpty else { return document }
+        var restorer = MarkdownMathFieldRestorer(mathResult: mathResult)
+        return restorer.visit(document) as? Document ?? document
+    }
+
     private func renderBlock(
         _ markup: Markup,
         into output: NSMutableAttributedString,
@@ -61,6 +71,10 @@ final class MarkdownAttributedStringRenderer {
         baseAttributes: [NSAttributedString.Key: Any]
     ) {
         if let paragraph = markup as? Paragraph {
+            if let displayMath = renderStandaloneDisplayMathParagraph(paragraph, baseAttributes: baseAttributes) {
+                output.append(displayMath)
+                return
+            }
             let content = renderInlineChildren(paragraph, attributes: baseAttributes)
             content.addAttribute(
                 .paragraphStyle,
@@ -136,11 +150,6 @@ final class MarkdownAttributedStringRenderer {
             attrs[.foregroundColor] = quoteTextColor
             let content = NSMutableAttributedString()
             renderChildrenBlocks(quote, into: content, listDepth: listDepth, baseAttributes: attrs)
-            content.addAttribute(
-                .paragraphStyle,
-                value: style.paragraphStyle(spacingBefore: 0, spacingAfter: style.paragraphSpacing),
-                range: NSRange(location: 0, length: content.length)
-            )
             let quoteStyle = MarkdownQuoteStyle(
                 textColor: quoteTextColor,
                 borderColor: style.quoteBorderColor,
@@ -209,11 +218,24 @@ final class MarkdownAttributedStringRenderer {
     private func renderInlineChildren(
         _ parent: Markup,
         attributes: [NSAttributedString.Key: Any],
-        context: InlineRenderContext = .standard
+        context: InlineRenderContext = .standard,
+        rendersMath: Bool = true
     ) -> NSMutableAttributedString {
         let output = NSMutableAttributedString()
+        var htmlLiteralDepth = 0
         for child in parent.children {
-            output.append(renderInline(child, attributes: attributes, context: context))
+            let childRendersMath = rendersMath && htmlLiteralDepth == 0
+            output.append(
+                renderInline(
+                    child,
+                    attributes: attributes,
+                    context: context,
+                    rendersMath: childRendersMath
+                )
+            )
+            if let inlineHTML = child as? InlineHTML {
+                htmlLiteralDepth = max(0, htmlLiteralDepth + inlineHTMLLiteralDepthDelta(for: inlineHTML.rawHTML))
+            }
         }
         return output
     }
@@ -221,12 +243,21 @@ final class MarkdownAttributedStringRenderer {
     private func renderInline(
         _ markup: Markup,
         attributes: [NSAttributedString.Key: Any],
-        context: InlineRenderContext
+        context: InlineRenderContext,
+        rendersMath: Bool
     ) -> NSAttributedString {
         if let text = markup as? Markdown.Text {
-            return NSAttributedString(string: text.string, attributes: attributes)
+            if rendersMath {
+                return renderTextWithMathPlaceholders(text.string, attributes: attributes, context: context)
+            }
+            let literal = mathResult.restoringOriginalMarkup(in: text.string) ?? text.string
+            return NSAttributedString(string: literal, attributes: attributes)
         } else if let custom = markup as? CustomInline {
-            return NSAttributedString(string: custom.text, attributes: attributes)
+            if rendersMath {
+                return renderTextWithMathPlaceholders(custom.text, attributes: attributes, context: context)
+            }
+            let literal = mathResult.restoringOriginalMarkup(in: custom.text) ?? custom.text
+            return NSAttributedString(string: literal, attributes: attributes)
         } else if markup is SoftBreak {
             return NSAttributedString(string: " ", attributes: attributes)
         } else if markup is LineBreak {
@@ -241,18 +272,18 @@ final class MarkdownAttributedStringRenderer {
             if let font = attributes[.font] as? MarkdownPlatformFont {
                 attrs[.font] = italicFont(from: font)
             }
-            return renderInlineChildren(emphasis, attributes: attrs, context: context)
+            return renderInlineChildren(emphasis, attributes: attrs, context: context, rendersMath: rendersMath)
         } else if let strong = markup as? Strong {
             var attrs = attributes
             if let font = attributes[.font] as? MarkdownPlatformFont {
                 attrs[.font] = boldFont(from: font)
             }
-            return renderInlineChildren(strong, attributes: attrs, context: context)
+            return renderInlineChildren(strong, attributes: attrs, context: context, rendersMath: rendersMath)
         } else if let strike = markup as? Strikethrough {
             var attrs = attributes
             attrs[.strikethroughStyle] = NSUnderlineStyle.single.rawValue
             attrs[.strikethroughColor] = style.secondaryColor
-            return renderInlineChildren(strike, attributes: attrs, context: context)
+            return renderInlineChildren(strike, attributes: attrs, context: context, rendersMath: rendersMath)
         } else if let inlineCode = markup as? InlineCode {
             var attrs = attributes
             attrs[.font] = style.codeFont
@@ -273,9 +304,9 @@ final class MarkdownAttributedStringRenderer {
                     attrs[.link] = destination
                 }
             }
-            return renderInlineChildren(link, attributes: attrs, context: context)
+            return renderInlineChildren(link, attributes: attrs, context: context, rendersMath: rendersMath)
         } else if let inlineAttributes = markup as? InlineAttributes {
-            return renderInlineChildren(inlineAttributes, attributes: attributes, context: context)
+            return renderInlineChildren(inlineAttributes, attributes: attributes, context: context, rendersMath: rendersMath)
         } else if let image = markup as? Markdown.Image {
             let altText = plainTextFromMarkup(image).trimmingCharacters(in: .whitespacesAndNewlines)
             if context == .table {
@@ -296,9 +327,34 @@ final class MarkdownAttributedStringRenderer {
             result.addAttribute(.paragraphStyle, value: paragraph, range: NSRange(location: 0, length: result.length))
             return result
         } else {
-            return renderInlineChildren(markup, attributes: attributes, context: context)
+            return renderInlineChildren(markup, attributes: attributes, context: context, rendersMath: rendersMath)
         }
     }
+
+    private func inlineHTMLLiteralDepthDelta(for rawHTML: String) -> Int {
+        let trimmed = rawHTML.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.hasPrefix("<"), trimmed.hasSuffix(">") else { return 0 }
+        if trimmed.hasPrefix("</") { return -1 }
+        if trimmed.hasPrefix("<!--") || trimmed.hasPrefix("<!") || trimmed.hasPrefix("<?") || trimmed.hasSuffix("/>") {
+            return 0
+        }
+
+        let tagName = trimmed
+            .dropFirst()
+            .prefix { !$0.isWhitespace && $0 != ">" && $0 != "/" }
+            .lowercased()
+
+        guard !tagName.isEmpty else { return 0 }
+        if Self.inlineHTMLVoidTags.contains(tagName) {
+            return 0
+        }
+        return 1
+    }
+
+    private static let inlineHTMLVoidTags: Set<String> = [
+        "area", "base", "br", "col", "embed", "hr", "img", "input",
+        "link", "meta", "param", "source", "track", "wbr"
+    ]
 
     private func renderList(
         _ items: [ListItem],
@@ -339,6 +395,17 @@ final class MarkdownAttributedStringRenderer {
                 result.append(NSAttributedString(string: "\n", attributes: baseAttributes))
             }
             if let paragraph = child as? Paragraph {
+                if let displayMath = renderListDisplayMathParagraph(
+                    paragraph,
+                    prefix: prefixText,
+                    includeMarker: !wroteContent,
+                    depth: listDepth,
+                    baseAttributes: baseAttributes
+                ) {
+                    result.append(displayMath)
+                    wroteContent = true
+                    continue
+                }
                 let line = NSMutableAttributedString()
                 line.append(NSAttributedString(string: prefixText, attributes: baseAttributes))
                 line.append(renderInlineChildren(paragraph, attributes: baseAttributes))
@@ -368,20 +435,79 @@ final class MarkdownAttributedStringRenderer {
         return result
     }
 
+    private func renderListDisplayMathParagraph(
+        _ paragraph: Paragraph,
+        prefix: String,
+        includeMarker: Bool,
+        depth: Int,
+        baseAttributes: [NSAttributedString.Key: Any]
+    ) -> NSAttributedString? {
+        let displayMathStyle = listDisplayMathParagraphStyle(prefix: prefix, depth: depth)
+        guard let displayMath = renderStandaloneDisplayMathParagraph(
+            paragraph,
+            baseAttributes: baseAttributes,
+            paragraphStyle: displayMathStyle
+        ) else {
+            return nil
+        }
+
+        guard includeMarker else {
+            return displayMath
+        }
+
+        let prefixLine = NSMutableAttributedString(string: prefix, attributes: baseAttributes)
+        prefixLine.addAttribute(
+            .paragraphStyle,
+            value: listPrefixOnlyParagraphStyle(prefix: prefix, depth: depth),
+            range: NSRange(location: 0, length: prefixLine.length)
+        )
+
+        let result = NSMutableAttributedString(attributedString: prefixLine)
+        result.append(NSAttributedString(string: "\n", attributes: baseAttributes))
+        result.append(displayMath)
+        return result
+    }
+
     private func listItemPrefix(for item: ListItem, base: String) -> String {
         guard let checkbox = item.checkbox else { return base }
         let marker = checkbox == .checked ? "[x]" : "[ ]"
         return "\(base) \(marker)"
     }
 
-    private func listParagraphStyle(prefix: String, depth: Int) -> NSMutableParagraphStyle {
+    private func listIndentation(prefix: String, depth: Int) -> (base: CGFloat, content: CGFloat) {
         let indentBase = style.listIndent * CGFloat(depth)
         let prefixWidth = measureTextWidth(prefix, font: style.baseFont)
+        return (indentBase, indentBase + prefixWidth)
+    }
+
+    private func listParagraphStyle(prefix: String, depth: Int) -> NSMutableParagraphStyle {
+        let indentation = listIndentation(prefix: prefix, depth: depth)
         return style.paragraphStyle(
             spacingBefore: 0,
             spacingAfter: style.paragraphSpacing,
-            firstLineHeadIndent: indentBase,
-            headIndent: indentBase + prefixWidth
+            firstLineHeadIndent: indentation.base,
+            headIndent: indentation.content
+        )
+    }
+
+    private func listPrefixOnlyParagraphStyle(prefix: String, depth: Int) -> NSMutableParagraphStyle {
+        let indentation = listIndentation(prefix: prefix, depth: depth)
+        return style.paragraphStyle(
+            spacingBefore: 0,
+            spacingAfter: 0,
+            firstLineHeadIndent: indentation.base,
+            headIndent: indentation.content
+        )
+    }
+
+    private func listDisplayMathParagraphStyle(prefix: String, depth: Int) -> NSMutableParagraphStyle {
+        let indentation = listIndentation(prefix: prefix, depth: depth)
+        return style.paragraphStyle(
+            spacingBefore: 0,
+            spacingAfter: style.blockSpacing,
+            firstLineHeadIndent: indentation.content,
+            headIndent: indentation.content,
+            alignment: .center
         )
     }
 
@@ -519,6 +645,233 @@ final class MarkdownAttributedStringRenderer {
         }
     }
 
+    private func renderStandaloneDisplayMathParagraph(
+        _ paragraph: Paragraph,
+        baseAttributes: [NSAttributedString.Key: Any],
+        paragraphStyle: NSParagraphStyle? = nil
+    ) -> NSAttributedString? {
+        guard paragraph.children.allSatisfy({ standaloneDisplayMathChildCanBypassInlineRendering($0) }) else {
+            return nil
+        }
+
+        let plain = plainTextFromMarkup(paragraph)
+        let runs = mathResult.runs(in: plain)
+        guard runs.contains(where: {
+            if case .segment = $0 { return true }
+            return false
+        }) else {
+            return nil
+        }
+
+        for run in runs {
+            switch run {
+            case let .text(text):
+                if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    continue
+                }
+                return nil
+            case let .segment(segment):
+                guard segment.displayMode else { return nil }
+            }
+        }
+
+        let resolvedParagraphStyle = paragraphStyle ?? style.paragraphStyle(
+            spacingBefore: style.blockSpacing,
+            spacingAfter: style.blockSpacing,
+            alignment: .center
+        )
+        let output = NSMutableAttributedString()
+        var isFirst = true
+        for run in runs {
+            guard case let .segment(segment) = run else { continue }
+            if !isFirst {
+                output.append(NSAttributedString(string: "\n", attributes: baseAttributes))
+            }
+            let attachment = makeMathAttachment(segment: segment, attributes: baseAttributes, displayMode: true)
+            let math = attributedMathAttachment(attachment, inheritedAttributes: baseAttributes)
+            math.addAttribute(
+                .paragraphStyle,
+                value: resolvedParagraphStyle,
+                range: NSRange(location: 0, length: math.length)
+            )
+            output.append(math)
+            isFirst = false
+        }
+        return output
+    }
+
+    private func standaloneDisplayMathChildCanBypassInlineRendering(_ child: Markup) -> Bool {
+        child is Markdown.Text ||
+        child is CustomInline ||
+        child is SoftBreak ||
+        child is LineBreak
+    }
+
+    private func renderTextWithMathPlaceholders(
+        _ text: String,
+        attributes: [NSAttributedString.Key: Any],
+        context: InlineRenderContext
+    ) -> NSAttributedString {
+        let runs = mathResult.runs(in: text)
+        guard runs.contains(where: {
+            if case .segment = $0 { return true }
+            return false
+        }) else {
+            return NSAttributedString(string: text, attributes: attributes)
+        }
+
+        let restoredText = mathResult.restoringOriginalMarkup(in: text) ?? text
+        if let linkAware = renderTextByPreservingDetectedLinks(
+            literalText: restoredText,
+            attributes: attributes,
+            context: context
+        ) {
+            return linkAware
+        }
+
+        let output = NSMutableAttributedString()
+        for run in runs {
+            switch run {
+            case let .text(fragment):
+                if !fragment.isEmpty {
+                    output.append(NSAttributedString(string: fragment, attributes: attributes))
+                }
+            case let .segment(segment):
+                let attachment = makeMathAttachment(
+                    segment: segment,
+                    attributes: attributes,
+                    // Mixed-content paragraphs are laid out inline, so display delimiters
+                    // must degrade to inline math unless the paragraph was handled by the
+                    // standalone display-math path above.
+                    displayMode: false
+                )
+                let inlineMath = attributedMathAttachment(attachment, inheritedAttributes: attributes)
+                if context == .table {
+                    inlineMath.addAttribute(
+                        .paragraphStyle,
+                        value: tableCellParagraphStyle(alignment: .left),
+                        range: NSRange(location: 0, length: inlineMath.length)
+                    )
+                }
+                output.append(inlineMath)
+            }
+        }
+        return output
+    }
+
+    private func renderTextByPreservingDetectedLinks(
+        literalText: String,
+        attributes: [NSAttributedString.Key: Any],
+        context: InlineRenderContext
+    ) -> NSAttributedString? {
+        guard let detector = Self.linkDetector else { return nil }
+        let fullRange = NSRange(location: 0, length: (literalText as NSString).length)
+        let matches = detector.matches(in: literalText, options: [], range: fullRange)
+        guard !matches.isEmpty else { return nil }
+
+        let output = NSMutableAttributedString()
+        var cursor = literalText.startIndex
+
+        for match in matches {
+            guard let matchRange = Range(match.range, in: literalText) else { continue }
+            if cursor < matchRange.lowerBound {
+                let fragment = String(literalText[cursor..<matchRange.lowerBound])
+                output.append(renderLiteralMathFragment(fragment, attributes: attributes, context: context))
+            }
+
+            let literalLinkText = String(literalText[matchRange])
+            if !literalLinkText.isEmpty {
+                output.append(NSAttributedString(string: literalLinkText, attributes: attributes))
+            }
+            cursor = matchRange.upperBound
+        }
+
+        if cursor < literalText.endIndex {
+            let fragment = String(literalText[cursor..<literalText.endIndex])
+            output.append(renderLiteralMathFragment(fragment, attributes: attributes, context: context))
+        }
+
+        return output
+    }
+
+    private func renderLiteralMathFragment(
+        _ fragment: String,
+        attributes: [NSAttributedString.Key: Any],
+        context: InlineRenderContext
+    ) -> NSAttributedString {
+        guard !fragment.isEmpty else { return NSAttributedString(string: "", attributes: attributes) }
+
+        let fragmentResult = MarkdownMathPreprocessor.preprocess(fragment)
+        let runs = fragmentResult.runs(in: fragmentResult.markdown)
+        guard runs.contains(where: {
+            if case .segment = $0 { return true }
+            return false
+        }) else {
+            return NSAttributedString(string: fragment, attributes: attributes)
+        }
+
+        let output = NSMutableAttributedString()
+        for run in runs {
+            switch run {
+            case let .text(text):
+                if !text.isEmpty {
+                    output.append(NSAttributedString(string: text, attributes: attributes))
+                }
+            case let .segment(segment):
+                let attachment = makeMathAttachment(
+                    segment: segment,
+                    attributes: attributes,
+                    displayMode: false
+                )
+                let inlineMath = attributedMathAttachment(attachment, inheritedAttributes: attributes)
+                if context == .table {
+                    inlineMath.addAttribute(
+                        .paragraphStyle,
+                        value: tableCellParagraphStyle(alignment: .left),
+                        range: NSRange(location: 0, length: inlineMath.length)
+                    )
+                }
+                output.append(inlineMath)
+            }
+        }
+
+        return output
+    }
+
+    private static let linkDetector: NSDataDetector? = try? NSDataDetector(
+        types: NSTextCheckingResult.CheckingType.link.rawValue
+    )
+
+    private func makeMathAttachment(
+        segment: MarkdownMathSegment,
+        attributes: [NSAttributedString.Key: Any],
+        displayMode: Bool
+    ) -> MarkdownMathAttachment {
+        let baseFont = (attributes[.font] as? MarkdownPlatformFont) ?? style.baseFont
+        let textColor = (attributes[.foregroundColor] as? MarkdownPlatformColor) ?? style.baseColor
+        let attachment = MarkdownMathAttachment(
+            segment: segment,
+            style: MarkdownMathStyle(baseFont: baseFont, textColor: textColor),
+            displayMode: displayMode,
+            maxWidth: maxImageWidth ?? 0
+        )
+        attachments.append(attachment)
+        primeAttachmentForMac(attachment)
+        return attachment
+    }
+
+    private func attributedMathAttachment(
+        _ attachment: MarkdownMathAttachment,
+        inheritedAttributes: [NSAttributedString.Key: Any]
+    ) -> NSMutableAttributedString {
+        let output = NSMutableAttributedString(attributedString: NSAttributedString(attachment: attachment))
+        guard !inheritedAttributes.isEmpty else { return output }
+        var attachmentAttributes = inheritedAttributes
+        attachmentAttributes.removeValue(forKey: .attachment)
+        output.addAttributes(attachmentAttributes, range: NSRange(location: 0, length: output.length))
+        return output
+    }
+
     private func measureTextWidth(_ text: String, font: MarkdownPlatformFont) -> CGFloat {
         let attrs: [NSAttributedString.Key: Any] = [.font: font]
         return (text as NSString).size(withAttributes: attrs).width
@@ -571,5 +924,95 @@ final class MarkdownAttributedStringRenderer {
             value: mutable,
             range: NSRange(location: paragraphStart, length: output.length - paragraphStart)
         )
+    }
+}
+
+private struct MarkdownMathFieldRestorer: MarkupRewriter {
+    let mathResult: MarkdownMathPreprocessor.Result
+    private var restoresTextInCurrentBranch = false
+
+    init(mathResult: MarkdownMathPreprocessor.Result) {
+        self.mathResult = mathResult
+    }
+
+    mutating func visitLink(_ link: Link) -> Markup? {
+        let previousRestoresText = restoresTextInCurrentBranch
+        restoresTextInCurrentBranch = linkRequiresTextRestoration(link)
+        defer { restoresTextInCurrentBranch = previousRestoresText }
+
+        guard var rewritten = defaultVisit(link) as? Link else { return nil }
+        rewritten.destination = mathResult.restoringOriginalMarkup(in: rewritten.destination)
+        rewritten.title = mathResult.restoringOriginalMarkup(in: rewritten.title)
+        return rewritten
+    }
+
+    mutating func visitImage(_ image: Image) -> Markup? {
+        let previousRestoresText = restoresTextInCurrentBranch
+        restoresTextInCurrentBranch = true
+        defer { restoresTextInCurrentBranch = previousRestoresText }
+
+        guard var rewritten = defaultVisit(image) as? Image else { return nil }
+        rewritten.source = mathResult.restoringOriginalMarkup(in: rewritten.source)
+        rewritten.title = mathResult.restoringOriginalMarkup(in: rewritten.title)
+        return rewritten
+    }
+
+    mutating func visitText(_ text: Text) -> Markup? {
+        guard restoresTextInCurrentBranch,
+              let restored = mathResult.restoringOriginalMarkup(in: text.string),
+              restored != text.string
+        else {
+            return text
+        }
+
+        var rewritten = text
+        rewritten.string = restored
+        return rewritten
+    }
+
+    mutating func visitCustomInline(_ customInline: CustomInline) -> Markup? {
+        guard restoresTextInCurrentBranch,
+              let restored = mathResult.restoringOriginalMarkup(in: customInline.text),
+              restored != customInline.text
+        else {
+            return customInline
+        }
+
+        return CustomInline(restored)
+    }
+
+    mutating func visitInlineHTML(_ inlineHTML: InlineHTML) -> Markup? {
+        var rewritten = inlineHTML
+        rewritten.rawHTML = mathResult.restoringOriginalMarkup(in: inlineHTML.rawHTML) ?? inlineHTML.rawHTML
+        return rewritten
+    }
+
+    mutating func visitHTMLBlock(_ html: HTMLBlock) -> Markup? {
+        var rewritten = html
+        rewritten.rawHTML = mathResult.restoringOriginalMarkup(in: html.rawHTML) ?? html.rawHTML
+        return rewritten
+    }
+
+    mutating func visitSymbolLink(_ symbolLink: SymbolLink) -> Markup? {
+        var rewritten = symbolLink
+        rewritten.destination = mathResult.restoringOriginalMarkup(in: symbolLink.destination)
+        return rewritten
+    }
+
+    private func linkRequiresTextRestoration(_ link: Link) -> Bool {
+        guard let destination = link.destination, link.childCount == 1 else { return false }
+        let restoredDestination = mathResult.restoringOriginalMarkup(in: destination) ?? destination
+
+        if let text = link.child(at: 0) as? Text {
+            let restoredChild = mathResult.restoringOriginalMarkup(in: text.string) ?? text.string
+            return restoredChild == restoredDestination
+        }
+
+        if let customInline = link.child(at: 0) as? CustomInline {
+            let restoredChild = mathResult.restoringOriginalMarkup(in: customInline.text) ?? customInline.text
+            return restoredChild == restoredDestination
+        }
+
+        return false
     }
 }
