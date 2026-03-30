@@ -722,6 +722,7 @@ final class MarkdownAttributedStringRenderer {
 
         let restoredText = mathResult.restoringOriginalMarkup(in: text) ?? text
         if let linkAware = renderTextByPreservingDetectedLinks(
+            placeholderRuns: runs,
             literalText: restoredText,
             attributes: attributes,
             context: context
@@ -760,6 +761,7 @@ final class MarkdownAttributedStringRenderer {
     }
 
     private func renderTextByPreservingDetectedLinks(
+        placeholderRuns: [MarkdownMathPreprocessor.Result.PlaceholderRun],
         literalText: String,
         attributes: [NSAttributedString.Key: Any],
         context: InlineRenderContext
@@ -769,70 +771,48 @@ final class MarkdownAttributedStringRenderer {
         let matches = detector.matches(in: literalText, options: [], range: fullRange)
         guard !matches.isEmpty else { return nil }
 
+        let linkRanges = matches.compactMap { Range($0.range, in: literalText) }
         let output = NSMutableAttributedString()
         var cursor = literalText.startIndex
 
-        for match in matches {
-            guard let matchRange = Range(match.range, in: literalText) else { continue }
-            if cursor < matchRange.lowerBound {
-                let fragment = String(literalText[cursor..<matchRange.lowerBound])
-                output.append(renderLiteralMathFragment(fragment, attributes: attributes, context: context))
-            }
-
-            let literalLinkText = String(literalText[matchRange])
-            if !literalLinkText.isEmpty {
-                output.append(NSAttributedString(string: literalLinkText, attributes: attributes))
-            }
-            cursor = matchRange.upperBound
-        }
-
-        if cursor < literalText.endIndex {
-            let fragment = String(literalText[cursor..<literalText.endIndex])
-            output.append(renderLiteralMathFragment(fragment, attributes: attributes, context: context))
-        }
-
-        return output
-    }
-
-    private func renderLiteralMathFragment(
-        _ fragment: String,
-        attributes: [NSAttributedString.Key: Any],
-        context: InlineRenderContext
-    ) -> NSAttributedString {
-        guard !fragment.isEmpty else { return NSAttributedString(string: "", attributes: attributes) }
-
-        let fragmentResult = MarkdownMathPreprocessor.preprocess(fragment)
-        let runs = fragmentResult.runs(in: fragmentResult.markdown)
-        guard runs.contains(where: {
-            if case .segment = $0 { return true }
-            return false
-        }) else {
-            return NSAttributedString(string: fragment, attributes: attributes)
-        }
-
-        let output = NSMutableAttributedString()
-        for run in runs {
+        for run in placeholderRuns {
+            let renderedText: String
             switch run {
             case let .text(text):
-                if !text.isEmpty {
-                    output.append(NSAttributedString(string: text, attributes: attributes))
-                }
+                renderedText = text
             case let .segment(segment):
-                let attachment = makeMathAttachment(
-                    segment: segment,
-                    attributes: attributes,
-                    displayMode: false
-                )
-                let inlineMath = attributedMathAttachment(attachment, inheritedAttributes: attributes)
-                if context == .table {
-                    inlineMath.addAttribute(
-                        .paragraphStyle,
-                        value: tableCellParagraphStyle(alignment: .left),
-                        range: NSRange(location: 0, length: inlineMath.length)
-                    )
-                }
-                output.append(inlineMath)
+                renderedText = segment.source
             }
+
+            guard !renderedText.isEmpty else { continue }
+            let nextCursor = literalText.index(cursor, offsetBy: renderedText.count)
+            let runRange = cursor..<nextCursor
+
+            switch run {
+            case .text:
+                output.append(NSAttributedString(string: renderedText, attributes: attributes))
+            case let .segment(segment):
+                if linkRanges.contains(where: { $0.overlaps(runRange) }) {
+                    output.append(NSAttributedString(string: renderedText, attributes: attributes))
+                } else {
+                    let attachment = makeMathAttachment(
+                        segment: segment,
+                        attributes: attributes,
+                        displayMode: false
+                    )
+                    let inlineMath = attributedMathAttachment(attachment, inheritedAttributes: attributes)
+                    if context == .table {
+                        inlineMath.addAttribute(
+                            .paragraphStyle,
+                            value: tableCellParagraphStyle(alignment: .left),
+                            range: NSRange(location: 0, length: inlineMath.length)
+                        )
+                    }
+                    output.append(inlineMath)
+                }
+            }
+
+            cursor = nextCursor
         }
 
         return output

@@ -980,7 +980,7 @@ private struct Parser {
         while cursor < scanner.count {
             let character = scanner[cursor]
             if character == "\n" {
-                return false
+                return true
             }
             if character == "$" {
                 return false
@@ -991,7 +991,7 @@ private struct Parser {
             cursor += 1
         }
 
-        guard cursor < scanner.count else { return false }
+        guard cursor < scanner.count else { return true }
         let continuation = scanner.substring(cursor..<scanner.count)
         if continuationStartsLikeMath(continuation) {
             return false
