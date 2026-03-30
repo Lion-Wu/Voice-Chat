@@ -23,13 +23,17 @@ struct RichMarkdownView: View {
 #if DEBUG
 private enum RichMarkdownPreviewSamples {
     static let smoke = #"""
-    Inline: $\dfrac{a}{b}$, $\sqrt{1+x^2}$, $\left\{x \middle| x>0\right\}$, $\binom{n}{k}$.
+    Inline: $\dfrac{a}{b}$, $\sqrt{1+x^2}$, $\sqrt[3]{1+x^2}$, $\left\{x \middle| x>0\right\}$, $\binom{n}{k}$.
 
     \[
     \begin{align}
     y&=\frac{1}{1+x}\\
     z&=\sum_{\begin{subarray}{c}1\le i\le n\\i\text{ odd}\end{subarray}} i
     \end{align}
+    \]
+
+    \[
+    \sqrt[n]{a^2+b^2}
     \]
 
     \[
