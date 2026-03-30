@@ -1275,7 +1275,7 @@ private struct MarkdownMathParser {
                 }
                 continue
             }
-            parts.append(parsePlainRun())
+            parts.append(parsePlainRun(stoppingAt: ["]"]))
         }
         if index < characters.count, characters[index] == "]" {
             index += 1
@@ -1386,10 +1386,13 @@ private struct MarkdownMathParser {
         }
     }
 
-    private mutating func parsePlainRun() -> MarkdownMathExpression {
+    private mutating func parsePlainRun(stoppingAt additionalStops: Set<Character> = []) -> MarkdownMathExpression {
         let start = index
         while index < characters.count {
             let character = characters[index]
+            if additionalStops.contains(character) {
+                break
+            }
             if character == "\\" || character == "{" || character == "}" || character == "^" || character == "_" || character == "'" || character.isWhitespace {
                 break
             }
