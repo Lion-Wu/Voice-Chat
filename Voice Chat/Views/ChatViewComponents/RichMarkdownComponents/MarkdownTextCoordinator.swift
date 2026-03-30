@@ -94,15 +94,20 @@ final class MarkdownTextCoordinator: NSObject, @unchecked Sendable {
             return
         }
 
+        let appendedDelta = appendedMarkdownDelta(for: markdown)
+        let appendedDeltaIntroducesMath = deltaIntroducesPotentialMath(appendedDelta, appendedTo: lastMarkdown)
+
         if !force,
            styleKey == lastStyleKey,
+           !appendedDeltaIntroducesMath,
            attemptIncrementalAppend(to: textView, newMarkdown: markdown, style: style) {
-            lastMarkdown = markdown
+            updateLastRenderState(markdown: markdown, styleKey: styleKey)
             return
         }
 
         if !force,
            styleKey == lastStyleKey,
+           !appendedDeltaIntroducesMath,
            attemptSegmentedStreamingUpdate(to: textView, newMarkdown: markdown, style: style, styleKey: styleKey) {
             return
         }
@@ -115,6 +120,33 @@ final class MarkdownTextCoordinator: NSObject, @unchecked Sendable {
         textView.tintColor = style.linkColor
         #endif
         textView.linkTextAttributes = style.linkAttributes
+    }
+
+    private func updateLastRenderState(markdown: String, styleKey: String) {
+        lastMarkdown = markdown
+        lastStyleKey = styleKey
+    }
+
+    private func appendedMarkdownDelta(for newMarkdown: String) -> String? {
+        guard !lastMarkdown.isEmpty, newMarkdown.hasPrefix(lastMarkdown) else { return nil }
+        return String(newMarkdown.dropFirst(lastMarkdown.count))
+    }
+
+    private func deltaIntroducesPotentialMath(_ delta: String?, appendedTo existingMarkdown: String) -> Bool {
+        guard let delta, !delta.isEmpty else { return false }
+        if MarkdownMathPreprocessor.containsUnterminatedMathSyntax(existingMarkdown) {
+            return true
+        }
+        if MarkdownMathPreprocessor.endsWithStandaloneDisplayMathParagraph(existingMarkdown) {
+            return true
+        }
+        if MarkdownMathPreprocessor.containsPotentialMathSyntax(delta) {
+            return true
+        }
+        return MarkdownMathPreprocessor.containsPotentialMathSyntaxAcrossBoundary(
+            prefix: existingMarkdown,
+            suffix: delta
+        )
     }
 
     private func attemptIncrementalAppend(
@@ -376,8 +408,7 @@ final class MarkdownTextCoordinator: NSObject, @unchecked Sendable {
                styleKey: styleKey
            ) {
             streamingState = nextState
-            lastMarkdown = newMarkdown
-            lastStyleKey = styleKey
+            updateLastRenderState(markdown: newMarkdown, styleKey: styleKey)
             return true
         }
 
@@ -479,8 +510,7 @@ final class MarkdownTextCoordinator: NSObject, @unchecked Sendable {
                 self.resetStreamingOpenAttachmentState()
                 self.updateAttachmentWidth(for: allAttachments)
                 self.queueImageLoads(attachments: allAttachments)
-                self.lastMarkdown = plan.markdown
-                self.lastStyleKey = styleKey
+                self.updateLastRenderState(markdown: plan.markdown, styleKey: styleKey)
                 self.invalidateLayout(for: textView, changedRange: nil)
 
             case let .extend(oldCommittedLength, oldCommittedUTF16):
@@ -559,8 +589,7 @@ final class MarkdownTextCoordinator: NSObject, @unchecked Sendable {
                 self.resetStreamingOpenAttachmentState()
                 self.updateAttachmentWidth(for: newAttachments)
                 self.queueImageLoads(attachments: newAttachments)
-                self.lastMarkdown = plan.markdown
-                self.lastStyleKey = styleKey
+                self.updateLastRenderState(markdown: plan.markdown, styleKey: styleKey)
                 let start = self.invalidationStart(in: storage, insertionLocation: oldCommittedLength)
                 self.invalidateLayout(for: textView, changedRange: NSRange(location: start, length: max(0, storage.length - start)))
 
@@ -607,8 +636,7 @@ final class MarkdownTextCoordinator: NSObject, @unchecked Sendable {
                 self.resetStreamingOpenAttachmentState()
                 self.updateAttachmentWidth(for: resolvedTailAttachments)
                 self.queueImageLoads(attachments: resolvedTailAttachments)
-                self.lastMarkdown = plan.markdown
-                self.lastStyleKey = styleKey
+                self.updateLastRenderState(markdown: plan.markdown, styleKey: styleKey)
                 let start = self.invalidationStart(in: storage, insertionLocation: committedLength)
                 self.invalidateLayout(for: textView, changedRange: NSRange(location: start, length: max(0, storage.length - start)))
             }
@@ -740,8 +768,7 @@ final class MarkdownTextCoordinator: NSObject, @unchecked Sendable {
                     self.resetStreamingOpenAttachmentState()
                     self.updateAttachmentWidth(for: allAttachments)
                     self.queueImageLoads(attachments: allAttachments)
-                    self.lastMarkdown = plan.markdown
-                    self.lastStyleKey = styleKey
+                    self.updateLastRenderState(markdown: plan.markdown, styleKey: styleKey)
                     self.invalidateLayout(for: textView, changedRange: nil)
 
                 case let (.extend(oldCommittedLength, _), .extended(commitDeltaResult, tailResult)):
@@ -811,8 +838,7 @@ final class MarkdownTextCoordinator: NSObject, @unchecked Sendable {
                     self.resetStreamingOpenAttachmentState()
                     self.updateAttachmentWidth(for: newAttachments)
                     self.queueImageLoads(attachments: newAttachments)
-                    self.lastMarkdown = plan.markdown
-                    self.lastStyleKey = styleKey
+                    self.updateLastRenderState(markdown: plan.markdown, styleKey: styleKey)
                     let start = self.invalidationStart(in: storage, insertionLocation: oldCommittedLength)
                     self.invalidateLayout(for: textView, changedRange: NSRange(location: start, length: max(0, storage.length - start)))
 
@@ -854,8 +880,7 @@ final class MarkdownTextCoordinator: NSObject, @unchecked Sendable {
                     self.resetStreamingOpenAttachmentState()
                     self.updateAttachmentWidth(for: resolvedTailAttachments)
                     self.queueImageLoads(attachments: resolvedTailAttachments)
-                    self.lastMarkdown = plan.markdown
-                    self.lastStyleKey = styleKey
+                    self.updateLastRenderState(markdown: plan.markdown, styleKey: styleKey)
                     let start = self.invalidationStart(in: storage, insertionLocation: committedLength)
                     self.invalidateLayout(for: textView, changedRange: NSRange(location: start, length: max(0, storage.length - start)))
 
@@ -1285,7 +1310,7 @@ final class MarkdownTextCoordinator: NSObject, @unchecked Sendable {
             return
         }
 
-#if os(macOS)
+        #if os(macOS)
         Task { @MainActor [weak self] in
             guard let self, self.currentRenderID == renderID else { return }
             let renderer = MarkdownAttributedStringRenderer(style: style, maxImageWidth: maxWidth)
@@ -1306,7 +1331,7 @@ final class MarkdownTextCoordinator: NSObject, @unchecked Sendable {
                 renderID: renderID
             )
         }
-#else
+        #else
         renderQueue.async { [weak self] in
             let renderer = MarkdownAttributedStringRenderer(style: style, maxImageWidth: maxWidth)
             let result = renderer.render(markdown: markdown)
@@ -1329,7 +1354,7 @@ final class MarkdownTextCoordinator: NSObject, @unchecked Sendable {
                 )
             }
         }
-#endif
+        #endif
     }
 
     private func applyRender(
@@ -1347,8 +1372,7 @@ final class MarkdownTextCoordinator: NSObject, @unchecked Sendable {
         resetStreamingIncrementalState()
         updateAttachmentWidth()
         queueImageLoads(attachments: result.attachments)
-        lastMarkdown = markdown
-        lastStyleKey = styleKey
+        updateLastRenderState(markdown: markdown, styleKey: styleKey)
         invalidateLayout(for: textView, changedRange: nil)
     }
 
@@ -1690,6 +1714,15 @@ final class MarkdownTextCoordinator: NSObject, @unchecked Sendable {
                 return nil
             }
             return 180_000
+        case (let existing as MarkdownMathAttachment, let incoming as MarkdownMathAttachment):
+            guard existing.source == incoming.source,
+                  existing.latex == incoming.latex,
+                  existing.displayMode == incoming.displayMode,
+                  existing.style == incoming.style
+            else {
+                return nil
+            }
+            return 275_000 + incoming.latex.utf16.count
         default:
             return nil
         }
@@ -1812,6 +1845,10 @@ final class MarkdownTextCoordinator: NSObject, @unchecked Sendable {
             return existing
 
         case (let existing as MarkdownImageAttachment, let incoming as MarkdownImageAttachment):
+            guard canReuseAttachment(existing: existing, incoming: incoming) else { return nil }
+            return existing
+
+        case (let existing as MarkdownMathAttachment, let incoming as MarkdownMathAttachment):
             guard canReuseAttachment(existing: existing, incoming: incoming) else { return nil }
             return existing
 

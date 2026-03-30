@@ -84,7 +84,7 @@ enum MarkdownAttachmentViewProviderRegistry {
 }
 
 #if os(macOS)
-private final class MarkdownAttachmentCell: NSTextAttachmentCell {
+final class MarkdownAttachmentCell: NSTextAttachmentCell {
     override func draw(withFrame cellFrame: NSRect, in controlView: NSView?) {
         guard let image else { return }
         image.draw(
@@ -100,16 +100,34 @@ private final class MarkdownAttachmentCell: NSTextAttachmentCell {
 #endif
 
 #if os(macOS)
+private func markdownImageBackingScale() -> CGFloat {
+    let screens = NSScreen.screens.map(\.backingScaleFactor)
+    return max(1, screens.max() ?? 2)
+}
+
 func renderMarkdownImage(
     size: CGSize,
     draw: (CGContext) -> Void
 ) -> MarkdownPlatformImage? {
     guard size.width > 0, size.height > 0 else { return nil }
-    let image = MarkdownPlatformImage(size: size)
-    image.lockFocus()
-    defer { image.unlockFocus() }
-    guard let context = NSGraphicsContext.current?.cgContext else { return nil }
+    let scale = markdownImageBackingScale()
+    let pixelWidth = max(1, Int(ceil(size.width * scale)))
+    let pixelHeight = max(1, Int(ceil(size.height * scale)))
+    guard let colorSpace = CGColorSpace(name: CGColorSpace.sRGB),
+          let context = CGContext(
+              data: nil,
+              width: pixelWidth,
+              height: pixelHeight,
+              bitsPerComponent: 8,
+              bytesPerRow: 0,
+              space: colorSpace,
+              bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+          )
+    else {
+        return nil
+    }
     context.saveGState()
+    context.scaleBy(x: scale, y: scale)
     context.translateBy(x: 0, y: size.height)
     context.scaleBy(x: 1, y: -1)
     NSGraphicsContext.saveGraphicsState()
@@ -117,7 +135,8 @@ func renderMarkdownImage(
     draw(context)
     NSGraphicsContext.restoreGraphicsState()
     context.restoreGState()
-    return image
+    guard let cgImage = context.makeImage() else { return nil }
+    return MarkdownPlatformImage(cgImage: cgImage, size: size)
 }
 #endif
 

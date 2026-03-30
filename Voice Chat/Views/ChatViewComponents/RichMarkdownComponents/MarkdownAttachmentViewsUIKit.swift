@@ -15,8 +15,10 @@ private final class MarkdownCodeBlockView: UIView, UIScrollViewDelegate {
     }
 
     private enum MeasurementSizing {
-        static let initialContainerWidth: CGFloat = 10_000
-        static let maxContainerWidth: CGFloat = 10_000_000
+        // Keep offscreen measurement bounded so long code lines don't trigger pathological
+        // TextKit relayout cascades while we search for the widest visible line.
+        static let initialContainerWidth: CGFloat = 4_096
+        static let maxContainerWidth: CGFloat = 131_072
         static let widthCapThreshold: CGFloat = 1
     }
 
@@ -1143,8 +1145,8 @@ private final class MarkdownQuoteView: UIView {
         if abs(targetWidth - cachedWidth) > 0.5 || cachedLayout == nil {
             cachedLayout = computeLayout(width: targetWidth)
             cachedWidth = targetWidth
+            setNeedsLayout()
         }
-        setNeedsLayout()
         return cachedLayout?.size ?? CGSize(width: targetWidth, height: 0)
     }
 
@@ -1208,8 +1210,8 @@ private final class MarkdownRuleView: UIView {
         if abs(targetWidth - cachedWidth) > 0.5 {
             cachedWidth = targetWidth
             cachedSize = CGSize(width: targetWidth, height: verticalPadding * 2 + thickness)
+            setNeedsLayout()
         }
-        setNeedsLayout()
         return cachedSize
     }
 
@@ -1237,6 +1239,7 @@ final class MarkdownAttachmentViewProvider: NSTextAttachmentViewProvider, @unche
         case table
         case quote
         case rule
+        case math
         case unknown
     }
 
@@ -1303,6 +1306,7 @@ final class MarkdownAttachmentViewProvider: NSTextAttachmentViewProvider, @unche
         let cachedBoundsKeySnapshot = cachedBoundsKey
         let cachedBoundsSnapshot = cachedBounds
         let lineWidth = proposedLineFragment.width
+        let textContainerWidth = textContainer?.size.width
 
         let layout: AttachmentLayout = MainActor.assumeIsolated {
             guard let attachment = markdownAttachmentBox.value else {
@@ -1313,7 +1317,11 @@ final class MarkdownAttachmentViewProvider: NSTextAttachmentViewProvider, @unche
             let available = attachmentAvailableWidth(maxWidth: attachment.maxWidth, lineFragWidth: lineWidth)
             let availableWidthKey = Self.widthKey(available)
 
-            func cachedLayoutIfPossible(kind: Kind, contentVersion: UInt64) -> AttachmentLayout? {
+            func cachedLayoutIfPossible(
+                kind: Kind,
+                contentVersion: UInt64,
+                availableWidthKey: Int = availableWidthKey
+            ) -> AttachmentLayout? {
                 let key = BoundsCacheKey(kind: kind, contentVersion: contentVersion, availableWidthKey: availableWidthKey)
                 guard key == cachedBoundsKeySnapshot else { return nil }
                 guard let existing = currentViewBox.value else { return nil }
@@ -1418,6 +1426,38 @@ final class MarkdownAttachmentViewProvider: NSTextAttachmentViewProvider, @unche
                 )
                 return AttachmentLayout(view: UncheckedSendableBox(value: resolvedView), bounds: bounds, cacheKey: key)
 
+            case let mathAttachment as MarkdownMathAttachment:
+                let mathAvailable = mathAttachment.resolvedAvailableWidth(
+                    containerWidth: textContainerWidth,
+                    proposedLineFragmentWidth: lineWidth
+                )
+                let mathAvailableWidthKey = Self.widthKey(mathAvailable)
+                if let cached = cachedLayoutIfPossible(
+                    kind: .math,
+                    contentVersion: mathAttachment.contentVersion,
+                    availableWidthKey: mathAvailableWidthKey
+                ) {
+                    return cached
+                }
+                let resolvedView: MarkdownMathView
+                if let existing = currentViewBox.value as? MarkdownMathView {
+                    resolvedView = existing
+                } else if let cached = Self.cachedView(for: mathAttachment) as? MarkdownMathView {
+                    resolvedView = cached
+                } else {
+                    resolvedView = MarkdownMathView(attachment: mathAttachment)
+                }
+                Self.cache(view: resolvedView, for: mathAttachment)
+                resolvedView.applyUpdate(from: mathAttachment)
+                _ = resolvedView.sizeThatFitsWidth(mathAvailable)
+                let bounds = mathAttachment.layoutBounds(availableWidth: mathAvailable)
+                let key = BoundsCacheKey(
+                    kind: .math,
+                    contentVersion: mathAttachment.contentVersion,
+                    availableWidthKey: mathAvailableWidthKey
+                )
+                return AttachmentLayout(view: UncheckedSendableBox(value: resolvedView), bounds: bounds, cacheKey: key)
+
             default:
                 if let cached = cachedLayoutIfPossible(kind: .unknown, contentVersion: attachment.contentVersion) {
                     return cached
@@ -1466,6 +1506,8 @@ final class MarkdownAttachmentViewProvider: NSTextAttachmentViewProvider, @unche
                 thickness: attachment.thickness,
                 verticalPadding: attachment.verticalPadding
             )
+        case let attachment as MarkdownMathAttachment:
+            return MarkdownMathView(attachment: attachment)
         default:
             return UIView()
         }
