@@ -1731,7 +1731,9 @@ private enum MarkdownMathCommandMap {
 
     static func operatorName(_ command: String) -> MarkdownMathRun? {
         switch command {
-        case "sin", "cos", "tan", "cot", "sec", "csc", "sinh", "cosh", "tanh":
+        case "sin", "cos", "tan", "cot", "sec", "csc",
+             "arcsin", "arccos", "arctan", "arccot", "arcsec", "arccsc",
+             "sinh", "cosh", "tanh":
             return MarkdownMathRun(text: command, kind: .operatorName)
         case "log", "ln", "exp", "det", "dim", "gcd", "deg", "Pr", "arg", "ker", "rank", "tr", "diag", "sgn":
             return MarkdownMathRun(text: command, kind: .operatorName)
