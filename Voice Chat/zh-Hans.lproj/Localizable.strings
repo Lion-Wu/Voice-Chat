@@ -48,6 +48,13 @@
 "Other activity is still running" = "当前仍有其他活动正在运行";
 "Open full screen editor" = "打开全屏编辑器";
 "Continue" = "继续";
+"%lld image(s)" = "%lld 张图片";
+"Send Now" = "立即发送";
+"Delete message?" = "删除消息？";
+"This message contains images, but the selected model only accepts text. Continue to ignore all images in this request and send text only." = "这条消息包含图片，但当前模型仅支持文本。继续后将忽略这次请求中的所有图片，并仅发送文本。";
+"This message only contains images, but the selected model only accepts text. Edit it or delete it." = "这条消息仅包含图片，但当前模型仅支持文本。请编辑这条消息，或删除它。";
+"This message will be deleted." = "这条消息将被删除。";
+"Image-only message" = "仅含图片的消息";
 "Read Aloud" = "朗读";
 "Reasoning preview" = "思考内容预览";
 "Refresh Model List" = "刷新模型列表";

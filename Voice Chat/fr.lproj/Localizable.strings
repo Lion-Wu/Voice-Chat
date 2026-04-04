@@ -49,6 +49,12 @@
 "Other activity is still running" = "Une autre activité est toujours en cours";
 "Open full screen editor" = "Ouvrir l’éditeur plein écran";
 "Continue" = "Continuer";
+"Send Now" = "Envoyer maintenant";
+"Delete message?" = "Supprimer le message ?";
+"This message contains images, but the selected model only accepts text. Continue to ignore all images in this request and send text only." = "Ce message contient des images, mais le modèle sélectionné n’accepte que le texte. Continuez pour ignorer toutes les images de cette requête et envoyer uniquement le texte.";
+"This message only contains images, but the selected model only accepts text. Edit it or delete it." = "Ce message contient uniquement des images, mais le modèle sélectionné n’accepte que le texte. Modifiez-le ou supprimez-le.";
+"This message will be deleted." = "Ce message sera supprimé.";
+"Image-only message" = "Message contenant uniquement des images";
 "Realtime Voice Issue" = "Problème de voix en temps réel";
 "Realtime voice unavailable" = "La voix en temps réel est indisponible";
 "Read Aloud" = "Lire à voix haute";
