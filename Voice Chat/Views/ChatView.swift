@@ -351,7 +351,7 @@ struct ChatView: View {
     }
 
     private var floatingInputButtonHeight: CGFloat {
-        textFieldHeight + InputMetrics.outerV * 2
+        textFieldHeight + InputMetrics.composerOuterV * 2
     }
 
     private var pendingAttachmentStripHeight: CGFloat {
@@ -382,9 +382,9 @@ struct ChatView: View {
 
     private var composerOuterVerticalPadding: CGFloat {
         #if os(iOS) || os(tvOS)
-        return 6
+        return 4
         #else
-        return 8
+        return 6
         #endif
     }
 
@@ -652,6 +652,8 @@ struct ChatView: View {
                         }
 
                         floatingInputPanel
+                            .frame(maxWidth: composerPanelMaxWidth(availableWidth: availableMessageWidth))
+                            .frame(maxWidth: .infinity)
                     }
                     .padding(.horizontal, 16)
                     .padding(.bottom, composerBottomPadding)
@@ -663,8 +665,10 @@ struct ChatView: View {
                         notices: errorCenter.notices,
                         onDismiss: { notice in
                             errorCenter.dismiss(notice)
-                        }
+                        },
+                        maxWidth: composerPanelMaxWidth(availableWidth: availableMessageWidth)
                     )
+                    .frame(maxWidth: .infinity)
                     .padding(.bottom, noticeBottomPadding)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
                     .zIndex(0)
@@ -1235,29 +1239,14 @@ struct ChatView: View {
         .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
         .background(alignment: .bottom) {
             RoundedRectangle(cornerRadius: 28, style: .continuous)
-                .fill(.regularMaterial)
-                .blur(radius: 26)
-                .opacity(0.82)
+                .fill(Color.black.opacity(0.14))
+                .blur(radius: 24)
                 .padding(.horizontal, -18)
                 .frame(height: 38)
                 .overlay(
                     RoundedRectangle(cornerRadius: 28, style: .continuous)
-                        .stroke(Color.white.opacity(0.18), lineWidth: 0.8)
-                        .blur(radius: 10)
-                        .blendMode(.plusLighter)
-                )
-                .overlay(
-                    LinearGradient(
-                        colors: [
-                            Color.white.opacity(0.16),
-                            Color.white.opacity(0.08),
-                            Color.white.opacity(0.16)
-                        ],
-                        startPoint: .leading,
-                        endPoint: .trailing
-                    )
-                    .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
-                    .blur(radius: 14)
+                        .stroke(Color.gray.opacity(0.16), lineWidth: 0.7)
+                        .blur(radius: 6)
                 )
                 .offset(y: 16)
         }
@@ -1269,34 +1258,25 @@ struct ChatView: View {
     }
 
     private var composerInputRow: some View {
-        HStack(alignment: .center, spacing: 10) {
+        HStack(alignment: .center, spacing: InputMetrics.composerRowSpacing) {
             composerAttachmentButton
-
-            ZStack(alignment: .topLeading) {
-                if viewModel.userMessage.isEmpty {
-                    Text("Type your message...")
-                        .font(.system(size: 17))
-                        .foregroundColor(.secondary)
-                        .padding(.top, InputMetrics.outerV + InputMetrics.innerTop)
-                        .padding(.leading, InputMetrics.outerH + InputMetrics.innerLeading)
-                        .accessibilityHint("Message field placeholder")
-                }
-
-                AutoSizingTextEditor(
-                    text: $viewModel.userMessage,
-                    height: $textFieldHeight,
-                    maxLines: platformMaxLines(),
-                    allowsImagePasting: currentModelSupportsImageInput,
-                    maxPastedImages: remainingPendingImageAttachmentSlots,
-                    onOverflowChange: handleOverflowChange,
-                    onPasteImages: importPastedImages
-                )
-                .focused($isInputFocused)
-                .frame(height: textFieldHeight)
-                .padding(.vertical, InputMetrics.outerV)
-                .padding(.leading, InputMetrics.outerH)
-                .padding(.trailing, 6)
-
+            AutoSizingTextEditor(
+                text: $viewModel.userMessage,
+                height: $textFieldHeight,
+                placeholder: NSLocalizedString("Type your message...", comment: "Chat composer placeholder"),
+                maxLines: platformMaxLines(),
+                allowsImagePasting: currentModelSupportsImageInput,
+                maxPastedImages: remainingPendingImageAttachmentSlots,
+                onOverflowChange: handleOverflowChange,
+                onPasteImages: importPastedImages
+            )
+            .focused($isInputFocused)
+            .frame(maxWidth: .infinity)
+            .frame(height: textFieldHeight)
+            .padding(.vertical, InputMetrics.composerOuterV)
+            .padding(.leading, InputMetrics.composerOuterLeading)
+            .padding(.trailing, 6)
+            .overlay(alignment: .topTrailing) {
                 #if os(iOS) || os(tvOS)
                 if inputOverflow {
                     Button {
@@ -1309,7 +1289,6 @@ struct ChatView: View {
                     .padding(.top, 4)
                     .padding(.trailing, 8)
                     .accessibilityLabel("Open full screen editor")
-                    .frame(maxWidth: .infinity, alignment: .topTrailing)
                 }
                 #endif
             }
