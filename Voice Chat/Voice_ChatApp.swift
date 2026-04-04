@@ -56,9 +56,8 @@ struct Voice_ChatApp: App {
         #if os(macOS)
         Settings {
             StartupDataGateView(coordinator: startupCoordinator) { container in
-                SettingsView()
+                SettingsView(settingsManager: appEnvironment.settingsManager)
                     .environmentObject(appEnvironment)
-                    .environmentObject(appEnvironment.settingsManager)
                     .environmentObject(appEnvironment.errorCenter)
                     .background(
                         ModelContextBinder()

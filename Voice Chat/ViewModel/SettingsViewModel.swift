@@ -101,7 +101,7 @@ final class SettingsViewModel: ObservableObject {
     @Published var selectedPresetID: UUID? {
         didSet {
             if !suppressPresetDidSet {
-                SettingsManager.shared.selectPreset(selectedPresetID, apply: true)
+                settingsManager.selectPreset(selectedPresetID, apply: true)
                 // Reload the preset fields after switching selection.
                 loadSelectedPresetFields()
             }
@@ -121,7 +121,7 @@ final class SettingsViewModel: ObservableObject {
     @Published var selectedNormalSystemPromptPresetID: UUID? {
         didSet {
             if !suppressNormalSystemPromptDidSet {
-                SettingsManager.shared.selectNormalSystemPromptPreset(selectedNormalSystemPromptPresetID)
+                settingsManager.selectNormalSystemPromptPreset(selectedNormalSystemPromptPresetID)
                 loadSelectedNormalSystemPromptPresetFields()
             }
         }
@@ -133,7 +133,7 @@ final class SettingsViewModel: ObservableObject {
     @Published var selectedVoiceSystemPromptPresetID: UUID? {
         didSet {
             if !suppressVoiceSystemPromptDidSet {
-                SettingsManager.shared.selectVoiceSystemPromptPreset(selectedVoiceSystemPromptPresetID)
+                settingsManager.selectVoiceSystemPromptPreset(selectedVoiceSystemPromptPresetID)
                 loadSelectedVoiceSystemPromptPresetFields()
             }
         }
@@ -142,7 +142,7 @@ final class SettingsViewModel: ObservableObject {
     @Published var voiceSystemPromptPrompt: String = "" { didSet { saveSelectedVoiceSystemPromptPresetPrompt() } }
 
     // MARK: - Dependency
-    private let settingsManager = SettingsManager.shared
+    private let settingsManager: SettingsManager
 
     // Avoid recursive didSet triggers when swapping presets.
     private var suppressVoiceServerPresetDidSet = false
@@ -161,7 +161,8 @@ final class SettingsViewModel: ObservableObject {
     private var suppressSaveVoiceSystemPrompt = false
 
     // MARK: - Init
-    init() {
+    init(settingsManager: SettingsManager = .shared) {
+        self.settingsManager = settingsManager
         // Seed values from the current in-memory state. A later SwiftData attach may update the manager,
         // so we also listen for the first post-load signal and resync.
         serverAddress = ""
@@ -767,7 +768,7 @@ final class SettingsViewModel: ObservableObject {
     func addNormalSystemPromptPreset() {
         if let p = settingsManager.createNormalSystemPromptPreset() {
             reloadSystemPromptPresetListsAndSelections()
-            SettingsManager.shared.selectNormalSystemPromptPreset(p.id)
+            settingsManager.selectNormalSystemPromptPreset(p.id)
             reloadSystemPromptPresetListsAndSelections()
             AppHaptics.trigger(.success)
         }
@@ -783,7 +784,7 @@ final class SettingsViewModel: ObservableObject {
     func addVoiceSystemPromptPreset() {
         if let p = settingsManager.createVoiceSystemPromptPreset() {
             reloadSystemPromptPresetListsAndSelections()
-            SettingsManager.shared.selectVoiceSystemPromptPreset(p.id)
+            settingsManager.selectVoiceSystemPromptPreset(p.id)
             reloadSystemPromptPresetListsAndSelections()
             AppHaptics.trigger(.success)
         }

@@ -16,8 +16,8 @@ final class SideMenuContainerViewController: UIViewController {
     private let menuAnimationDuration: TimeInterval = 0.22
     private let maxMainDimmingAlpha: CGFloat = 0.2
 
-    private var sidebarHostingController: UIHostingController<AnyView>!
-    private var mainHostingController: UIHostingController<AnyView>!
+    private var sidebarHostingController: UIHostingController<SidebarRootView>!
+    private var mainHostingController: UIHostingController<MainRootView>!
     private let mainDimmingView = UIView()
 
     private var sideMenuHorizontalConstraint: NSLayoutConstraint!
@@ -73,8 +73,12 @@ final class SideMenuContainerViewController: UIViewController {
         configureMainDimmingOverlay(on: mainVC.view)
     }
 
-    private func makeSidebarRootView() -> AnyView {
-        let sidebarContent = SidebarView(
+    private func makeSidebarRootView() -> SidebarRootView {
+        SidebarRootView(
+            layoutDirection: swiftUILayoutDirection,
+            chatSessionsViewModel: chatSessionsViewModel,
+            voiceOverlayViewModel: voiceOverlayViewModel,
+            errorCenter: errorCenter,
             onConversationTap: { [weak self] session in
                 self?.chatSessionsViewModel.selectedSession = session
                 self?.toggleMenu(open: false, animated: true)
@@ -83,46 +87,21 @@ final class SideMenuContainerViewController: UIViewController {
                 self?.presentSettings()
             }
         )
-        .environment(\.layoutDirection, swiftUILayoutDirection)
-        .environmentObject(chatSessionsViewModel)
-        .environmentObject(voiceOverlayViewModel)
-        .environmentObject(errorCenter)
-
-        if #available(iOS 16, tvOS 16, *) {
-            return AnyView(
-                NavigationStack {
-                    sidebarContent
-                        .toolbar(.hidden, for: .navigationBar)
-                }
-                .environment(\.layoutDirection, swiftUILayoutDirection)
-            )
-        } else {
-            return AnyView(
-                NavigationView {
-                    sidebarContent
-                        .navigationBarHidden(true)
-                }
-                .navigationViewStyle(.stack)
-                .environment(\.layoutDirection, swiftUILayoutDirection)
-            )
-        }
     }
 
-    private func makeMainRootView() -> AnyView {
-        AnyView(
-            MainContentView(
-                onToggleSidebar: { [weak self] in
-                    guard let self = self else { return }
-                    self.toggleMenu(open: !self.isMenuOpen, animated: true)
-                }
-            )
-            .environment(\.layoutDirection, swiftUILayoutDirection)
-            .environmentObject(chatSessionsViewModel)
-            .environmentObject(audioManager)
-            .environmentObject(settingsManager)
-            .environmentObject(speechInputManager)
-            .environmentObject(voiceOverlayViewModel)
-            .environmentObject(errorCenter)
+    private func makeMainRootView() -> MainRootView {
+        MainRootView(
+            layoutDirection: swiftUILayoutDirection,
+            chatSessionsViewModel: chatSessionsViewModel,
+            audioManager: audioManager,
+            settingsManager: settingsManager,
+            speechInputManager: speechInputManager,
+            voiceOverlayViewModel: voiceOverlayViewModel,
+            errorCenter: errorCenter,
+            onToggleSidebar: { [weak self] in
+                guard let self = self else { return }
+                self.toggleMenu(open: !self.isMenuOpen, animated: true)
+            }
         )
     }
 
@@ -212,9 +191,8 @@ final class SideMenuContainerViewController: UIViewController {
     }
 
     private func presentSettings() {
-        let settingsView = SettingsView()
+        let settingsView = SettingsView(settingsManager: settingsManager)
             .environment(\.layoutDirection, swiftUILayoutDirection)
-            .environmentObject(settingsManager)
         let settingsVC = UIHostingController(rootView: settingsView)
         settingsVC.view.semanticContentAttribute = currentLayoutDirection == .rightToLeft ? .forceRightToLeft : .forceLeftToRight
         settingsVC.modalPresentationStyle = .formSheet
@@ -337,6 +315,51 @@ final class SideMenuContainerViewController: UIViewController {
 
     deinit {
         NotificationCenter.default.removeObserver(self)
+    }
+}
+
+private struct SidebarRootView: View {
+    let layoutDirection: LayoutDirection
+    let chatSessionsViewModel: ChatSessionsViewModel
+    let voiceOverlayViewModel: VoiceChatOverlayViewModel
+    let errorCenter: AppErrorCenter
+    let onConversationTap: (ChatSession) -> Void
+    let onOpenSettings: () -> Void
+
+    var body: some View {
+        NavigationStack {
+            SidebarView(
+                onConversationTap: onConversationTap,
+                onOpenSettings: onOpenSettings
+            )
+            .toolbar(.hidden, for: .navigationBar)
+        }
+        .environment(\.layoutDirection, layoutDirection)
+        .environmentObject(chatSessionsViewModel)
+        .environmentObject(voiceOverlayViewModel)
+        .environmentObject(errorCenter)
+    }
+}
+
+private struct MainRootView: View {
+    let layoutDirection: LayoutDirection
+    let chatSessionsViewModel: ChatSessionsViewModel
+    let audioManager: GlobalAudioManager
+    let settingsManager: SettingsManager
+    let speechInputManager: SpeechInputManager
+    let voiceOverlayViewModel: VoiceChatOverlayViewModel
+    let errorCenter: AppErrorCenter
+    let onToggleSidebar: () -> Void
+
+    var body: some View {
+        MainContentView(onToggleSidebar: onToggleSidebar)
+            .environment(\.layoutDirection, layoutDirection)
+            .environmentObject(chatSessionsViewModel)
+            .environmentObject(audioManager)
+            .environmentObject(settingsManager)
+            .environmentObject(speechInputManager)
+            .environmentObject(voiceOverlayViewModel)
+            .environmentObject(errorCenter)
     }
 }
 

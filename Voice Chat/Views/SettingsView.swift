@@ -10,23 +10,40 @@ import SwiftUI
 import AppKit
 #endif
 
+private enum SettingsDeletionTarget: String, Identifiable {
+    case voicePreset
+    case chatServerPreset
+    case voiceServerPreset
+    case normalPromptPreset
+    case voicePromptPreset
+
+    var id: String { rawValue }
+
+    var title: LocalizedStringKey {
+        switch self {
+        case .voicePreset, .chatServerPreset, .voiceServerPreset:
+            return "Delete this preset?"
+        case .normalPromptPreset, .voicePromptPreset:
+            return "Delete this prompt preset?"
+        }
+    }
+}
+
 // MARK: - Settings View
 
 struct SettingsView: View {
-    @StateObject private var viewModel = SettingsViewModel()
-
-    // Preset deletion confirmation state
-    @State private var showDeletePresetAlert = false
-    @State private var showDeleteChatServerPresetAlert = false
-    @State private var showDeleteVoiceServerPresetAlert = false
-    @State private var showDeleteNormalPromptPresetAlert = false
-    @State private var showDeleteVoicePromptPresetAlert = false
-
-    @EnvironmentObject var settingsManager: SettingsManager
+    @StateObject private var viewModel: SettingsViewModel
+    @ObservedObject private var settingsManager: SettingsManager
+    @State private var pendingDeletionTarget: SettingsDeletionTarget?
     @Environment(\.dismiss) private var dismiss
 #if os(macOS)
     @State private var measuredContentSize: CGSize = .zero
 #endif
+
+    init(settingsManager: SettingsManager = .shared) {
+        _settingsManager = ObservedObject(wrappedValue: settingsManager)
+        _viewModel = StateObject(wrappedValue: SettingsViewModel(settingsManager: settingsManager))
+    }
 
     private var detectedChatAPIFormatName: String {
         let base = viewModel.apiURL.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -77,45 +94,54 @@ struct SettingsView: View {
     private func applyCommonModifiers<Content: View>(_ content: Content) -> some View {
         content
             .background(AppBackgroundView())
-            .onAppear {
+            .task {
                 viewModel.refreshFromSettingsManager()
                 viewModel.fetchAvailableModels()
             }
-            .alert("Delete this preset?",
-                   isPresented: $showDeletePresetAlert) {
-                Button("Delete", role: .destructive) { viewModel.deleteCurrentPreset() }
-                Button("Cancel", role: .cancel) { }
+            .alert(
+                pendingDeletionTarget?.title ?? LocalizedStringKey("Delete"),
+                isPresented: deletionAlertBinding
+            ) {
+                Button("Delete", role: .destructive, action: performPendingDeletion)
+                Button("Cancel", role: .cancel) {
+                    pendingDeletionTarget = nil
+                }
             } message: {
                 Text("This action cannot be undone.")
             }
-            .alert("Delete this preset?",
-                   isPresented: $showDeleteChatServerPresetAlert) {
-                Button("Delete", role: .destructive) { viewModel.deleteSelectedChatServerPreset() }
-                Button("Cancel", role: .cancel) { }
-            } message: {
-                Text("This action cannot be undone.")
+    }
+
+    private var deletionAlertBinding: Binding<Bool> {
+        Binding(
+            get: { pendingDeletionTarget != nil },
+            set: { isPresented in
+                if !isPresented {
+                    pendingDeletionTarget = nil
+                }
             }
-            .alert("Delete this preset?",
-                   isPresented: $showDeleteVoiceServerPresetAlert) {
-                Button("Delete", role: .destructive) { viewModel.deleteSelectedVoiceServerPreset() }
-                Button("Cancel", role: .cancel) { }
-            } message: {
-                Text("This action cannot be undone.")
-            }
-            .alert("Delete this prompt preset?",
-                   isPresented: $showDeleteNormalPromptPresetAlert) {
-                Button("Delete", role: .destructive) { viewModel.deleteSelectedNormalSystemPromptPreset() }
-                Button("Cancel", role: .cancel) { }
-            } message: {
-                Text("This action cannot be undone.")
-            }
-            .alert("Delete this prompt preset?",
-                   isPresented: $showDeleteVoicePromptPresetAlert) {
-                Button("Delete", role: .destructive) { viewModel.deleteSelectedVoiceSystemPromptPreset() }
-                Button("Cancel", role: .cancel) { }
-            } message: {
-                Text("This action cannot be undone.")
-            }
+        )
+    }
+
+    private func requestDeletion(_ target: SettingsDeletionTarget) {
+        pendingDeletionTarget = target
+    }
+
+    private func performPendingDeletion() {
+        guard let target = pendingDeletionTarget else { return }
+        pendingDeletionTarget = nil
+
+        switch target {
+        case .voicePreset:
+            viewModel.deleteCurrentPreset()
+        case .chatServerPreset:
+            viewModel.deleteSelectedChatServerPreset()
+        case .voiceServerPreset:
+            viewModel.deleteSelectedVoiceServerPreset()
+        case .normalPromptPreset:
+            viewModel.deleteSelectedNormalSystemPromptPreset()
+        case .voicePromptPreset:
+            viewModel.deleteSelectedVoiceSystemPromptPreset()
+        }
     }
 
     // MARK: - Sections
@@ -213,7 +239,7 @@ struct SettingsView: View {
                     .help("Add preset")
 
                     Button(role: .destructive) {
-                        showDeleteVoiceServerPresetAlert = true
+                        requestDeletion(.voiceServerPreset)
                     } label: {
                         Label("Delete", systemImage: "trash")
                             .foregroundStyle(.red)
@@ -243,7 +269,7 @@ struct SettingsView: View {
                 .contentShape(Rectangle())
 
                 Button(role: .destructive) {
-                    showDeleteVoiceServerPresetAlert = true
+                    requestDeletion(.voiceServerPreset)
                 } label: {
                     Label("Delete", systemImage: "trash")
                         .foregroundStyle(.red)
@@ -329,7 +355,7 @@ struct SettingsView: View {
                 .help("Add preset")
 
                 Button(role: .destructive) {
-                    showDeletePresetAlert = true
+                    requestDeletion(.voicePreset)
                 } label: {
                     Label("Delete", systemImage: "trash")
                         .foregroundStyle(.red)
@@ -352,7 +378,7 @@ struct SettingsView: View {
             .contentShape(Rectangle())
 
             Button(role: .destructive) {
-                showDeletePresetAlert = true
+                requestDeletion(.voicePreset)
             } label: {
                 Label("Delete", systemImage: "trash")
                     .foregroundStyle(.red)
@@ -542,7 +568,7 @@ struct SettingsView: View {
                     .help("Add preset")
 
                     Button(role: .destructive) {
-                        showDeleteChatServerPresetAlert = true
+                        requestDeletion(.chatServerPreset)
                     } label: {
                         Label("Delete", systemImage: "trash")
                             .foregroundStyle(.red)
@@ -572,7 +598,7 @@ struct SettingsView: View {
                 .contentShape(Rectangle())
 
                 Button(role: .destructive) {
-                    showDeleteChatServerPresetAlert = true
+                    requestDeletion(.chatServerPreset)
                 } label: {
                     Label("Delete", systemImage: "trash")
                         .foregroundStyle(.red)
@@ -834,7 +860,7 @@ struct SettingsView: View {
                     .help("Add prompt preset")
 
                     Button(role: .destructive) {
-                        showDeleteNormalPromptPresetAlert = true
+                        requestDeletion(.normalPromptPreset)
                     } label: {
                         Label("Delete", systemImage: "trash")
                             .foregroundStyle(.red)
@@ -864,7 +890,7 @@ struct SettingsView: View {
                 .contentShape(Rectangle())
 
                 Button(role: .destructive) {
-                    showDeleteNormalPromptPresetAlert = true
+                    requestDeletion(.normalPromptPreset)
                 } label: {
                     Label("Delete", systemImage: "trash")
                         .foregroundStyle(.red)
@@ -916,7 +942,7 @@ struct SettingsView: View {
                     .help("Add prompt preset")
 
                     Button(role: .destructive) {
-                        showDeleteVoicePromptPresetAlert = true
+                        requestDeletion(.voicePromptPreset)
                     } label: {
                         Label("Delete", systemImage: "trash")
                             .foregroundStyle(.red)
@@ -946,7 +972,7 @@ struct SettingsView: View {
                 .contentShape(Rectangle())
 
                 Button(role: .destructive) {
-                    showDeleteVoicePromptPresetAlert = true
+                    requestDeletion(.voicePromptPreset)
                 } label: {
                     Label("Delete", systemImage: "trash")
                         .foregroundStyle(.red)
@@ -1123,6 +1149,5 @@ struct LabeledSecureField: View {
 }
 
 #Preview {
-    SettingsView()
-        .environmentObject(SettingsManager.shared)
+    SettingsView(settingsManager: .shared)
 }

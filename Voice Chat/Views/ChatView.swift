@@ -57,6 +57,23 @@ private struct TextSelectionSheetItem: Identifiable {
     let text: String
 }
 
+private enum ChatAlert: Identifiable {
+    case startVoiceModeInterrupt
+    case unsupportedImageSend
+    case deleteQueuedDraft(UUID)
+
+    var id: String {
+        switch self {
+        case .startVoiceModeInterrupt:
+            return "startVoiceModeInterrupt"
+        case .unsupportedImageSend:
+            return "unsupportedImageSend"
+        case .deleteQueuedDraft(let draftID):
+            return "deleteQueuedDraft-\(draftID.uuidString)"
+        }
+    }
+}
+
 private struct ChatViewPlatformTitleModifier: ViewModifier {
     let title: String
 
@@ -267,9 +284,7 @@ struct ChatView: View {
     @State private var pendingRefreshAfterHydration: Bool = false
     @State private var refreshGeneration = UUID()
     @State private var branchRenderEpoch: Int = 0
-    @State private var showStartVoiceModeInterruptAlert: Bool = false
-    @State private var showUnsupportedImageSendAlert: Bool = false
-    @State private var pendingQueuedDraftDeletionID: UUID?
+    @State private var activeAlert: ChatAlert?
     @State private var expectAssistantResponseHaptics: Bool = false
     @State private var didTriggerResponseStartHaptic: Bool = false
 #if os(iOS) || os(macOS)
@@ -848,31 +863,7 @@ struct ChatView: View {
 
     private var alertManagedChatView: some View {
         visibleCountObservedChatView
-            .alert("Other activity is still running",
-                   isPresented: $showStartVoiceModeInterruptAlert) {
-                Button("Cancel", role: .cancel) { }
-                Button("Continue", role: .destructive) {
-                    interruptAllActivitiesForVoiceModeStart()
-                    startRealtimeVoiceOverlay()
-                }
-            } message: {
-                Text("There are other tasks still running. Continuing will interrupt them and start voice mode.")
-            }
-            .alert("Current model does not support image input",
-                   isPresented: $showUnsupportedImageSendAlert) {
-                Button("Cancel", role: .cancel) { }
-                Button("Continue", role: .destructive) {
-                    if !performSend(ignoringUnsupportedImageInputs: true) {
-                        errorCenter.publish(
-                            title: NSLocalizedString("Nothing to send", comment: "Shown when sending is skipped because no text remains after removing unsupported image inputs"),
-                            message: NSLocalizedString("All selected images were ignored because this model only accepts text input.", comment: "Shown when selected images are dropped for a text-only model"),
-                            category: .textModel
-                        )
-                    }
-                }
-            } message: {
-                Text("This conversation contains images, but the selected model only accepts text. Continue to ignore all images in this request and send text only.")
-            }
+            .alert(item: $activeAlert, content: makeAlert(for:))
             .alert(
                 "Current model does not support image input",
                 isPresented: Binding(
@@ -923,29 +914,45 @@ struct ChatView: View {
                     Text("This message only contains images, but the selected model only accepts text. Edit it or delete it.")
                 }
             }
-            .alert(
-                "Delete message?",
-                isPresented: Binding(
-                    get: { pendingQueuedDraftDeletionID != nil },
-                    set: { isPresented in
-                        if !isPresented {
-                            pendingQueuedDraftDeletionID = nil
-                        }
+    }
+
+    private func makeAlert(for alert: ChatAlert) -> Alert {
+        switch alert {
+        case .startVoiceModeInterrupt:
+            return Alert(
+                title: Text("Other activity is still running"),
+                message: Text("There are other tasks still running. Continuing will interrupt them and start voice mode."),
+                primaryButton: .destructive(Text("Continue")) {
+                    interruptAllActivitiesForVoiceModeStart()
+                    startRealtimeVoiceOverlay()
+                },
+                secondaryButton: .cancel()
+            )
+        case .unsupportedImageSend:
+            return Alert(
+                title: Text("Current model does not support image input"),
+                message: Text("This conversation contains images, but the selected model only accepts text. Continue to ignore all images in this request and send text only."),
+                primaryButton: .destructive(Text("Continue")) {
+                    if !performSend(ignoringUnsupportedImageInputs: true) {
+                        errorCenter.publish(
+                            title: NSLocalizedString("Nothing to send", comment: "Shown when sending is skipped because no text remains after removing unsupported image inputs"),
+                            message: NSLocalizedString("All selected images were ignored because this model only accepts text input.", comment: "Shown when selected images are dropped for a text-only model"),
+                            category: .textModel
+                        )
                     }
-                )
-            ) {
-                Button("Cancel", role: .cancel) {
-                    pendingQueuedDraftDeletionID = nil
-                }
-                Button("Delete", role: .destructive) {
-                    if let draftID = pendingQueuedDraftDeletionID {
-                        viewModel.removeQueuedDraft(id: draftID)
-                    }
-                    pendingQueuedDraftDeletionID = nil
-                }
-            } message: {
-                Text("This message will be deleted.")
-            }
+                },
+                secondaryButton: .cancel()
+            )
+        case .deleteQueuedDraft(let draftID):
+            return Alert(
+                title: Text("Delete message?"),
+                message: Text("This message will be deleted."),
+                primaryButton: .destructive(Text("Delete")) {
+                    viewModel.removeQueuedDraft(id: draftID)
+                },
+                secondaryButton: .cancel()
+            )
+        }
     }
 
     private var dropEnabledChatView: some View {
@@ -1087,7 +1094,7 @@ struct ChatView: View {
             return queueCurrentDraftIfPossible()
         }
         if viewModel.shouldWarnAboutUnsupportedImageInputBeforeSending() {
-            showUnsupportedImageSendAlert = true
+            activeAlert = .unsupportedImageSend
             return false
         }
         return performSend(ignoringUnsupportedImageInputs: false)
@@ -1413,7 +1420,7 @@ struct ChatView: View {
             Spacer(minLength: 4)
 
             Button {
-                pendingQueuedDraftDeletionID = draft.id
+                activeAlert = .deleteQueuedDraft(draft.id)
             } label: {
                 Image(systemName: "trash")
                     .font(.system(size: 12, weight: .semibold))
@@ -2393,7 +2400,7 @@ struct ChatView: View {
     private func openRealtimeVoiceOverlay() {
         guard !voiceOverlayVM.isPresented else { return }
         if hasOtherActivityForVoiceModeStart {
-            showStartVoiceModeInterruptAlert = true
+            activeAlert = .startVoiceModeInterrupt
             return
         }
         startRealtimeVoiceOverlay()

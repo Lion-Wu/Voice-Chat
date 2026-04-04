@@ -76,26 +76,22 @@ struct SidebarView: View {
     @State private var renamingSession: ChatSession? = nil
     @State private var newTitle: String = ""
     @State private var searchText: String = ""
+    @FocusState private var isRenameFieldFocused: Bool
 
     // Deletion confirmation
     @State private var showDeleteChatAlert: Bool = false
     @State private var pendingDeleteSessionIDs: [UUID] = []
-    private let renderCache = MessageRenderCache.shared
 
     private var filteredSessions: [ChatSession] {
-        let keyword = searchKeyword
-        guard !keyword.isEmpty else { return chatSessionsViewModel.chatSessions }
-        return chatSessionsViewModel.chatSessions.filter { session in
-            let titleMatch = session.title.localizedCaseInsensitiveContains(keyword)
-            let messageMatch = session.messages.contains {
-                $0.content.localizedCaseInsensitiveContains(keyword)
-            }
-            return titleMatch || messageMatch
-        }
+        chatSessionsViewModel.sessions(matchingSidebarQuery: searchKeyword)
     }
 
     private var searchKeyword: String {
         searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var trimmedRenameTitle: String {
+        newTitle.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     private var groupedFilteredSessions: [SidebarSessionGroup] {
@@ -121,7 +117,7 @@ struct SidebarView: View {
             iosSidebar
             #endif
         }
-        .sheet(isPresented: $isRenaming) { renameSheetView() }
+        .sheet(isPresented: $isRenaming, onDismiss: dismissRenameSheet) { renameSheetView() }
         .alert("Delete chat?",
                isPresented: $showDeleteChatAlert) {
             Button("Delete", role: .destructive) {
@@ -173,28 +169,52 @@ struct SidebarView: View {
                 .font(.headline)
             TextField("New Title", text: $newTitle)
                 .textFieldStyle(RoundedBorderTextFieldStyle())
-                .padding()
+                .focused($isRenameFieldFocused)
+                .onSubmit(commitRename)
+                .padding(.horizontal)
             HStack {
                 Button("Cancel") {
-                    isRenaming = false
+                    dismissRenameSheet()
                 }
                 Spacer()
                 Button("Save") {
-                    if let session = renamingSession {
-                        chatSessionsViewModel.renameSession(session, to: newTitle, reason: .immediate)
-                    }
-                    isRenaming = false
+                    commitRename()
                 }
+                .keyboardShortcut(.defaultAction)
+                .disabled(trimmedRenameTitle.isEmpty)
             }
         }
         .padding()
         .frame(width: 300)
+        .onAppear {
+            isRenameFieldFocused = true
+        }
     }
 
     private func renameSession(_ session: ChatSession) {
         renamingSession = session
         newTitle = session.title
         isRenaming = true
+    }
+
+    private func dismissRenameSheet() {
+        isRenaming = false
+        renamingSession = nil
+        newTitle = ""
+        isRenameFieldFocused = false
+    }
+
+    private func commitRename() {
+        guard let session = renamingSession else {
+            dismissRenameSheet()
+            return
+        }
+
+        let title = trimmedRenameTitle
+        guard !title.isEmpty else { return }
+
+        chatSessionsViewModel.renameSession(session, to: title, reason: .immediate)
+        dismissRenameSheet()
     }
 
     private func selectDraftSession() {
@@ -381,22 +401,6 @@ struct SidebarView: View {
         return trimmedTitle.prefix(2).uppercased()
     }
 
-    private func subtitle(for session: ChatSession) -> String {
-        if let last = session.messages.max(by: { $0.createdAt < $1.createdAt }) {
-            let fingerprint = ContentFingerprint.make(last.content)
-            let parts = renderCache.thinkParts(
-                for: last.id,
-                content: last.content,
-                fingerprint: fingerprint
-            )
-            let trimmed = parts.body.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !trimmed.isEmpty else { return "No recent replies" }
-            let snippet = trimmed.prefix(60)
-            return trimmed.count > 60 ? "\(snippet)…" : String(snippet)
-        }
-        return "Fresh conversation"
-    }
-
     private var macDraftRow: some View {
         HStack(spacing: 8) {
             Image(systemName: "plus.circle.fill")
@@ -416,7 +420,7 @@ struct SidebarView: View {
                 Text(session.title)
                     .font(.headline)
                     .lineLimit(1)
-                Text(subtitle(for: session))
+                Text(chatSessionsViewModel.sidebarSubtitle(for: session))
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
@@ -450,7 +454,7 @@ struct SidebarView: View {
                 Text(session.title)
                     .font(.body.weight(.semibold))
                     .lineLimit(1)
-                Text(subtitle(for: session))
+                Text(chatSessionsViewModel.sidebarSubtitle(for: session))
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)

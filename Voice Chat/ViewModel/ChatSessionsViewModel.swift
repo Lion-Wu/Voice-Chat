@@ -16,6 +16,16 @@ final class ChatSessionsViewModel: ObservableObject {
         let shouldPromoteDraft: Bool
     }
 
+    private struct SidebarPresentationCacheEntry {
+        let title: String
+        let updatedAt: Date
+        let messageCount: Int
+        let lastMessageID: UUID?
+        let lastMessageContent: String?
+        let searchCorpus: String
+        let subtitle: String
+    }
+
     // MARK: - Published State
     @Published private(set) var chatSessions: [ChatSession] = []
     @Published private(set) var draftSession: ChatSession = ChatSession()
@@ -31,6 +41,7 @@ final class ChatSessionsViewModel: ObservableObject {
     private var pendingOrderingUpdates: [UUID: PendingOrderingUpdate] = [:]
     private var orderingPublishTask: Task<Void, Never>?
     private var deletedSessionIDs: Set<UUID> = []
+    private var sidebarPresentationCache: [UUID: SidebarPresentationCacheEntry] = [:]
 
     // MARK: - Dependencies
     private let settingsManager: SettingsManager
@@ -91,6 +102,19 @@ final class ChatSessionsViewModel: ObservableObject {
 
     var canStartNewSession: Bool {
         !isRealtimeVoiceLocked
+    }
+
+    func sessions(matchingSidebarQuery rawQuery: String) -> [ChatSession] {
+        let normalizedQuery = normalizedSidebarSearchQuery(rawQuery)
+        guard !normalizedQuery.isEmpty else { return chatSessions }
+
+        return chatSessions.filter { session in
+            sidebarPresentation(for: session).searchCorpus.contains(normalizedQuery)
+        }
+    }
+
+    func sidebarSubtitle(for session: ChatSession) -> String {
+        sidebarPresentation(for: session).subtitle
     }
 
     func cancelAllActiveTextRequests(autostartQueuedDrafts: Bool = true) {
@@ -231,6 +255,11 @@ final class ChatSessionsViewModel: ObservableObject {
             viewModelCache.removeValue(forKey: key)
             unbindActivity(for: key)
         }
+
+        let staleSidebarKeys = sidebarPresentationCache.keys.filter { !validIDs.contains($0) }
+        for key in staleSidebarKeys {
+            sidebarPresentationCache.removeValue(forKey: key)
+        }
     }
 
     private func hydrateLastMessageActivityIfNeeded(in sessions: [ChatSession]) {
@@ -305,6 +334,59 @@ final class ChatSessionsViewModel: ObservableObject {
             }
             return lhsActivity > rhsActivity
         }
+    }
+
+    private func normalizedSidebarSearchQuery(_ rawQuery: String) -> String {
+        rawQuery
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .folding(options: [.diacriticInsensitive, .caseInsensitive], locale: .current)
+            .lowercased()
+    }
+
+    private func sidebarPresentation(for session: ChatSession) -> SidebarPresentationCacheEntry {
+        let lastMessage = session.messages.max(by: { $0.createdAt < $1.createdAt })
+        let lastMessageContent = lastMessage?.content
+
+        if let cached = sidebarPresentationCache[session.id],
+           cached.title == session.title,
+           cached.updatedAt == session.updatedAt,
+           cached.messageCount == session.messages.count,
+           cached.lastMessageID == lastMessage?.id,
+           cached.lastMessageContent == lastMessageContent {
+            return cached
+        }
+
+        let bodyText = lastMessageContent?
+            .extractThinkParts()
+            .body
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+
+        let subtitle: String
+        if lastMessage == nil {
+            subtitle = "Fresh conversation"
+        } else if bodyText.isEmpty {
+            subtitle = "No recent replies"
+        } else {
+            let snippet = bodyText.prefix(60)
+            subtitle = bodyText.count > 60 ? "\(snippet)…" : String(snippet)
+        }
+
+        let searchCorpus = ([session.title] + session.messages.map(\.content))
+            .joined(separator: "\n")
+            .folding(options: [.diacriticInsensitive, .caseInsensitive], locale: .current)
+            .lowercased()
+
+        let entry = SidebarPresentationCacheEntry(
+            title: session.title,
+            updatedAt: session.updatedAt,
+            messageCount: session.messages.count,
+            lastMessageID: lastMessage?.id,
+            lastMessageContent: lastMessageContent,
+            searchCorpus: searchCorpus,
+            subtitle: subtitle
+        )
+        sidebarPresentationCache[session.id] = entry
+        return entry
     }
 
     private func shouldPersist(_ session: ChatSession) -> Bool {
