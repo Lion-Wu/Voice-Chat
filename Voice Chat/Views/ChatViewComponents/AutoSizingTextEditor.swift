@@ -8,6 +8,34 @@
 import SwiftUI
 import UniformTypeIdentifiers
 
+private enum AutoSizingTextEditorLayout {
+    static let fontSize: CGFloat = 17
+    static let verticalInset: CGFloat = InputMetrics.innerVertical
+
+    static func minHeight(for lineHeight: CGFloat) -> CGFloat {
+        ceil(lineHeight + verticalInset * 2)
+    }
+
+    static func maxHeight(for lineHeight: CGFloat, maxLines: Int) -> CGFloat {
+        ceil(CGFloat(maxLines) * lineHeight + verticalInset * 2)
+    }
+
+    static func measuredHeight(contentHeight: CGFloat, lineHeight: CGFloat, maxLines: Int) -> CGFloat {
+        let contentBoxHeight = ceil(contentHeight + verticalInset * 2)
+        return min(maxHeight(for: lineHeight, maxLines: maxLines), max(minHeight(for: lineHeight), contentBoxHeight))
+    }
+
+    static func documentHeight(contentHeight: CGFloat, lineHeight: CGFloat) -> CGFloat {
+        let contentBoxHeight = ceil(contentHeight + verticalInset * 2)
+        return max(minHeight(for: lineHeight), contentBoxHeight)
+    }
+
+    static func shouldOverflow(contentHeight: CGFloat, lineHeight: CGFloat, maxLines: Int) -> Bool {
+        measuredHeight(contentHeight: contentHeight, lineHeight: lineHeight, maxLines: maxLines) >= maxHeight(for: lineHeight, maxLines: maxLines) - 0.5
+            && contentHeight + verticalInset * 2 > maxHeight(for: lineHeight, maxLines: maxLines) - 0.5
+    }
+}
+
 #if os(macOS)
 import AppKit
 
@@ -16,12 +44,68 @@ struct AutoSizingTextEditor: NSViewRepresentable {
 
     @Binding var text: String
     @Binding var height: CGFloat
+    var placeholder: String = ""
     var maxLines: Int = 10
     var allowsImagePasting: Bool = true
     var maxPastedImages: Int = .max
     var onOverflowChange: (Bool) -> Void = { _ in }
     var onCommit: () -> Void = {}
     var onPasteImages: ([(data: Data, mimeType: String?)]) -> Void = { _ in }
+
+    private func lineHeight(for textView: NSTextView) -> CGFloat {
+        textView.layoutManager?.defaultLineHeight(for: textView.font ?? .systemFont(ofSize: AutoSizingTextEditorLayout.fontSize))
+            ?? InputMetrics.baseLineHeight
+    }
+
+    private func scheduleStateUpdate(
+        measuredHeight: CGFloat,
+        overflow: Bool
+    ) {
+        DispatchQueue.main.async {
+            if abs(height - measuredHeight) > 0.5 {
+                height = measuredHeight
+            }
+            onOverflowChange(overflow)
+        }
+    }
+
+    private func updateMacLayout(for textView: CommitTextView, maxLines: Int) -> (height: CGFloat, shouldOverflow: Bool) {
+        let contentWidth = max(textView.enclosingScrollView?.contentSize.width ?? textView.bounds.width, 1)
+        let lineFragmentPadding = textView.textContainer?.lineFragmentPadding ?? 0
+        let horizontalInsets = textView.textContainerInset.width * 2 + lineFragmentPadding * 2
+        let layoutWidth = max(contentWidth - horizontalInsets, 1)
+        textView.textContainer?.containerSize = NSSize(width: layoutWidth, height: CGFloat.greatestFiniteMagnitude)
+
+        guard let textContainer = textView.textContainer else {
+            return (AutoSizingTextEditorLayout.minHeight(for: InputMetrics.baseLineHeight), false)
+        }
+
+        textView.layoutManager?.ensureLayout(for: textContainer)
+
+        let used = textView.layoutManager?.usedRect(for: textContainer) ?? .zero
+        let lineHeight = lineHeight(for: textView)
+        let measuredHeight = AutoSizingTextEditorLayout.measuredHeight(
+            contentHeight: used.height,
+            lineHeight: lineHeight,
+            maxLines: maxLines
+        )
+        let documentHeight = AutoSizingTextEditorLayout.documentHeight(
+            contentHeight: used.height,
+            lineHeight: lineHeight
+        )
+        let shouldOverflow = AutoSizingTextEditorLayout.shouldOverflow(
+            contentHeight: used.height,
+            lineHeight: lineHeight,
+            maxLines: maxLines
+        )
+
+        let targetSize = NSSize(width: contentWidth, height: documentHeight)
+        if abs(textView.frame.width - targetSize.width) > 0.5 || abs(textView.frame.height - targetSize.height) > 0.5 {
+            textView.setFrameSize(targetSize)
+        }
+
+        return (measuredHeight, shouldOverflow)
+    }
 
     func makeNSView(context: Context) -> NSScrollView {
         let scrollView = NSScrollView()
@@ -31,12 +115,26 @@ struct AutoSizingTextEditor: NSViewRepresentable {
         scrollView.autohidesScrollers = true
         scrollView.borderType = .noBorder
 
-        let textView = CommitTextView()
+        let textStorage = NSTextStorage()
+        let layoutManager = NSLayoutManager()
+        let textContainer = NSTextContainer(size: NSSize(width: 1, height: CGFloat.greatestFiniteMagnitude))
+        textContainer.widthTracksTextView = true
+        textContainer.heightTracksTextView = false
+        textContainer.lineFragmentPadding = 0
+        textStorage.addLayoutManager(layoutManager)
+        layoutManager.addTextContainer(textContainer)
+
+        let textView = CommitTextView(frame: NSRect(x: 0, y: 0, width: 1, height: InputMetrics.defaultHeight), textContainer: textContainer)
         textView.isEditable = true
-        textView.font = .systemFont(ofSize: 17)
-        textView.backgroundColor = .clear
+        textView.isSelectable = true
+        textView.font = NSFont.systemFont(ofSize: AutoSizingTextEditorLayout.fontSize)
+        textView.backgroundColor = NSColor.clear
         textView.drawsBackground = false
-        textView.textContainerInset = NSSize(width: InputMetrics.innerLeading, height: InputMetrics.innerTop)
+        textView.allowsUndo = true
+        textView.importsGraphics = false
+        textView.focusRingType = .none
+        textView.placeholder = placeholder
+        textView.textContainerInset = NSSize(width: InputMetrics.innerLeading, height: AutoSizingTextEditorLayout.verticalInset)
         textView.isRichText = false
         textView.isAutomaticDataDetectionEnabled = true
         textView.isVerticallyResizable = true
@@ -44,6 +142,8 @@ struct AutoSizingTextEditor: NSViewRepresentable {
         textView.textContainer?.widthTracksTextView = true
         textView.textContainer?.heightTracksTextView = false
         textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
+        textView.minSize = NSSize(width: 1, height: InputMetrics.defaultHeight)
+        textView.autoresizingMask = [.width]
 
         textView.delegate = context.coordinator
         textView.onCommit = onCommit
@@ -57,22 +157,17 @@ struct AutoSizingTextEditor: NSViewRepresentable {
     }
 
     func updateNSView(_ nsView: NSScrollView, context: Context) {
+        context.coordinator.parent = self
         guard let tv = context.coordinator.textView else { return }
         tv.allowsImagePasting = allowsImagePasting
         tv.maxPastedImages = maxPastedImages
         tv.onPasteImages = onPasteImages
+        tv.placeholder = placeholder
         let isComposing = tv.hasMarkedText()
         if !isComposing, tv.string != text { tv.string = text }
-        guard let textContainer = tv.textContainer else { return }
-        let used = tv.layoutManager?.usedRect(for: textContainer) ?? .zero
-        let lineH = tv.layoutManager?.defaultLineHeight(for: tv.font ?? .systemFont(ofSize: 17)) ?? 18
-        let maxH = CGFloat(maxLines) * lineH + 18
-        let newH = min(maxH, max(lineH, used.height + 18))
-        let shouldOverflow = (used.height + 18) > (maxH - 1)
-        DispatchQueue.main.async {
-            if abs(height - newH) > 0.5 { height = newH }
-            onOverflowChange(shouldOverflow)
-        }
+        tv.refreshPresentationState()
+        let measured = updateMacLayout(for: tv, maxLines: maxLines)
+        scheduleStateUpdate(measuredHeight: measured.height, overflow: measured.shouldOverflow)
 
         if !isComposing {
             if let selected = tv.selectedRanges.first as? NSRange {
@@ -94,17 +189,16 @@ struct AutoSizingTextEditor: NSViewRepresentable {
 
         func textDidChange(_ notification: Notification) {
             guard let tv = notification.object as? NSTextView else { return }
-            parent.text = tv.string
-            guard let textContainer = tv.textContainer else { return }
-            let used = tv.layoutManager?.usedRect(for: textContainer) ?? .zero
-            let lineH = tv.layoutManager?.defaultLineHeight(for: tv.font ?? .systemFont(ofSize: 17)) ?? 18
-            let maxH = CGFloat(parent.maxLines) * lineH + 18
-            let newH = min(maxH, max(lineH, used.height + 18))
-            let shouldOverflow = (used.height + 18) > (maxH - 1)
-            DispatchQueue.main.async {
-                if abs(self.parent.height - newH) > 0.5 { self.parent.height = newH }
-                self.parent.onOverflowChange(shouldOverflow)
+            guard let commitTextView = tv as? CommitTextView else { return }
+            if parent.text != tv.string {
+                parent.text = tv.string
             }
+            commitTextView.refreshPresentationState()
+            let measured = parent.updateMacLayout(for: commitTextView, maxLines: parent.maxLines)
+            parent.scheduleStateUpdate(
+                measuredHeight: measured.height,
+                overflow: measured.shouldOverflow
+            )
 
             if !tv.hasMarkedText() {
                 let end = NSRange(location: (tv.string as NSString).length, length: 0)
@@ -121,10 +215,77 @@ struct AutoSizingTextEditor: NSViewRepresentable {
             let mimeTypeHint: String?
         }
 
+        var placeholder: String = "" {
+            didSet {
+                needsDisplay = true
+                updateAccessibilityMetadata()
+            }
+        }
         var allowsImagePasting: Bool = true
         var maxPastedImages: Int = .max
         var onCommit: () -> Void = {}
         var onPasteImages: ([(data: Data, mimeType: String?)]) -> Void = { _ in }
+
+        override var acceptsFirstResponder: Bool { true }
+
+        override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
+            true
+        }
+
+        override var string: String {
+            didSet {
+                refreshPresentationState()
+            }
+        }
+
+        override var font: NSFont? {
+            didSet { refreshPresentationState() }
+        }
+
+        override var textContainerInset: NSSize {
+            didSet { refreshPresentationState() }
+        }
+
+        private func updateAccessibilityMetadata() {
+            let accessibilityPrompt = placeholder.trimmingCharacters(in: .whitespacesAndNewlines)
+            setAccessibilityPlaceholderValue(accessibilityPrompt.isEmpty ? nil : accessibilityPrompt)
+        }
+
+        func refreshPresentationState() {
+            needsDisplay = true
+            updateAccessibilityMetadata()
+        }
+
+        override func draw(_ dirtyRect: NSRect) {
+            super.draw(dirtyRect)
+
+            guard string.isEmpty, !placeholder.isEmpty else { return }
+
+            let placeholderFont = font ?? .systemFont(ofSize: AutoSizingTextEditorLayout.fontSize)
+            let paragraphStyle = NSMutableParagraphStyle()
+            paragraphStyle.alignment = alignment
+            paragraphStyle.lineBreakMode = .byTruncatingTail
+
+            let attributes: [NSAttributedString.Key: Any] = [
+                .font: placeholderFont,
+                .foregroundColor: NSColor.secondaryLabelColor,
+                .paragraphStyle: paragraphStyle
+            ]
+
+            let rect = placeholderDrawingRect()
+            (placeholder as NSString).draw(in: rect, withAttributes: attributes)
+        }
+
+        private func placeholderDrawingRect() -> NSRect {
+            let lineFragmentPadding = textContainer?.lineFragmentPadding ?? 0
+            let origin = textContainerOrigin
+            return NSRect(
+                x: origin.x + lineFragmentPadding,
+                y: origin.y,
+                width: max(0, bounds.width - (origin.x + lineFragmentPadding + textContainerInset.width + lineFragmentPadding)),
+                height: max(0, bounds.height - origin.y - textContainerInset.height)
+            )
+        }
 
         override func paste(_ sender: Any?) {
             guard allowsImagePasting else {
@@ -312,24 +473,39 @@ import UIKit
 struct AutoSizingTextEditor: UIViewRepresentable {
     @Binding var text: String
     @Binding var height: CGFloat
+    var placeholder: String = ""
     var maxLines: Int = 6
     var allowsImagePasting: Bool = true
     var maxPastedImages: Int = .max
     var onOverflowChange: (Bool) -> Void = { _ in }
     var onPasteImages: ([(data: Data, mimeType: String?)]) -> Void = { _ in }
 
+    private func scheduleStateUpdate(
+        measuredHeight: CGFloat,
+        overflow: Bool
+    ) {
+        DispatchQueue.main.async {
+            if abs(height - measuredHeight) > 0.5 {
+                height = measuredHeight
+            }
+            onOverflowChange(overflow)
+        }
+    }
+
     func makeUIView(context: Context) -> UITextView {
         let tv = PasteAwareTextView()
         tv.delegate = context.coordinator
-        tv.font = .systemFont(ofSize: 17)
+        tv.font = .systemFont(ofSize: AutoSizingTextEditorLayout.fontSize)
         tv.backgroundColor = .clear
         tv.textAlignment = .natural
+        tv.placeholder = placeholder
         tv.textContainerInset = UIEdgeInsets(
-            top: InputMetrics.innerTop,
+            top: AutoSizingTextEditorLayout.verticalInset,
             left: InputMetrics.innerLeading,
-            bottom: InputMetrics.innerBottom,
+            bottom: AutoSizingTextEditorLayout.verticalInset,
             right: InputMetrics.innerTrailing
         )
+        tv.textContainer.lineFragmentPadding = 0
         tv.isScrollEnabled = false
         tv.alwaysBounceVertical = true
         tv.showsVerticalScrollIndicator = true
@@ -341,10 +517,12 @@ struct AutoSizingTextEditor: UIViewRepresentable {
     }
 
     func updateUIView(_ uiView: UITextView, context: Context) {
+        context.coordinator.parent = self
         if let pasteAwareTextView = uiView as? PasteAwareTextView {
             pasteAwareTextView.allowsImagePasting = allowsImagePasting
             pasteAwareTextView.maxPastedImages = maxPastedImages
             pasteAwareTextView.onPasteImages = onPasteImages
+            pasteAwareTextView.placeholder = placeholder
         }
         // Avoid stomping on in-progress IME composition (e.g., Chinese pinyin) during unrelated SwiftUI updates.
         uiView.semanticContentAttribute = context.environment.layoutDirection == .rightToLeft ? .forceRightToLeft : .forceLeftToRight
@@ -358,20 +536,20 @@ struct AutoSizingTextEditor: UIViewRepresentable {
     func makeCoordinator() -> Coordinator { Coordinator(self) }
 
     fileprivate func recalcHeight(_ tv: UITextView) {
-        let lineH = tv.font?.lineHeight ?? 18
-        let maxH = CGFloat(maxLines) * lineH + tv.textContainerInset.top + tv.textContainerInset.bottom
+        if let pasteAwareTextView = tv as? PasteAwareTextView {
+            pasteAwareTextView.refreshPresentationState()
+        }
+        let lineH = tv.font?.lineHeight ?? InputMetrics.baseLineHeight
         let fitting = tv.sizeThatFits(CGSize(width: tv.bounds.width, height: .greatestFiniteMagnitude)).height
-        let newH = min(maxH, max(lineH, fitting))
+        let contentHeight = max(0, fitting - tv.textContainerInset.top - tv.textContainerInset.bottom)
+        let newH = AutoSizingTextEditorLayout.measuredHeight(contentHeight: contentHeight, lineHeight: lineH, maxLines: maxLines)
 
-        let shouldScroll = fitting > (maxH - 1)
+        let shouldScroll = AutoSizingTextEditorLayout.shouldOverflow(contentHeight: contentHeight, lineHeight: lineH, maxLines: maxLines)
         if tv.isScrollEnabled != shouldScroll {
             tv.isScrollEnabled = shouldScroll
         }
 
-        DispatchQueue.main.async {
-            if abs(height - newH) > 0.5 { height = newH }
-            onOverflowChange(shouldScroll)
-        }
+        scheduleStateUpdate(measuredHeight: newH, overflow: shouldScroll)
 
         if shouldScroll, tv.markedTextRange == nil {
             let end = NSRange(location: (tv.text as NSString).length, length: 0)
@@ -384,7 +562,13 @@ struct AutoSizingTextEditor: UIViewRepresentable {
         init(_ parent: AutoSizingTextEditor) { self.parent = parent }
 
         func textViewDidChange(_ textView: UITextView) {
-            parent.text = textView.text ?? ""
+            if let pasteAwareTextView = textView as? PasteAwareTextView {
+                pasteAwareTextView.refreshPresentationState()
+            }
+            let newText = textView.text ?? ""
+            if parent.text != newText {
+                parent.text = newText
+            }
             parent.recalcHeight(textView)
             if textView.isScrollEnabled, textView.markedTextRange == nil {
                 let end = NSRange(location: (textView.text as NSString).length, length: 0)
@@ -399,9 +583,65 @@ struct AutoSizingTextEditor: UIViewRepresentable {
             let provider: NSItemProvider
         }
 
+        var placeholder: String = "" {
+            didSet {
+                setNeedsDisplay()
+                updateAccessibilityMetadata()
+            }
+        }
+
         var allowsImagePasting: Bool = true
         var maxPastedImages: Int = .max
         var onPasteImages: ([(data: Data, mimeType: String?)]) -> Void = { _ in }
+
+        override var text: String! {
+            didSet {
+                refreshPresentationState()
+            }
+        }
+
+        override var font: UIFont? {
+            didSet { refreshPresentationState() }
+        }
+
+        override var textContainerInset: UIEdgeInsets {
+            didSet { refreshPresentationState() }
+        }
+
+        private func updateAccessibilityMetadata() {
+            let accessibilityPrompt = placeholder.trimmingCharacters(in: .whitespacesAndNewlines)
+            accessibilityLabel = accessibilityPrompt.isEmpty ? nil : accessibilityPrompt
+            accessibilityValue = (text?.isEmpty ?? true) ? nil : text
+        }
+
+        func refreshPresentationState() {
+            setNeedsDisplay()
+            updateAccessibilityMetadata()
+        }
+
+        override func draw(_ rect: CGRect) {
+            super.draw(rect)
+
+            guard (text?.isEmpty ?? true), !placeholder.isEmpty else { return }
+
+            let lineFragmentPadding = textContainer.lineFragmentPadding
+            let placeholderRect = CGRect(
+                x: textContainerInset.left + lineFragmentPadding,
+                y: textContainerInset.top,
+                width: max(0, bounds.width - textContainerInset.left - textContainerInset.right - lineFragmentPadding * 2),
+                height: max(0, bounds.height - textContainerInset.top - textContainerInset.bottom)
+            )
+            let paragraphStyle = NSMutableParagraphStyle()
+            paragraphStyle.alignment = textAlignment
+            paragraphStyle.lineBreakMode = .byTruncatingTail
+
+            let attributes: [NSAttributedString.Key: Any] = [
+                .font: font ?? UIFont.systemFont(ofSize: AutoSizingTextEditorLayout.fontSize),
+                .foregroundColor: UIColor.secondaryLabel,
+                .paragraphStyle: paragraphStyle
+            ]
+            (placeholder as NSString).draw(in: placeholderRect, withAttributes: attributes)
+        }
 
         override func paste(_ sender: Any?) {
             guard allowsImagePasting else {
@@ -764,18 +1004,17 @@ extension NSItemProvider {
     }
 }
 
-#Preview {
-    @Previewable @State var text: String = "Type here…"
-    @Previewable @State var height: CGFloat = InputMetrics.defaultHeight
+private struct ComposerChromePreview: View {
+    @State private var text: String = ""
+    @State private var height: CGFloat = InputMetrics.defaultHeight
 
-    VStack(alignment: .leading, spacing: 12) {
-        Text("AutoSizingTextEditor")
-            .font(.headline)
-
+    @ViewBuilder
+    private var editorView: some View {
         #if os(macOS)
         AutoSizingTextEditor(
             text: $text,
             height: $height,
+            placeholder: "在此输入消息...",
             maxLines: 6,
             onOverflowChange: { _ in },
             onCommit: {}
@@ -784,12 +1023,85 @@ extension NSItemProvider {
         AutoSizingTextEditor(
             text: $text,
             height: $height,
+            placeholder: "在此输入消息...",
             maxLines: 6,
             onOverflowChange: { _ in }
         )
         #endif
     }
+
+    var body: some View {
+        HStack(alignment: .center, spacing: InputMetrics.composerRowSpacing) {
+            Image(systemName: "plus.circle.fill")
+                .font(.system(size: 26, weight: .semibold))
+                .symbolRenderingMode(.hierarchical)
+                .foregroundStyle(ChatTheme.accent)
+                .frame(width: 30, height: 30)
+
+            editorView
+            .frame(maxWidth: .infinity)
+            .frame(height: height)
+            .padding(.vertical, InputMetrics.composerOuterV)
+            .padding(.leading, InputMetrics.composerOuterLeading)
+            .padding(.trailing, 6)
+
+            Image(systemName: "waveform.circle.fill")
+                .font(.system(size: 28, weight: .semibold))
+                .symbolRenderingMode(.hierarchical)
+                .foregroundStyle(ChatTheme.accent)
+                .frame(minHeight: 38)
+        }
+        .padding(.vertical, 6)
+        .padding(.horizontal, 10)
+        .background(
+            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                .fill(.thinMaterial)
+        )
+    }
+}
+
+#Preview("Editor Placeholder") {
+    @Previewable @State var text: String = ""
+    @Previewable @State var height: CGFloat = InputMetrics.defaultHeight
+
+    VStack(alignment: .leading, spacing: 12) {
+        #if os(macOS)
+        AutoSizingTextEditor(
+            text: $text,
+            height: $height,
+            placeholder: "在此输入消息...",
+            maxLines: 6,
+            onOverflowChange: { _ in },
+            onCommit: {}
+        )
+        #else
+        AutoSizingTextEditor(
+            text: $text,
+            height: $height,
+            placeholder: "在此输入消息...",
+            maxLines: 6,
+            onOverflowChange: { _ in }
+        )
+        #endif
+    }
+    .padding(16)
+    .frame(width: 420, alignment: .leading)
+    .background(
+        RoundedRectangle(cornerRadius: 20, style: .continuous)
+            .fill(.thinMaterial)
+    )
     .padding()
     .background(AppBackgroundView())
-    .frame(maxWidth: 520, maxHeight: 280, alignment: .topLeading)
+}
+
+#Preview("Composer macOS", traits: .fixedLayout(width: 420, height: 116)) {
+    ComposerChromePreview()
+        .padding()
+        .background(AppBackgroundView())
+}
+
+#Preview("Composer iPhone Width", traits: .fixedLayout(width: 390, height: 116)) {
+    ComposerChromePreview()
+    .padding()
+    .background(AppBackgroundView())
 }

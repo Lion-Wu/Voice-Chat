@@ -11,6 +11,7 @@ import SwiftUI
 struct ErrorNoticeStack: View {
     let notices: [AppErrorNotice]
     let onDismiss: (AppErrorNotice) -> Void
+    var maxWidth: CGFloat? = nil
 
     private var stackSpacing: CGFloat {
         #if os(iOS) || os(tvOS)
@@ -28,7 +29,7 @@ struct ErrorNoticeStack: View {
         #endif
     }
 
-    private var maxStackWidth: CGFloat {
+    private var defaultMaxStackWidth: CGFloat {
         #if os(iOS) || os(tvOS)
         return .infinity
         #else
@@ -94,8 +95,8 @@ struct ErrorNoticeStack: View {
                 .transition(noticeTransition)
             }
         }
-        .frame(maxWidth: maxStackWidth)
         .padding(.horizontal, horizontalPadding)
+        .frame(maxWidth: maxWidth ?? defaultMaxStackWidth)
         .animation(noticeAnimation, value: noticeIDs)
         .transition(.move(edge: .bottom).combined(with: .opacity))
     }

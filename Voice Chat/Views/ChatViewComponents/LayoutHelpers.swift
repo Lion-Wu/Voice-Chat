@@ -39,6 +39,19 @@ func contentColumnMaxWidth(availableWidth: CGFloat? = nil) -> CGFloat {
 }
 
 @MainActor
+func composerPanelMaxWidth(availableWidth: CGFloat? = nil) -> CGFloat {
+    #if os(macOS)
+    let additionalWidth: CGFloat = 64
+    #else
+    let additionalWidth: CGFloat = isPhone() ? 24 : 48
+    #endif
+
+    let expandedWidth = contentColumnMaxWidth(availableWidth: availableWidth) + additionalWidth
+    guard let availableWidth else { return expandedWidth }
+    return min(availableWidth, expandedWidth)
+}
+
+@MainActor
 func platformMaxLines() -> Int {
     #if os(macOS)
     return 10

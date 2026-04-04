@@ -89,16 +89,22 @@ enum InputMetrics {
     #if os(iOS) || os(tvOS)
     static let outerV: CGFloat = 5
     static let outerH: CGFloat = 8
-    static let innerTop: CGFloat = 6
-    static let innerBottom: CGFloat = 6
+    static let composerOuterV: CGFloat = 2
+    static let composerOuterLeading: CGFloat = 0
+    static let composerRowSpacing: CGFloat = 4
+    static let innerVertical: CGFloat = 6
 #else
     static let outerV: CGFloat = 6
     static let outerH: CGFloat = 12
-    static let innerTop: CGFloat = 7
-    static let innerBottom: CGFloat = 7
+    static let composerOuterV: CGFloat = 3
+    static let composerOuterLeading: CGFloat = 2
+    static let composerRowSpacing: CGFloat = 4
+    static let innerVertical: CGFloat = 7
 #endif
+    static let innerTop: CGFloat = innerVertical
+    static let innerBottom: CGFloat = innerVertical
     static let innerLeading: CGFloat = 4
     static let innerTrailing: CGFloat = 4
     static let baseLineHeight: CGFloat = 21
-    static let defaultHeight: CGFloat = innerTop + innerBottom + baseLineHeight
+    static let defaultHeight: CGFloat = innerVertical * 2 + baseLineHeight
 }
