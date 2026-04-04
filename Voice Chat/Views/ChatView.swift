@@ -70,6 +70,17 @@ private struct ChatViewPlatformTitleModifier: ViewModifier {
     }
 }
 
+private struct QueuedDraftNativeReorderModifier: ViewModifier {
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        #if os(macOS)
+        content
+        #else
+        content.environment(\.editMode, .constant(.active))
+        #endif
+    }
+}
+
 #if os(iOS) || os(macOS)
 private struct ImageDropSuppressionState {
     let signature: String
@@ -258,6 +269,7 @@ struct ChatView: View {
     @State private var branchRenderEpoch: Int = 0
     @State private var showStartVoiceModeInterruptAlert: Bool = false
     @State private var showUnsupportedImageSendAlert: Bool = false
+    @State private var pendingQueuedDraftDeletionID: UUID?
     @State private var expectAssistantResponseHaptics: Bool = false
     @State private var didTriggerResponseStartHaptic: Bool = false
 #if os(iOS) || os(macOS)
@@ -332,8 +344,17 @@ struct ChatView: View {
         return 88
     }
 
+    private var queuedDraftRowHeight: CGFloat {
+        32
+    }
+
+    private var queuedDraftHeight: CGFloat {
+        guard viewModel.hasQueuedDrafts else { return 0 }
+        return CGFloat(viewModel.queuedDrafts.count) * queuedDraftRowHeight + 2
+    }
+
     private var floatingInputPanelHeight: CGFloat {
-        floatingInputButtonHeight + composerOuterVerticalPadding * 2 + pendingAttachmentStripHeight
+        floatingInputButtonHeight + composerOuterVerticalPadding * 2 + pendingAttachmentStripHeight + queuedDraftHeight
     }
 
     private var composerBottomPadding: CGFloat {
@@ -852,6 +873,79 @@ struct ChatView: View {
             } message: {
                 Text("This conversation contains images, but the selected model only accepts text. Continue to ignore all images in this request and send text only.")
             }
+            .alert(
+                "Current model does not support image input",
+                isPresented: Binding(
+                    get: { viewModel.pendingUnsupportedImageQueuedDraftID != nil },
+                    set: { isPresented in
+                        if !isPresented {
+                            viewModel.dismissUnsupportedImageConfirmationForQueuedDraft()
+                        }
+                    }
+                )
+            ) {
+                Button("Cancel", role: .cancel) {
+                    viewModel.dismissUnsupportedImageConfirmationForQueuedDraft()
+                }
+
+                Button("Edit Message") {
+                    guard let draftID = viewModel.pendingUnsupportedImageQueuedDraftID else { return }
+                    viewModel.dismissUnsupportedImageConfirmationForQueuedDraft()
+                    viewModel.editQueuedDraft(id: draftID)
+                    isInputFocused = true
+                }
+
+                if let draftID = viewModel.pendingUnsupportedImageQueuedDraftID,
+                   viewModel.queuedDraftCanSendAsTextOnly(id: draftID) {
+                    Button("Continue", role: .destructive) {
+                        guard let queuedDraftID = viewModel.pendingUnsupportedImageQueuedDraftID else { return }
+                        viewModel.dismissUnsupportedImageConfirmationForQueuedDraft()
+                        if !sendQueuedDraftImmediately(queuedDraftID, ignoringUnsupportedImageInputs: true) {
+                            errorCenter.publish(
+                                title: NSLocalizedString("Nothing to send", comment: "Shown when sending is skipped because no text remains after removing unsupported image inputs"),
+                                message: NSLocalizedString("All selected images were ignored because this model only accepts text input.", comment: "Shown when selected images are dropped for a text-only model"),
+                                category: .textModel
+                            )
+                        }
+                    }
+                } else {
+                    Button("Delete", role: .destructive) {
+                        guard let draftID = viewModel.pendingUnsupportedImageQueuedDraftID else { return }
+                        viewModel.dismissUnsupportedImageConfirmationForQueuedDraft()
+                        viewModel.removeQueuedDraft(id: draftID)
+                    }
+                }
+            } message: {
+                if let draftID = viewModel.pendingUnsupportedImageQueuedDraftID,
+                   viewModel.queuedDraftCanSendAsTextOnly(id: draftID) {
+                    Text("This message contains images, but the selected model only accepts text. Continue to ignore all images in this request and send text only.")
+                } else {
+                    Text("This message only contains images, but the selected model only accepts text. Edit it or delete it.")
+                }
+            }
+            .alert(
+                "Delete message?",
+                isPresented: Binding(
+                    get: { pendingQueuedDraftDeletionID != nil },
+                    set: { isPresented in
+                        if !isPresented {
+                            pendingQueuedDraftDeletionID = nil
+                        }
+                    }
+                )
+            ) {
+                Button("Cancel", role: .cancel) {
+                    pendingQueuedDraftDeletionID = nil
+                }
+                Button("Delete", role: .destructive) {
+                    if let draftID = pendingQueuedDraftDeletionID {
+                        viewModel.removeQueuedDraft(id: draftID)
+                    }
+                    pendingQueuedDraftDeletionID = nil
+                }
+            } message: {
+                Text("This message will be deleted.")
+            }
     }
 
     private var dropEnabledChatView: some View {
@@ -988,12 +1082,23 @@ struct ChatView: View {
 
     @discardableResult
     private func sendIfPossible() -> Bool {
-        guard canSendDraft, !viewModel.isLoading else { return false }
+        guard canSendDraft else { return false }
+        if viewModel.isLoading || viewModel.isPriming {
+            return queueCurrentDraftIfPossible()
+        }
         if viewModel.shouldWarnAboutUnsupportedImageInputBeforeSending() {
             showUnsupportedImageSendAlert = true
             return false
         }
         return performSend(ignoringUnsupportedImageInputs: false)
+    }
+
+    @discardableResult
+    private func queueCurrentDraftIfPossible() -> Bool {
+        guard canSendDraft else { return false }
+        guard viewModel.enqueueCurrentDraft() else { return false }
+        triggerTextHaptic(.lightTap)
+        return true
     }
 
     @discardableResult
@@ -1009,8 +1114,30 @@ struct ChatView: View {
         return true
     }
 
+    @discardableResult
+    private func sendQueuedDraftImmediately(_ draftID: UUID, ignoringUnsupportedImageInputs: Bool = false) -> Bool {
+        if !ignoringUnsupportedImageInputs,
+           let draft = viewModel.queuedDraft(id: draftID),
+           viewModel.shouldWarnAboutUnsupportedImageInput(for: draft) {
+            viewModel.requestUnsupportedImageConfirmationForQueuedDraft(id: draftID)
+            return false
+        }
+        expectAssistantResponseHaptics = true
+        didTriggerResponseStartHaptic = false
+        guard viewModel.sendQueuedDraftNow(
+            id: draftID,
+            ignoringUnsupportedImageInputs: ignoringUnsupportedImageInputs
+        ) else {
+            expectAssistantResponseHaptics = false
+            didTriggerResponseStartHaptic = false
+            return false
+        }
+        triggerTextHaptic(.lightTap)
+        return true
+    }
+
     private func interruptAllActivitiesForVoiceModeStart() {
-        chatSessionsViewModel.cancelAllActiveTextRequests()
+        chatSessionsViewModel.cancelAllActiveTextRequests(autostartQueuedDrafts: false)
         if audioManager.isRealtimeMode
             || audioManager.isLoading
             || audioManager.isAudioPlaying
@@ -1061,8 +1188,15 @@ struct ChatView: View {
 
     private var floatingInputPanel: some View {
         VStack(spacing: 0) {
-            if viewModel.isEditing {
+            if viewModel.isEditingComposerDraft {
                 editingAccessory
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+
+            if viewModel.hasQueuedDrafts {
+                queuedDraftStrip
+                    .padding(.top, 8)
+                    .padding(.horizontal, 10)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             }
 
@@ -1227,6 +1361,104 @@ struct ChatView: View {
 #endif
     }
 
+    private var queuedDraftStrip: some View {
+        List {
+            ForEach(viewModel.queuedDrafts) { draft in
+                queuedDraftCard(for: draft)
+                    .listRowInsets(EdgeInsets(top: 0, leading: 8, bottom: 0, trailing: 8))
+                    .listRowSeparatorTint(ChatTheme.separator.opacity(0.28))
+                    .listRowBackground(Color.clear)
+            }
+            .onMove(perform: viewModel.moveQueuedDrafts)
+        }
+        .modifier(QueuedDraftNativeReorderModifier())
+        .environment(\.defaultMinListRowHeight, queuedDraftRowHeight)
+        .scrollDisabled(true)
+        .scrollContentBackground(.hidden)
+        .listStyle(.plain)
+        .frame(height: queuedDraftHeight)
+        .background(
+            RoundedRectangle(cornerRadius: 15, style: .continuous)
+                .fill(Color.secondary.opacity(0.045))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 15, style: .continuous)
+                .stroke(ChatTheme.subtleStroke.opacity(0.2), lineWidth: 0.75)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 15, style: .continuous))
+    }
+
+    private func queuedDraftCard(for draft: QueuedChatDraft) -> some View {
+        HStack(spacing: 6) {
+            HStack(spacing: 4) {
+                if draft.editingBaseMessageID != nil {
+                    Image(systemName: "pencil")
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                }
+
+                if !draft.imageAttachments.isEmpty {
+                    Image(systemName: "photo")
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                }
+
+                Text(draft.previewText)
+                    .font(.footnote)
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
+                    .multilineTextAlignment(.leading)
+            }
+
+            Spacer(minLength: 4)
+
+            Button {
+                pendingQueuedDraftDeletionID = draft.id
+            } label: {
+                Image(systemName: "trash")
+                    .font(.system(size: 12, weight: .semibold))
+                    .frame(width: 22, height: 22)
+                    .background(
+                        Circle()
+                            .fill(Color.secondary.opacity(0.075))
+                    )
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(.secondary)
+            .accessibilityLabel("Delete")
+
+            Menu {
+                Button {
+                    viewModel.editQueuedDraft(id: draft.id)
+                    isInputFocused = true
+                } label: {
+                    Label("Edit Message", systemImage: "pencil")
+                }
+
+                Button {
+                    sendQueuedDraftImmediately(draft.id)
+                } label: {
+                    Label("Send Now", systemImage: "arrow.turn.down.right")
+                }
+            } label: {
+                Image(systemName: "ellipsis")
+                    .font(.system(size: 13, weight: .semibold))
+                    .frame(width: 22, height: 22)
+                    .background(
+                        Circle()
+                            .fill(Color.secondary.opacity(0.075))
+                    )
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(.secondary)
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 2)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .contentShape(Rectangle())
+        .frame(height: queuedDraftRowHeight, alignment: .leading)
+    }
+
     private var pendingAttachmentStrip: some View {
         ChatImageAttachmentStrip(
             attachments: viewModel.pendingImageAttachments,
@@ -1255,7 +1487,7 @@ struct ChatView: View {
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(.orange)
 
-                Text("Editing")
+                Text("Edit Message")
                     .font(.footnote.weight(.semibold))
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
@@ -1292,20 +1524,33 @@ struct ChatView: View {
 
     private var floatingTrailingButton: some View {
         Group {
-            if viewModel.isLoading {
-                Button {
-                    expectAssistantResponseHaptics = false
-                    didTriggerResponseStartHaptic = false
-                    viewModel.cancelCurrentRequest()
-                    triggerTextHaptic(.warning)
-                } label: {
-                    Image(systemName: "stop.circle.fill")
-                        .font(.system(size: 28, weight: .semibold))
-                        .symbolRenderingMode(.hierarchical)
-                        .foregroundStyle(.red)
-                        .accessibilityLabel("Stop Generation")
+            if viewModel.isLoading || viewModel.isPriming {
+                if canSendDraft {
+                    Button {
+                        queueCurrentDraftIfPossible()
+                    } label: {
+                        Image(systemName: "arrow.up.circle.fill")
+                            .font(.system(size: 28, weight: .semibold))
+                            .symbolRenderingMode(.hierarchical)
+                            .foregroundStyle(ChatTheme.accent)
+                            .accessibilityLabel("Send Message")
+                    }
+                    .buttonStyle(.plain)
+                } else {
+                    Button {
+                        expectAssistantResponseHaptics = false
+                        didTriggerResponseStartHaptic = false
+                        viewModel.cancelCurrentRequest()
+                        triggerTextHaptic(.warning)
+                    } label: {
+                        Image(systemName: "stop.circle.fill")
+                            .font(.system(size: 28, weight: .semibold))
+                            .symbolRenderingMode(.hierarchical)
+                            .foregroundStyle(.red)
+                            .accessibilityLabel("Stop Generation")
+                    }
+                    .buttonStyle(.plain)
                 }
-                .buttonStyle(.plain)
             } else if canSendDraft {
                 Button {
                     sendIfPossible()
@@ -1330,7 +1575,7 @@ struct ChatView: View {
                 .buttonStyle(.plain)
             }
         }
-        .frame(width: 38, height: 38)
+        .frame(minHeight: 38)
     }
 
     private var scrollToBottomButton: some View {

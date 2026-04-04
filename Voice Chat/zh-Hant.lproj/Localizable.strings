@@ -48,6 +48,12 @@
 "Other activity is still running" = "目前仍有其他活動正在執行";
 "Open full screen editor" = "開啟全螢幕編輯器";
 "Continue" = "繼續";
+"Send Now" = "立即傳送";
+"Delete message?" = "刪除訊息？";
+"This message contains images, but the selected model only accepts text. Continue to ignore all images in this request and send text only." = "這則訊息包含圖片，但目前選擇的模型只接受文字。繼續後將忽略這次請求中的所有圖片，並只傳送文字。";
+"This message only contains images, but the selected model only accepts text. Edit it or delete it." = "這則訊息僅包含圖片，但目前選擇的模型只接受文字。請編輯這則訊息，或刪除它。";
+"This message will be deleted." = "這則訊息將被刪除。";
+"Image-only message" = "僅含圖片的訊息";
 "Read Aloud" = "朗讀";
 "Reasoning preview" = "思考內容預覽";
 "Refresh Model List" = "重新整理模型列表";

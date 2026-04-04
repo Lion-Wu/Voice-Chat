@@ -93,8 +93,8 @@ final class ChatSessionsViewModel: ObservableObject {
         !isRealtimeVoiceLocked
     }
 
-    func cancelAllActiveTextRequests() {
-        viewModelCache.values.forEach { $0.cancelCurrentRequest() }
+    func cancelAllActiveTextRequests(autostartQueuedDrafts: Bool = true) {
+        viewModelCache.values.forEach { $0.cancelCurrentRequest(autostartQueuedDraft: autostartQueuedDrafts) }
     }
 
     // MARK: - Chat service configuration

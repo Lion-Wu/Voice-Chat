@@ -49,6 +49,13 @@
 "Other activity is still running" = "Other activity is still running";
 "Open full screen editor" = "Open full screen editor";
 "Continue" = "Continue";
+"%lld image(s)" = "%lld image(s)";
+"Send Now" = "Send Now";
+"Delete message?" = "Delete message?";
+"This message contains images, but the selected model only accepts text. Continue to ignore all images in this request and send text only." = "This message contains images, but the selected model only accepts text. Continue to ignore all images in this request and send text only.";
+"This message only contains images, but the selected model only accepts text. Edit it or delete it." = "This message only contains images, but the selected model only accepts text. Edit it or delete it.";
+"This message will be deleted." = "This message will be deleted.";
+"Image-only message" = "Image-only message";
 "Realtime Voice Issue" = "Realtime Voice Issue";
 "Realtime voice unavailable" = "Realtime voice unavailable";
 "Read Aloud" = "Read Aloud";

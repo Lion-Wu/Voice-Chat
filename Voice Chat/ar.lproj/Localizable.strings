@@ -49,6 +49,12 @@
 "Other activity is still running" = "لا يزال هناك نشاط آخر قيد التشغيل";
 "Open full screen editor" = "فتح محرر ملء الشاشة";
 "Continue" = "متابعة";
+"Send Now" = "إرسال الآن";
+"Delete message?" = "حذف الرسالة؟";
+"This message contains images, but the selected model only accepts text. Continue to ignore all images in this request and send text only." = "تحتوي هذه الرسالة على صور، لكن النموذج المحدد يقبل النص فقط. تابع لتجاهل جميع الصور في هذا الطلب وإرسال النص فقط.";
+"This message only contains images, but the selected model only accepts text. Edit it or delete it." = "تحتوي هذه الرسالة على صور فقط، لكن النموذج المحدد يقبل النص فقط. حررها أو احذفها.";
+"This message will be deleted." = "سيتم حذف هذه الرسالة.";
+"Image-only message" = "رسالة تحتوي على صور فقط";
 "Realtime Voice Issue" = "مشكلة في الصوت الفوري";
 "Realtime voice unavailable" = "الصوت الفوري غير متاح";
 "Read Aloud" = "قراءة بصوت عالٍ";

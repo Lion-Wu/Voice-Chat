@@ -48,6 +48,12 @@
 "Other activity is still running" = "他の処理が実行中です";
 "Open full screen editor" = "フルスクリーンエディタを開く";
 "Continue" = "続行";
+"Send Now" = "今すぐ送信";
+"Delete message?" = "メッセージを削除しますか？";
+"This message contains images, but the selected model only accepts text. Continue to ignore all images in this request and send text only." = "このメッセージには画像が含まれていますが、選択中のモデルはテキストのみを受け付けます。このリクエスト内の画像をすべて無視して、テキストだけを送信しますか？";
+"This message only contains images, but the selected model only accepts text. Edit it or delete it." = "このメッセージは画像のみで構成されていますが、選択中のモデルはテキストのみを受け付けます。編集するか削除してください。";
+"This message will be deleted." = "このメッセージは削除されます。";
+"Image-only message" = "画像のみのメッセージ";
 "Read Aloud" = "読み上げ";
 "Reasoning preview" = "思考プレビュー";
 "Refresh Model List" = "モデル一覧を更新";

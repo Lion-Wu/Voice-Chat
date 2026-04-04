@@ -25,6 +25,12 @@ final class ChatViewModel: ObservableObject {
         let fingerprint: ContentFingerprint
     }
 
+    private struct QueuedDraftEditState {
+        let draft: QueuedChatDraft
+        let previousDraftID: UUID?
+        let nextDraftID: UUID?
+    }
+
     private enum PendingBranchRestore {
         case message(parentID: UUID, previousChildID: UUID?)
     }
@@ -37,6 +43,8 @@ final class ChatViewModel: ObservableObject {
     // MARK: - Published State
     @Published var userMessage: String = ""
     @Published var pendingImageAttachments: [ChatImageAttachment] = []
+    @Published private(set) var queuedDrafts: [QueuedChatDraft] = []
+    @Published private(set) var pendingUnsupportedImageQueuedDraftID: UUID?
     @Published var isLoading: Bool = false
     @Published var isPriming: Bool = false
     @Published private(set) var isRetrying: Bool = false
@@ -46,6 +54,8 @@ final class ChatViewModel: ObservableObject {
 
     @Published var editingBaseMessageID: UUID? = nil
     var isEditing: Bool { editingBaseMessageID != nil }
+    var isEditingQueuedDraft: Bool { queuedDraftEditState != nil }
+    var isEditingComposerDraft: Bool { isEditing || isEditingQueuedDraft }
 
     // MARK: - Dependencies
     private var chatService: ChatStreamingService
@@ -82,6 +92,8 @@ final class ChatViewModel: ObservableObject {
     private var pendingAssistantParentMessageID: UUID?
     private var pendingBranchRestore: PendingBranchRestore?
     private var autoRetryTask: Task<Void, Never>?
+    private var queuedDraftAutostartTask: Task<Void, Never>?
+    private var queuedDraftEditState: QueuedDraftEditState?
     private var deferredChatConfiguration: ChatServiceConfiguration?
     private let streamRetryPolicy = NetworkRetryPolicy(
         maxAttempts: 2,
@@ -163,6 +175,120 @@ final class ChatViewModel: ObservableObject {
         let hasDraft = !userMessage.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !pendingImageAttachments.isEmpty
         guard hasDraft else { return false }
         return activeBranchContainsImageInputs(includePending: true)
+    }
+
+    var hasQueuedDrafts: Bool {
+        !queuedDrafts.isEmpty
+    }
+
+    func shouldWarnAboutUnsupportedImageInput(for draft: QueuedChatDraft) -> Bool {
+        guard !draft.isEmpty else { return false }
+        guard !currentModelSupportsImageInput() else { return false }
+        if !draft.imageAttachments.isEmpty {
+            return true
+        }
+        return activeBranchContainsImageInputs(includePending: false)
+    }
+
+    func queuedDraft(id: UUID) -> QueuedChatDraft? {
+        queuedDrafts.first(where: { $0.id == id })
+    }
+
+    func requestUnsupportedImageConfirmationForQueuedDraft(id: UUID) {
+        guard let draft = queuedDraft(id: id) else {
+            pendingUnsupportedImageQueuedDraftID = nil
+            return
+        }
+        pendingUnsupportedImageQueuedDraftID = shouldWarnAboutUnsupportedImageInput(for: draft) ? id : nil
+    }
+
+    func dismissUnsupportedImageConfirmationForQueuedDraft() {
+        pendingUnsupportedImageQueuedDraftID = nil
+    }
+
+    func queuedDraftCanSendAsTextOnly(id: UUID) -> Bool {
+        guard let draft = queuedDraft(id: id) else { return false }
+        return !draft.trimmedText.isEmpty
+    }
+
+    @discardableResult
+    func enqueueCurrentDraft() -> Bool {
+        guard let draft = currentComposerDraft() else { return false }
+        if let editState = queuedDraftEditState {
+            var updated = draft
+            updated.id = editState.draft.id
+            updated.createdAt = editState.draft.createdAt
+            insertQueuedDraft(
+                updated,
+                previousDraftID: editState.previousDraftID,
+                nextDraftID: editState.nextDraftID
+            )
+            queuedDraftEditState = nil
+        } else {
+            queuedDrafts.append(draft)
+        }
+        clearComposerDraft()
+        scheduleQueuedDraftAutostartIfNeeded()
+        return true
+    }
+
+    func removeQueuedDraft(id: UUID) {
+        queuedDrafts.removeAll { $0.id == id }
+        if pendingUnsupportedImageQueuedDraftID == id {
+            pendingUnsupportedImageQueuedDraftID = nil
+        }
+        scheduleQueuedDraftAutostartIfNeeded()
+    }
+
+    func editQueuedDraft(id: UUID) {
+        guard let index = queuedDrafts.firstIndex(where: { $0.id == id }) else { return }
+        let previousDraftID = index > 0 ? queuedDrafts[index - 1].id : nil
+        let nextDraftID = index < queuedDrafts.count - 1 ? queuedDrafts[index + 1].id : nil
+        let draft = queuedDrafts.remove(at: index)
+        queuedDraftEditState = QueuedDraftEditState(
+            draft: draft,
+            previousDraftID: previousDraftID,
+            nextDraftID: nextDraftID
+        )
+        if pendingUnsupportedImageQueuedDraftID == id {
+            pendingUnsupportedImageQueuedDraftID = nil
+        }
+        loadComposer(from: draft)
+    }
+
+    func moveQueuedDrafts(fromOffsets: IndexSet, toOffset: Int) {
+        queuedDrafts.move(fromOffsets: fromOffsets, toOffset: toOffset)
+        scheduleQueuedDraftAutostartIfNeeded()
+    }
+
+    @discardableResult
+    func sendQueuedDraftNow(id: UUID, ignoringUnsupportedImageInputs: Bool = true) -> Bool {
+        cancelQueuedDraftAutostart()
+
+        guard let index = queuedDrafts.firstIndex(where: { $0.id == id }) else { return false }
+        let draft = queuedDrafts[index]
+
+        if shouldWarnAboutUnsupportedImageInput(for: draft) && !ignoringUnsupportedImageInputs {
+            pendingUnsupportedImageQueuedDraftID = id
+            return false
+        }
+        pendingUnsupportedImageQueuedDraftID = nil
+
+        if sending || isLoading || isPriming {
+            cancelCurrentRequest(autostartQueuedDraft: false)
+        }
+
+        let didSend = send(
+            draft: draft,
+            ignoringUnsupportedImageInputs: ignoringUnsupportedImageInputs,
+            clearComposerAfterSend: false
+        )
+
+        if didSend, let refreshedIndex = queuedDrafts.firstIndex(where: { $0.id == id }) {
+            queuedDrafts.remove(at: refreshedIndex)
+        }
+
+        return didSend
     }
 
     // MARK: - Developer prompt
@@ -338,6 +464,7 @@ final class ChatViewModel: ObservableObject {
         }
 
         applyDeferredChatConfigurationIfNeeded()
+        scheduleQueuedDraftAutostartIfNeeded()
     }
 
     private func handleChatStreamFinished() {
@@ -376,6 +503,7 @@ final class ChatViewModel: ObservableObject {
         }
 
         applyDeferredChatConfigurationIfNeeded()
+        scheduleQueuedDraftAutostartIfNeeded()
     }
 
     /// Rebuilds the chat streaming service when the API base URL or model changes.
@@ -446,6 +574,9 @@ final class ChatViewModel: ObservableObject {
         pendingDeltaWriteBytes = 0
         objectWillChange.send()
         persistSession(reason: .immediate)
+        if interruptActiveRequest {
+            scheduleQueuedDraftAutostartIfNeeded()
+        }
     }
 
     private func applyDeferredChatConfigurationIfNeeded() {
@@ -995,18 +1126,101 @@ final class ChatViewModel: ObservableObject {
         return didChange
     }
 
-    // MARK: - Intent
+    private func currentComposerDraft() -> QueuedChatDraft? {
+        let draft = QueuedChatDraft(
+            text: userMessage,
+            imageAttachments: pendingImageAttachments,
+            editingBaseMessageID: editingBaseMessageID
+        )
+        return draft.isEmpty ? nil : draft
+    }
+
+    private func loadComposer(from draft: QueuedChatDraft) {
+        userMessage = draft.text
+        pendingImageAttachments = draft.imageAttachments
+        editingBaseMessageID = draft.editingBaseMessageID
+    }
+
+    private func clearComposerDraft() {
+        editingBaseMessageID = nil
+        userMessage = ""
+        pendingImageAttachments.removeAll()
+    }
+
+    private func clearQueuedDraftEditingState() {
+        queuedDraftEditState = nil
+    }
+
+    private func insertQueuedDraft(
+        _ draft: QueuedChatDraft,
+        previousDraftID: UUID?,
+        nextDraftID: UUID?
+    ) {
+        if let nextDraftID,
+           let index = queuedDrafts.firstIndex(where: { $0.id == nextDraftID }) {
+            queuedDrafts.insert(draft, at: index)
+            return
+        }
+
+        if let previousDraftID,
+           let index = queuedDrafts.firstIndex(where: { $0.id == previousDraftID }) {
+            queuedDrafts.insert(draft, at: min(index + 1, queuedDrafts.count))
+            return
+        }
+
+        queuedDrafts.append(draft)
+    }
+
+    private func cancelQueuedDraftAutostart() {
+        queuedDraftAutostartTask?.cancel()
+        queuedDraftAutostartTask = nil
+    }
+
+    private func scheduleQueuedDraftAutostartIfNeeded() {
+        cancelQueuedDraftAutostart()
+        guard !sending, !isLoading, !isPriming else { return }
+        guard let draft = queuedDrafts.first else { return }
+        if shouldWarnAboutUnsupportedImageInput(for: draft) {
+            pendingUnsupportedImageQueuedDraftID = draft.id
+            return
+        }
+        if pendingUnsupportedImageQueuedDraftID == draft.id {
+            pendingUnsupportedImageQueuedDraftID = nil
+        }
+
+        queuedDraftAutostartTask = Task { @MainActor [weak self] in
+            await Task.yield()
+            guard let self, !Task.isCancelled else { return }
+            guard !self.sending, !self.isLoading, !self.isPriming else { return }
+            guard self.queuedDrafts.first?.id == draft.id else { return }
+
+            let didSend = self.send(
+                draft: draft,
+                ignoringUnsupportedImageInputs: false,
+                clearComposerAfterSend: false
+            )
+
+            if didSend, self.queuedDrafts.first?.id == draft.id {
+                self.queuedDrafts.removeFirst()
+            }
+        }
+    }
 
     @discardableResult
-    func sendMessage(ignoringUnsupportedImageInputs: Bool = false) -> Bool {
+    private func send(
+        draft: QueuedChatDraft,
+        ignoringUnsupportedImageInputs: Bool,
+        clearComposerAfterSend: Bool
+    ) -> Bool {
         syncChatConfigurationFromSettingsIfNeeded()
-        let trimmedMessage = userMessage.trimmingCharacters(in: .whitespacesAndNewlines)
-        let draftAttachments = pendingImageAttachments
+
+        let trimmedMessage = draft.trimmedText
+        let draftAttachments = draft.imageAttachments
         guard !trimmedMessage.isEmpty || !draftAttachments.isEmpty else { return false }
         guard !sending else { return false }
 
         let supportsImageInputs = currentModelSupportsImageInput()
-        let hasImageContext = activeBranchContainsImageInputs(includePending: true)
+        let hasImageContext = activeBranchContainsImageInputs(includePending: !draftAttachments.isEmpty)
         if hasImageContext && !supportsImageInputs && !ignoringUnsupportedImageInputs {
             return false
         }
@@ -1016,14 +1230,17 @@ final class ChatViewModel: ObservableObject {
             return false
         }
 
+        cancelQueuedDraftAutostart()
         resetRetryState()
         ensureMessageTreeInitializedIfNeeded()
 
         let parentMessage: ChatMessage?
-        if let baseID = editingBaseMessageID,
+        if let baseID = draft.editingBaseMessageID,
            let base = chatSession.messages.first(where: { $0.id == baseID }) {
             parentMessage = base.parentMessage
-            editingBaseMessageID = nil
+            if clearComposerAfterSend {
+                editingBaseMessageID = nil
+            }
         } else {
             parentMessage = activeBranchMessages().last
         }
@@ -1064,11 +1281,12 @@ final class ChatViewModel: ObservableObject {
         currentAssistantMessageID = nil
         pendingAssistantParentMessageID = userMsg.id
         pendingDeltaWriteBytes = 0
-        userMessage = ""
-        pendingImageAttachments.removeAll()
+        if clearComposerAfterSend {
+            clearQueuedDraftEditingState()
+            clearComposerDraft()
+        }
         persistSession(reason: .immediate)
 
-        // Determine whether this response should use realtime narration.
         realtimeTTSActive = enableRealtimeTTSNext
         enableRealtimeTTSNext = false
         if realtimeTTSActive {
@@ -1087,10 +1305,23 @@ final class ChatViewModel: ObservableObject {
         return true
     }
 
-    func cancelCurrentRequest() {
+    // MARK: - Intent
+
+    @discardableResult
+    func sendMessage(ignoringUnsupportedImageInputs: Bool = false) -> Bool {
+        guard let draft = currentComposerDraft() else { return false }
+        return send(
+            draft: draft,
+            ignoringUnsupportedImageInputs: ignoringUnsupportedImageInputs,
+            clearComposerAfterSend: true
+        )
+    }
+
+    func cancelCurrentRequest(autostartQueuedDraft: Bool = true) {
         guard sending || isLoading || isPriming else { return }
         let finishedAt = Date()
         cancelAutoRetryTask()
+        cancelQueuedDraftAutostart()
         chatService.cancelStreaming()
         finalizeActiveAssistantMessage(reason: "cancelled", finishedAt: finishedAt)
 
@@ -1121,6 +1352,9 @@ final class ChatViewModel: ObservableObject {
         }
 
         applyDeferredChatConfigurationIfNeeded()
+        if autostartQueuedDraft {
+            scheduleQueuedDraftAutostartIfNeeded()
+        }
     }
 
     private func handleAssistantDelta(_ piece: String) {
@@ -1284,6 +1518,17 @@ final class ChatViewModel: ObservableObject {
     }
 
     func cancelEditing() {
+        if let queuedEdit = queuedDraftEditState {
+            insertQueuedDraft(
+                queuedEdit.draft,
+                previousDraftID: queuedEdit.previousDraftID,
+                nextDraftID: queuedEdit.nextDraftID
+            )
+            clearQueuedDraftEditingState()
+            clearComposerDraft()
+            scheduleQueuedDraftAutostartIfNeeded()
+            return
+        }
         editingBaseMessageID = nil
         userMessage = ""
         pendingImageAttachments = []
