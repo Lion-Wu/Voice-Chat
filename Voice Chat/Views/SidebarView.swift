@@ -72,7 +72,6 @@ struct SidebarView: View {
     var onConversationTap: (ChatSession) -> Void
     var onOpenSettings: () -> Void
 
-    @State private var isRenaming: Bool = false
     @State private var renamingSession: ChatSession? = nil
     @State private var newTitle: String = ""
     @State private var searchText: String = ""
@@ -117,7 +116,19 @@ struct SidebarView: View {
             iosSidebar
             #endif
         }
-        .sheet(isPresented: $isRenaming, onDismiss: dismissRenameSheet) { renameSheetView() }
+        #if os(iOS) || os(tvOS)
+        .alert("Rename Chat",
+               isPresented: renameAlertBinding) {
+            TextField("New Title", text: $newTitle)
+            Button("Cancel", role: .cancel) {
+                dismissRenameSheet()
+            }
+            Button("Save") {
+                commitRename()
+            }
+            .disabled(trimmedRenameTitle.isEmpty)
+        }
+        #endif
         .alert("Delete chat?",
                isPresented: $showDeleteChatAlert) {
             Button("Delete", role: .destructive) {
@@ -162,16 +173,37 @@ struct SidebarView: View {
 
     // MARK: - Rename
 
+    private var renameAlertBinding: Binding<Bool> {
+        Binding(
+            get: { renamingSession != nil },
+            set: { isPresented in
+                if !isPresented {
+                    dismissRenameSheet()
+                }
+            }
+        )
+    }
+
+    private func renamePopoverBinding(for session: ChatSession) -> Binding<Bool> {
+        Binding(
+            get: { renamingSession?.id == session.id },
+            set: { isPresented in
+                if !isPresented, renamingSession?.id == session.id {
+                    dismissRenameSheet()
+                }
+            }
+        )
+    }
+
     @ViewBuilder
     private func renameSheetView() -> some View {
-        VStack(spacing: 20) {
+        VStack(alignment: .leading, spacing: 12) {
             Text("Rename Chat")
                 .font(.headline)
             TextField("New Title", text: $newTitle)
-                .textFieldStyle(RoundedBorderTextFieldStyle())
+                .textFieldStyle(.roundedBorder)
                 .focused($isRenameFieldFocused)
                 .onSubmit(commitRename)
-                .padding(.horizontal)
             HStack {
                 Button("Cancel") {
                     dismissRenameSheet()
@@ -184,8 +216,8 @@ struct SidebarView: View {
                 .disabled(trimmedRenameTitle.isEmpty)
             }
         }
-        .padding()
-        .frame(width: 300)
+        .padding(14)
+        .frame(width: 280)
         .onAppear {
             isRenameFieldFocused = true
         }
@@ -194,11 +226,9 @@ struct SidebarView: View {
     private func renameSession(_ session: ChatSession) {
         renamingSession = session
         newTitle = session.title
-        isRenaming = true
     }
 
     private func dismissRenameSheet() {
-        isRenaming = false
         renamingSession = nil
         newTitle = ""
         isRenameFieldFocused = false
@@ -432,6 +462,9 @@ struct SidebarView: View {
         .onTapGesture {
             chatSessionsViewModel.selectedSession = session
             onConversationTap(session)
+        }
+        .popover(isPresented: renamePopoverBinding(for: session), arrowEdge: .trailing) {
+            renameSheetView()
         }
     }
 
