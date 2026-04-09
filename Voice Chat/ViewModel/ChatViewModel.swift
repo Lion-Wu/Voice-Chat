@@ -360,7 +360,7 @@ final class ChatViewModel: ObservableObject {
         )
         interruptedAssistantMessageID = interrupted?.id
         currentAssistantMessageID = nil
-        pendingDeltaWriteBytes = 0
+        resetStreamingPersistenceState()
 
         let firstTokenLatency: TimeInterval?
         if let start = telemetry?.startedAt, let first = telemetry?.firstTokenAt {
@@ -471,7 +471,7 @@ final class ChatViewModel: ObservableObject {
         let finishedAt = Date()
         let completedMessage = finalizeActiveAssistantMessage(reason: "completed", finishedAt: finishedAt)
         var candidateFullText: String? = completedMessage?.content
-        pendingDeltaWriteBytes = 0
+        resetStreamingPersistenceState()
 
         isPriming = false
         isLoading = false
@@ -571,9 +571,11 @@ final class ChatViewModel: ObservableObject {
         chatConfiguration = configuration
         let newService = chatServiceFactory(configuration)
         bindChatService(newService)
-        pendingDeltaWriteBytes = 0
         objectWillChange.send()
-        persistSession(reason: .immediate)
+        if interruptActiveRequest {
+            resetStreamingPersistenceState()
+            persistSession(reason: .immediate)
+        }
         if interruptActiveRequest {
             scheduleQueuedDraftAutostartIfNeeded()
         }
@@ -607,6 +609,10 @@ final class ChatViewModel: ObservableObject {
         sessionPersistence?.persist(session: chatSession, reason: reason)
     }
 
+    private func resetStreamingPersistenceState() {
+        pendingDeltaWriteBytes = 0
+    }
+
     private func markSessionMessageActivity(at date: Date) {
         chatSession.registerMessageActivity(at: date)
     }
@@ -633,7 +639,7 @@ final class ChatViewModel: ObservableObject {
         let promptCharacterCount = eligibleMessages.reduce(into: 0) { partial, msg in
             partial += msg.content.count
         }
-        pendingDeltaWriteBytes = 0
+        resetStreamingPersistenceState()
         pendingServerMetadata = .empty
 
         activeStreamTelemetry = ActiveStreamTelemetry(
@@ -709,14 +715,13 @@ final class ChatViewModel: ObservableObject {
                 message.tokenCountSource = MetricValueSource.local.rawValue
             }
         }
-        maybePersistStreamDelta(delta.count)
     }
 
-    private func maybePersistStreamDelta(_ addedChars: Int) {
+    private func shouldForceImmediatePersist(afterAppending addedChars: Int) -> Bool {
         pendingDeltaWriteBytes += addedChars
-        guard pendingDeltaWriteBytes >= deltaPersistThreshold else { return }
+        guard pendingDeltaWriteBytes >= deltaPersistThreshold else { return false }
         pendingDeltaWriteBytes = 0
-        persistSession(reason: .immediate)
+        return true
     }
 
     private func applyServerMetadata(to message: ChatMessage) {
@@ -1280,12 +1285,10 @@ final class ChatViewModel: ObservableObject {
         interruptedAssistantMessageID = nil
         currentAssistantMessageID = nil
         pendingAssistantParentMessageID = userMsg.id
-        pendingDeltaWriteBytes = 0
         if clearComposerAfterSend {
             clearQueuedDraftEditingState()
             clearComposerDraft()
         }
-        persistSession(reason: .immediate)
 
         realtimeTTSActive = enableRealtimeTTSNext
         enableRealtimeTTSNext = false
@@ -1339,7 +1342,7 @@ final class ChatViewModel: ObservableObject {
         interruptedAssistantMessageID = nil
         pendingAssistantParentMessageID = nil
         pendingBranchRestore = nil
-        pendingDeltaWriteBytes = 0
+        resetStreamingPersistenceState()
         isPriming = false
         isLoading = false
         sending = false
@@ -1411,6 +1414,9 @@ final class ChatViewModel: ObservableObject {
         bumpStreamCounters(for: message, delta: piece)
         isLoading = true
         if didCreateAssistantMessage {
+            resetStreamingPersistenceState()
+            persistSession(reason: .immediate)
+        } else if shouldForceImmediatePersist(afterAppending: piece.count) {
             persistSession(reason: .immediate)
         } else {
             // Preserve streamed content durability across app suspends/crashes without
@@ -1430,7 +1436,6 @@ final class ChatViewModel: ObservableObject {
         currentAssistantMessageID = nil
         interruptedAssistantMessageID = nil
         pendingAssistantParentMessageID = nil
-        pendingDeltaWriteBytes = 0
 
         guard !message.isUser else { return }
         guard let parent = message.parentMessage else { return }
@@ -1466,7 +1471,6 @@ final class ChatViewModel: ObservableObject {
         currentAssistantMessageID = nil
         interruptedAssistantMessageID = nil
         pendingAssistantParentMessageID = nil
-        pendingDeltaWriteBytes = 0
 
         let active = activeBranchMessages()
         guard let errorIndex = active.firstIndex(where: { $0.id == errorMessage.id }) else { return }

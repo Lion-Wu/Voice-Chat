@@ -20,6 +20,7 @@ protocol ChatSessionPersisting: AnyObject {
     func ensureSessionTracked(_ session: ChatSession)
     @discardableResult
     func persist(session: ChatSession, reason: SessionPersistReason) -> Bool
+    func flushPendingSaves()
 }
 
 /// Live session activity bridge used for sidebar ordering during streaming.
@@ -31,10 +32,12 @@ protocol ChatSessionActivityPublishing: AnyObject {
 /// Abstraction over session persistence so view models remain testable and MVVM-friendly.
 @MainActor
 protocol ChatSessionRepository: ChatSessionPersisting {
+    var didPersistSessions: ((Set<UUID>) -> Void)? { get set }
     func attach(context: ModelContext)
     func fetchSessions() -> [ChatSession]
     func createSession(title: String) -> ChatSession?
     func delete(_ session: ChatSession)
+    func setImmediatePersistenceEnabled(_ enabled: Bool)
 }
 
 /// SwiftData-backed implementation that centralises throttling and error handling.
@@ -42,7 +45,11 @@ protocol ChatSessionRepository: ChatSessionPersisting {
 final class SwiftDataChatSessionRepository: ChatSessionRepository {
     private var context: ModelContext?
     private var lastSaveTime: [UUID: Date] = [:]
+    private var pendingSessionIDs: Set<UUID> = []
+    private var pendingSaveTasks: [UUID: Task<Void, Never>] = [:]
     private let throttleInterval: TimeInterval
+    private var immediatePersistenceEnabled = false
+    var didPersistSessions: ((Set<UUID>) -> Void)?
 
     init(throttleInterval: TimeInterval = 1.0) {
         self.throttleInterval = throttleInterval
@@ -84,6 +91,12 @@ final class SwiftDataChatSessionRepository: ChatSessionRepository {
         saveContext(label: "delete session")
     }
 
+    func setImmediatePersistenceEnabled(_ enabled: Bool) {
+        immediatePersistenceEnabled = enabled
+        guard enabled else { return }
+        flushPendingSaves()
+    }
+
     func ensureSessionTracked(_ session: ChatSession) {
         guard let context = context else { return }
         if session.modelContext == nil {
@@ -95,31 +108,89 @@ final class SwiftDataChatSessionRepository: ChatSessionRepository {
     func persist(session: ChatSession, reason: SessionPersistReason) -> Bool {
         guard context != nil else { return false }
         let now = Date()
+        pendingSessionIDs.insert(session.id)
 
         switch reason {
         case .immediate:
             session.updatedAt = now
-            lastSaveTime[session.id] = now
-            saveContext(label: "immediate session save")
-            return true
+            return saveContext(label: "immediate session save", at: now)
         case .throttled:
             // Keep in-memory ordering accurate even while disk writes are throttled.
             session.updatedAt = now
+            if immediatePersistenceEnabled {
+                return saveContext(label: "background-forced session save", at: now)
+            }
             let last = lastSaveTime[session.id] ?? .distantPast
-            guard now.timeIntervalSince(last) >= throttleInterval else { return false }
+            let elapsed = now.timeIntervalSince(last)
+            guard elapsed >= throttleInterval else {
+                schedulePendingSave(for: session.id, after: throttleInterval - elapsed)
+                return false
+            }
 
-            lastSaveTime[session.id] = now
-            saveContext(label: "throttled session save")
-            return true
+            return saveContext(label: "throttled session save", at: now)
         }
     }
 
-    private func saveContext(label: String) {
-        guard let context else { return }
+    func flushPendingSaves() {
+        _ = saveContext(label: "flush pending session saves", notifyObserver: true)
+    }
+
+    @discardableResult
+    private func saveContext(
+        label: String,
+        at saveTime: Date = Date(),
+        notifyObserver: Bool = false
+    ) -> Bool {
+        guard let context else { return false }
+        let savedSessionIDs = pendingSessionIDs
+        guard context.hasChanges else {
+            pendingSessionIDs.subtract(savedSessionIDs)
+            cancelPendingSaveTasks(for: savedSessionIDs)
+            return false
+        }
+
         do {
             try context.save()
+            for sessionID in savedSessionIDs {
+                lastSaveTime[sessionID] = saveTime
+            }
+            pendingSessionIDs.subtract(savedSessionIDs)
+            cancelPendingSaveTasks(for: savedSessionIDs)
+            let shouldNotifyObserver = notifyObserver || savedSessionIDs.count > 1
+            if shouldNotifyObserver, !savedSessionIDs.isEmpty {
+                didPersistSessions?(savedSessionIDs)
+            }
+            return true
         } catch {
             print("SwiftData save failed (\(label)): \(error)")
+            return false
+        }
+    }
+
+    private func schedulePendingSave(for sessionID: UUID, after delay: TimeInterval) {
+        guard delay.isFinite else { return }
+        let clampedDelay = max(0.05, delay)
+        cancelPendingSaveTask(for: sessionID)
+        pendingSaveTasks[sessionID] = Task { [weak self] in
+            let duration = UInt64(clampedDelay * 1_000_000_000)
+            try? await Task.sleep(nanoseconds: duration)
+            guard !Task.isCancelled else { return }
+            await MainActor.run {
+                guard let self else { return }
+                self.pendingSaveTasks[sessionID] = nil
+                _ = self.saveContext(label: "scheduled session save", notifyObserver: true)
+            }
+        }
+    }
+
+    private func cancelPendingSaveTask(for sessionID: UUID) {
+        pendingSaveTasks[sessionID]?.cancel()
+        pendingSaveTasks[sessionID] = nil
+    }
+
+    private func cancelPendingSaveTasks(for sessionIDs: Set<UUID>) {
+        for sessionID in sessionIDs {
+            cancelPendingSaveTask(for: sessionID)
         }
     }
 }
