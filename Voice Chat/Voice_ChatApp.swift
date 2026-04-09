@@ -30,6 +30,7 @@ enum AppLocalization {
 @main
 @MainActor
 struct Voice_ChatApp: App {
+    @Environment(\.scenePhase) private var scenePhase
     @StateObject private var appEnvironment = AppEnvironment()
     @StateObject private var startupCoordinator = StartupDataCoordinator()
 
@@ -51,6 +52,9 @@ struct Voice_ChatApp: App {
                     )
                     .modelContainer(container)
             }
+        }
+        .onChange(of: scenePhase) { _, newPhase in
+            appEnvironment.updatePersistenceMode(for: newPhase)
         }
 
         #if os(macOS)

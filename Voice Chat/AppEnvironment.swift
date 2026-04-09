@@ -97,6 +97,11 @@ final class AppEnvironment: ObservableObject {
         }
     }
 
+    func updatePersistenceMode(for scenePhase: ScenePhase) {
+        let shouldForceImmediateSaves = scenePhase != .active
+        chatSessionsViewModel.setImmediatePersistenceEnabled(shouldForceImmediateSaves)
+    }
+
     // MARK: - Private helpers
 
     private func observeSettingsChanges() {

@@ -18,12 +18,11 @@ final class ChatSessionsViewModel: ObservableObject {
 
     private struct SidebarPresentationCacheEntry {
         let title: String
-        let updatedAt: Date
         let messageCount: Int
         let lastMessageID: UUID?
         let lastMessageContent: String?
-        let searchCorpus: String
         let subtitle: String
+        let searchCorpus: String?
     }
 
     // MARK: - Published State
@@ -72,6 +71,9 @@ final class ChatSessionsViewModel: ObservableObject {
             providerHint: self.settingsManager.resolvedChatProvider(for: self.settingsManager.chatSettings.apiURL),
             requestStyleHint: self.settingsManager.resolvedChatRequestStyle(for: self.settingsManager.chatSettings.apiURL)
         )
+        self.repository.didPersistSessions = { [weak self] sessionIDs in
+            self?.handlePersistedSessions(sessionIDs)
+        }
         self.selectedSessionID = draftSession.id
     }
 
@@ -109,7 +111,7 @@ final class ChatSessionsViewModel: ObservableObject {
         guard !normalizedQuery.isEmpty else { return chatSessions }
 
         return chatSessions.filter { session in
-            sidebarPresentation(for: session).searchCorpus.contains(normalizedQuery)
+            sidebarSearchCorpus(for: session).contains(normalizedQuery)
         }
     }
 
@@ -228,11 +230,10 @@ final class ChatSessionsViewModel: ObservableObject {
         guard shouldPersist(session) else { return false }
         let didPersist = repository.persist(session: session, reason: reason)
 
-        // Streaming live-ordering is published separately; persistence only needs to
-        // reorder sessions when a write actually lands.
-        let shouldScheduleOrderingUpdate = didPersist
-        if shouldScheduleOrderingUpdate {
-            let shouldPromoteDraft = didPersist && session.id == draftSession.id
+        if didPersist {
+            // Delayed repository saves are observed via `didPersistSessions`; this path
+            // only handles writes that landed synchronously with the caller.
+            let shouldPromoteDraft = session.id == draftSession.id
             scheduleInMemoryOrderingUpdate(with: session, shouldPromoteDraft: shouldPromoteDraft)
         }
         return didPersist
@@ -349,7 +350,6 @@ final class ChatSessionsViewModel: ObservableObject {
 
         if let cached = sidebarPresentationCache[session.id],
            cached.title == session.title,
-           cached.updatedAt == session.updatedAt,
            cached.messageCount == session.messages.count,
            cached.lastMessageID == lastMessage?.id,
            cached.lastMessageContent == lastMessageContent {
@@ -371,22 +371,39 @@ final class ChatSessionsViewModel: ObservableObject {
             subtitle = bodyText.count > 60 ? "\(snippet)…" : String(snippet)
         }
 
+        let entry = SidebarPresentationCacheEntry(
+            title: session.title,
+            messageCount: session.messages.count,
+            lastMessageID: lastMessage?.id,
+            lastMessageContent: lastMessageContent,
+            subtitle: subtitle,
+            searchCorpus: nil
+        )
+        sidebarPresentationCache[session.id] = entry
+        return entry
+    }
+
+    private func sidebarSearchCorpus(for session: ChatSession) -> String {
+        let presentation = sidebarPresentation(for: session)
+        if let cachedCorpus = presentation.searchCorpus {
+            return cachedCorpus
+        }
+
         let searchCorpus = ([session.title] + session.messages.map(\.content))
             .joined(separator: "\n")
             .folding(options: [.diacriticInsensitive, .caseInsensitive], locale: .current)
             .lowercased()
 
-        let entry = SidebarPresentationCacheEntry(
-            title: session.title,
-            updatedAt: session.updatedAt,
-            messageCount: session.messages.count,
-            lastMessageID: lastMessage?.id,
-            lastMessageContent: lastMessageContent,
-            searchCorpus: searchCorpus,
-            subtitle: subtitle
+        let updatedEntry = SidebarPresentationCacheEntry(
+            title: presentation.title,
+            messageCount: presentation.messageCount,
+            lastMessageID: presentation.lastMessageID,
+            lastMessageContent: presentation.lastMessageContent,
+            subtitle: presentation.subtitle,
+            searchCorpus: searchCorpus
         )
-        sidebarPresentationCache[session.id] = entry
-        return entry
+        sidebarPresentationCache[session.id] = updatedEntry
+        return searchCorpus
     }
 
     private func shouldPersist(_ session: ChatSession) -> Bool {
@@ -394,6 +411,27 @@ final class ChatSessionsViewModel: ObservableObject {
             return !session.messages.isEmpty
         }
         return true
+    }
+
+    private func handlePersistedSessions(_ sessionIDs: Set<UUID>) {
+        for sessionID in sessionIDs {
+            guard !deletedSessionIDs.contains(sessionID) else { continue }
+            guard let session = sessionForPersistedID(sessionID) else { continue }
+            scheduleInMemoryOrderingUpdate(
+                with: session,
+                shouldPromoteDraft: session.id == draftSession.id
+            )
+        }
+    }
+
+    private func sessionForPersistedID(_ sessionID: UUID) -> ChatSession? {
+        if draftSession.id == sessionID {
+            return draftSession
+        }
+        if let session = chatSessions.first(where: { $0.id == sessionID }) {
+            return session
+        }
+        return viewModelCache[sessionID]?.chatSession
     }
 
     private func promoteDraftIfNeeded(_ session: ChatSession) {
@@ -474,6 +512,14 @@ extension ChatSessionsViewModel: ChatSessionPersisting {
         } else {
             addSession(session)
         }
+    }
+
+    func flushPendingSaves() {
+        repository.flushPendingSaves()
+    }
+
+    func setImmediatePersistenceEnabled(_ enabled: Bool) {
+        repository.setImmediatePersistenceEnabled(enabled)
     }
 }
 
