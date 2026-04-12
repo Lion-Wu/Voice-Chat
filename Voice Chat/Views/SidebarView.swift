@@ -403,15 +403,7 @@ struct SidebarView: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
-        .background(
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .fill(.thinMaterial)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .stroke(ChatTheme.subtleStroke.opacity(0.6), lineWidth: 0.8)
-        )
-        .shadow(color: Color.black.opacity(0.06), radius: 10, x: 0, y: 6)
+        .appChromedContainer(cornerRadius: 18, interactive: true, shadowOpacity: 0.42)
         .padding(.horizontal, 16)
         .padding(.top, 6)
         .padding(.bottom, 8)
@@ -497,48 +489,122 @@ struct SidebarView: View {
         .padding(.vertical, 6)
     }
 
+    private var sidebarSettingsCornerRadius: CGFloat {
+        #if os(macOS)
+        return 22
+        #else
+        return 18
+        #endif
+    }
+
+    private var sidebarSettingsOuterHorizontalPadding: CGFloat {
+        #if os(macOS)
+        return 12
+        #else
+        return 16
+        #endif
+    }
+
+    private var sidebarSettingsOuterVerticalPadding: CGFloat {
+        #if os(macOS)
+        return 6
+        #else
+        return 8
+        #endif
+    }
+
+    private var sidebarSettingsInnerHorizontalPadding: CGFloat {
+        #if os(macOS)
+        return 14
+        #else
+        return 12
+        #endif
+    }
+
+    private var sidebarSettingsInnerVerticalPadding: CGFloat {
+        #if os(macOS)
+        return 7
+        #else
+        return 10
+        #endif
+    }
+
+    @ViewBuilder
+    private var sidebarSettingsLabel: some View {
+        HStack(spacing: 10) {
+            Spacer(minLength: 0)
+
+            Image(systemName: "gear")
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(.primary)
+
+            Text("Settings")
+                .font(.body.weight(.semibold))
+                .foregroundStyle(.primary)
+
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, sidebarSettingsInnerHorizontalPadding)
+        .padding(.vertical, sidebarSettingsInnerVerticalPadding)
+        .frame(maxWidth: .infinity)
+        .contentShape(RoundedRectangle(cornerRadius: sidebarSettingsCornerRadius, style: .continuous))
+    }
+
     #if os(macOS)
     private var macSettingsFooter: some View {
         VStack(spacing: 0) {
             Divider()
-            SettingsLink {
-                Label(LocalizedStringKey("Settings"), systemImage: "gearshape.fill")
-                    .labelStyle(.titleAndIcon)
-                    .font(.body.weight(.semibold))
-                    .frame(maxWidth: .infinity, alignment: .leading)
+            if #available(macOS 26.0, *) {
+                SettingsLink {
+                    sidebarSettingsLabel
+                }
+                .buttonStyle(.glass)
+                .buttonBorderShape(.roundedRectangle(radius: sidebarSettingsCornerRadius))
+                .controlSize(.mini)
+                .padding(.horizontal, sidebarSettingsOuterHorizontalPadding)
+                .padding(.vertical, sidebarSettingsOuterVerticalPadding)
+            } else {
+                SettingsLink {
+                    sidebarSettingsLabel
+                        .appChromedContainer(
+                            cornerRadius: sidebarSettingsCornerRadius,
+                            interactive: true,
+                            shadowOpacity: 0.24
+                        )
+                        .contentShape(RoundedRectangle(cornerRadius: sidebarSettingsCornerRadius, style: .continuous))
+                        .padding(.horizontal, sidebarSettingsOuterHorizontalPadding)
+                        .padding(.vertical, sidebarSettingsOuterVerticalPadding)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .controlSize(.mini)
             }
-            .buttonStyle(.borderless)
-            .controlSize(.regular)
-            .padding(.horizontal, 16)
-            .padding(.vertical, 10)
         }
         .background(.bar)
     }
     #else
     private var iosSettingsFooter: some View {
         VStack(spacing: 10) {
-            Button(action: onOpenSettings) {
-                Label(LocalizedStringKey("Settings"), systemImage: "gearshape.fill")
-                    .font(.body.weight(.semibold))
-                    .labelStyle(.titleAndIcon)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 12)
-                    .background(
-                        RoundedRectangle(cornerRadius: 18, style: .continuous)
-                            .fill(.thinMaterial)
-                    )
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 18, style: .continuous)
-                            .stroke(Color.primary.opacity(0.08), lineWidth: 0.75)
-                    )
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 18, style: .continuous)
-                            .stroke(PlatformColor.systemBackground.opacity(0.05), lineWidth: 0.5)
-                    )
-                    .contentShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+            if #available(iOS 26.0, *) {
+                Button(action: onOpenSettings) {
+                    sidebarSettingsLabel
+                }
+                .buttonStyle(.glass)
+                .buttonBorderShape(.roundedRectangle(radius: sidebarSettingsCornerRadius))
+                .padding(.horizontal, sidebarSettingsOuterHorizontalPadding)
+            } else {
+                Button(action: onOpenSettings) {
+                    sidebarSettingsLabel
+                        .appChromedContainer(
+                            cornerRadius: sidebarSettingsCornerRadius,
+                            interactive: true,
+                            shadowOpacity: 0.44
+                        )
+                        .contentShape(RoundedRectangle(cornerRadius: sidebarSettingsCornerRadius, style: .continuous))
+                }
+                .buttonStyle(.plain)
+                .padding(.horizontal, sidebarSettingsOuterHorizontalPadding)
             }
-            .buttonStyle(.plain)
-            .padding(.horizontal, 16)
         }
         .padding(.vertical, 8)
         .background(.thinMaterial)

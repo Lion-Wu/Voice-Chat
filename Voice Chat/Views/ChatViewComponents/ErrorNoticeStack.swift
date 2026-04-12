@@ -14,11 +14,7 @@ struct ErrorNoticeStack: View {
     var maxWidth: CGFloat? = nil
 
     private var stackSpacing: CGFloat {
-        #if os(iOS) || os(tvOS)
-        return 6
-        #else
-        return 8
-        #endif
+        AppChromeMetrics.floatingGap
     }
 
     private var horizontalPadding: CGFloat {
@@ -38,6 +34,13 @@ struct ErrorNoticeStack: View {
     }
 
     private let bannerVerticalPadding: CGFloat = 8
+    private var dismissTapSize: CGFloat {
+        #if os(iOS) || os(tvOS)
+        return 36
+        #else
+        return 28
+        #endif
+    }
     private let noticeAnimation = Animation.spring(response: 0.35, dampingFraction: 0.9)
     private let noticeTransition = AnyTransition.move(edge: .bottom).combined(with: .opacity)
     private var noticeIDs: [UUID] { notices.map(\.id) }
@@ -72,25 +75,18 @@ struct ErrorNoticeStack: View {
                         Image(systemName: "xmark.circle.fill")
                             .font(.system(size: 18, weight: .semibold))
                             .foregroundStyle(.secondary)
+                            .frame(width: dismissTapSize, height: dismissTapSize)
+                            .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel("Dismiss error")
                 }
                 .padding(.vertical, bannerVerticalPadding)
                 .padding(.horizontal, 12)
-                .background(
-                    RoundedRectangle(cornerRadius: 18, style: .continuous)
-                        // Match the composer backdrop with a slightly denser material.
-                        .fill(.thinMaterial)
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                                .fill(PlatformColor.systemBackground.opacity(0.2))
-                        )
-                        .shadow(color: ChatTheme.bubbleShadow.opacity(0.35), radius: 18, x: 0, y: 12)
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                                .stroke(ChatTheme.subtleStroke.opacity(0.6), lineWidth: 0.8)
-                        )
+                .appChromedContainer(
+                    cornerRadius: 18,
+                    tint: notice.tint.opacity(0.08),
+                    shadowOpacity: 0.12
                 )
                 .transition(noticeTransition)
             }

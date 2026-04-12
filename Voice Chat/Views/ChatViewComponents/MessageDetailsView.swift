@@ -200,11 +200,7 @@ struct MessageDetailsView: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
-        .background(PlatformColor.tertiaryGroupedBackground, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .stroke(ChatTheme.chromeBorder, lineWidth: 1)
-        )
+        .appChromedContainer(cornerRadius: 10, shadowOpacity: 0.18)
     }
 
     private func metricSourceBadge(from raw: String?) -> MetricSourceBadge? {

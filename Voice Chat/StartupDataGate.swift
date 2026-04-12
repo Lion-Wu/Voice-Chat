@@ -242,6 +242,7 @@ struct StartupDataLoadingView: View {
                     .foregroundStyle(.secondary)
             }
             .padding(24)
+            .appChromedContainer(cornerRadius: 24, shadowOpacity: 0.26)
         }
     }
 }
@@ -275,10 +276,7 @@ struct StartupDataErrorView: View {
                         .padding(10)
                 }
                 .frame(maxHeight: 140)
-                .background(
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .fill(.thinMaterial)
-                )
+                .appChromedContainer(cornerRadius: 12, shadowOpacity: 0.14)
 
                 HStack(spacing: 12) {
                     Button("Exit") {
@@ -304,6 +302,7 @@ struct StartupDataErrorView: View {
             }
             .padding(24)
             .frame(maxWidth: 520)
+            .appChromedContainer(cornerRadius: 28, shadowOpacity: 0.32)
         }
     }
 }

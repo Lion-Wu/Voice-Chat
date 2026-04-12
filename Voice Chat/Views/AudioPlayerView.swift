@@ -127,15 +127,7 @@ struct AudioPlayerView: View {
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
         .frame(maxWidth: 520)
-        .background {
-            BlurView()
-                .clipShape(RoundedRectangle(cornerRadius: cardCornerRadius, style: .continuous))
-        }
-        .overlay {
-            RoundedRectangle(cornerRadius: cardCornerRadius, style: .continuous)
-                .strokeBorder(Color.primary.opacity(0.08), lineWidth: 1)
-        }
-        .shadow(color: Color.black.opacity(0.09), radius: 12, x: 0, y: 6)
+        .appChromedContainer(cornerRadius: cardCornerRadius, shadowOpacity: 0.5)
         .padding(.horizontal, 16)
         .padding(.top, 8)
         .animation(.easeInOut(duration: 0.16), value: displayedIsPlaybackFullyLoaded)

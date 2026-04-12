@@ -105,6 +105,10 @@ enum InputMetrics {
     static let innerBottom: CGFloat = innerVertical
     static let innerLeading: CGFloat = 4
     static let innerTrailing: CGFloat = 4
-    static let baseLineHeight: CGFloat = 21
+    #if os(macOS)
+    static let baseLineHeight: CGFloat = ceil(NSLayoutManager().defaultLineHeight(for: NSFont.systemFont(ofSize: 17)))
+    #else
+    static let baseLineHeight: CGFloat = ceil(UIFont.systemFont(ofSize: 17).lineHeight)
+    #endif
     static let defaultHeight: CGFloat = innerVertical * 2 + baseLineHeight
 }
