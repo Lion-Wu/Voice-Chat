@@ -190,6 +190,7 @@ private struct ImageAttachmentDropDelegate: DropDelegate {
 #endif
 
 #if os(iOS)
+@MainActor
 private struct SystemCameraCapturePicker: UIViewControllerRepresentable {
     @Binding var isPresented: Bool
     let onCapture: (Data, String?) -> Void
@@ -252,6 +253,278 @@ private struct SystemCameraCapturePicker: UIViewControllerRepresentable {
         }
     }
 }
+
+@MainActor
+@available(iOS 26.0, *)
+private struct ComposerAttachmentMenuButton: UIViewRepresentable {
+    let tintColor: UIColor
+    let buttonSize: CGFloat
+    let glyphPointSize: CGFloat
+    let onTakePhoto: @MainActor () -> Void
+    let onChoosePhotos: @MainActor () -> Void
+    let onChooseFiles: @MainActor () -> Void
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(parent: self)
+    }
+
+    func makeUIView(context: Context) -> UIButton {
+        let button = AttachmentMenuUIButton(type: .system)
+        button.buttonSize = buttonSize
+        button.showsMenuAsPrimaryAction = true
+        button.changesSelectionAsPrimaryAction = false
+        button.accessibilityLabel = NSLocalizedString("Add image", comment: "Composer attachment button")
+        applyButtonAppearance(to: button)
+        button.menu = context.coordinator.makeMenu()
+        return button
+    }
+
+    func updateUIView(_ button: UIButton, context: Context) {
+        context.coordinator.parent = self
+        if let attachmentButton = button as? AttachmentMenuUIButton {
+            attachmentButton.buttonSize = buttonSize
+        }
+        applyButtonAppearance(to: button)
+        button.menu = context.coordinator.makeMenu()
+    }
+
+    private func applyButtonAppearance(to button: UIButton) {
+        var configuration = UIButton.Configuration.glass()
+        let glassTint = tintColor.withAlphaComponent(0.18)
+        configuration.buttonSize = .small
+        configuration.cornerStyle = .capsule
+        configuration.image = UIImage(systemName: "plus")
+        configuration.baseForegroundColor = tintColor
+        configuration.baseBackgroundColor = glassTint
+        configuration.background.backgroundColor = glassTint
+        configuration.preferredSymbolConfigurationForImage = UIImage.SymbolConfiguration(
+            pointSize: glyphPointSize,
+            weight: .semibold
+        )
+        configuration.contentInsets = .zero
+        button.configuration = configuration
+        button.layer.cornerCurve = .continuous
+        button.clipsToBounds = true
+        button.contentHorizontalAlignment = .center
+        button.contentVerticalAlignment = .center
+        button.tintColor = tintColor
+    }
+
+    final class AttachmentMenuUIButton: UIButton {
+        var buttonSize: CGFloat = 0 {
+            didSet { invalidateIntrinsicContentSize() }
+        }
+
+        override var intrinsicContentSize: CGSize {
+            CGSize(width: buttonSize, height: buttonSize)
+        }
+
+        override func layoutSubviews() {
+            super.layoutSubviews()
+            layer.cornerRadius = min(bounds.width, bounds.height) * 0.5
+        }
+
+        override func contextMenuInteraction(
+            _ interaction: UIContextMenuInteraction,
+            previewForHighlightingMenuWithConfiguration configuration: UIContextMenuConfiguration
+        ) -> UITargetedPreview? {
+            menuTargetedPreview()
+        }
+
+        override func contextMenuInteraction(
+            _ interaction: UIContextMenuInteraction,
+            previewForDismissingMenuWithConfiguration configuration: UIContextMenuConfiguration
+        ) -> UITargetedPreview? {
+            menuTargetedPreview()
+        }
+
+        private func menuTargetedPreview() -> UITargetedPreview? {
+            let parameters = UIPreviewParameters()
+            parameters.backgroundColor = .clear
+            parameters.visiblePath = UIBezierPath(ovalIn: bounds)
+            let target = UIPreviewTarget(container: self, center: CGPoint(x: bounds.midX, y: bounds.midY))
+            return UITargetedPreview(view: self, parameters: parameters, target: target)
+        }
+    }
+
+    @MainActor
+    final class Coordinator: NSObject {
+        var parent: ComposerAttachmentMenuButton
+
+        init(parent: ComposerAttachmentMenuButton) {
+            self.parent = parent
+        }
+
+        func makeMenu() -> UIMenu {
+            UIMenu(children: [
+                UIAction(
+                    title: String(localized: "Take Photo", comment: "Attachment menu action"),
+                    image: UIImage(systemName: "camera")
+                ) { [weak self] _ in
+                    self?.parent.onTakePhoto()
+                },
+                UIAction(
+                    title: String(localized: "Choose Photos", comment: "Attachment menu action"),
+                    image: UIImage(systemName: "photo.on.rectangle.angled")
+                ) { [weak self] _ in
+                    self?.parent.onChoosePhotos()
+                },
+                UIAction(
+                    title: String(localized: "Choose Files", comment: "Attachment menu action"),
+                    image: UIImage(systemName: "folder")
+                ) { [weak self] _ in
+                    self?.parent.onChooseFiles()
+                }
+            ])
+        }
+    }
+}
+#endif
+
+#if os(macOS)
+@MainActor
+@available(macOS 26.0, *)
+private struct ComposerAttachmentMenuButton: NSViewRepresentable {
+    let tintColor: NSColor
+    let buttonSize: CGFloat
+    let glyphPointSize: CGFloat
+    let onTakePhoto: @MainActor () -> Void
+    let onChoosePhotos: @MainActor () -> Void
+    let onChooseFiles: @MainActor () -> Void
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(parent: self)
+    }
+
+    func makeNSView(context: Context) -> AttachmentMenuButtonHostView {
+        let hostView = AttachmentMenuButtonHostView()
+        hostView.button.target = context.coordinator
+        hostView.button.action = #selector(Coordinator.showMenu(_:))
+        hostView.button.setAccessibilityLabel(NSLocalizedString("Add image", comment: "Composer attachment button"))
+        context.coordinator.button = hostView.button
+        applyAppearance(to: hostView)
+        return hostView
+    }
+
+    func updateNSView(_ hostView: AttachmentMenuButtonHostView, context: Context) {
+        context.coordinator.parent = self
+        context.coordinator.button = hostView.button
+        applyAppearance(to: hostView)
+    }
+
+    private func applyAppearance(to hostView: AttachmentMenuButtonHostView) {
+        let image = NSImage(systemSymbolName: "plus", accessibilityDescription: nil)?
+            .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: glyphPointSize, weight: .semibold))
+        hostView.button.image = image
+        hostView.button.imagePosition = .imageOnly
+        hostView.button.imageScaling = .scaleProportionallyDown
+        hostView.button.contentTintColor = tintColor
+        hostView.button.isBordered = false
+        hostView.button.setButtonType(.momentaryPushIn)
+        hostView.button.frame = NSRect(origin: .zero, size: NSSize(width: buttonSize, height: buttonSize))
+
+        hostView.glassView.cornerRadius = buttonSize * 0.5
+        hostView.glassView.style = .regular
+        hostView.glassView.tintColor = tintColor.withAlphaComponent(0.12)
+        hostView.buttonSize = buttonSize
+        hostView.needsLayout = true
+        hostView.layoutSubtreeIfNeeded()
+    }
+
+    final class AttachmentMenuButtonHostView: NSView {
+        let glassView = NSGlassEffectView(frame: .zero)
+        let button = NSButton(frame: .zero)
+        var buttonSize: CGFloat = 0 {
+            didSet {
+                invalidateIntrinsicContentSize()
+            }
+        }
+
+        override init(frame frameRect: NSRect) {
+            super.init(frame: frameRect)
+            wantsLayer = true
+            glassView.translatesAutoresizingMaskIntoConstraints = true
+            button.translatesAutoresizingMaskIntoConstraints = true
+            glassView.contentView = button
+            addSubview(glassView)
+        }
+
+        required init?(coder: NSCoder) {
+            nil
+        }
+
+        override var intrinsicContentSize: NSSize {
+            NSSize(width: buttonSize, height: buttonSize)
+        }
+
+        override func layout() {
+            super.layout()
+            let size = NSSize(width: buttonSize, height: buttonSize)
+            frame.size = size
+            glassView.frame = bounds
+            button.frame = glassView.bounds
+        }
+    }
+
+    @MainActor
+    final class Coordinator: NSObject {
+        var parent: ComposerAttachmentMenuButton
+        weak var button: NSButton?
+
+        init(parent: ComposerAttachmentMenuButton) {
+            self.parent = parent
+        }
+
+        @objc
+        func showMenu(_ sender: NSButton) {
+            let menu = NSMenu()
+
+            let takePhotoItem = NSMenuItem(
+                title: String(localized: "Take Photo", comment: "Attachment menu action"),
+                action: #selector(handleTakePhoto),
+                keyEquivalent: ""
+            )
+            takePhotoItem.target = self
+            takePhotoItem.image = NSImage(systemSymbolName: "camera", accessibilityDescription: nil)
+            menu.addItem(takePhotoItem)
+
+            let choosePhotosItem = NSMenuItem(
+                title: String(localized: "Choose Photos", comment: "Attachment menu action"),
+                action: #selector(handleChoosePhotos),
+                keyEquivalent: ""
+            )
+            choosePhotosItem.target = self
+            choosePhotosItem.image = NSImage(systemSymbolName: "photo.on.rectangle.angled", accessibilityDescription: nil)
+            menu.addItem(choosePhotosItem)
+
+            let chooseFilesItem = NSMenuItem(
+                title: String(localized: "Choose Files", comment: "Attachment menu action"),
+                action: #selector(handleChooseFiles),
+                keyEquivalent: ""
+            )
+            chooseFilesItem.target = self
+            chooseFilesItem.image = NSImage(systemSymbolName: "folder", accessibilityDescription: nil)
+            menu.addItem(chooseFilesItem)
+
+            NSMenu.popUpContextMenu(menu, with: NSApp.currentEvent ?? NSEvent(), for: sender)
+        }
+
+        @objc
+        func handleTakePhoto() {
+            parent.onTakePhoto()
+        }
+
+        @objc
+        func handleChoosePhotos() {
+            parent.onChoosePhotos()
+        }
+
+        @objc
+        func handleChooseFiles() {
+            parent.onChooseFiles()
+        }
+    }
+}
 #endif
 
 struct ChatView: View {
@@ -274,6 +547,7 @@ struct ChatView: View {
     @State private var viewportHeight: CGFloat = 0
     @State private var bottomAnchorMaxY: CGFloat = 0
     @State private var showScrollToBottomButton: Bool = false
+    @State private var errorNoticeStackHeight: CGFloat = 0
     @State private var scrollProxy: ScrollViewProxy?
     @State private var visibleMessages: [ChatMessage] = []
     @State private var fingerprintCache: [UUID: ContentFingerprint] = [:]
@@ -354,6 +628,18 @@ struct ChatView: View {
         textFieldHeight + InputMetrics.composerOuterV * 2
     }
 
+    private var composerDefaultTrailingButtonTrackHeight: CGFloat {
+        InputMetrics.defaultHeight + InputMetrics.composerOuterV * 2
+    }
+
+    private var composerMainBarHeight: CGFloat {
+        floatingInputButtonHeight + composerOuterVerticalPadding * 2
+    }
+
+    private var composerDefaultMainBarHeight: CGFloat {
+        InputMetrics.defaultHeight + InputMetrics.composerOuterV * 2 + composerOuterVerticalPadding * 2
+    }
+
     private var pendingAttachmentStripHeight: CGFloat {
         guard !viewModel.pendingImageAttachments.isEmpty else { return 0 }
         return 88
@@ -369,7 +655,7 @@ struct ChatView: View {
     }
 
     private var floatingInputPanelHeight: CGFloat {
-        floatingInputButtonHeight + composerOuterVerticalPadding * 2 + pendingAttachmentStripHeight + queuedDraftHeight
+        composerMainBarHeight + composerSupportingContentEstimatedHeight
     }
 
     private var composerBottomPadding: CGFloat {
@@ -384,7 +670,55 @@ struct ChatView: View {
         #if os(iOS) || os(tvOS)
         return 4
         #else
-        return 6
+        return 2
+        #endif
+    }
+
+    private var composerPanelHorizontalPadding: CGFloat {
+        12
+    }
+
+    private var composerBarCornerRadius: CGFloat {
+        24
+    }
+
+    private var composerFloatingStackSpacing: CGFloat {
+        8
+    }
+
+    private var composerSupportSectionSpacing: CGFloat {
+        8
+    }
+
+    private var composerSupportTopPadding: CGFloat {
+        8
+    }
+
+    private var composerSupportBottomPadding: CGFloat {
+        6
+    }
+
+    private var composerSupportHorizontalPadding: CGFloat {
+        10
+    }
+
+    private var composerAccessoryTapSize: CGFloat {
+        #if os(iOS) || os(tvOS)
+        return 32
+        #else
+        return 28
+        #endif
+    }
+
+    private var composerAttachmentButtonDiameter: CGFloat {
+        composerDefaultMainBarHeight
+    }
+
+    private var composerAttachmentGlyphSize: CGFloat {
+        #if os(macOS)
+        return 17
+        #else
+        return 17
         #endif
     }
 
@@ -396,22 +730,48 @@ struct ChatView: View {
         #endif
     }
 
-    private var editingBannerInset: CGFloat {
-        guard viewModel.isEditing else { return 0 }
-        return max(editingBannerHeight, editingBannerEstimatedHeight)
+    private var composerSupportingContentEstimatedHeight: CGFloat {
+        guard hasComposerSupportingContent else { return 0 }
+
+        var height: CGFloat = 0
+
+        if viewModel.isEditingComposerDraft {
+            height += max(editingBannerHeight, editingBannerEstimatedHeight)
+        }
+
+        if viewModel.hasQueuedDrafts {
+            height += (height > 0 ? 8 : 0) + queuedDraftHeight
+        }
+
+        if !viewModel.pendingImageAttachments.isEmpty {
+            height += (height > 0 ? composerSupportSectionSpacing : 0) + pendingAttachmentStripHeight
+        }
+
+        return height + composerSupportTopPadding + composerSupportBottomPadding + 1
     }
 
     private var messageListBottomInset: CGFloat {
-        return floatingInputPanelHeight + composerBottomPadding + 6 + editingBannerInset
+        return floatingInputPanelHeight + composerBottomPadding + 6
     }
 
     private var composerHeightForNotice: CGFloat {
-        floatingInputPanelHeight + editingBannerInset
+        floatingInputPanelHeight
     }
 
     private var noticeBottomPadding: CGFloat {
         // Keep a stable gap above the floating composer regardless of input height growth.
         composerBottomPadding + composerHeightForNotice + 8
+    }
+
+    private var scrollButtonNoticeClearance: CGFloat {
+        guard !errorCenter.notices.isEmpty else { return 0 }
+        return errorNoticeStackHeight + AppChromeMetrics.floatingGap
+    }
+
+    private var hasComposerSupportingContent: Bool {
+        viewModel.isEditingComposerDraft
+            || viewModel.hasQueuedDrafts
+            || !viewModel.pendingImageAttachments.isEmpty
     }
 
     private var shouldDisplayAudioPlayer: Bool {
@@ -645,6 +1005,7 @@ struct ChatView: View {
                     VStack(spacing: 12) {
                         if showScrollToBottomButton {
                             scrollToBottomButton
+                                .padding(.bottom, scrollButtonNoticeClearance)
                                 .transition(
                                     .move(edge: .bottom)
                                         .combined(with: .opacity)
@@ -668,6 +1029,11 @@ struct ChatView: View {
                         },
                         maxWidth: composerPanelMaxWidth(availableWidth: availableMessageWidth)
                     )
+                    .background(
+                        GeometryReader { proxy in
+                            Color.clear.preference(key: ErrorNoticeStackHeightKey.self, value: proxy.size.height)
+                        }
+                    )
                     .frame(maxWidth: .infinity)
                     .padding(.bottom, noticeBottomPadding)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
@@ -683,6 +1049,17 @@ struct ChatView: View {
             .ignoresSafeArea(.keyboard, edges: .bottom)
 #endif
             .onPreferenceChange(EditingBannerHeightKey.self, perform: updateEditingBannerHeightIfNeeded)
+            .onPreferenceChange(ErrorNoticeStackHeightKey.self) { newHeight in
+                let cleaned = max(0, newHeight)
+                if abs(cleaned - errorNoticeStackHeight) > 0.5 {
+                    errorNoticeStackHeight = cleaned
+                }
+            }
+            .onChange(of: errorCenter.notices.isEmpty) { _, isEmpty in
+                if isEmpty {
+                    errorNoticeStackHeight = 0
+                }
+            }
             .onAppear {
                 refreshVisibleMessages(hydrating: true)
 #if os(macOS)
@@ -846,6 +1223,8 @@ struct ChatView: View {
                 MessageRenderCache.shared.clear()
                 expectAssistantResponseHaptics = false
                 didTriggerResponseStartHaptic = false
+                textFieldHeight = InputMetrics.defaultHeight
+                inputOverflow = false
                 refreshVisibleMessages(hydrating: true)
             }
             .onChange(of: viewModel.chatSession.messages.count) { _, _ in
@@ -1065,7 +1444,11 @@ struct ChatView: View {
                         .foregroundStyle(ChatTheme.accent)
                         .padding(.horizontal, 16)
                         .padding(.vertical, 12)
-                        .background(.regularMaterial, in: Capsule())
+                        .appChromedContainer(
+                            cornerRadius: 999,
+                            tint: ChatTheme.accent.opacity(0.12),
+                            shadowOpacity: 0.28
+                        )
                 }
                 .allowsHitTesting(false)
                 .transition(.opacity)
@@ -1198,68 +1581,43 @@ struct ChatView: View {
 #endif
 
     private var floatingInputPanel: some View {
+        AppLiquidGlassContainer(spacing: InputMetrics.composerRowSpacing) {
+            HStack(alignment: .bottom, spacing: InputMetrics.composerRowSpacing) {
+                if currentModelSupportsImageInput {
+                    composerAttachmentButton
+                }
+
+                composerInputBar
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .animation(.easeInOut(duration: 0.18), value: viewModel.isEditing)
+    }
+
+    private var composerInputBar: some View {
         VStack(spacing: 0) {
-            if viewModel.isEditingComposerDraft {
-                editingAccessory
+            if hasComposerSupportingContent {
+                composerSupportingPanel
                     .transition(.move(edge: .bottom).combined(with: .opacity))
-            }
 
-            if viewModel.hasQueuedDrafts {
-                queuedDraftStrip
-                    .padding(.top, 8)
-                    .padding(.horizontal, 10)
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
-            }
-
-            if !viewModel.pendingImageAttachments.isEmpty {
-                pendingAttachmentStrip
-                    .padding(.top, 8)
-                    .padding(.horizontal, 10)
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                Divider()
+                    .overlay(ChatTheme.separator.opacity(0.5))
+                    .padding(.horizontal, 12)
             }
 
             composerInputRow
                 .padding(.vertical, composerOuterVerticalPadding)
-                .padding(.leading, 10)
+                .padding(.leading, composerPanelHorizontalPadding)
                 .padding(.trailing, 10)
         }
-        .frame(maxWidth: .infinity)
-        .background(
-            RoundedRectangle(cornerRadius: 24, style: .continuous)
-                .fill(.thinMaterial)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 24, style: .continuous)
-                        .fill(PlatformColor.systemBackground.opacity(0.2))
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 24, style: .continuous)
-                        .stroke(ChatTheme.subtleStroke.opacity(0.35), lineWidth: 0.75)
-                )
-        )
-        .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
-        .background(alignment: .bottom) {
-            RoundedRectangle(cornerRadius: 28, style: .continuous)
-                .fill(Color.black.opacity(0.14))
-                .blur(radius: 24)
-                .padding(.horizontal, -18)
-                .frame(height: 38)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 28, style: .continuous)
-                        .stroke(Color.gray.opacity(0.16), lineWidth: 0.7)
-                        .blur(radius: 6)
-                )
-                .offset(y: 16)
-        }
-        .shadow(color: Color.black.opacity(0.22), radius: 12, x: 0, y: 12)
-        .shadow(color: Color.black.opacity(0.1), radius: 14, x: 10, y: 12)
-        .shadow(color: Color.black.opacity(0.1), radius: 14, x: -10, y: 12)
-        .shadow(color: Color.black.opacity(0.14), radius: 26, x: 0, y: 28)
-        .animation(.easeInOut(duration: 0.18), value: viewModel.isEditing)
+            .appChromedContainer(
+                cornerRadius: composerBarCornerRadius,
+                shadowOpacity: 0.28
+            )
     }
 
     private var composerInputRow: some View {
         HStack(alignment: .center, spacing: InputMetrics.composerRowSpacing) {
-            composerAttachmentButton
             AutoSizingTextEditor(
                 text: $viewModel.userMessage,
                 height: $textFieldHeight,
@@ -1299,52 +1657,141 @@ struct ChatView: View {
     }
 
     @ViewBuilder
+    private var composerSupportingPanel: some View {
+        VStack(spacing: composerSupportSectionSpacing) {
+            if viewModel.isEditingComposerDraft {
+                editingAccessory
+            }
+
+            if viewModel.hasQueuedDrafts {
+                queuedDraftStrip
+            }
+
+            if !viewModel.pendingImageAttachments.isEmpty {
+                pendingAttachmentStrip
+            }
+        }
+        .padding(.top, composerSupportTopPadding)
+        .padding(.bottom, composerSupportBottomPadding)
+        .padding(.horizontal, composerSupportHorizontalPadding)
+    }
+
+    @ViewBuilder
     private var composerAttachmentButton: some View {
 #if os(iOS) || os(macOS)
         if currentModelSupportsImageInput {
-            Menu {
-                Button {
-                    guard remainingPendingImageAttachmentSlots > 0 else {
-                        presentImageAttachmentLimitNotice()
-                        return
+            #if os(iOS)
+            if #available(iOS 26.0, *) {
+                ComposerAttachmentMenuButton(
+                    tintColor: UIColor(ChatTheme.accent),
+                    buttonSize: composerAttachmentButtonDiameter,
+                    glyphPointSize: composerAttachmentGlyphSize,
+                    onTakePhoto: {
+                        guard remainingPendingImageAttachmentSlots > 0 else {
+                            presentImageAttachmentLimitNotice()
+                            return
+                        }
+                        presentSystemCameraCapture()
+                    },
+                    onChoosePhotos: {
+                        guard remainingPendingImageAttachmentSlots > 0 else {
+                            presentImageAttachmentLimitNotice()
+                            return
+                        }
+                        showPhotoPicker = true
+                    },
+                    onChooseFiles: {
+                        guard remainingPendingImageAttachmentSlots > 0 else {
+                            presentImageAttachmentLimitNotice()
+                            return
+                        }
+                        showFileImporter = true
                     }
-                    presentSystemCameraCapture()
+                )
+                .frame(width: composerAttachmentButtonDiameter, height: composerAttachmentButtonDiameter)
+            } else {
+                Menu {
+                    composerAttachmentMenuActions
                 } label: {
-                    Label("Take Photo", systemImage: "camera")
+                    Label("Add image", systemImage: "plus.circle.fill")
+                        .labelStyle(.iconOnly)
+                        .font(.system(size: 26, weight: .semibold))
+                        .symbolRenderingMode(.hierarchical)
+                        .foregroundStyle(ChatTheme.accent)
+                        .frame(width: 30, height: 30)
                 }
-
-                Divider()
-
-                Button {
-                    guard remainingPendingImageAttachmentSlots > 0 else {
-                        presentImageAttachmentLimitNotice()
-                        return
-                    }
-                    showPhotoPicker = true
-                } label: {
-                    Label("Choose Photos", systemImage: "photo.on.rectangle.angled")
-                }
-
-                Button {
-                    guard remainingPendingImageAttachmentSlots > 0 else {
-                        presentImageAttachmentLimitNotice()
-                        return
-                    }
-                    showFileImporter = true
-                } label: {
-                    Label("Choose Files", systemImage: "folder")
-                }
-            } label: {
-                Image(systemName: "plus.circle.fill")
-                    .font(.system(size: 26, weight: .semibold))
-                    .symbolRenderingMode(.hierarchical)
-                    .foregroundStyle(ChatTheme.accent)
-                    .frame(width: 30, height: 30)
+                .frame(height: composerDefaultMainBarHeight, alignment: .center)
+                .contentShape(Rectangle())
+                .buttonStyle(.plain)
             }
-            .buttonStyle(.plain)
-            .accessibilityLabel(Text("Add image"))
+            #else
+            if #available(macOS 26.0, *) {
+                Menu {
+                    composerAttachmentMenuActions
+                } label: {
+                    ZStack {
+                        Circle()
+                            .fill(.clear)
+
+                        Image(systemName: "plus")
+                            .font(.system(size: composerAttachmentGlyphSize, weight: .semibold))
+                            .foregroundStyle(ChatTheme.accent)
+                    }
+                    .frame(width: composerAttachmentButtonDiameter, height: composerAttachmentButtonDiameter)
+                    .contentShape(Circle())
+                }
+                .frame(width: composerAttachmentButtonDiameter, height: composerAttachmentButtonDiameter)
+                .glassEffect(
+                    .regular.tint(ChatTheme.accent.opacity(0.12)).interactive(),
+                    in: .circle
+                )
+                .contentShape(Circle())
+                .buttonStyle(.plain)
+            } else {
+                Menu {
+                    composerAttachmentMenuActions
+                } label: {
+                    Label("Add image", systemImage: "plus.circle.fill")
+                        .labelStyle(.iconOnly)
+                        .font(.system(size: 26, weight: .semibold))
+                        .symbolRenderingMode(.hierarchical)
+                        .foregroundStyle(ChatTheme.accent)
+                        .frame(width: 30, height: 30)
+                }
+                .buttonStyle(.plain)
+            }
+            #endif
         }
 #endif
+    }
+
+    @ViewBuilder
+    private var composerAttachmentMenuActions: some View {
+        Button("Take Photo", systemImage: "camera") {
+            guard remainingPendingImageAttachmentSlots > 0 else {
+                presentImageAttachmentLimitNotice()
+                return
+            }
+            presentSystemCameraCapture()
+        }
+
+        Divider()
+
+        Button("Choose Photos", systemImage: "photo.on.rectangle.angled") {
+            guard remainingPendingImageAttachmentSlots > 0 else {
+                presentImageAttachmentLimitNotice()
+                return
+            }
+            showPhotoPicker = true
+        }
+
+        Button("Choose Files", systemImage: "folder") {
+            guard remainingPendingImageAttachmentSlots > 0 else {
+                presentImageAttachmentLimitNotice()
+                return
+            }
+            showFileImporter = true
+        }
     }
 
     private var queuedDraftStrip: some View {
@@ -1403,7 +1850,7 @@ struct ChatView: View {
             } label: {
                 Image(systemName: "trash")
                     .font(.system(size: 12, weight: .semibold))
-                    .frame(width: 22, height: 22)
+                    .frame(width: composerAccessoryTapSize, height: composerAccessoryTapSize)
                     .background(
                         Circle()
                             .fill(Color.secondary.opacity(0.075))
@@ -1429,7 +1876,7 @@ struct ChatView: View {
             } label: {
                 Image(systemName: "ellipsis")
                     .font(.system(size: 13, weight: .semibold))
-                    .frame(width: 22, height: 22)
+                    .frame(width: composerAccessoryTapSize, height: composerAccessoryTapSize)
                     .background(
                         Circle()
                             .fill(Color.secondary.opacity(0.075))
@@ -1487,19 +1934,16 @@ struct ChatView: View {
                     Image(systemName: "xmark.circle.fill")
                         .font(.system(size: 18, weight: .semibold))
                         .foregroundStyle(.secondary)
+                        .frame(width: composerAccessoryTapSize, height: composerAccessoryTapSize)
+                        .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Cancel editing and restore the conversation")
                 .help("Cancel editing and restore the conversation")
             }
-            .padding(.top, 10)
-            .padding(.bottom, 8)
+            .padding(.top, 8)
+            .padding(.bottom, 6)
             .padding(.horizontal, 12)
-
-            Divider()
-                .overlay(ChatTheme.separator.opacity(0.65))
-                .padding(.leading, 12)
-                .padding(.trailing, 12)
         }
         .background(
             GeometryReader { proxy in
@@ -1561,26 +2005,35 @@ struct ChatView: View {
                 .buttonStyle(.plain)
             }
         }
-        .frame(minHeight: 38)
+        .frame(height: composerDefaultTrailingButtonTrackHeight, alignment: .center)
+        .offset(y: max(0, (floatingInputButtonHeight - composerDefaultTrailingButtonTrackHeight) * 0.5))
     }
 
     private var scrollToBottomButton: some View {
         Button {
             scrollToBottom()
         } label: {
-            Image(systemName: "arrow.down")
-                .font(.system(size: 18, weight: .semibold))
-                .frame(width: scrollButtonSize, height: scrollButtonSize)
-                .contentShape(Circle())
-                .background(
-                    Circle()
-                        .fill(.ultraThinMaterial)
-                )
-                .overlay(
-                    Circle()
-                        .stroke(ChatTheme.subtleStroke.opacity(0.5), lineWidth: 0.6)
-                )
-                .shadow(color: Color.black.opacity(0.12), radius: 10, x: 0, y: 6)
+            if #available(iOS 26.0, macOS 26.0, tvOS 26.0, visionOS 26.0, *) {
+                Image(systemName: "arrow.down")
+                    .font(.system(size: 18, weight: .semibold))
+                    .frame(width: scrollButtonSize, height: scrollButtonSize)
+                    .glassEffect(.regular.interactive(), in: .circle)
+                    .contentShape(Circle())
+            } else {
+                Image(systemName: "arrow.down")
+                    .font(.system(size: 18, weight: .semibold))
+                    .frame(width: scrollButtonSize, height: scrollButtonSize)
+                    .contentShape(Circle())
+                    .background(
+                        Circle()
+                            .fill(.ultraThinMaterial)
+                    )
+                    .overlay(
+                        Circle()
+                            .stroke(ChatTheme.subtleStroke.opacity(0.5), lineWidth: 0.6)
+                    )
+                    .shadow(color: Color.black.opacity(0.12), radius: 10, x: 0, y: 6)
+            }
         }
         .buttonStyle(.plain)
         .foregroundStyle(.primary)
@@ -2407,6 +2860,91 @@ struct ChatView: View {
 
 // MARK: - Preview
 
+private struct ChatViewAttachmentPreviewScene: View {
+    private let settingsManager: SettingsManager
+    private let speechManager: SpeechInputManager
+    private let overlayVM: VoiceChatOverlayViewModel
+    private let session: ChatSession
+
+    init() {
+        let settingsManager = SettingsManager.shared
+        settingsManager.updateChatSettings(apiURL: settingsManager.chatSettings.apiURL, selectedModel: "gpt-5")
+        self.settingsManager = settingsManager
+
+        let speechManager = SpeechInputManager()
+        self.speechManager = speechManager
+
+        self.overlayVM = VoiceChatOverlayViewModel(
+            speechInputManager: speechManager,
+            audioManager: GlobalAudioManager.shared,
+            errorCenter: AppErrorCenter.shared,
+            settingsManager: settingsManager,
+            reachabilityMonitor: ServerReachabilityMonitor.shared
+        )
+        self.session = ChatSession()
+    }
+
+    var body: some View {
+        ChatView(viewModel: ChatViewModel(chatSession: session))
+            .modelContainer(for: [ChatSession.self, ChatMessage.self, AppSettings.self], inMemory: true)
+            .environmentObject(GlobalAudioManager.shared)
+            .environmentObject(settingsManager)
+            .environmentObject(ChatSessionsViewModel())
+            .environmentObject(speechManager)
+            .environmentObject(overlayVM)
+            .environmentObject(AppErrorCenter.shared)
+    }
+}
+
+private struct ChatViewSupportingContentPreviewScene: View {
+    private let settingsManager: SettingsManager
+    private let speechManager: SpeechInputManager
+    private let overlayVM: VoiceChatOverlayViewModel
+    private let viewModel: ChatViewModel
+
+    init() {
+        let settingsManager = SettingsManager.shared
+        settingsManager.updateChatSettings(apiURL: settingsManager.chatSettings.apiURL, selectedModel: "gpt-5")
+        self.settingsManager = settingsManager
+
+        let speechManager = SpeechInputManager()
+        self.speechManager = speechManager
+
+        self.overlayVM = VoiceChatOverlayViewModel(
+            speechInputManager: speechManager,
+            audioManager: GlobalAudioManager.shared,
+            errorCenter: AppErrorCenter.shared,
+            settingsManager: settingsManager,
+            reachabilityMonitor: ServerReachabilityMonitor.shared
+        )
+
+        let session = ChatSession()
+        let viewModel = ChatViewModel(chatSession: session)
+        viewModel.userMessage = "待发送的草稿"
+        _ = viewModel.enqueueCurrentDraft()
+        viewModel.pendingImageAttachments = [
+            ChatImageAttachment(
+                mimeType: "image/png",
+                data: Data(base64Encoded: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jW7QAAAAASUVORK5CYII=") ?? Data()
+            )
+        ]
+        viewModel.userMessage = "正在编辑的消息"
+        viewModel.editingBaseMessageID = UUID()
+        self.viewModel = viewModel
+    }
+
+    var body: some View {
+        ChatView(viewModel: viewModel)
+            .modelContainer(for: [ChatSession.self, ChatMessage.self, AppSettings.self], inMemory: true)
+            .environmentObject(GlobalAudioManager.shared)
+            .environmentObject(settingsManager)
+            .environmentObject(ChatSessionsViewModel())
+            .environmentObject(speechManager)
+            .environmentObject(overlayVM)
+            .environmentObject(AppErrorCenter.shared)
+    }
+}
+
 #Preview {
     let session = ChatSession()
     let speechManager = SpeechInputManager()
@@ -2426,4 +2964,12 @@ struct ChatView: View {
         .environmentObject(speechManager)
         .environmentObject(overlayVM)
         .environmentObject(AppErrorCenter.shared)
+}
+
+#Preview("Composer With Attachment", traits: .fixedLayout(width: 900, height: 240)) {
+    ChatViewAttachmentPreviewScene()
+}
+
+#Preview("Composer With Supporting Content", traits: .fixedLayout(width: 900, height: 340)) {
+    ChatViewSupportingContentPreviewScene()
 }

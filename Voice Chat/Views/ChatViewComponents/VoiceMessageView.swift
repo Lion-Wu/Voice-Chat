@@ -806,6 +806,14 @@ private struct ChatImageAttachmentItem: View {
     let onPreview: (ChatImageAttachment) -> Void
     let onRemove: ((ChatImageAttachment) -> Void)?
 
+    private var removeTapSize: CGFloat {
+        #if os(iOS) || os(tvOS)
+        return 32
+        #else
+        return 28
+        #endif
+    }
+
     var body: some View {
         ZStack(alignment: .topTrailing) {
             Button {
@@ -842,7 +850,8 @@ private struct ChatImageAttachmentItem: View {
                         .font(.system(size: 18, weight: .semibold))
                         .symbolRenderingMode(.palette)
                         .foregroundStyle(.white, .black.opacity(0.65))
-                        .padding(4)
+                        .frame(width: removeTapSize, height: removeTapSize)
+                        .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel(Text("Remove image"))

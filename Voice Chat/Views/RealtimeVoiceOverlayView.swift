@@ -80,23 +80,12 @@ struct RealtimeVoiceOverlayView: View {
 
     var body: some View {
         ZStack {
-            PlatformColor.systemBackground
-                .ignoresSafeArea()
+            AppBackgroundView()
 
             VStack(spacing: 28) {
                 HStack {
                     Spacer()
-                    Button {
-                        closeOverlay()
-                    } label: {
-                        Image(systemName: "xmark.circle.fill")
-                            .font(.system(size: 28, weight: .semibold))
-                            .foregroundStyle(circleBaseColor.opacity(0.92))
-                            .shadow(radius: 6)
-                            .padding(8)
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Close realtime voice overlay")
+                    closeButton
                 }
                 .padding(.top, 8)
                 .padding(.horizontal, 8)
@@ -151,10 +140,7 @@ struct RealtimeVoiceOverlayView: View {
                         }
                         .padding(.horizontal, 24)
                         .padding(.vertical, 10)
-                        .background(
-                            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                                .fill(.ultraThinMaterial)
-                        )
+                        .appChromedContainer(cornerRadius: 14, tint: .red.opacity(0.06), interactive: true, shadowOpacity: 0.3)
                     }
                     .buttonStyle(.plain)
                     .contentShape(Rectangle())
@@ -170,20 +156,25 @@ struct RealtimeVoiceOverlayView: View {
             teardown()
         }
         .safeAreaInset(edge: .bottom) {
-            VStack(spacing: 16) {
-                Picker("", selection: Binding(
-                    get: { viewModel.selectedLanguage },
-                    set: { viewModel.updateLanguage($0) }
-                )) {
-                    ForEach(viewModel.availableLanguages) { language in
-                        Text(language.defaultDisplayName).tag(language)
+            AppLiquidGlassContainer(spacing: 20) {
+                VStack(spacing: 16) {
+                    Picker("", selection: Binding(
+                        get: { viewModel.selectedLanguage },
+                        set: { viewModel.updateLanguage($0) }
+                    )) {
+                        ForEach(viewModel.availableLanguages) { language in
+                            Text(language.defaultDisplayName).tag(language)
+                        }
                     }
+                    .pickerStyle(.segmented)
+                    .frame(maxWidth: 320)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 12)
+                    .appChromedContainer(cornerRadius: 22, shadowOpacity: 0.32)
                 }
-                .pickerStyle(.segmented)
-                .frame(maxWidth: 320)
-                .padding(.vertical, 8)
+                .frame(maxWidth: .infinity)
+                .padding(.bottom, 8)
             }
-            .frame(maxWidth: .infinity)
         }
         .overlay(alignment: .bottom) {
             if !errorCenter.notices.isEmpty {
@@ -208,6 +199,54 @@ struct RealtimeVoiceOverlayView: View {
         .onReceive(viewModel.outputLevelPublisher) { newLevel in
             handleOutputLevelChange(newLevel)
         }
+    }
+
+    @ViewBuilder
+    private var closeButton: some View {
+#if os(iOS) || os(tvOS)
+        if #available(iOS 26.0, tvOS 26.0, *) {
+            Button {
+                closeOverlay()
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 15, weight: .semibold))
+            }
+            .buttonStyle(.glass)
+            .buttonBorderShape(.circle)
+            .controlSize(.large)
+            .labelStyle(.iconOnly)
+            .accessibilityLabel("Close realtime voice overlay")
+        } else {
+            legacyCloseButton
+        }
+#else
+        legacyCloseButton
+#endif
+    }
+
+    private var legacyCloseButton: some View {
+        Button {
+            closeOverlay()
+        } label: {
+            Image(systemName: "xmark")
+                .font(.system(size: 17, weight: .bold))
+                .foregroundStyle(circleBaseColor.opacity(0.92))
+                .frame(width: 18, height: 18)
+                .frame(width: closeButtonSize, height: closeButtonSize)
+                .contentShape(Circle())
+                .appChromedContainer(
+                    cornerRadius: closeButtonSize * 0.5,
+                    tint: colorScheme == .dark ? .white.opacity(0.08) : .black.opacity(0.04),
+                    interactive: true,
+                    shadowOpacity: 0.35
+                )
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Close realtime voice overlay")
+    }
+
+    private var closeButtonSize: CGFloat {
+        AppChromeMetrics.floatingCloseButtonSize
     }
 
     // MARK: - Lifecycle helpers
