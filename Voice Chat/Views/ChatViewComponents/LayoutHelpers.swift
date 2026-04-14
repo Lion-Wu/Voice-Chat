@@ -7,7 +7,7 @@
 
 import SwiftUI
 
-#if os(iOS) || os(tvOS) || os(watchOS)
+#if os(iOS) || os(tvOS) || os(watchOS) || os(visionOS)
 import UIKit
 #endif
 
@@ -16,6 +16,9 @@ func contentMaxWidthForAssistant(availableWidth: CGFloat? = nil) -> CGFloat {
     #if os(macOS)
     let maximumWidth: CGFloat = 900
     let horizontalInset: CGFloat = 80
+    #elseif os(visionOS)
+    let maximumWidth: CGFloat = 760
+    let horizontalInset: CGFloat = 40
     #else
     let maximumWidth: CGFloat = 680
     let horizontalInset: CGFloat = 16
@@ -42,6 +45,8 @@ func contentColumnMaxWidth(availableWidth: CGFloat? = nil) -> CGFloat {
 func composerPanelMaxWidth(availableWidth: CGFloat? = nil) -> CGFloat {
     #if os(macOS)
     let additionalWidth: CGFloat = 64
+    #elseif os(visionOS)
+    let additionalWidth: CGFloat = 88
     #else
     let additionalWidth: CGFloat = isPhone() ? 24 : 48
     #endif
@@ -60,7 +65,7 @@ func platformMaxLines() -> Int {
     #endif
 }
 
-#if os(iOS) || os(tvOS)
+#if os(iOS) || os(tvOS) || os(visionOS)
 @MainActor
 func isPhone() -> Bool {
     return UIDevice.current.userInterfaceIdiom == .phone

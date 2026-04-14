@@ -5,7 +5,7 @@
 
 @preconcurrency import Foundation
 
-#if os(iOS) || os(tvOS) || os(watchOS)
+#if os(iOS) || os(tvOS) || os(watchOS) || os(visionOS)
 @preconcurrency import UIKit
 #elseif os(macOS)
 @preconcurrency import AppKit
@@ -303,7 +303,7 @@ final class MarkdownRenderCache: @unchecked Sendable {
 }
 
 func boldFont(from font: MarkdownPlatformFont) -> MarkdownPlatformFont {
-    #if os(iOS) || os(tvOS) || os(watchOS)
+    #if os(iOS) || os(tvOS) || os(watchOS) || os(visionOS)
     return fontByAddingTraits(font, traits: .traitBold)
     #elseif os(macOS)
     return fontByAddingTraits(font, traits: .bold)
@@ -311,7 +311,7 @@ func boldFont(from font: MarkdownPlatformFont) -> MarkdownPlatformFont {
 }
 
 func italicFont(from font: MarkdownPlatformFont) -> MarkdownPlatformFont {
-    #if os(iOS) || os(tvOS) || os(watchOS)
+    #if os(iOS) || os(tvOS) || os(watchOS) || os(visionOS)
     return fontByAddingTraits(font, traits: .traitItalic)
     #elseif os(macOS)
     return fontByAddingTraits(font, traits: .italic)
@@ -322,7 +322,7 @@ func fontByAddingTraits(
     _ font: MarkdownPlatformFont,
     traits: MarkdownFontTraits
 ) -> MarkdownPlatformFont {
-    #if os(iOS) || os(tvOS) || os(watchOS)
+    #if os(iOS) || os(tvOS) || os(watchOS) || os(visionOS)
     let combinedTraits = font.fontDescriptor.symbolicTraits.union(traits)
     guard let descriptor = font.fontDescriptor.withSymbolicTraits(combinedTraits) else { return font }
     return MarkdownPlatformFont(descriptor: descriptor, size: font.pointSize)

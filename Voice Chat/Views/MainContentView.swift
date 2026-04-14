@@ -5,7 +5,7 @@
 //  Created by Lion Wu on 2025/2/19.
 //
 
-#if os(iOS) || os(tvOS)
+#if os(iOS) || os(tvOS) || os(visionOS)
 
 import Foundation
 import SwiftUI

@@ -5,7 +5,7 @@
 
 @preconcurrency import Foundation
 
-#if os(iOS) || os(tvOS) || os(watchOS)
+#if os(iOS) || os(tvOS) || os(watchOS) || os(visionOS)
 @preconcurrency import UIKit
 #elseif os(macOS)
 @preconcurrency import AppKit
@@ -2931,13 +2931,13 @@ private func applyFontOverride(
     case .boldItalic:
         return italicFont(from: boldFont(from: font))
     case .sansSerif:
-        #if os(iOS) || os(tvOS) || os(watchOS)
+        #if os(iOS) || os(tvOS) || os(watchOS) || os(visionOS)
         return MarkdownPlatformFont.systemFont(ofSize: font.pointSize)
         #elseif os(macOS)
         return MarkdownPlatformFont.systemFont(ofSize: font.pointSize)
         #endif
     case .monospaced:
-        #if os(iOS) || os(tvOS) || os(watchOS)
+        #if os(iOS) || os(tvOS) || os(watchOS) || os(visionOS)
         return MarkdownPlatformFont.monospacedSystemFont(ofSize: font.pointSize, weight: .regular)
         #elseif os(macOS)
         return MarkdownPlatformFont.monospacedSystemFont(ofSize: font.pointSize, weight: .regular)
@@ -2951,7 +2951,7 @@ private func mathSerifFont(
     size: CGFloat,
     override: MarkdownMathFontOverride
 ) -> MarkdownPlatformFont {
-    #if os(iOS) || os(tvOS) || os(watchOS)
+    #if os(iOS) || os(tvOS) || os(watchOS) || os(visionOS)
     let base = MarkdownPlatformFont(name: "Times New Roman", size: size)
         ?? MarkdownPlatformFont.systemFont(ofSize: size)
     #elseif os(macOS)
@@ -2962,7 +2962,7 @@ private func mathSerifFont(
 }
 
 private func fontAscender(_ font: MarkdownPlatformFont) -> CGFloat {
-    #if os(iOS) || os(tvOS) || os(watchOS)
+    #if os(iOS) || os(tvOS) || os(watchOS) || os(visionOS)
     return ceil(font.ascender)
     #elseif os(macOS)
     return ceil(font.ascender)
@@ -2991,7 +2991,7 @@ private func opticalAlignmentAxis(
 }
 
 private func removeItalicTrait(_ font: MarkdownPlatformFont) -> MarkdownPlatformFont {
-    #if os(iOS) || os(tvOS) || os(watchOS)
+    #if os(iOS) || os(tvOS) || os(watchOS) || os(visionOS)
     let traits = font.fontDescriptor.symbolicTraits.subtracting(.traitItalic)
     guard let descriptor = font.fontDescriptor.withSymbolicTraits(traits) else { return font }
     return MarkdownPlatformFont(descriptor: descriptor, size: font.pointSize)
@@ -3052,7 +3052,7 @@ private extension Character {
 }
 
 private func mathColorsEqual(_ lhs: MarkdownPlatformColor, _ rhs: MarkdownPlatformColor) -> Bool {
-    #if os(iOS) || os(tvOS) || os(watchOS)
+    #if os(iOS) || os(tvOS) || os(watchOS) || os(visionOS)
     var leftRed: CGFloat = 0
     var leftGreen: CGFloat = 0
     var leftBlue: CGFloat = 0
