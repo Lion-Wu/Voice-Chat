@@ -6,7 +6,7 @@
 @preconcurrency import Foundation
 import SwiftUI
 
-#if os(iOS) || os(tvOS) || os(watchOS)
+#if os(iOS) || os(tvOS) || os(watchOS) || os(visionOS)
 @preconcurrency import UIKit
 #elseif os(macOS)
 @preconcurrency import AppKit
@@ -17,7 +17,7 @@ extension MarkdownPlatformColor {
         let red = CGFloat((hex >> 16) & 0xff) / 255
         let green = CGFloat((hex >> 8) & 0xff) / 255
         let blue = CGFloat(hex & 0xff) / 255
-        #if os(iOS) || os(tvOS) || os(watchOS)
+        #if os(iOS) || os(tvOS) || os(watchOS) || os(visionOS)
         return MarkdownPlatformColor(red: red, green: green, blue: blue, alpha: alpha)
         #elseif os(macOS)
         return MarkdownPlatformColor(srgbRed: red, green: green, blue: blue, alpha: alpha)
@@ -25,7 +25,7 @@ extension MarkdownPlatformColor {
     }
 
     func markdownWithAlpha(_ alpha: CGFloat) -> MarkdownPlatformColor {
-        #if os(iOS) || os(tvOS) || os(watchOS)
+        #if os(iOS) || os(tvOS) || os(watchOS) || os(visionOS)
         return withAlphaComponent(alpha)
         #elseif os(macOS)
         return withAlphaComponent(alpha)
@@ -33,7 +33,7 @@ extension MarkdownPlatformColor {
     }
 
     var markdownAlpha: CGFloat {
-        #if os(iOS) || os(tvOS) || os(watchOS)
+        #if os(iOS) || os(tvOS) || os(watchOS) || os(visionOS)
         return cgColor.alpha
         #elseif os(macOS)
         return usingColorSpace(.sRGB)?.alphaComponent ?? alphaComponent
@@ -80,7 +80,7 @@ struct MarkdownStyle: @unchecked Sendable {
         _ = sizeCategory
         let palette = Self.palette(for: colorScheme)
 
-        #if os(iOS) || os(tvOS) || os(watchOS)
+        #if os(iOS) || os(tvOS) || os(watchOS) || os(visionOS)
         let baseFont = MarkdownPlatformFont.preferredFont(forTextStyle: .body)
         let codeFont = MarkdownPlatformFont.monospacedSystemFont(ofSize: baseFont.pointSize * 0.9, weight: .regular)
         #elseif os(macOS)
@@ -136,7 +136,7 @@ struct MarkdownStyle: @unchecked Sendable {
         alignment: NSTextAlignment = .natural
     ) -> NSMutableParagraphStyle {
         let style = NSMutableParagraphStyle()
-        #if os(iOS) || os(tvOS) || os(watchOS)
+        #if os(iOS) || os(tvOS) || os(watchOS) || os(visionOS)
         style.lineBreakMode = .byWordWrapping
         #endif
         style.lineSpacing = lineSpacing
@@ -163,7 +163,7 @@ struct MarkdownStyle: @unchecked Sendable {
     }
 
     private static func palette(for scheme: ColorScheme) -> Palette {
-        #if os(iOS) || os(tvOS)
+        #if os(iOS) || os(tvOS) || os(visionOS)
         if scheme == .dark {
             return Palette(
                 text: MarkdownPlatformColor.markdownHex(0xffffff),

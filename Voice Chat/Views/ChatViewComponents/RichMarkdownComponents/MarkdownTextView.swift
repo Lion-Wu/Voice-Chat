@@ -6,7 +6,7 @@
 @preconcurrency import Foundation
 import SwiftUI
 
-#if os(iOS) || os(tvOS) || os(watchOS)
+#if os(iOS) || os(tvOS) || os(watchOS) || os(visionOS)
 @preconcurrency import UIKit
 
 typealias MarkdownPlatformTextView = UITextView
@@ -92,6 +92,11 @@ final class MarkdownUIKitTextView: UITextView {
     private var cachedIntrinsicHeight: CGFloat = 0
     private var needsIntrinsicRecalc: Bool = true
 
+    private var fallbackLayoutWidth: CGFloat {
+        let preservedWidth = max(bounds.width, max(lastWidth, cachedIntrinsicWidth))
+        return preservedWidth > 1 ? preservedWidth : 320
+    }
+
     override func layoutSubviews() {
         super.layoutSubviews()
         #if os(iOS)
@@ -108,7 +113,7 @@ final class MarkdownUIKitTextView: UITextView {
     }
 
     override var intrinsicContentSize: CGSize {
-        let targetWidth = bounds.width > 0 ? bounds.width : UIScreen.main.bounds.width
+        let targetWidth = bounds.width > 0 ? bounds.width : fallbackLayoutWidth
         if needsIntrinsicRecalc || abs(targetWidth - cachedIntrinsicWidth) > 0.5 || cachedIntrinsicHeight <= 0.5 {
             cachedIntrinsicWidth = targetWidth
             cachedIntrinsicHeight = computeFullHeight(forWidth: targetWidth)
@@ -118,7 +123,7 @@ final class MarkdownUIKitTextView: UITextView {
     }
 
     func markLayoutChanged(changedRange: NSRange?) {
-        let targetWidth = bounds.width > 0 ? bounds.width : UIScreen.main.bounds.width
+        let targetWidth = bounds.width > 0 ? bounds.width : fallbackLayoutWidth
         updateTextContainerSize(for: targetWidth)
         if abs(targetWidth - cachedIntrinsicWidth) > 0.5 {
             cachedIntrinsicWidth = targetWidth
@@ -132,7 +137,7 @@ final class MarkdownUIKitTextView: UITextView {
 
         let insets = verticalInsets
 
-        #if os(iOS) || os(tvOS)
+        #if os(iOS) || os(tvOS) || os(visionOS)
         if #available(iOS 16.0, tvOS 16.0, *),
            let textLayoutManager = self.textLayoutManager,
            let documentRange = textLayoutManager.textContentManager?.documentRange,
@@ -200,7 +205,7 @@ final class MarkdownUIKitTextView: UITextView {
         updateTextContainerSize(for: width)
         let insets = verticalInsets
 
-        #if os(iOS) || os(tvOS)
+        #if os(iOS) || os(tvOS) || os(visionOS)
         if #available(iOS 16.0, tvOS 16.0, *),
            let textLayoutManager = self.textLayoutManager,
            let documentRange = textLayoutManager.textContentManager?.documentRange {
@@ -303,7 +308,7 @@ final class MarkdownUIKitTextView: UITextView {
     }
 
     deinit {
-        #if os(iOS) || os(tvOS)
+        #if os(iOS) || os(tvOS) || os(visionOS)
         NotificationCenter.default.removeObserver(self, name: UIApplication.willEnterForegroundNotification, object: nil)
         #endif
     }
@@ -340,7 +345,7 @@ final class MarkdownUIKitTextView: UITextView {
         if #available(iOS 17.0, tvOS 17.0, *) {
             registerForTraitChanges([UITraitUserInterfaceStyle.self], target: self, action: #selector(handleTraitChange))
         }
-        #if os(iOS) || os(tvOS)
+        #if os(iOS) || os(tvOS) || os(visionOS)
         NotificationCenter.default.addObserver(
             self,
             selector: #selector(handleForegroundNotification),

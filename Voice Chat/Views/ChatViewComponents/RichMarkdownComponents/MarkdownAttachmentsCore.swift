@@ -5,7 +5,7 @@
 
 @preconcurrency import Foundation
 
-#if os(iOS) || os(tvOS) || os(watchOS)
+#if os(iOS) || os(tvOS) || os(watchOS) || os(visionOS)
 @preconcurrency import UIKit
 #elseif os(macOS)
 @preconcurrency import AppKit
@@ -65,7 +65,7 @@ enum MarkdownAttachmentViewProviderRegistry {
     }
 
     private static let registerOnce: Void = {
-        #if os(iOS) || os(tvOS)
+        #if os(iOS) || os(tvOS) || os(visionOS)
         if #available(iOS 15.0, tvOS 15.0, *) {
             NSTextAttachment.registerViewProviderClass(
                 MarkdownAttachmentViewProvider.self,
@@ -154,7 +154,7 @@ struct MarkdownTableStyle {
     let cellPadding: CGSize
 
     static func fallback() -> MarkdownTableStyle {
-        #if os(iOS) || os(tvOS) || os(watchOS)
+        #if os(iOS) || os(tvOS) || os(watchOS) || os(visionOS)
         let baseFont = MarkdownPlatformFont.systemFont(ofSize: MarkdownPlatformFont.systemFontSize)
         #elseif os(macOS)
         let baseFont = MarkdownPlatformFont.systemFont(ofSize: MarkdownPlatformFont.systemFontSize)

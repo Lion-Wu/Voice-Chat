@@ -7,11 +7,11 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		A9C4B2103F8A4D2200C0DE02 /* MacCameraCaptureSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9C4B2103F8A4D2200C0DE01 /* MacCameraCaptureSheet.swift */; };
 		127355D0ADD6A6B0D5494FD8 /* MarkdownAttachmentsCore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9E3106DB55A775AF7BE384A /* MarkdownAttachmentsCore.swift */; };
 		2C90EB6374B89DA85430464C /* MarkdownStyle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 221380AED73400A2E5CF1BF5 /* MarkdownStyle.swift */; };
 		5C865DE17CD6A6FA07787148 /* MarkdownAttachments.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7AEA24E21CCE3BFA49920260 /* MarkdownAttachments.swift */; };
 		9531A726E227629A33E3B380 /* KeychainStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 219680AEAF301A24A236086F /* KeychainStore.swift */; };
+		A9C4B2103F8A4D2200C0DE02 /* MacCameraCaptureSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9C4B2103F8A4D2200C0DE01 /* MacCameraCaptureSheet.swift */; };
 		AE2A1D0A31C597D5386EF5B3 /* MarkdownTextCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2B1C505F6C6E82CEFFD96AAE /* MarkdownTextCoordinator.swift */; };
 		B0013EBDCC58A5723A3B434D /* MarkdownUtilities.swift in Sources */ = {isa = PBXBuildFile; fileRef = CFA25ED1E52CB2CA427EFFE1 /* MarkdownUtilities.swift */; };
 		B329D65B2B394979000A17C9 /* Voice_ChatApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = B329D65A2B394979000A17C9 /* Voice_ChatApp.swift */; };
@@ -83,7 +83,6 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
-		A9C4B2103F8A4D2200C0DE01 /* MacCameraCaptureSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacCameraCaptureSheet.swift; sourceTree = "<group>"; };
 		219680AEAF301A24A236086F /* KeychainStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeychainStore.swift; sourceTree = "<group>"; };
 		221380AED73400A2E5CF1BF5 /* MarkdownStyle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownStyle.swift; sourceTree = "<group>"; };
 		27E86C1B8F2522CFBCEA84C5 /* MarkdownAttachmentViewsAppKit.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownAttachmentViewsAppKit.swift; sourceTree = "<group>"; };
@@ -92,11 +91,7 @@
 		7AEA24E21CCE3BFA49920260 /* MarkdownAttachments.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownAttachments.swift; sourceTree = "<group>"; };
 		92A53B05B12C4E0689036C84 /* TextSelectionSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextSelectionSheet.swift; sourceTree = "<group>"; };
 		9FD5410AC9490AAD00A24145 /* MarkdownTextView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownTextView.swift; sourceTree = "<group>"; };
-		B7A0A0113A10000100AA0001 /* MarkdownMathPreprocessor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownMathPreprocessor.swift; sourceTree = "<group>"; };
-		B7A0A0123A10000100AA0001 /* MarkdownMathCore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownMathCore.swift; sourceTree = "<group>"; };
-		B7A0A0133A10000100AA0001 /* MarkdownMathAttachment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownMathAttachment.swift; sourceTree = "<group>"; };
-		B7A0A0143A10000100AA0001 /* MarkdownMathViewsUIKit.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownMathViewsUIKit.swift; sourceTree = "<group>"; };
-		B7A0A0153A10000100AA0001 /* MarkdownMathViewsAppKit.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownMathViewsAppKit.swift; sourceTree = "<group>"; };
+		A9C4B2103F8A4D2200C0DE01 /* MacCameraCaptureSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacCameraCaptureSheet.swift; sourceTree = "<group>"; };
 		B329D6572B394979000A17C9 /* Voice Chat.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Voice Chat.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		B329D65A2B394979000A17C9 /* Voice_ChatApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Voice_ChatApp.swift; sourceTree = "<group>"; };
 		B329D65E2B39497A000A17C9 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
@@ -104,6 +99,11 @@
 		B4A629582B59617A006125B5 /* ChatViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatViewModel.swift; sourceTree = "<group>"; };
 		B4E916D42B4BDBD900E49A6B /* ChatModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatModel.swift; sourceTree = "<group>"; };
 		B4E916DE2B4BF0E500E49A6B /* VoiceViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceViewModel.swift; sourceTree = "<group>"; };
+		B7A0A0113A10000100AA0001 /* MarkdownMathPreprocessor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownMathPreprocessor.swift; sourceTree = "<group>"; };
+		B7A0A0123A10000100AA0001 /* MarkdownMathCore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownMathCore.swift; sourceTree = "<group>"; };
+		B7A0A0133A10000100AA0001 /* MarkdownMathAttachment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownMathAttachment.swift; sourceTree = "<group>"; };
+		B7A0A0143A10000100AA0001 /* MarkdownMathViewsUIKit.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownMathViewsUIKit.swift; sourceTree = "<group>"; };
+		B7A0A0153A10000100AA0001 /* MarkdownMathViewsAppKit.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownMathViewsAppKit.swift; sourceTree = "<group>"; };
 		B9E3106DB55A775AF7BE384A /* MarkdownAttachmentsCore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownAttachmentsCore.swift; sourceTree = "<group>"; };
 		CFA25ED1E52CB2CA427EFFE1 /* MarkdownUtilities.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownUtilities.swift; sourceTree = "<group>"; };
 		D4570041CD56B63DCA44B5C0 /* AppChrome.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppChrome.swift; sourceTree = "<group>"; };
@@ -638,7 +638,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = NO;
-					"CODE_SIGN_ENTITLEMENTS[sdk=macosx*]" = "Voice Chat/Voice Chat.entitlements";
+				"CODE_SIGN_ENTITLEMENTS[sdk=macosx*]" = "Voice Chat/Voice Chat.entitlements";
 				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "-";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
@@ -656,8 +656,8 @@
 				ENABLE_RESOURCE_ACCESS_PRINTING = NO;
 				ENABLE_RESOURCE_ACCESS_USB = NO;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_NSCameraUsageDescription = "使用系统相机拍照导入图片";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
+				INFOPLIST_KEY_NSCameraUsageDescription = "使用系统相机拍照导入图片";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "使用麦克风";
 				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "使用语音识别";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
@@ -675,13 +675,14 @@
 				PRODUCT_BUNDLE_IDENTIFIER = "com.Lion-Wu.Voice-Chat";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				REGISTER_APP_GROUPS = NO;
-				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx";
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx xros xrsimulator";
 				SUPPORTS_MACCATALYST = NO;
 				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
 				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = NO;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 6.0;
-				TARGETED_DEVICE_FAMILY = "1,2";
+				TARGETED_DEVICE_FAMILY = "1,2,7";
+				XROS_DEPLOYMENT_TARGET = 2.6;
 			};
 			name = Debug;
 		};
@@ -691,7 +692,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = NO;
-					"CODE_SIGN_ENTITLEMENTS[sdk=macosx*]" = "Voice Chat/Voice Chat.entitlements";
+				"CODE_SIGN_ENTITLEMENTS[sdk=macosx*]" = "Voice Chat/Voice Chat.entitlements";
 				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "-";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
@@ -709,8 +710,8 @@
 				ENABLE_RESOURCE_ACCESS_PRINTING = NO;
 				ENABLE_RESOURCE_ACCESS_USB = NO;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_NSCameraUsageDescription = "使用系统相机拍照导入图片";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
+				INFOPLIST_KEY_NSCameraUsageDescription = "使用系统相机拍照导入图片";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "使用麦克风";
 				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "使用语音识别";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
@@ -728,13 +729,14 @@
 				PRODUCT_BUNDLE_IDENTIFIER = "com.Lion-Wu.Voice-Chat";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				REGISTER_APP_GROUPS = NO;
-				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx";
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx xros xrsimulator";
 				SUPPORTS_MACCATALYST = NO;
 				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
 				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = NO;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 6.0;
-				TARGETED_DEVICE_FAMILY = "1,2";
+				TARGETED_DEVICE_FAMILY = "1,2,7";
+				XROS_DEPLOYMENT_TARGET = 2.6;
 			};
 			name = Release;
 		};

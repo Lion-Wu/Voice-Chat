@@ -35,7 +35,11 @@ final class AudioDisplayLinkDriver {
             self?.onTick()
         }
         let displayLink = CADisplayLink(target: proxy, selector: #selector(AudioDisplayLinkProxy.handleDisplayLink))
+        #if os(visionOS)
+        displayLink.preferredFramesPerSecond = 60
+        #else
         displayLink.preferredFramesPerSecond = max(UIScreen.main.maximumFramesPerSecond, 60)
+        #endif
         displayLink.add(to: .main, forMode: .common)
         self.proxy = proxy
         self.displayLink = displayLink

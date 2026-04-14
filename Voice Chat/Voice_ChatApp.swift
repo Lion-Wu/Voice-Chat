@@ -53,6 +53,10 @@ struct Voice_ChatApp: App {
                     .modelContainer(container)
             }
         }
+        #if os(visionOS)
+        .defaultSize(width: 1400, height: 900)
+        .windowResizability(.contentMinSize)
+        #endif
         .onChange(of: scenePhase) { _, newPhase in
             appEnvironment.updatePersistenceMode(for: newPhase)
         }

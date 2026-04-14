@@ -6,12 +6,12 @@
 //
 
 import SwiftUI
-#if os(iOS) || os(macOS)
+#if os(iOS) || os(macOS) || os(visionOS)
 import QuickLook
 import UniformTypeIdentifiers
 #endif
 import ImageIO
-#if os(iOS) || os(tvOS) || os(watchOS)
+#if os(iOS) || os(tvOS) || os(watchOS) || os(visionOS)
 import UIKit
 #elseif os(macOS)
 import AppKit
@@ -129,7 +129,7 @@ struct VoiceMessageView: View {
                 onEditUserMessage: onEditUserMessage,
                 copyToClipboard: copyToClipboard
             ))
-#if os(iOS) || os(macOS)
+#if os(iOS) || os(macOS) || os(visionOS)
             .quickLookPreview($messagePreviewFileURL)
             .onChange(of: messagePreviewFileURL) { oldValue, newValue in
                 guard oldValue != newValue else { return }
@@ -152,13 +152,17 @@ struct VoiceMessageView: View {
         #endif
     }
 
-    #if os(iOS) || os(macOS)
+    #if os(iOS) || os(macOS) || os(visionOS)
     private func presentMessageAttachmentPreview(_ attachment: ChatImageAttachment) {
         let previous = messagePreviewFileURL
         messagePreviewFileURL = ChatImageQuickLookSupport.prepareTemporaryPreviewURL(for: attachment)
         if previous != messagePreviewFileURL {
             ChatImageQuickLookSupport.cleanupTemporaryPreviewURL(previous)
         }
+    }
+    #else
+    private func presentMessageAttachmentPreview(_ attachment: ChatImageAttachment) {
+        _ = attachment
     }
     #endif
 
@@ -481,31 +485,42 @@ private struct ThinkingPreviewBubble: View {
 }
 
 private struct ThinkingDetailView: View {
+    @Environment(\.dismiss) private var dismiss
+
     let title: LocalizedStringKey
     let iconName: String
     let iconColor: Color
     let text: String
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            HStack(spacing: 8) {
-                Image(systemName: iconName)
-                    .font(.headline)
-                    .foregroundStyle(iconColor)
+        NavigationStack {
+            VStack(alignment: .leading, spacing: 0) {
+                HStack(spacing: 8) {
+                    Image(systemName: iconName)
+                        .font(.headline)
+                        .foregroundStyle(iconColor)
 
-                Text(title)
-                    .font(.headline)
-            }
+                    Text(title)
+                        .font(.headline)
+                }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, 20)
                 .padding(.top, 18)
                 .padding(.bottom, 10)
 
-            ScrollView {
-                RichMarkdownView(markdown: text)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, 20)
-                    .padding(.bottom, 20)
+                ScrollView {
+                    RichMarkdownView(markdown: text)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, 20)
+                        .padding(.bottom, 20)
+                }
+            }
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Close") {
+                        dismiss()
+                    }
+                }
             }
         }
         #if os(macOS)
@@ -541,6 +556,8 @@ private struct ThinkDetailPresentationModifier: ViewModifier {
             )
             #if os(iOS)
                 .presentationDetents([.medium, .large])
+                .presentationDragIndicator(.visible)
+            #elseif os(visionOS)
                 .presentationDragIndicator(.visible)
             #endif
         }
@@ -860,7 +877,7 @@ private struct ChatImageAttachmentItem: View {
     }
 }
 
-#if os(iOS) || os(macOS)
+#if os(iOS) || os(macOS) || os(visionOS)
 @MainActor
 enum ChatImageQuickLookSupport {
     private static let directoryName = "VoiceChatQuickLook"
@@ -931,7 +948,7 @@ enum ChatImageQuickLookSupport {
 private final class ChatImageThumbnailCache: @unchecked Sendable {
     static let shared = ChatImageThumbnailCache()
 
-    #if os(iOS) || os(tvOS) || os(watchOS)
+    #if os(iOS) || os(tvOS) || os(watchOS) || os(visionOS)
     private let cache = NSCache<NSString, UIImage>()
     #elseif os(macOS)
     private let cache = NSCache<NSString, NSImage>()
@@ -941,7 +958,7 @@ private final class ChatImageThumbnailCache: @unchecked Sendable {
         cache.countLimit = 256
     }
 
-    #if os(iOS) || os(tvOS) || os(watchOS)
+    #if os(iOS) || os(tvOS) || os(watchOS) || os(visionOS)
     func image(for attachment: ChatImageAttachment, maxPixelSize: Int) -> UIImage? {
         let key = cacheKey(for: attachment, maxPixelSize: maxPixelSize)
         if let cached = cache.object(forKey: key) {
@@ -975,7 +992,7 @@ private final class ChatImageThumbnailCache: @unchecked Sendable {
 @MainActor
 private func chatSwiftUIImage(for attachment: ChatImageAttachment, maxItemSize: CGFloat) -> Image? {
     let maxPixelSize = max(1, Int((maxItemSize * chatThumbnailDisplayScale()).rounded(.up)))
-#if os(iOS) || os(tvOS) || os(watchOS)
+#if os(iOS) || os(tvOS) || os(watchOS) || os(visionOS)
     guard let image = ChatImageThumbnailCache.shared.image(for: attachment, maxPixelSize: maxPixelSize) else { return nil }
     return Image(uiImage: image)
 #elseif os(macOS)
@@ -988,8 +1005,12 @@ private func chatSwiftUIImage(for attachment: ChatImageAttachment, maxItemSize: 
 
 @MainActor
 private func chatThumbnailDisplayScale() -> CGFloat {
-#if os(iOS) || os(tvOS) || os(watchOS)
+#if os(iOS) || os(tvOS) || os(watchOS) || os(visionOS)
+    #if os(visionOS)
+    return 2
+    #else
     return UIScreen.main.scale
+    #endif
 #elseif os(macOS)
     return NSScreen.main?.backingScaleFactor ?? 2
 #else
@@ -997,7 +1018,7 @@ private func chatThumbnailDisplayScale() -> CGFloat {
 #endif
 }
 
-#if os(iOS) || os(tvOS) || os(watchOS)
+#if os(iOS) || os(tvOS) || os(watchOS) || os(visionOS)
 private func decodeThumbnail(from data: Data, maxPixelSize: Int) -> UIImage? {
     guard let source = CGImageSourceCreateWithData(data as CFData, nil) else {
         return UIImage(data: data)

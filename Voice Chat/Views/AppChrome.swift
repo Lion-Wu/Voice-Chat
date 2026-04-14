@@ -46,8 +46,8 @@ struct AppLiquidGlassContainer<Content: View>: View {
 
     @ViewBuilder
     var body: some View {
-#if os(iOS) || os(tvOS) || os(visionOS) || os(macOS)
-        if #available(iOS 26.0, macOS 26.0, tvOS 26.0, visionOS 26.0, *) {
+#if os(iOS) || os(tvOS) || os(macOS)
+        if #available(iOS 26.0, macOS 26.0, tvOS 26.0, *) {
             GlassEffectContainer(spacing: spacing) {
                 content
             }
@@ -68,8 +68,23 @@ private struct AppGlassBackground: ViewModifier {
 
     @ViewBuilder
     func body(content: Content) -> some View {
-#if os(iOS) || os(tvOS) || os(visionOS) || os(macOS)
-        if #available(iOS 26.0, macOS 26.0, tvOS 26.0, visionOS 26.0, *) {
+#if os(visionOS)
+        let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+        ZStack {
+            content
+        }
+        .glassBackgroundEffect(in: shape, displayMode: .always)
+        .background {
+            if let tint {
+                shape.fill(tint.opacity(interactive ? 0.18 : 0.12))
+            }
+        }
+        .overlay(
+            shape.stroke(ChatTheme.chromeBorder.opacity(interactive ? 0.8 : 1), lineWidth: 1)
+        )
+        .shadow(color: ChatTheme.bubbleShadow.opacity(shadowOpacity), radius: 12, x: 0, y: 6)
+#elseif os(iOS) || os(tvOS) || os(macOS)
+        if #available(iOS 26.0, macOS 26.0, tvOS 26.0, *) {
             if let tint {
                 if interactive {
                     content
@@ -112,8 +127,23 @@ private struct AppGlassButtonStyleModifier: ViewModifier {
 
     @ViewBuilder
     func body(content: Content) -> some View {
-#if os(iOS) || os(tvOS) || os(visionOS) || os(macOS)
-        if #available(iOS 26.0, macOS 26.0, tvOS 26.0, visionOS 26.0, *) {
+#if os(visionOS)
+        let shape = RoundedRectangle(cornerRadius: prominent ? 16 : 14, style: .continuous)
+        content
+            .buttonStyle(.plain)
+            .padding(.horizontal, prominent ? 14 : 12)
+            .padding(.vertical, prominent ? 10 : 8)
+            .glassBackgroundEffect(in: shape, displayMode: .always)
+            .background {
+                if prominent {
+                    shape.fill(ChatTheme.accent.opacity(0.14))
+                }
+            }
+            .overlay(
+                shape.stroke(ChatTheme.chromeBorder.opacity(prominent ? 0.72 : 0.5), lineWidth: 1)
+            )
+#elseif os(iOS) || os(tvOS) || os(macOS)
+        if #available(iOS 26.0, macOS 26.0, tvOS 26.0, *) {
             if prominent {
                 content.buttonStyle(.glassProminent)
             } else {

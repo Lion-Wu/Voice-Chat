@@ -6,7 +6,7 @@
 @preconcurrency import Foundation
 import Markdown
 
-#if os(iOS) || os(tvOS) || os(watchOS)
+#if os(iOS) || os(tvOS) || os(watchOS) || os(visionOS)
 @preconcurrency import UIKit
 #elseif os(macOS)
 @preconcurrency import AppKit

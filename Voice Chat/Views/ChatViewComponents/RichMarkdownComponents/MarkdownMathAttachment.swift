@@ -5,7 +5,7 @@
 
 @preconcurrency import Foundation
 
-#if os(iOS) || os(tvOS) || os(watchOS)
+#if os(iOS) || os(tvOS) || os(watchOS) || os(visionOS)
 @preconcurrency import UIKit
 #elseif os(macOS)
 @preconcurrency import AppKit
@@ -37,7 +37,7 @@ final class MarkdownMathAttachment: MarkdownAttachment, @unchecked Sendable {
     }
 
     private func configureTextAttachmentViewIfAvailable() {
-        #if os(iOS) || os(tvOS)
+        #if os(iOS) || os(tvOS) || os(visionOS)
         if #available(iOS 15.0, tvOS 15.0, *) {
             MarkdownAttachmentViewProviderRegistry.registerIfNeeded()
             allowsTextAttachmentView = true
@@ -78,7 +78,7 @@ final class MarkdownMathAttachment: MarkdownAttachment, @unchecked Sendable {
         self.source = ""
         self.latex = ""
         self.displayMode = false
-        #if os(iOS) || os(tvOS) || os(watchOS)
+        #if os(iOS) || os(tvOS) || os(watchOS) || os(visionOS)
         let defaultColor = MarkdownPlatformColor.label
         #elseif os(macOS)
         let defaultColor = MarkdownPlatformColor.labelColor
@@ -177,7 +177,7 @@ final class MarkdownMathAttachment: MarkdownAttachment, @unchecked Sendable {
 
     private func renderImage(size: CGSize) -> MarkdownPlatformImage? {
         guard size.width > 0, size.height > 0 else { return nil }
-        #if os(iOS) || os(tvOS) || os(watchOS)
+        #if os(iOS) || os(tvOS) || os(watchOS) || os(visionOS)
         let format = UIGraphicsImageRendererFormat.default()
         format.opaque = false
         let renderer = UIGraphicsImageRenderer(size: size, format: format)

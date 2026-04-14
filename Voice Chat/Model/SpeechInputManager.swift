@@ -5,7 +5,7 @@
 //  Created by Lion Wu on 2025/9/20.
 //
 
-#if os(iOS) || os(macOS)
+#if os(iOS) || os(macOS) || os(visionOS)
 
 import Foundation
 import Combine
@@ -261,38 +261,61 @@ final class SpeechInputManager: NSObject, ObservableObject {
     // MARK: - Permissions
 
     private func requestPermissions() async -> Bool {
-        #if os(iOS) || os(macOS)
-        let speechOK = await withCheckedContinuation { (cont: CheckedContinuation<Bool, Never>) in
-            // TCC may invoke the callback on a background queue; detach to avoid tripping
-            // main-actor isolation checks in Swift 6 and hop back only to resume.
-            Task.detached {
-                SFSpeechRecognizer.requestAuthorization { status in
-                    cont.resume(returning: status == .authorized)
-                }
-            }
-        }
+        let speechOK = await requestSpeechRecognitionPermission()
 
-        #if os(iOS)
-        let micOK = await withCheckedContinuation { (cont: CheckedContinuation<Bool, Never>) in
-            Task.detached {
-                AVAudioApplication.requestRecordPermission { ok in
-                    cont.resume(returning: ok)
-                }
-            }
-        }
+        #if os(iOS) || os(visionOS)
+        let micOK = await requestMicrophonePermission()
         return speechOK && micOK
-        #else
+        #elseif os(macOS)
         // macOS exposes only speech recognition permission; microphone prompts are system-driven.
         return speechOK
         #endif
-        #else
-        lastError = NSLocalizedString("Speech input is not supported on this platform.", comment: "Shown when speech input is unavailable for the current OS")
-        return false
-        #endif
     }
+
+    private func requestSpeechRecognitionPermission() async -> Bool {
+        switch SFSpeechRecognizer.authorizationStatus() {
+        case .authorized:
+            return true
+        case .denied, .restricted:
+            return false
+        case .notDetermined:
+            return await withCheckedContinuation { (cont: CheckedContinuation<Bool, Never>) in
+                // TCC may invoke the callback on a background queue; detach to avoid tripping
+                // main-actor isolation checks in Swift 6 and hop back only to resume.
+                Task.detached {
+                    SFSpeechRecognizer.requestAuthorization { status in
+                        cont.resume(returning: status == .authorized)
+                    }
+                }
+            }
+        @unknown default:
+            return false
+        }
+    }
+
+    #if os(iOS) || os(visionOS)
+    private func requestMicrophonePermission() async -> Bool {
+        switch AVAudioApplication.shared.recordPermission {
+        case .granted:
+            return true
+        case .denied:
+            return false
+        case .undetermined:
+            return await withCheckedContinuation { (cont: CheckedContinuation<Bool, Never>) in
+                Task.detached {
+                    AVAudioApplication.requestRecordPermission { ok in
+                        cont.resume(returning: ok)
+                    }
+                }
+            }
+        @unknown default:
+            return false
+        }
+    }
+    #endif
 }
 
-#if os(iOS) || os(macOS)
+#if os(iOS) || os(macOS) || os(visionOS)
 
 import Speech
 import AVFoundation
@@ -401,16 +424,28 @@ actor SpeechRecognizerWorker {
         }
         recognizer = r
 
-        // 2) Configure the iOS audio session first so input hardware format is valid.
-        #if os(iOS)
+        // 2) Configure the interactive audio session first so input hardware format is valid.
+        #if os(iOS) || os(visionOS)
         try await MainActor.run {
             let session = AVAudioSession.sharedInstance()
-            try session.setCategory(.playAndRecord,
-                                    mode: .voiceChat,
-                                    options: [.duckOthers,
-                                              .defaultToSpeaker,
-                                              .allowBluetoothA2DP,
-                                              .allowBluetoothHFP])
+            let category: AVAudioSession.Category =
+                session.availableCategories.contains(.playAndRecord) ? .playAndRecord : .record
+
+            let mode: AVAudioSession.Mode =
+                session.availableModes.contains(.voiceChat) ? .voiceChat : .default
+
+            #if os(iOS)
+            let options: AVAudioSession.CategoryOptions = [.duckOthers,
+                                                           .defaultToSpeaker,
+                                                           .allowBluetoothA2DP,
+                                                           .allowBluetoothHFP]
+            #else
+            let options: AVAudioSession.CategoryOptions = []
+            #endif
+
+            try session.setCategory(category,
+                                    mode: mode,
+                                    options: options)
             try session.setActive(true, options: [])
         }
         #endif
@@ -456,11 +491,13 @@ actor SpeechRecognizerWorker {
 
         if audioEngine.isRunning { audioEngine.stop() }
 
-        // On iOS restore the default audio session category.
-        #if os(iOS)
+        // On interactive platforms, release the recording-focused session after stopping.
+        #if os(iOS) || os(visionOS)
         try? await MainActor.run {
             let session = AVAudioSession.sharedInstance()
-            try session.setCategory(.playback, mode: .default, options: [])
+            if session.availableCategories.contains(.playback) {
+                try session.setCategory(.playback, mode: .default, options: [])
+            }
             try session.setActive(false, options: [])
         }
         #endif
@@ -793,11 +830,17 @@ final class SpeechInputManager: ObservableObject {
     @Published var lastError: String? = NSLocalizedString("Speech input is not supported on this platform.", comment: "Shown when speech input is unavailable")
     @Published var inputLevel: Double = 0
     @Published var currentLanguage: DictationLanguage = .english
+    @Published private(set) var isHoldToSpeakActive: Bool = false
+    @Published private(set) var isRequestingPermissions: Bool = false
 
     func startRecording(language: DictationLanguage? = nil,
                         onPartial: @escaping @MainActor (String) -> Void,
                         onFinal:   @escaping @MainActor (String) -> Void) async {
         lastError = NSLocalizedString("Speech input is not supported on this platform.", comment: "Shown when speech input is unavailable")
+    }
+
+    func setHoldToSpeakActive(_ active: Bool) {
+        isHoldToSpeakActive = active
     }
 
     nonisolated func stopRecording(finalize: Bool = true) {}

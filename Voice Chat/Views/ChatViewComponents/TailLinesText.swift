@@ -8,7 +8,7 @@
 import SwiftUI
 import CoreText
 
-#if os(iOS) || os(tvOS) || os(watchOS)
+#if os(iOS) || os(tvOS) || os(watchOS) || os(visionOS)
 import UIKit
 // Keep the typealias internal to avoid access-level mismatches with helpers below.
 typealias PlatformNativeFont = UIFont
@@ -23,7 +23,7 @@ struct PlatformFontSpec: Equatable {
     let isMonospaced: Bool
 
     var native: PlatformNativeFont {
-        #if os(iOS) || os(tvOS) || os(watchOS)
+        #if os(iOS) || os(tvOS) || os(watchOS) || os(visionOS)
         return isMonospaced ? .monospacedSystemFont(ofSize: size, weight: .regular)
                             : .systemFont(ofSize: size)
         #else
@@ -33,7 +33,7 @@ struct PlatformFontSpec: Equatable {
     }
 
     var lineHeight: CGFloat {
-        #if os(iOS) || os(tvOS) || os(watchOS)
+        #if os(iOS) || os(tvOS) || os(watchOS) || os(visionOS)
         native.lineHeight
         #else
         (native.ascender - native.descender) + native.leading

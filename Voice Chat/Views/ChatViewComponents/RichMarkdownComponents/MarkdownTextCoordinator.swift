@@ -6,7 +6,7 @@
 @preconcurrency import Foundation
 import SwiftUI
 
-#if os(iOS) || os(tvOS) || os(watchOS)
+#if os(iOS) || os(tvOS) || os(watchOS) || os(visionOS)
 @preconcurrency import UIKit
 #elseif os(macOS)
 @preconcurrency import AppKit
@@ -116,7 +116,7 @@ final class MarkdownTextCoordinator: NSObject, @unchecked Sendable {
     }
 
     private func configure(textView: MarkdownPlatformTextView, style: MarkdownStyle) {
-        #if os(iOS) || os(tvOS) || os(watchOS)
+        #if os(iOS) || os(tvOS) || os(watchOS) || os(visionOS)
         textView.tintColor = style.linkColor
         #endif
         textView.linkTextAttributes = style.linkAttributes
@@ -1987,7 +1987,7 @@ final class MarkdownTextCoordinator: NSObject, @unchecked Sendable {
         for textView: MarkdownPlatformTextView,
         changedRange: NSRange?
     ) {
-        #if os(iOS) || os(tvOS) || os(watchOS)
+        #if os(iOS) || os(tvOS) || os(watchOS) || os(visionOS)
         if #available(iOS 16.0, tvOS 16.0, *) {
             if let textLayoutManager = textView.textLayoutManager,
                let documentRange = textLayoutManager.textContentManager?.documentRange {
@@ -2224,7 +2224,7 @@ final class MarkdownTextCoordinator: NSObject, @unchecked Sendable {
     }
 
     private func textStorage(for textView: MarkdownPlatformTextView) -> NSTextStorage? {
-        #if os(iOS) || os(tvOS) || os(watchOS)
+        #if os(iOS) || os(tvOS) || os(watchOS) || os(visionOS)
         return textView.textStorage
         #elseif os(macOS)
         return textView.textStorage
@@ -2261,7 +2261,7 @@ final class MarkdownTextCoordinator: NSObject, @unchecked Sendable {
         for textView: MarkdownPlatformTextView,
         fallback: ColorScheme
     ) -> ColorScheme {
-        #if os(iOS) || os(tvOS) || os(watchOS)
+        #if os(iOS) || os(tvOS) || os(watchOS) || os(visionOS)
         switch textView.traitCollection.userInterfaceStyle {
         case .dark:
             return .dark

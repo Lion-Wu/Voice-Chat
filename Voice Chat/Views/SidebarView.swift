@@ -112,11 +112,13 @@ struct SidebarView: View {
         Group {
             #if os(macOS)
             macSidebar
+            #elseif os(visionOS)
+            visionSidebar
             #else
             iosSidebar
             #endif
         }
-        #if os(iOS) || os(tvOS)
+        #if os(iOS) || os(tvOS) || os(visionOS)
         .alert("Rename Chat",
                isPresented: renameAlertBinding) {
             TextField("New Title", text: $newTitle)
@@ -367,12 +369,81 @@ struct SidebarView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
+    private var visionSidebar: some View {
+        List(selection: $chatSessionsViewModel.selectedSessionID) {
+            Section {
+                iosDraftRow
+                    .tag(chatSessionsViewModel.draftSession.id)
+            }
+
+            if groupedFilteredSessions.isEmpty {
+                Section(LocalizedStringKey("Chats")) {
+                    if searchKeyword.isEmpty {
+                        ContentUnavailableView(
+                            LocalizedStringKey("No chats yet"),
+                            systemImage: "text.bubble",
+                            description: Text("Start a new conversation to begin talking.")
+                        )
+                    } else {
+                        ContentUnavailableView(
+                            LocalizedStringKey("No Results"),
+                            systemImage: "magnifyingglass",
+                            description: Text("Try a different chat name.")
+                        )
+                    }
+                }
+            } else {
+                ForEach(groupedFilteredSessions) { group in
+                    Section(group.section.title) {
+                        ForEach(group.sessions) { session in
+                            iosSessionRow(session)
+                                .contentShape(Rectangle())
+                                .onTapGesture {
+                                    chatSessionsViewModel.selectedSession = session
+                                    onConversationTap(session)
+                                }
+                                .contextMenu {
+                                    Button("Rename") { renameSession(session) }
+                                    Button("Delete", role: .destructive) {
+                                        requestDelete(for: session)
+                                    }
+                                }
+                                .tag(session.id)
+                        }
+                        .onDelete { offsets in
+                            handleSwipeDelete(at: offsets, within: group.sessions)
+                        }
+                    }
+                }
+            }
+        }
+        .listStyle(.sidebar)
+        .safeAreaInset(edge: .top, spacing: 10) {
+            visionSearchHeaderContainer
+        }
+        .safeAreaInset(edge: .bottom) {
+            visionSettingsFooter
+        }
+    }
+
     private var iosSearchHeaderContainer: some View {
         VStack(spacing: 0) {
             iosSearchHeader
         }
         .frame(maxWidth: .infinity)
         .background(.ultraThinMaterial)
+        .overlay(alignment: .bottom) {
+            Divider()
+                .overlay(ChatTheme.separator)
+        }
+    }
+
+    private var visionSearchHeaderContainer: some View {
+        VStack(spacing: 0) {
+            visionSearchHeader
+        }
+        .frame(maxWidth: .infinity)
+        .background(.bar)
         .overlay(alignment: .bottom) {
             Divider()
                 .overlay(ChatTheme.separator)
@@ -407,6 +478,37 @@ struct SidebarView: View {
         .padding(.horizontal, 16)
         .padding(.top, 6)
         .padding(.bottom, 8)
+    }
+
+    @ViewBuilder
+    private var visionSearchHeader: some View {
+        #if os(visionOS)
+        HStack(spacing: 8) {
+            Image(systemName: "magnifyingglass")
+                .foregroundStyle(.secondary)
+            TextField("Search Chats", text: $searchText)
+                .textFieldStyle(.plain)
+
+            if !searchText.isEmpty {
+                Button {
+                    searchText = ""
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(Text("Clear Search"))
+            }
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        .glassBackgroundEffect(in: RoundedRectangle(cornerRadius: 18, style: .continuous), displayMode: .always)
+        .padding(.horizontal, 20)
+        .padding(.top, 14)
+        .padding(.bottom, 12)
+        #else
+        iosSearchHeader
+        #endif
     }
 
     private func sessionInitials(_ session: ChatSession) -> String {
@@ -468,7 +570,7 @@ struct SidebarView: View {
                 .font(.body.weight(.semibold))
             Spacer()
         }
-        .padding(.vertical, 6)
+        .padding(.vertical, sidebarRowVerticalPadding)
         .contentShape(Rectangle())
         .onTapGesture { selectDraftSession() }
     }
@@ -486,7 +588,15 @@ struct SidebarView: View {
             }
             Spacer()
         }
-        .padding(.vertical, 6)
+        .padding(.vertical, sidebarRowVerticalPadding)
+    }
+
+    private var sidebarRowVerticalPadding: CGFloat {
+        #if os(visionOS)
+        return 10
+        #else
+        return 6
+        #endif
     }
 
     private var sidebarSettingsCornerRadius: CGFloat {
@@ -500,6 +610,8 @@ struct SidebarView: View {
     private var sidebarSettingsOuterHorizontalPadding: CGFloat {
         #if os(macOS)
         return 12
+        #elseif os(visionOS)
+        return 20
         #else
         return 16
         #endif
@@ -508,6 +620,8 @@ struct SidebarView: View {
     private var sidebarSettingsOuterVerticalPadding: CGFloat {
         #if os(macOS)
         return 6
+        #elseif os(visionOS)
+        return 12
         #else
         return 8
         #endif
@@ -516,6 +630,8 @@ struct SidebarView: View {
     private var sidebarSettingsInnerHorizontalPadding: CGFloat {
         #if os(macOS)
         return 14
+        #elseif os(visionOS)
+        return 16
         #else
         return 12
         #endif
@@ -524,6 +640,8 @@ struct SidebarView: View {
     private var sidebarSettingsInnerVerticalPadding: CGFloat {
         #if os(macOS)
         return 7
+        #elseif os(visionOS)
+        return 12
         #else
         return 10
         #endif
@@ -589,7 +707,7 @@ struct SidebarView: View {
                 Button(action: onOpenSettings) {
                     sidebarSettingsLabel
                 }
-                .buttonStyle(.glass)
+                .appGlassButtonStyle()
                 .buttonBorderShape(.roundedRectangle(radius: sidebarSettingsCornerRadius))
                 .padding(.horizontal, sidebarSettingsOuterHorizontalPadding)
             } else {
@@ -610,6 +728,26 @@ struct SidebarView: View {
         .background(.thinMaterial)
     }
     #endif
+
+    private var visionSettingsFooter: some View {
+        VStack(spacing: 0) {
+            Divider()
+
+            Button(action: onOpenSettings) {
+                sidebarSettingsLabel
+                    .appChromedContainer(
+                        cornerRadius: sidebarSettingsCornerRadius,
+                        interactive: true,
+                        shadowOpacity: 0.24
+                    )
+                    .contentShape(RoundedRectangle(cornerRadius: sidebarSettingsCornerRadius, style: .continuous))
+            }
+            .buttonStyle(.plain)
+            .padding(.horizontal, sidebarSettingsOuterHorizontalPadding)
+            .padding(.vertical, sidebarSettingsOuterVerticalPadding)
+        }
+        .background(.bar)
+    }
 }
 
 #Preview {

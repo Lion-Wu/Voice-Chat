@@ -8,12 +8,18 @@
 import SwiftUI
 
 struct RealtimeVoiceOverlayView: View {
+    enum DisplayStyle {
+        case standard
+        case visionScene
+    }
+
     @ObservedObject var viewModel: VoiceChatOverlayViewModel
     @EnvironmentObject var errorCenter: AppErrorCenter
     @Environment(\.colorScheme) private var colorScheme
 
     /// Optional callback so the parent can react when the overlay is dismissed.
     var onClose: () -> Void = {}
+    var displayStyle: DisplayStyle = .standard
 
     // Animation state
     @State private var smoothedInputLevel: CGFloat = 0
@@ -32,8 +38,6 @@ struct RealtimeVoiceOverlayView: View {
     private let circlePressInAnimation = Animation.easeOut(duration: 0.12)
     private let circlePressOutAnimation = Animation.easeOut(duration: 0.15)
     private let levelScaleAnimation = Animation.interpolatingSpring(stiffness: 245, damping: 26)
-    private let defaultBaseSize: CGFloat = 200
-    private let listeningBaseSize: CGFloat = 280
     private let levelSmoothingFactor: CGFloat = 0.34
     private let scaleUpdateEpsilon: CGFloat = 0.0012
     private let circleLongPressDuration: Double = 0.38
@@ -78,76 +82,46 @@ struct RealtimeVoiceOverlayView: View {
         return String(localized: "Double-tap to control realtime voice. Use the Hold to talk action for push-to-talk.")
     }
 
+    private var defaultBaseSize: CGFloat {
+        isVisionSceneStyle ? 236 : 200
+    }
+
+    private var listeningBaseSize: CGFloat {
+        isVisionSceneStyle ? 328 : 280
+    }
+
+    private var isVisionSceneStyle: Bool {
+        #if os(visionOS)
+        displayStyle == .visionScene
+        #else
+        false
+        #endif
+    }
+
+    private var closeButtonTopPadding: CGFloat {
+        isVisionSceneStyle ? 34 : 8
+    }
+
+    private var closeButtonHorizontalPadding: CGFloat {
+        isVisionSceneStyle ? 34 : 8
+    }
+
+    private var ornamentBottomPadding: CGFloat {
+        isVisionSceneStyle ? 24 : 12
+    }
+
+    private var errorNoticeBottomPadding: CGFloat {
+        isVisionSceneStyle ? 176 : 12
+    }
+
+    private var visionContentBottomInset: CGFloat {
+        isVisionSceneStyle ? 104 : 0
+    }
+
     var body: some View {
         ZStack {
             AppBackgroundView()
-
-            VStack(spacing: 28) {
-                HStack {
-                    Spacer()
-                    closeButton
-                }
-                .padding(.top, 8)
-                .padding(.horizontal, 8)
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
-
-            VStack(spacing: 18) {
-                ZStack {
-                    let baseSize = currentCircleBaseSize
-                    Group {
-                        if overlayErrorText != nil {
-                            Circle()
-                                .strokeBorder(circleErrorRingColor, lineWidth: 14)
-                        } else {
-                            Circle()
-                                .fill(circleBaseColor)
-                        }
-                    }
-                    .frame(width: baseSize, height: baseSize)
-                    .scaleEffect(currentCircleScale * interactionPulse * circlePressScale)
-                    .shadow(color: .black.opacity(isCirclePressed ? 0.28 : 0.25), radius: isCirclePressed ? 22 : 16, x: 0, y: isCirclePressed ? 8 : 6)
-                    .contentShape(Circle())
-                    .highPriorityGesture(circlePressGesture)
-                }
-                .accessibilityElement(children: .ignore)
-                .accessibilityLabel("Realtime voice control")
-                .accessibilityValue(voiceControlAccessibilityValue)
-                .accessibilityHint(voiceControlAccessibilityHint)
-                .accessibilityAddTraits(.isButton)
-                .accessibilityAction {
-                    triggerTapAction()
-                }
-                .accessibilityAction(named: Text("Hold to talk")) {
-                    viewModel.performHoldToTalkAccessibilityAction()
-                }
-
-                if let message = overlayErrorText {
-                    Button {
-                        triggerTapAction()
-                    } label: {
-                        VStack(spacing: 6) {
-                            Text(message)
-                                .font(.system(size: 15, weight: .semibold))
-                                .foregroundStyle(.primary)
-                                .multilineTextAlignment(.center)
-                                .lineLimit(4)
-                                .minimumScaleFactor(0.85)
-
-                            Text(NSLocalizedString("Tap to reconnect", comment: "Shown under the realtime voice overlay when an error occurs"))
-                                .font(.system(size: 13, weight: .medium))
-                                .foregroundStyle(.secondary)
-                        }
-                        .padding(.horizontal, 24)
-                        .padding(.vertical, 10)
-                        .appChromedContainer(cornerRadius: 14, tint: .red.opacity(0.06), interactive: true, shadowOpacity: 0.3)
-                    }
-                    .buttonStyle(.plain)
-                    .contentShape(Rectangle())
-                }
-            }
-            .animation(stateAnimation, value: viewModel.state)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+            contentLayout
         }
         .onAppear {
             configureInitialState()
@@ -155,27 +129,19 @@ struct RealtimeVoiceOverlayView: View {
         .onDisappear {
             teardown()
         }
+#if os(visionOS)
+        .ornament(attachmentAnchor: .scene(.bottom), contentAlignment: .center) {
+            overlayControlStrip
+                .padding(.bottom, ornamentBottomPadding)
+        }
+#else
         .safeAreaInset(edge: .bottom) {
             AppLiquidGlassContainer(spacing: 20) {
-                VStack(spacing: 16) {
-                    Picker("", selection: Binding(
-                        get: { viewModel.selectedLanguage },
-                        set: { viewModel.updateLanguage($0) }
-                    )) {
-                        ForEach(viewModel.availableLanguages) { language in
-                            Text(language.defaultDisplayName).tag(language)
-                        }
-                    }
-                    .pickerStyle(.segmented)
-                    .frame(maxWidth: 320)
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 12)
-                    .appChromedContainer(cornerRadius: 22, shadowOpacity: 0.32)
-                }
-                .frame(maxWidth: .infinity)
-                .padding(.bottom, 8)
+                overlayControlStrip
+                    .padding(.bottom, 8)
             }
         }
+#endif
         .overlay(alignment: .bottom) {
             if !errorCenter.notices.isEmpty {
                 ErrorNoticeStack(
@@ -186,7 +152,7 @@ struct RealtimeVoiceOverlayView: View {
                     }
                 )
                 // Keep it behind the language picker / controls.
-                .padding(.bottom, 12)
+                .padding(.bottom, errorNoticeBottomPadding)
                 .zIndex(0)
             }
         }
@@ -199,6 +165,149 @@ struct RealtimeVoiceOverlayView: View {
         .onReceive(viewModel.outputLevelPublisher) { newLevel in
             handleOutputLevelChange(newLevel)
         }
+    }
+
+    @ViewBuilder
+    private var contentLayout: some View {
+        if isVisionSceneStyle {
+            visionSceneLayout
+        } else {
+            standardLayout
+        }
+    }
+
+    private var standardLayout: some View {
+        ZStack {
+            VStack(spacing: 28) {
+                HStack {
+                    Spacer()
+                    closeButton
+                }
+                .padding(.top, closeButtonTopPadding)
+                .padding(.horizontal, closeButtonHorizontalPadding)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+
+            VStack(spacing: 18) {
+                voiceControl
+
+                if let message = overlayErrorText {
+                    reconnectMessage(message)
+                }
+            }
+            .animation(stateAnimation, value: viewModel.state)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+        }
+    }
+
+    @ViewBuilder
+    private var visionSceneLayout: some View {
+        #if os(visionOS)
+        ZStack {
+            VStack(spacing: 28) {
+                HStack {
+                    Spacer()
+                    closeButton
+                }
+                .padding(.top, closeButtonTopPadding)
+                .padding(.horizontal, closeButtonHorizontalPadding)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+
+            VStack(spacing: 18) {
+                voiceControl
+
+                if let message = overlayErrorText {
+                    reconnectMessage(message)
+                }
+            }
+            .animation(stateAnimation, value: viewModel.state)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+            .padding(.bottom, visionContentBottomInset)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .animation(stateAnimation, value: viewModel.state)
+        #else
+        standardLayout
+        #endif
+    }
+
+    private var voiceControl: some View {
+        ZStack {
+            let baseSize = currentCircleBaseSize
+            Group {
+                if overlayErrorText != nil {
+                    Circle()
+                        .strokeBorder(circleErrorRingColor, lineWidth: 14)
+                } else {
+                    Circle()
+                        .fill(circleBaseColor)
+                }
+            }
+            .frame(width: baseSize, height: baseSize)
+            .scaleEffect(currentCircleScale * interactionPulse * circlePressScale)
+            .shadow(color: .black.opacity(isCirclePressed ? 0.28 : 0.25), radius: isCirclePressed ? 22 : 16, x: 0, y: isCirclePressed ? 8 : 6)
+            .contentShape(Circle())
+            .highPriorityGesture(circlePressGesture)
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Realtime voice control")
+        .accessibilityValue(voiceControlAccessibilityValue)
+        .accessibilityHint(voiceControlAccessibilityHint)
+        .accessibilityAddTraits(.isButton)
+        .accessibilityAction {
+            triggerTapAction()
+        }
+        .accessibilityAction(named: Text("Hold to talk")) {
+            viewModel.performHoldToTalkAccessibilityAction()
+        }
+    }
+
+    private func reconnectMessage(_ message: String) -> some View {
+        Button {
+            triggerTapAction()
+        } label: {
+            VStack(spacing: 6) {
+                Text(message)
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(.primary)
+                    .multilineTextAlignment(.center)
+                    .lineLimit(4)
+                    .minimumScaleFactor(0.85)
+
+                Text(NSLocalizedString("Tap to reconnect", comment: "Shown under the realtime voice overlay when an error occurs"))
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(.secondary)
+            }
+            .padding(.horizontal, 24)
+            .padding(.vertical, 10)
+            .appChromedContainer(cornerRadius: 14, tint: .red.opacity(0.06), interactive: true, shadowOpacity: 0.3)
+        }
+        .buttonStyle(.plain)
+        .contentShape(Rectangle())
+    }
+
+    private var overlayControlStrip: some View {
+        VStack(spacing: 16) {
+            Picker("", selection: Binding(
+                get: { viewModel.selectedLanguage },
+                set: { viewModel.updateLanguage($0) }
+            )) {
+                ForEach(viewModel.availableLanguages) { language in
+                    Text(language.defaultDisplayName).tag(language)
+                }
+            }
+            .pickerStyle(.segmented)
+            .frame(maxWidth: isVisionSceneStyle ? 360 : 320)
+            .padding(.horizontal, isVisionSceneStyle ? 20 : 16)
+            .padding(.vertical, isVisionSceneStyle ? 14 : 12)
+#if os(visionOS)
+            .glassBackgroundEffect(in: Capsule(style: .continuous), displayMode: .always)
+#else
+            .appChromedContainer(cornerRadius: 22, shadowOpacity: 0.32)
+#endif
+        }
+        .frame(maxWidth: .infinity)
     }
 
     @ViewBuilder

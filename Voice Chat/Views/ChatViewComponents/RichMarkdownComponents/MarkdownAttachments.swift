@@ -5,7 +5,7 @@
 
 @preconcurrency import Foundation
 
-#if os(iOS) || os(tvOS) || os(watchOS)
+#if os(iOS) || os(tvOS) || os(watchOS) || os(visionOS)
 @preconcurrency import UIKit
 #elseif os(macOS)
 @preconcurrency import AppKit
@@ -73,7 +73,7 @@ final class MarkdownQuoteAttachment: MarkdownAttachment, @unchecked Sendable {
     private static let viewProviderFileType = MarkdownAttachmentFileTypes.viewBacked
 
     private func configureTextAttachmentViewIfAvailable() {
-        #if os(iOS) || os(tvOS)
+        #if os(iOS) || os(tvOS) || os(visionOS)
         if #available(iOS 15.0, tvOS 15.0, *) {
             MarkdownAttachmentViewProviderRegistry.registerIfNeeded()
             allowsTextAttachmentView = true
@@ -98,7 +98,7 @@ final class MarkdownQuoteAttachment: MarkdownAttachment, @unchecked Sendable {
         self.style = style
         super.init(data: nil, ofType: nil)
         self.maxWidth = maxWidth
-        #if os(iOS) || os(tvOS) || os(macOS)
+        #if os(iOS) || os(tvOS) || os(visionOS) || os(macOS)
         configureTextAttachmentViewIfAvailable()
         #endif
     }
@@ -112,7 +112,7 @@ final class MarkdownQuoteAttachment: MarkdownAttachment, @unchecked Sendable {
             padding: CGSize(width: 12, height: 6)
         )
         super.init(coder: coder)
-        #if os(iOS) || os(tvOS) || os(macOS)
+        #if os(iOS) || os(tvOS) || os(visionOS) || os(macOS)
         configureTextAttachmentViewIfAvailable()
         #endif
     }
@@ -178,7 +178,7 @@ final class MarkdownQuoteAttachment: MarkdownAttachment, @unchecked Sendable {
     private func drawQuote(layout: QuoteLayout) -> MarkdownPlatformImage? {
         let size = layout.size
         guard size.width > 0, size.height > 0 else { return nil }
-        #if os(iOS) || os(tvOS) || os(watchOS)
+        #if os(iOS) || os(tvOS) || os(watchOS) || os(visionOS)
         let format = UIGraphicsImageRendererFormat.default()
         format.opaque = false
         let renderer = UIGraphicsImageRenderer(size: size, format: format)
@@ -272,7 +272,7 @@ final class MarkdownCodeBlockAttachment: MarkdownAttachment, @unchecked Sendable
     private static let copyFeedbackDuration = Duration.seconds(1.2)
 
     private func configureTextAttachmentViewIfAvailable() {
-        #if os(iOS) || os(tvOS)
+        #if os(iOS) || os(tvOS) || os(visionOS)
         if #available(iOS 15.0, tvOS 15.0, *) {
             MarkdownAttachmentViewProviderRegistry.registerIfNeeded()
             allowsTextAttachmentView = true
@@ -309,7 +309,7 @@ final class MarkdownCodeBlockAttachment: MarkdownAttachment, @unchecked Sendable
         let fontMeasurementAttributes: [NSAttributedString.Key: Any] = [.font: style.codeFont]
         let measuredCharWidth = ("0" as NSString).size(withAttributes: fontMeasurementAttributes).width
         self.estimatedCharWidth = max(1, measuredCharWidth)
-        #if os(iOS) || os(tvOS) || os(watchOS)
+        #if os(iOS) || os(tvOS) || os(watchOS) || os(visionOS)
         self.estimatedLineHeight = style.codeFont.lineHeight
         #elseif os(macOS)
         self.estimatedLineHeight = NSLayoutManager().defaultLineHeight(for: style.codeFont)
@@ -324,7 +324,7 @@ final class MarkdownCodeBlockAttachment: MarkdownAttachment, @unchecked Sendable
         self.codeAttributedStorage = NSMutableAttributedString(string: code, attributes: self.codeAttributes)
         super.init(data: nil, ofType: nil)
         self.maxWidth = maxWidth
-        #if os(iOS) || os(tvOS) || os(macOS)
+        #if os(iOS) || os(tvOS) || os(visionOS) || os(macOS)
         configureTextAttachmentViewIfAvailable()
         #endif
     }
@@ -354,7 +354,7 @@ final class MarkdownCodeBlockAttachment: MarkdownAttachment, @unchecked Sendable
         let fontMeasurementAttributes: [NSAttributedString.Key: Any] = [.font: style.codeFont]
         let measuredCharWidth = ("0" as NSString).size(withAttributes: fontMeasurementAttributes).width
         self.estimatedCharWidth = max(1, measuredCharWidth)
-        #if os(iOS) || os(tvOS) || os(watchOS)
+        #if os(iOS) || os(tvOS) || os(watchOS) || os(visionOS)
         self.estimatedLineHeight = style.codeFont.lineHeight
         #elseif os(macOS)
         self.estimatedLineHeight = NSLayoutManager().defaultLineHeight(for: style.codeFont)
@@ -368,7 +368,7 @@ final class MarkdownCodeBlockAttachment: MarkdownAttachment, @unchecked Sendable
         ]
         self.codeAttributedStorage = NSMutableAttributedString(string: "", attributes: self.codeAttributes)
         super.init(coder: coder)
-        #if os(iOS) || os(tvOS) || os(macOS)
+        #if os(iOS) || os(tvOS) || os(visionOS) || os(macOS)
         configureTextAttachmentViewIfAvailable()
         #endif
     }
@@ -465,7 +465,7 @@ final class MarkdownCodeBlockAttachment: MarkdownAttachment, @unchecked Sendable
 
     @MainActor
     func copyToPasteboard() {
-        #if os(iOS) || os(tvOS) || os(watchOS)
+        #if os(iOS) || os(tvOS) || os(watchOS) || os(visionOS)
         UIPasteboard.general.string = code
         #elseif os(macOS)
         let pasteboard = NSPasteboard.general
@@ -599,7 +599,7 @@ final class MarkdownCodeBlockAttachment: MarkdownAttachment, @unchecked Sendable
     private func drawBlock(layout: Layout) -> MarkdownPlatformImage? {
         let size = layout.size
         guard size.width > 0, size.height > 0 else { return nil }
-        #if os(iOS) || os(tvOS) || os(watchOS)
+        #if os(iOS) || os(tvOS) || os(watchOS) || os(visionOS)
         let format = UIGraphicsImageRendererFormat.default()
         format.opaque = false
         let renderer = UIGraphicsImageRenderer(size: size, format: format)
@@ -744,7 +744,7 @@ final class MarkdownCodeBlockAttachment: MarkdownAttachment, @unchecked Sendable
     }
 
     private func lineHeight(for font: MarkdownPlatformFont) -> CGFloat {
-        #if os(iOS) || os(tvOS) || os(watchOS)
+        #if os(iOS) || os(tvOS) || os(watchOS) || os(visionOS)
         return font.lineHeight
         #elseif os(macOS)
         return NSLayoutManager().defaultLineHeight(for: font)
@@ -849,7 +849,7 @@ final class MarkdownTableAttachment: MarkdownAttachment, @unchecked Sendable {
     private static let viewProviderFileType = MarkdownAttachmentFileTypes.viewBacked
 
     private func configureTextAttachmentViewIfAvailable() {
-        #if os(iOS) || os(tvOS)
+        #if os(iOS) || os(tvOS) || os(visionOS)
         if #available(iOS 15.0, tvOS 15.0, *) {
             MarkdownAttachmentViewProviderRegistry.registerIfNeeded()
             allowsTextAttachmentView = true
@@ -874,7 +874,7 @@ final class MarkdownTableAttachment: MarkdownAttachment, @unchecked Sendable {
         self.style = style
         super.init(data: nil, ofType: nil)
         self.maxWidth = maxWidth
-        #if os(iOS) || os(tvOS) || os(macOS)
+        #if os(iOS) || os(tvOS) || os(visionOS) || os(macOS)
         configureTextAttachmentViewIfAvailable()
         #endif
     }
@@ -883,7 +883,7 @@ final class MarkdownTableAttachment: MarkdownAttachment, @unchecked Sendable {
         self.rows = []
         self.style = MarkdownTableStyle.fallback()
         super.init(coder: coder)
-        #if os(iOS) || os(tvOS) || os(macOS)
+        #if os(iOS) || os(tvOS) || os(visionOS) || os(macOS)
         configureTextAttachmentViewIfAvailable()
         #endif
     }
@@ -1077,7 +1077,7 @@ final class MarkdownTableAttachment: MarkdownAttachment, @unchecked Sendable {
     private func drawTable(layout: TableLayout) -> MarkdownPlatformImage? {
         let size = layout.tableSize
         guard size.width > 0, size.height > 0 else { return nil }
-        #if os(iOS) || os(tvOS) || os(watchOS)
+        #if os(iOS) || os(tvOS) || os(watchOS) || os(visionOS)
         let format = UIGraphicsImageRendererFormat.default()
         format.opaque = false
         let renderer = UIGraphicsImageRenderer(size: size, format: format)
@@ -1160,7 +1160,7 @@ final class MarkdownTableAttachment: MarkdownAttachment, @unchecked Sendable {
     }
 
     private func lineHeight(for font: MarkdownPlatformFont) -> CGFloat {
-        #if os(iOS) || os(tvOS) || os(watchOS)
+        #if os(iOS) || os(tvOS) || os(watchOS) || os(visionOS)
         return font.lineHeight
         #elseif os(macOS)
         return NSLayoutManager().defaultLineHeight(for: font)
@@ -1193,7 +1193,7 @@ final class MarkdownRuleAttachment: MarkdownAttachment, @unchecked Sendable {
     private static let viewProviderFileType = MarkdownAttachmentFileTypes.viewBacked
 
     private func configureTextAttachmentViewIfAvailable() {
-        #if os(iOS) || os(tvOS)
+        #if os(iOS) || os(tvOS) || os(visionOS)
         if #available(iOS 15.0, tvOS 15.0, *) {
             MarkdownAttachmentViewProviderRegistry.registerIfNeeded()
             allowsTextAttachmentView = true
@@ -1219,7 +1219,7 @@ final class MarkdownRuleAttachment: MarkdownAttachment, @unchecked Sendable {
         self.verticalPadding = verticalPadding
         super.init(data: nil, ofType: nil)
         self.maxWidth = maxWidth
-        #if os(iOS) || os(tvOS) || os(macOS)
+        #if os(iOS) || os(tvOS) || os(visionOS) || os(macOS)
         configureTextAttachmentViewIfAvailable()
         #endif
     }
@@ -1229,7 +1229,7 @@ final class MarkdownRuleAttachment: MarkdownAttachment, @unchecked Sendable {
         self.thickness = 1
         self.verticalPadding = 6
         super.init(coder: coder)
-        #if os(iOS) || os(tvOS) || os(macOS)
+        #if os(iOS) || os(tvOS) || os(visionOS) || os(macOS)
         configureTextAttachmentViewIfAvailable()
         #endif
     }
@@ -1272,7 +1272,7 @@ final class MarkdownRuleAttachment: MarkdownAttachment, @unchecked Sendable {
 
     private func drawRule(size: CGSize) -> MarkdownPlatformImage? {
         guard size.width > 0, size.height > 0 else { return nil }
-        #if os(iOS) || os(tvOS) || os(watchOS)
+        #if os(iOS) || os(tvOS) || os(watchOS) || os(visionOS)
         let format = UIGraphicsImageRendererFormat.default()
         format.opaque = false
         let renderer = UIGraphicsImageRenderer(size: size, format: format)

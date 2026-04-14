@@ -9,15 +9,18 @@ import SwiftUI
 import Foundation
 import SwiftData
 import Combine
-#if os(iOS) || os(macOS)
+#if os(iOS) || os(macOS) || os(visionOS)
 import PhotosUI
-import QuickLook
 import UniformTypeIdentifiers
+#endif
+
+#if os(iOS) || os(macOS) || os(visionOS)
+import QuickLook
 #endif
 
 #if os(macOS)
 import AppKit
-#elseif os(iOS)
+#elseif os(iOS) || os(visionOS)
 import UIKit
 #endif
 
@@ -98,7 +101,7 @@ private struct QueuedDraftNativeReorderModifier: ViewModifier {
     }
 }
 
-#if os(iOS) || os(macOS)
+#if os(iOS) || os(macOS) || os(visionOS)
 private struct ImageDropSuppressionState {
     let signature: String
     let expiresAt: Date
@@ -289,8 +292,14 @@ private struct ComposerAttachmentMenuButton: UIViewRepresentable {
     }
 
     private func applyButtonAppearance(to button: UIButton) {
-        var configuration = UIButton.Configuration.glass()
         let glassTint = tintColor.withAlphaComponent(0.18)
+        let baseConfiguration: UIButton.Configuration
+        #if os(visionOS)
+        baseConfiguration = .plain()
+        #else
+        baseConfiguration = .glass()
+        #endif
+        var configuration = baseConfiguration
         configuration.buttonSize = .small
         configuration.cornerStyle = .capsule
         configuration.image = UIImage(systemName: "plus")
@@ -561,7 +570,7 @@ struct ChatView: View {
     @State private var activeAlert: ChatAlert?
     @State private var expectAssistantResponseHaptics: Bool = false
     @State private var didTriggerResponseStartHaptic: Bool = false
-#if os(iOS) || os(macOS)
+#if os(iOS) || os(macOS) || os(visionOS)
     private enum ImageImportSource {
         case photoPicker
         case other
@@ -588,7 +597,7 @@ struct ChatView: View {
     @State private var isImageDropTargeted: Bool = false
     @State private var imageDropSuppressionState: ImageDropSuppressionState?
 #endif
-#if os(iOS) || os(macOS)
+#if os(iOS) || os(macOS) || os(visionOS)
     @State private var showSystemCameraCapture: Bool = false
 #endif
 
@@ -619,6 +628,8 @@ struct ChatView: View {
     private var messageListHorizontalPadding: CGFloat {
         #if os(macOS)
         return 16
+        #elseif os(visionOS)
+        return 20
         #else
         return 8
         #endif
@@ -661,6 +672,8 @@ struct ChatView: View {
     private var composerBottomPadding: CGFloat {
         #if os(iOS) || os(tvOS)
         return 26
+        #elseif os(visionOS)
+        return 24
         #else
         return 14
         #endif
@@ -669,17 +682,27 @@ struct ChatView: View {
     private var composerOuterVerticalPadding: CGFloat {
         #if os(iOS) || os(tvOS)
         return 4
+        #elseif os(visionOS)
+        return 6
         #else
         return 2
         #endif
     }
 
     private var composerPanelHorizontalPadding: CGFloat {
-        12
+        #if os(visionOS)
+        return 16
+        #else
+        return 12
+        #endif
     }
 
     private var composerBarCornerRadius: CGFloat {
-        24
+        #if os(visionOS)
+        return 28
+        #else
+        return 24
+        #endif
     }
 
     private var composerFloatingStackSpacing: CGFloat {
@@ -687,19 +710,35 @@ struct ChatView: View {
     }
 
     private var composerSupportSectionSpacing: CGFloat {
-        8
+        #if os(visionOS)
+        return 10
+        #else
+        return 8
+        #endif
     }
 
     private var composerSupportTopPadding: CGFloat {
-        8
+        #if os(visionOS)
+        return 12
+        #else
+        return 8
+        #endif
     }
 
     private var composerSupportBottomPadding: CGFloat {
-        6
+        #if os(visionOS)
+        return 10
+        #else
+        return 6
+        #endif
     }
 
     private var composerSupportHorizontalPadding: CGFloat {
-        10
+        #if os(visionOS)
+        return 14
+        #else
+        return 10
+        #endif
     }
 
     private var composerAccessoryTapSize: CGFloat {
@@ -1016,7 +1055,7 @@ struct ChatView: View {
                             .frame(maxWidth: composerPanelMaxWidth(availableWidth: availableMessageWidth))
                             .frame(maxWidth: .infinity)
                     }
-                    .padding(.horizontal, 16)
+                    .padding(.horizontal, floatingPanelHorizontalInset)
                     .padding(.bottom, composerBottomPadding)
                 }
             }
@@ -1076,13 +1115,15 @@ struct ChatView: View {
                 pendingRefreshAfterHydration = false
                 expectAssistantResponseHaptics = false
                 didTriggerResponseStartHaptic = false
-#if os(iOS) || os(macOS)
+#if os(iOS) || os(macOS) || os(visionOS)
                 for task in imageImportTasks.values {
                     task.cancel()
                 }
                 imageImportTasks.removeAll()
+#if os(iOS) || os(macOS) || os(visionOS)
                 ChatImageQuickLookSupport.cleanupTemporaryPreviewURL(pendingPreviewFileURL)
                 pendingPreviewFileURL = nil
+#endif
 #endif
             }
     }
@@ -1135,7 +1176,7 @@ struct ChatView: View {
                 TextSelectionSheet(text: item.text)
             }
 #endif
-#if os(iOS) || os(macOS)
+#if os(iOS) || os(macOS) || os(visionOS)
             .photosPicker(
                 isPresented: $showPhotoPicker,
                 selection: $pickedPhotoItems,
@@ -1151,11 +1192,13 @@ struct ChatView: View {
             .onChange(of: pickedPhotoItems) { _, newItems in
                 importPickedPhotoItems(newItems)
             }
+#if os(iOS) || os(macOS) || os(visionOS)
             .quickLookPreview($pendingPreviewFileURL)
             .onChange(of: pendingPreviewFileURL) { oldValue, newValue in
                 guard oldValue != newValue else { return }
                 ChatImageQuickLookSupport.cleanupTemporaryPreviewURL(oldValue)
             }
+#endif
 #endif
     }
 
@@ -1340,7 +1383,7 @@ struct ChatView: View {
 
     private var dropEnabledChatView: some View {
         alertManagedChatView
-#if os(iOS) || os(macOS)
+#if os(iOS) || os(macOS) || os(visionOS)
             .contentShape(Rectangle())
             .overlay {
                 fullChatImageDropOverlay
@@ -1383,7 +1426,9 @@ struct ChatView: View {
                                 .onPreferenceChange(ViewportHeightKey.self, perform: updateViewportHeightIfNeeded)
                                 .onPreferenceChange(BottomAnchorKey.self, perform: updateBottomAnchorIfNeeded)
                                 .defaultScrollAnchor(shouldAnchorBottom ? .bottom : .top)
+                                #if os(iOS) || os(tvOS)
                                 .scrollDismissesKeyboard(.interactively)
+                                #endif
                                 .onTapGesture { isInputFocused = false }
                                 .onChange(of: outerGeo.size.width) { _, newWidth in
                                     updateAvailableMessageWidth(newWidth)
@@ -1427,7 +1472,7 @@ struct ChatView: View {
         }
     }
 
-#if os(iOS) || os(macOS)
+#if os(iOS) || os(macOS) || os(visionOS)
     @ViewBuilder
     private var fullChatImageDropOverlay: some View {
         if isImageDropTargeted && currentModelSupportsImageInput {
@@ -1678,7 +1723,7 @@ struct ChatView: View {
 
     @ViewBuilder
     private var composerAttachmentButton: some View {
-#if os(iOS) || os(macOS)
+#if os(iOS) || os(macOS) || os(visionOS)
         if currentModelSupportsImageInput {
             #if os(iOS)
             if #available(iOS 26.0, *) {
@@ -1724,6 +1769,20 @@ struct ChatView: View {
                 .contentShape(Rectangle())
                 .buttonStyle(.plain)
             }
+            #elseif os(visionOS)
+            Menu {
+                composerAttachmentMenuActions
+            } label: {
+                Label("Add image", systemImage: "plus.circle.fill")
+                    .labelStyle(.iconOnly)
+                    .font(.system(size: 26, weight: .semibold))
+                    .symbolRenderingMode(.hierarchical)
+                    .foregroundStyle(ChatTheme.accent)
+                    .frame(width: 30, height: 30)
+            }
+            .frame(height: composerDefaultMainBarHeight, alignment: .center)
+            .contentShape(Rectangle())
+            .buttonStyle(.plain)
             #else
             if #available(macOS 26.0, *) {
                 Menu {
@@ -1767,6 +1826,7 @@ struct ChatView: View {
 
     @ViewBuilder
     private var composerAttachmentMenuActions: some View {
+#if !os(visionOS)
         Button("Take Photo", systemImage: "camera") {
             guard remainingPendingImageAttachmentSlots > 0 else {
                 presentImageAttachmentLimitNotice()
@@ -1776,6 +1836,7 @@ struct ChatView: View {
         }
 
         Divider()
+#endif
 
         Button("Choose Photos", systemImage: "photo.on.rectangle.angled") {
             guard remainingPendingImageAttachmentSlots > 0 else {
@@ -1898,7 +1959,7 @@ struct ChatView: View {
             removable: true,
             maxItemSize: 72,
             onPreview: { attachment in
-#if os(iOS) || os(macOS)
+#if os(iOS) || os(macOS) || os(visionOS)
                 presentPendingAttachmentPreview(attachment)
 #endif
             },
@@ -2013,7 +2074,22 @@ struct ChatView: View {
         Button {
             scrollToBottom()
         } label: {
-            if #available(iOS 26.0, macOS 26.0, tvOS 26.0, visionOS 26.0, *) {
+            #if os(visionOS)
+            Image(systemName: "arrow.down")
+                .font(.system(size: 18, weight: .semibold))
+                .frame(width: scrollButtonSize, height: scrollButtonSize)
+                .contentShape(Circle())
+                .background(
+                    Circle()
+                        .fill(.ultraThinMaterial)
+                )
+                .overlay(
+                    Circle()
+                        .stroke(ChatTheme.subtleStroke.opacity(0.5), lineWidth: 0.6)
+                )
+                .shadow(color: Color.black.opacity(0.12), radius: 10, x: 0, y: 6)
+            #else
+            if #available(iOS 26.0, macOS 26.0, tvOS 26.0, *) {
                 Image(systemName: "arrow.down")
                     .font(.system(size: 18, weight: .semibold))
                     .frame(width: scrollButtonSize, height: scrollButtonSize)
@@ -2034,6 +2110,7 @@ struct ChatView: View {
                     )
                     .shadow(color: Color.black.opacity(0.12), radius: 10, x: 0, y: 6)
             }
+            #endif
         }
         .buttonStyle(.plain)
         .foregroundStyle(.primary)
@@ -2073,7 +2150,7 @@ struct ChatView: View {
     private func messageList(scrollTargetsEnabled: Bool) -> some View {
         let content = messageListCore()
             .padding(.horizontal, messageListHorizontalPadding)
-            .padding(.top, 12)
+            .padding(.top, messageListTopPadding)
             .frame(maxWidth: contentColumnMaxWidth(availableWidth: availableMessageWidth))
             .frame(maxWidth: .infinity, alignment: .center)
 
@@ -2082,6 +2159,22 @@ struct ChatView: View {
         } else {
             content
         }
+    }
+
+    private var floatingPanelHorizontalInset: CGFloat {
+        #if os(visionOS)
+        return 24
+        #else
+        return 16
+        #endif
+    }
+
+    private var messageListTopPadding: CGFloat {
+        #if os(visionOS)
+        return 18
+        #else
+        return 12
+        #endif
     }
 
     @ViewBuilder
@@ -2220,17 +2313,21 @@ struct ChatView: View {
         }
     }
 
-#if os(iOS) || os(macOS)
+#if os(iOS) || os(macOS) || os(visionOS)
     private var acceptedImageDropTypeIdentifiers: [String] {
         [UTType.image.identifier, UTType.fileURL.identifier]
     }
 
     private func presentPendingAttachmentPreview(_ attachment: ChatImageAttachment) {
+        #if os(iOS) || os(macOS) || os(visionOS)
         let previous = pendingPreviewFileURL
         pendingPreviewFileURL = ChatImageQuickLookSupport.prepareTemporaryPreviewURL(for: attachment)
         if previous != pendingPreviewFileURL {
             ChatImageQuickLookSupport.cleanupTemporaryPreviewURL(previous)
         }
+        #else
+        _ = attachment
+        #endif
     }
 
     private func importPickedPhotoItems(_ items: [PhotosPickerItem]) {
@@ -2276,6 +2373,18 @@ struct ChatView: View {
         startImageImport {
             await Self.loadImageAttachments(from: [payload], limit: $0)
         }
+    }
+#endif
+
+#if os(visionOS)
+    private func presentSystemCameraCapture() {
+        presentCameraUnavailableNotice()
+    }
+
+    private func importCapturedPhotoData(_ data: Data, mimeType: String?) {
+        _ = data
+        _ = mimeType
+        presentCameraUnavailableNotice()
     }
 #endif
 
@@ -2474,7 +2583,7 @@ struct ChatView: View {
         )
     }
 
-#if os(iOS) || os(macOS)
+#if os(iOS) || os(macOS) || os(visionOS)
     private func presentCameraUnavailableNotice() {
         errorCenter.publish(
             title: NSLocalizedString("Camera Unavailable", comment: "Title shown when the device cannot present the system camera UI"),
