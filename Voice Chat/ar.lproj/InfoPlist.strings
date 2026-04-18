@@ -1,0 +1,3 @@
+"NSCameraUsageDescription" = "التقاط صور وإضافتها إلى رسائل الدردشة.";
+"NSMicrophoneUsageDescription" = "تسجيل صوتك لدعم وضع الصوت.";
+"NSSpeechRecognitionUsageDescription" = "تحويل صوتك إلى نص لدعم وضع الصوت.";

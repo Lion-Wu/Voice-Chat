@@ -1,0 +1,3 @@
+"NSCameraUsageDescription" = "写真を撮影してチャットメッセージに追加するために使用します。";
+"NSMicrophoneUsageDescription" = "音声モードに対応するために声を録音します。";
+"NSSpeechRecognitionUsageDescription" = "音声モードに対応するために話した内容をテキストに変換します。";
