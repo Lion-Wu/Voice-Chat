@@ -1,0 +1,3 @@
+"NSCameraUsageDescription" = "用於拍攝照片並加入聊天訊息中。";
+"NSMicrophoneUsageDescription" = "用於錄製你的語音，以支援語音模式。";
+"NSSpeechRecognitionUsageDescription" = "用於將你的語音轉換為文字，以支援語音模式。";

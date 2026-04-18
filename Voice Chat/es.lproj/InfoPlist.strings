@@ -1,0 +1,3 @@
+"NSCameraUsageDescription" = "Tomar fotos y agregarlas a los mensajes de chat.";
+"NSMicrophoneUsageDescription" = "Grabar tu voz para admitir el modo de voz.";
+"NSSpeechRecognitionUsageDescription" = "Convertir tu voz en texto para admitir el modo de voz.";
