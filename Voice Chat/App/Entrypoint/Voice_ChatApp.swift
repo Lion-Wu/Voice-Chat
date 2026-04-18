@@ -8,25 +8,6 @@
 import SwiftUI
 import SwiftData
 
-enum AppLocalization {
-    static var supportedLocalizationIdentifiers: [String] {
-        Bundle.main.localizations.filter { $0 != "Base" }
-    }
-
-    static func localizedPlaceholderTitles() -> Set<String> {
-        var identifiers = Set(supportedLocalizationIdentifiers)
-        identifiers.insert("en")
-        identifiers.insert(Locale.current.identifier)
-
-        return Set(
-            identifiers.map { identifier in
-                String(localized: "New Chat", locale: Locale(identifier: identifier))
-            }
-        )
-    }
-
-}
-
 @main
 @MainActor
 struct Voice_ChatApp: App {
@@ -80,25 +61,3 @@ struct Voice_ChatApp: App {
         #endif
     }
 }
-
-#if os(macOS)
-/// Custom app-level menu that replaces the default `.newItem` command with "New Chat".
-private struct AppMenuCommands: Commands {
-    @ObservedObject var chatSessionsViewModel: ChatSessionsViewModel
-
-    init(_ vm: ChatSessionsViewModel) {
-        self._chatSessionsViewModel = ObservedObject(wrappedValue: vm)
-    }
-
-    var body: some Commands {
-        CommandGroup(replacing: .newItem) {
-            Button("New Chat") {
-                guard chatSessionsViewModel.canStartNewSession else { return }
-                chatSessionsViewModel.startNewSession()
-            }
-            .keyboardShortcut("n", modifiers: [.command])
-            .disabled(!chatSessionsViewModel.canStartNewSession)
-        }
-    }
-}
-#endif
