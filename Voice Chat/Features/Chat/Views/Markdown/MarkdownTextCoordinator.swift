@@ -16,6 +16,7 @@ import SwiftUI
 final class MarkdownTextCoordinator: NSObject, @unchecked Sendable {
     private var lastMarkdown: String = ""
     private var lastStyleKey: String = ""
+    private var lastMarkdownHasPotentialMathSyntax: Bool = false
     private var currentRenderID: UInt64 = 0
     private var attachments: [MarkdownAttachment] = []
     private var lastLayoutWidth: CGFloat = 0
@@ -36,12 +37,36 @@ final class MarkdownTextCoordinator: NSObject, @unchecked Sendable {
     private var streamingActiveTableLineBuffer: String = ""
     private var streamingActiveTableHasDraftRow: Bool = false
     private var streamingActiveTableDraftLine: String = ""
+    private var streamingActiveTableDraftRawCells: [String] = []
+    private var streamingActiveTableColumnAlignments: [NSTextAlignment] = []
+    private var streamingTableCellCache: [StreamingTableCellCacheKey: NSAttributedString] = [:]
+    private var streamingTableCellCacheOrder: [StreamingTableCellCacheKey] = []
     private weak var pendingInvalidationTextView: MarkdownPlatformTextView?
     private var pendingInvalidationRange: NSRange?
     private var pendingInvalidationScheduled: Bool = false
+    private weak var pendingStreamingTableInvalidationTextView: MarkdownPlatformTextView?
+    private var pendingStreamingTableInvalidationRange: NSRange?
+    private var pendingStreamingTableInvalidationScheduled: Bool = false
+    private var lastStreamingTableInvalidationTime: TimeInterval = 0
+
+    private enum StreamingTableInvalidationTuning {
+        static let largeTableRowThreshold = 32
+        static let minimumInterval: TimeInterval = 1.0 / 12.0
+    }
+
+    private static let tableLinkDetector: NSDataDetector? = try? NSDataDetector(
+        types: NSTextCheckingResult.CheckingType.link.rawValue
+    )
 
     private struct SendableAttributes: @unchecked Sendable {
         let attributes: [NSAttributedString.Key: Any]
+    }
+
+    private struct StreamingTableCellCacheKey: Hashable {
+        let markdown: String
+        let styleKey: String
+        let alignment: Int
+        let widthKey: Int
     }
 
     private func needsBlockSeparator(prefix: NSAttributedString, next: NSAttributedString) -> Bool {
@@ -107,8 +132,13 @@ final class MarkdownTextCoordinator: NSObject, @unchecked Sendable {
 
         if !force,
            styleKey == lastStyleKey,
-           !appendedDeltaIntroducesMath,
-           attemptSegmentedStreamingUpdate(to: textView, newMarkdown: markdown, style: style, styleKey: styleKey) {
+           attemptSegmentedStreamingUpdate(
+               to: textView,
+               newMarkdown: markdown,
+               style: style,
+               styleKey: styleKey,
+               allowRenderedSegmentUpdates: !appendedDeltaIntroducesMath
+           ) {
             return
         }
 
@@ -123,8 +153,25 @@ final class MarkdownTextCoordinator: NSObject, @unchecked Sendable {
     }
 
     private func updateLastRenderState(markdown: String, styleKey: String) {
+        updatePotentialMathSyntaxCache(for: markdown, previousMarkdown: lastMarkdown)
         lastMarkdown = markdown
         lastStyleKey = styleKey
+    }
+
+    private func updatePotentialMathSyntaxCache(for markdown: String, previousMarkdown: String) {
+        if !previousMarkdown.isEmpty, markdown.hasPrefix(previousMarkdown) {
+            let delta = String(markdown.dropFirst(previousMarkdown.count))
+            if !lastMarkdownHasPotentialMathSyntax {
+                lastMarkdownHasPotentialMathSyntax =
+                    MarkdownMathPreprocessor.containsPotentialMathSyntax(delta) ||
+                    MarkdownMathPreprocessor.containsPotentialMathSyntaxAcrossBoundary(
+                        prefix: previousMarkdown,
+                        suffix: delta
+                    )
+            }
+        } else {
+            lastMarkdownHasPotentialMathSyntax = MarkdownMathPreprocessor.containsPotentialMathSyntax(markdown)
+        }
     }
 
     private func appendedMarkdownDelta(for newMarkdown: String) -> String? {
@@ -134,19 +181,31 @@ final class MarkdownTextCoordinator: NSObject, @unchecked Sendable {
 
     private func deltaIntroducesPotentialMath(_ delta: String?, appendedTo existingMarkdown: String) -> Bool {
         guard let delta, !delta.isEmpty else { return false }
-        if MarkdownMathPreprocessor.containsUnterminatedMathSyntax(existingMarkdown) {
-            return true
-        }
-        if MarkdownMathPreprocessor.endsWithStandaloneDisplayMathParagraph(existingMarkdown) {
-            return true
-        }
-        if MarkdownMathPreprocessor.containsPotentialMathSyntax(delta) {
-            return true
-        }
-        return MarkdownMathPreprocessor.containsPotentialMathSyntaxAcrossBoundary(
+        let existingHasPotentialMath = existingMarkdown == lastMarkdown
+            ? lastMarkdownHasPotentialMathSyntax
+            : MarkdownMathPreprocessor.containsPotentialMathSyntax(existingMarkdown)
+        let deltaHasPotentialMath = MarkdownMathPreprocessor.containsPotentialMathSyntax(delta)
+        let boundaryHasPotentialMath = MarkdownMathPreprocessor.containsPotentialMathSyntaxAcrossBoundary(
             prefix: existingMarkdown,
             suffix: delta
         )
+
+        guard existingHasPotentialMath || deltaHasPotentialMath || boundaryHasPotentialMath else {
+            return false
+        }
+
+        if existingHasPotentialMath,
+           MarkdownMathPreprocessor.containsUnterminatedMathSyntax(existingMarkdown) {
+            return true
+        }
+        if existingHasPotentialMath,
+           MarkdownMathPreprocessor.endsWithStandaloneDisplayMathParagraph(existingMarkdown) {
+            return true
+        }
+        if deltaHasPotentialMath {
+            return true
+        }
+        return boundaryHasPotentialMath
     }
 
     private func attemptIncrementalAppend(
@@ -191,7 +250,6 @@ final class MarkdownTextCoordinator: NSObject, @unchecked Sendable {
         style: MarkdownStyle,
         styleKey: String
     ) -> Bool {
-        _ = styleKey
         guard !delta.isEmpty else { return false }
 
         if baseState.isInsideFence, nextState.isInsideFence,
@@ -209,10 +267,17 @@ final class MarkdownTextCoordinator: NSObject, @unchecked Sendable {
             )
             guard let attachmentRange else { return false }
 
-            codeAttachment.appendCode(delta)
+            let needsLayoutInvalidation = codeAttachment.appendCode(delta)
             streamingActiveTailAttachment = codeAttachment
             streamingActiveTailAttachmentRange = attachmentRange
-            invalidateLayout(for: textView, changedRange: attachmentRange)
+            if needsLayoutInvalidation {
+                invalidateStreamingCodeBlockLayout(
+                    for: textView,
+                    codeAttachment: codeAttachment,
+                    attachmentRange: attachmentRange,
+                    changedRange: attachmentRange
+                )
+            }
             return true
         }
 
@@ -225,6 +290,14 @@ final class MarkdownTextCoordinator: NSObject, @unchecked Sendable {
                 searchRange: tailRange
             )
             guard let attachmentRange else { return false }
+            let removedStaleTailText = removeStaleRenderedTableTailTextIfNeeded(
+                in: storage,
+                after: attachmentRange
+            )
+            let tableInvalidationRange = NSRange(
+                location: attachmentRange.location,
+                length: max(attachmentRange.length, storage.length - attachmentRange.location)
+            )
 
             if streamingActiveTableAttachment !== tableAttachment {
                 streamingActiveTableAttachment = tableAttachment
@@ -232,26 +305,61 @@ final class MarkdownTextCoordinator: NSObject, @unchecked Sendable {
                 streamingActiveTableLineBuffer = suffix
                 streamingActiveTableHasDraftRow = false
                 streamingActiveTableDraftLine = ""
+                streamingActiveTableDraftRawCells = []
+                streamingActiveTableColumnAlignments = inferredTableColumnAlignments(from: tableAttachment)
 
                 if let draftRow = makeStreamingTableRow(
                     from: suffix,
                     style: style,
-                    columnCountHint: tableAttachment.rows.first?.cells.count
+                    styleKey: styleKey,
+                    columnCountHint: tableAttachment.rows.first?.cells.count,
+                    alignments: streamingActiveTableColumnAlignments,
+                    previousRow: tableAttachment.rows.last
                 ), let existingLast = tableAttachment.rows.last {
-                    let existingText = existingLast.cells.map(\.string).joined(separator: "\t")
-                    let draftText = draftRow.cells.map(\.string).joined(separator: "\t")
-                    if existingText == draftText {
+                    let existingText = existingLast.sourceMarkdown ?? existingLast.cells.map(\.string).joined(separator: "\t")
+                    let draftText = draftRow.sourceMarkdown ?? draftRow.cells.map(\.string).joined(separator: "\t")
+                    if existingText == draftText || tableRowContentEqual(existingLast, draftRow) {
                         streamingActiveTableHasDraftRow = true
-                        streamingActiveTableDraftLine = suffix
+                        streamingActiveTableDraftLine = draftRow.sourceMarkdown ?? suffix
+                        streamingActiveTableDraftRawCells = splitTableRowCells(streamingActiveTableDraftLine)
                     }
                 }
+            }
+
+            if streamingActiveTableHasDraftRow,
+               canFastAppendTableDraftDelta(delta),
+               let draftRow = makeStreamingTableRowByAppendingToDraft(
+                   delta: delta,
+                   existingRow: tableAttachment.rows.last,
+                   style: style,
+                   styleKey: styleKey,
+                   columnCountHint: tableAttachment.rows.first?.cells.count,
+                   alignments: streamingActiveTableColumnAlignments
+               ) {
+                let needsLayoutInvalidation = tableAttachment.replaceLastRow(draftRow)
+                streamingActiveTableLineBuffer.append(contentsOf: delta)
+                streamingActiveTableDraftLine = draftRow.sourceMarkdown ?? streamingActiveTableDraftLine + delta
+                streamingActiveTailAttachment = tableAttachment
+                streamingActiveTailAttachmentRange = attachmentRange
+                if needsLayoutInvalidation || removedStaleTailText {
+                    invalidateStreamingTableLayout(
+                        for: textView,
+                        tableAttachment: tableAttachment,
+                        attachmentRange: attachmentRange,
+                        changedRange: tableInvalidationRange,
+                        requiresTextLayoutInvalidation: removedStaleTailText
+                    )
+                }
+                return true
             }
 
             streamingActiveTableLineBuffer.append(contentsOf: delta)
             let (rowsToAppend, remainder) = consumeCompletedTableLines(
                 from: streamingActiveTableLineBuffer,
                 style: style,
-                columnCountHint: tableAttachment.rows.first?.cells.count
+                styleKey: styleKey,
+                columnCountHint: tableAttachment.rows.first?.cells.count,
+                alignments: streamingActiveTableColumnAlignments
             )
             streamingActiveTableLineBuffer = remainder
 
@@ -259,39 +367,49 @@ final class MarkdownTextCoordinator: NSObject, @unchecked Sendable {
 
             if !rowsToAppend.isEmpty {
                 if streamingActiveTableHasDraftRow {
-                    tableAttachment.replaceLastRow(rowsToAppend[0])
+                    didUpdate = tableAttachment.replaceLastRow(rowsToAppend[0]) || didUpdate
                     if rowsToAppend.count > 1 {
-                        tableAttachment.appendRows(Array(rowsToAppend.dropFirst()))
+                        didUpdate = tableAttachment.appendRows(Array(rowsToAppend.dropFirst())) || didUpdate
                     }
                 } else {
-                    tableAttachment.appendRows(rowsToAppend)
+                    didUpdate = tableAttachment.appendRows(rowsToAppend) || didUpdate
                 }
-                didUpdate = true
                 streamingActiveTableHasDraftRow = false
                 streamingActiveTableDraftLine = ""
+                streamingActiveTableDraftRawCells = []
             }
 
             if remainder.isEmpty || remainder.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 streamingActiveTableHasDraftRow = false
                 streamingActiveTableDraftLine = ""
+                streamingActiveTableDraftRawCells = []
             } else if remainder != streamingActiveTableDraftLine,
                       let draftRow = makeStreamingTableRow(
                           from: remainder,
                           style: style,
-                          columnCountHint: tableAttachment.rows.first?.cells.count
+                          styleKey: styleKey,
+                          columnCountHint: tableAttachment.rows.first?.cells.count,
+                          alignments: streamingActiveTableColumnAlignments,
+                          previousRow: streamingActiveTableHasDraftRow ? tableAttachment.rows.last : nil
                       ) {
                 if streamingActiveTableHasDraftRow {
-                    tableAttachment.replaceLastRow(draftRow)
+                    didUpdate = tableAttachment.replaceLastRow(draftRow) || didUpdate
                 } else {
-                    tableAttachment.appendRows([draftRow])
+                    didUpdate = tableAttachment.appendRows([draftRow]) || didUpdate
                     streamingActiveTableHasDraftRow = true
                 }
-                streamingActiveTableDraftLine = remainder
-                didUpdate = true
+                streamingActiveTableDraftLine = draftRow.sourceMarkdown ?? remainder
+                streamingActiveTableDraftRawCells = splitTableRowCells(streamingActiveTableDraftLine)
             }
 
-            if didUpdate {
-                invalidateLayout(for: textView, changedRange: attachmentRange)
+            if didUpdate || removedStaleTailText {
+                invalidateStreamingTableLayout(
+                    for: textView,
+                    tableAttachment: tableAttachment,
+                    attachmentRange: attachmentRange,
+                    changedRange: tableInvalidationRange,
+                    requiresTextLayoutInvalidation: removedStaleTailText
+                )
             }
 
             streamingActiveTailAttachment = tableAttachment
@@ -306,7 +424,8 @@ final class MarkdownTextCoordinator: NSObject, @unchecked Sendable {
         to textView: MarkdownPlatformTextView,
         newMarkdown: String,
         style: MarkdownStyle,
-        styleKey: String
+        styleKey: String,
+        allowRenderedSegmentUpdates: Bool = true
     ) -> Bool {
         guard !lastMarkdown.isEmpty, newMarkdown.hasPrefix(lastMarkdown) else { return false }
         guard let storage = textStorage(for: textView), storage.length > 0 else { return false }
@@ -391,10 +510,6 @@ final class MarkdownTextCoordinator: NSObject, @unchecked Sendable {
             )
         }
 
-        currentRenderID &+= 1
-        let renderID = currentRenderID
-        let sendableBaseAttributes = SendableAttributes(attributes: baseAttributes)
-
         if case let .updateTail(committedLength) = plan.mode,
            committedLength <= storage.length,
            attemptIncrementalOpenAttachmentUpdate(
@@ -407,10 +522,17 @@ final class MarkdownTextCoordinator: NSObject, @unchecked Sendable {
                style: style,
                styleKey: styleKey
            ) {
+            currentRenderID &+= 1
             streamingState = nextState
             updateLastRenderState(markdown: newMarkdown, styleKey: styleKey)
             return true
         }
+
+        guard allowRenderedSegmentUpdates else { return false }
+
+        currentRenderID &+= 1
+        let renderID = currentRenderID
+        let sendableBaseAttributes = SendableAttributes(attributes: baseAttributes)
 
 #if os(macOS)
         Task { @MainActor [weak self] in
@@ -569,10 +691,11 @@ final class MarkdownTextCoordinator: NSObject, @unchecked Sendable {
                 self.streamingCommittedOrderedList = plan.orderedListAtSafeCommit
                 self.streamingState = plan.nextState
 
-                let replaceRange = NSRange(location: oldCommittedLength, length: max(0, storage.length - oldCommittedLength))
-                storage.beginEditing()
-                storage.replaceCharacters(in: replaceRange, with: replacement)
-                storage.endEditing()
+                let changedRange = self.replaceCharactersPreservingStablePrefix(
+                    in: storage,
+                    range: NSRange(location: oldCommittedLength, length: max(0, storage.length - oldCommittedLength)),
+                    with: replacement
+                )
 
                 let newAttachments = resolvedCommitDeltaAttachments + resolvedTailAttachments
                 if self.attachments.count >= oldCommittedAttachmentCount {
@@ -590,8 +713,10 @@ final class MarkdownTextCoordinator: NSObject, @unchecked Sendable {
                 self.updateAttachmentWidth(for: newAttachments)
                 self.queueImageLoads(attachments: newAttachments)
                 self.updateLastRenderState(markdown: plan.markdown, styleKey: styleKey)
-                let start = self.invalidationStart(in: storage, insertionLocation: oldCommittedLength)
-                self.invalidateLayout(for: textView, changedRange: NSRange(location: start, length: max(0, storage.length - start)))
+                if let changedRange {
+                    let start = self.invalidationStart(in: storage, insertionLocation: changedRange.location)
+                    self.invalidateLayout(for: textView, changedRange: NSRange(location: start, length: max(0, storage.length - start)))
+                }
 
             case let .updateTail(committedLength):
                 guard let committedAttributed = self.streamingCommittedAttributedString else {
@@ -616,10 +741,11 @@ final class MarkdownTextCoordinator: NSObject, @unchecked Sendable {
                     reusableAttachments: oldTailAttachments
                 )
 
-                let replaceRange = NSRange(location: committedLength, length: max(0, storage.length - committedLength))
-                storage.beginEditing()
-                storage.replaceCharacters(in: replaceRange, with: tailAttributed)
-                storage.endEditing()
+                let changedRange = self.replaceCharactersPreservingStablePrefix(
+                    in: storage,
+                    range: NSRange(location: committedLength, length: max(0, storage.length - committedLength)),
+                    with: tailAttributed
+                )
 
                 self.streamingState = plan.nextState
                 self.streamingCommittedOrderedList = plan.orderedListAtSafeCommit
@@ -637,8 +763,10 @@ final class MarkdownTextCoordinator: NSObject, @unchecked Sendable {
                 self.updateAttachmentWidth(for: resolvedTailAttachments)
                 self.queueImageLoads(attachments: resolvedTailAttachments)
                 self.updateLastRenderState(markdown: plan.markdown, styleKey: styleKey)
-                let start = self.invalidationStart(in: storage, insertionLocation: committedLength)
-                self.invalidateLayout(for: textView, changedRange: NSRange(location: start, length: max(0, storage.length - start)))
+                if let changedRange {
+                    let start = self.invalidationStart(in: storage, insertionLocation: changedRange.location)
+                    self.invalidateLayout(for: textView, changedRange: NSRange(location: start, length: max(0, storage.length - start)))
+                }
             }
         }
 #else
@@ -818,10 +946,11 @@ final class MarkdownTextCoordinator: NSObject, @unchecked Sendable {
                     self.streamingCommittedOrderedList = plan.orderedListAtSafeCommit
                     self.streamingState = plan.nextState
 
-                    let replaceRange = NSRange(location: oldCommittedLength, length: max(0, storage.length - oldCommittedLength))
-                    storage.beginEditing()
-                    storage.replaceCharacters(in: replaceRange, with: replacement)
-                    storage.endEditing()
+                    let changedRange = self.replaceCharactersPreservingStablePrefix(
+                        in: storage,
+                        range: NSRange(location: oldCommittedLength, length: max(0, storage.length - oldCommittedLength)),
+                        with: replacement
+                    )
 
                     let newAttachments = resolvedCommitDeltaAttachments + resolvedTailAttachments
                     if self.attachments.count >= oldCommittedAttachmentCount {
@@ -839,8 +968,10 @@ final class MarkdownTextCoordinator: NSObject, @unchecked Sendable {
                     self.updateAttachmentWidth(for: newAttachments)
                     self.queueImageLoads(attachments: newAttachments)
                     self.updateLastRenderState(markdown: plan.markdown, styleKey: styleKey)
-                    let start = self.invalidationStart(in: storage, insertionLocation: oldCommittedLength)
-                    self.invalidateLayout(for: textView, changedRange: NSRange(location: start, length: max(0, storage.length - start)))
+                    if let changedRange {
+                        let start = self.invalidationStart(in: storage, insertionLocation: changedRange.location)
+                        self.invalidateLayout(for: textView, changedRange: NSRange(location: start, length: max(0, storage.length - start)))
+                    }
 
                 case let (.updateTail(committedLength), .tailOnly(tailResult)):
                     guard let committedAttributed = self.streamingCommittedAttributedString else { return }
@@ -860,10 +991,11 @@ final class MarkdownTextCoordinator: NSObject, @unchecked Sendable {
                         reusableAttachments: oldTailAttachments
                     )
 
-                    let replaceRange = NSRange(location: committedLength, length: max(0, storage.length - committedLength))
-                    storage.beginEditing()
-                    storage.replaceCharacters(in: replaceRange, with: tailAttributed)
-                    storage.endEditing()
+                    let changedRange = self.replaceCharactersPreservingStablePrefix(
+                        in: storage,
+                        range: NSRange(location: committedLength, length: max(0, storage.length - committedLength)),
+                        with: tailAttributed
+                    )
 
                     self.streamingState = plan.nextState
                     self.streamingCommittedOrderedList = plan.orderedListAtSafeCommit
@@ -881,8 +1013,10 @@ final class MarkdownTextCoordinator: NSObject, @unchecked Sendable {
                     self.updateAttachmentWidth(for: resolvedTailAttachments)
                     self.queueImageLoads(attachments: resolvedTailAttachments)
                     self.updateLastRenderState(markdown: plan.markdown, styleKey: styleKey)
-                    let start = self.invalidationStart(in: storage, insertionLocation: committedLength)
-                    self.invalidateLayout(for: textView, changedRange: NSRange(location: start, length: max(0, storage.length - start)))
+                    if let changedRange {
+                        let start = self.invalidationStart(in: storage, insertionLocation: changedRange.location)
+                        self.invalidateLayout(for: textView, changedRange: NSRange(location: start, length: max(0, storage.length - start)))
+                    }
 
                 default:
                     break
@@ -1377,7 +1511,8 @@ final class MarkdownTextCoordinator: NSObject, @unchecked Sendable {
     }
 
     private func queueImageLoads(
-        attachments: [MarkdownAttachment]
+        attachments: [MarkdownAttachment],
+        invalidateEntireLayout: Bool = false
     ) {
         guard !attachments.isEmpty else { return }
         for attachment in attachments {
@@ -1387,7 +1522,11 @@ final class MarkdownTextCoordinator: NSObject, @unchecked Sendable {
                 guard let textView = self.currentTextView else { return }
                 guard self.containsAttachment(imageAttachment) else { return }
                 imageAttachment.setImage(image)
-                self.invalidateLayout(for: textView, changedRange: self.rangeOfAttachment(imageAttachment, in: textView))
+                if invalidateEntireLayout {
+                    self.invalidateLayout(for: textView, changedRange: nil)
+                } else if let range = self.rangeOfAttachment(imageAttachment, in: textView) {
+                    self.invalidateLayout(for: textView, changedRange: range)
+                }
             }
         }
     }
@@ -1399,6 +1538,10 @@ final class MarkdownTextCoordinator: NSObject, @unchecked Sendable {
         streamingCommittedAttachments = []
         streamingCommittedStyleKey = ""
         streamingCommittedOrderedList = nil
+        streamingTableCellCache.removeAll(keepingCapacity: true)
+        streamingTableCellCacheOrder.removeAll(keepingCapacity: true)
+        cancelPendingStreamingTableInvalidation()
+        lastStreamingTableInvalidationTime = 0
         resetStreamingOpenAttachmentState()
     }
 
@@ -1409,6 +1552,38 @@ final class MarkdownTextCoordinator: NSObject, @unchecked Sendable {
         streamingActiveTableLineBuffer = ""
         streamingActiveTableHasDraftRow = false
         streamingActiveTableDraftLine = ""
+        streamingActiveTableDraftRawCells = []
+        streamingActiveTableColumnAlignments = []
+    }
+
+    private func inferredTableColumnAlignments(from attachment: MarkdownTableAttachment) -> [NSTextAlignment] {
+        let columnCount = attachment.rows.map { $0.cells.count }.max() ?? 0
+        guard columnCount > 0 else { return [] }
+
+        let referenceRows = attachment.rows
+        return (0..<columnCount).map { column in
+            for row in referenceRows where column < row.cells.count {
+                if let alignment = tableCellAlignment(row.cells[column]) {
+                    return alignment == .natural ? .left : alignment
+                }
+            }
+            return .left
+        }
+    }
+
+    private func tableCellAlignment(_ cell: NSAttributedString) -> NSTextAlignment? {
+        guard cell.length > 0 else { return nil }
+        var resolved: NSTextAlignment?
+        cell.enumerateAttribute(
+            .paragraphStyle,
+            in: NSRange(location: 0, length: cell.length),
+            options: []
+        ) { value, _, stop in
+            guard let paragraph = value as? NSParagraphStyle else { return }
+            resolved = paragraph.alignment
+            stop.pointee = true
+        }
+        return resolved
     }
 
     private func resolveStreamingActiveAttachmentRange(
@@ -1438,10 +1613,25 @@ final class MarkdownTextCoordinator: NSObject, @unchecked Sendable {
         return String(markdown[nextIndex...])
     }
 
+    private func removeStaleRenderedTableTailTextIfNeeded(
+        in storage: NSTextStorage,
+        after attachmentRange: NSRange
+    ) -> Bool {
+        let tailStart = NSMaxRange(attachmentRange)
+        guard tailStart < storage.length else { return false }
+        let staleRange = NSRange(location: tailStart, length: storage.length - tailStart)
+        storage.beginEditing()
+        storage.deleteCharacters(in: staleRange)
+        storage.endEditing()
+        return true
+    }
+
     private func consumeCompletedTableLines(
         from buffer: String,
         style: MarkdownStyle,
-        columnCountHint: Int?
+        styleKey: String,
+        columnCountHint: Int?,
+        alignments: [NSTextAlignment]
     ) -> (rows: [MarkdownTableRow], remainder: String) {
         guard buffer.contains("\n") else {
             return ([], buffer)
@@ -1451,7 +1641,13 @@ final class MarkdownTextCoordinator: NSObject, @unchecked Sendable {
         while let newline = buffer[start...].firstIndex(of: "\n") {
             var line = String(buffer[start..<newline])
             if line.hasSuffix("\r") { line.removeLast() }
-            if let row = makeStreamingTableRow(from: line, style: style, columnCountHint: columnCountHint) {
+            if let row = makeStreamingTableRow(
+                from: line,
+                style: style,
+                styleKey: styleKey,
+                columnCountHint: columnCountHint,
+                alignments: alignments
+            ) {
                 rows.append(row)
             }
             start = buffer.index(after: newline)
@@ -1462,7 +1658,10 @@ final class MarkdownTextCoordinator: NSObject, @unchecked Sendable {
     private func makeStreamingTableRow(
         from line: String,
         style: MarkdownStyle,
-        columnCountHint: Int?
+        styleKey: String,
+        columnCountHint: Int?,
+        alignments: [NSTextAlignment],
+        previousRow: MarkdownTableRow? = nil
     ) -> MarkdownTableRow? {
         let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
@@ -1470,9 +1669,29 @@ final class MarkdownTextCoordinator: NSObject, @unchecked Sendable {
         guard !looksLikeTableSeparatorLine(trimmed) else { return nil }
 
         let rawCells = splitTableRowCells(trimmed)
-        let columnCount = columnCountHint ?? rawCells.count
+        let columnCount = max(columnCountHint ?? 0, rawCells.count)
         guard columnCount > 0 else { return nil }
 
+        return makeStreamingTableRow(
+            rawCells: rawCells,
+            sourceMarkdown: trimmed,
+            style: style,
+            styleKey: styleKey,
+            columnCount: columnCount,
+            alignments: alignments,
+            previousRow: previousRow
+        )
+    }
+
+    private func makeStreamingTableRow(
+        rawCells: [String],
+        sourceMarkdown: String,
+        style: MarkdownStyle,
+        styleKey: String,
+        columnCount: Int,
+        alignments: [NSTextAlignment],
+        previousRow: MarkdownTableRow?
+    ) -> MarkdownTableRow {
         var attrs = style.baseAttributes
         let paragraphStyle = NSMutableParagraphStyle()
         paragraphStyle.alignment = .left
@@ -1481,11 +1700,222 @@ final class MarkdownTextCoordinator: NSObject, @unchecked Sendable {
 
         var cells: [NSAttributedString] = []
         cells.reserveCapacity(columnCount)
+        let previousRawCells = previousRow?.sourceMarkdown.map(splitTableRowCells)
         for column in 0..<columnCount {
             let text = column < rawCells.count ? rawCells[column] : ""
-            cells.append(NSAttributedString(string: text, attributes: attrs))
+            let alignment = column < alignments.count ? alignments[column] : .left
+            let priorText = (previousRawCells?.indices.contains(column) == true) ? previousRawCells?[column] : nil
+            let priorCell = (previousRow?.cells.indices.contains(column) == true) ? previousRow?.cells[column] : nil
+            if let reused = reusableStreamingTableCell(
+                nextMarkdown: text,
+                priorMarkdown: priorText,
+                priorCell: priorCell,
+                attributes: attrs,
+                alignment: alignment,
+                style: style,
+                styleKey: styleKey
+            ) {
+                cells.append(reused)
+            } else {
+                cells.append(streamingTableCellAttributedString(
+                    markdown: text,
+                    attributes: attrs,
+                    alignment: alignment,
+                    style: style,
+                    styleKey: styleKey
+                ))
+            }
         }
-        return MarkdownTableRow(cells: cells, isHeader: false)
+        return MarkdownTableRow(cells: cells, isHeader: false, sourceMarkdown: sourceMarkdown)
+    }
+
+    private func canFastAppendTableDraftDelta(_ delta: String) -> Bool {
+        guard !delta.isEmpty else { return false }
+        return !delta.contains("\n") && !delta.contains("\r") && !delta.contains("|")
+    }
+
+    private func makeStreamingTableRowByAppendingToDraft(
+        delta: String,
+        existingRow: MarkdownTableRow?,
+        style: MarkdownStyle,
+        styleKey: String,
+        columnCountHint: Int?,
+        alignments: [NSTextAlignment]
+    ) -> MarkdownTableRow? {
+        guard canFastAppendTableDraftDelta(delta) else { return nil }
+        guard let existingRow else { return nil }
+        if streamingActiveTableDraftRawCells.isEmpty {
+            let source = existingRow.sourceMarkdown ?? streamingActiveTableDraftLine
+            streamingActiveTableDraftRawCells = splitTableRowCells(source)
+        }
+        guard !streamingActiveTableDraftRawCells.isEmpty else { return nil }
+
+        streamingActiveTableDraftRawCells[streamingActiveTableDraftRawCells.count - 1].append(contentsOf: delta)
+        let nextSource = streamingActiveTableDraftLine + delta
+        let columnCount = max(columnCountHint ?? 0, streamingActiveTableDraftRawCells.count)
+        guard columnCount > 0 else { return nil }
+        return makeStreamingTableRow(
+            rawCells: streamingActiveTableDraftRawCells,
+            sourceMarkdown: nextSource,
+            style: style,
+            styleKey: styleKey,
+            columnCount: columnCount,
+            alignments: alignments,
+            previousRow: existingRow
+        )
+    }
+
+    private func reusableStreamingTableCell(
+        nextMarkdown: String,
+        priorMarkdown: String?,
+        priorCell: NSAttributedString?,
+        attributes: [NSAttributedString.Key: Any],
+        alignment: NSTextAlignment,
+        style: MarkdownStyle,
+        styleKey: String
+    ) -> NSAttributedString? {
+        guard let priorMarkdown, let priorCell else { return nil }
+        guard nextMarkdown.hasPrefix(priorMarkdown) else { return nil }
+        if nextMarkdown == priorMarkdown {
+            return priorCell
+        }
+
+        let delta = String(nextMarkdown.dropFirst(priorMarkdown.count))
+        guard canAppendPlainTableCellDelta(delta, to: priorMarkdown) else { return nil }
+
+        let updated = NSMutableAttributedString(attributedString: priorCell)
+        let appendAttributes = streamingTableCellAppendAttributes(
+            baseAttributes: attributes,
+            priorCell: priorCell,
+            alignment: alignment,
+            style: style
+        )
+        updated.append(NSAttributedString(string: delta, attributes: appendAttributes))
+        return updated
+    }
+
+    private func streamingTableCellAppendAttributes(
+        baseAttributes: [NSAttributedString.Key: Any],
+        priorCell: NSAttributedString?,
+        alignment: NSTextAlignment,
+        style: MarkdownStyle
+    ) -> [NSAttributedString.Key: Any] {
+        var appendAttributes = baseAttributes
+        if let priorCell,
+           priorCell.length > 0,
+           let paragraphStyle = priorCell.attribute(.paragraphStyle, at: priorCell.length - 1, effectiveRange: nil) as? NSParagraphStyle {
+            appendAttributes[.paragraphStyle] = paragraphStyle
+            return appendAttributes
+        }
+
+        let paragraphStyle = NSMutableParagraphStyle()
+        paragraphStyle.alignment = alignment
+        paragraphStyle.lineBreakMode = .byWordWrapping
+        paragraphStyle.lineSpacing = style.lineSpacing
+        appendAttributes[.paragraphStyle] = paragraphStyle
+        return appendAttributes
+    }
+
+    private func canAppendPlainTableCellDelta(_ delta: String, to priorMarkdown: String) -> Bool {
+        guard !delta.isEmpty else { return false }
+        if delta.contains("\n") || delta.contains("\r") { return false }
+        let combined = priorMarkdown + delta
+        guard !cellContainsMarkdownSyntax(combined) else { return false }
+        guard !combinedContainsDetectedLinkOrEmail(combined) else { return false }
+        return true
+    }
+
+    private func cellContainsMarkdownSyntax(_ text: String) -> Bool {
+        let syntax = CharacterSet(charactersIn: "*_`[]()!#<>\\$~")
+        return text.rangeOfCharacter(from: syntax) != nil
+    }
+
+    private func combinedContainsDetectedLinkOrEmail(_ text: String) -> Bool {
+        guard let detector = Self.tableLinkDetector else { return false }
+        let range = NSRange(location: 0, length: (text as NSString).length)
+        return detector.firstMatch(in: text, options: [], range: range) != nil
+    }
+
+    private func streamingTableCellAttributedString(
+        markdown: String,
+        attributes: [NSAttributedString.Key: Any],
+        alignment: NSTextAlignment,
+        style: MarkdownStyle,
+        styleKey: String
+    ) -> NSAttributedString {
+        let key = StreamingTableCellCacheKey(
+            markdown: markdown,
+            styleKey: styleKey,
+            alignment: alignment.rawValue,
+            widthKey: streamingTableCellCacheWidthKey()
+        )
+        if let cached = streamingTableCellCache[key] {
+            return copyStreamingTableCellAttributedString(cached)
+        }
+
+        let maxWidth = lastLayoutWidth > 1 ? lastLayoutWidth : nil
+        let renderer = MarkdownAttributedStringRenderer(style: style, maxImageWidth: maxWidth)
+        let rendered = renderer.renderTableCell(
+            markdown: markdown,
+            attributes: attributes,
+            alignment: alignment
+        )
+        cacheStreamingTableCell(rendered.attributedString, for: key)
+        if !rendered.attachments.isEmpty {
+            queueImageLoads(attachments: rendered.attachments, invalidateEntireLayout: true)
+        }
+        return copyStreamingTableCellAttributedString(rendered.attributedString)
+    }
+
+    private func copyStreamingTableCellAttributedString(_ attributed: NSAttributedString) -> NSAttributedString {
+        let mutable = NSMutableAttributedString(attributedString: attributed)
+        let fullRange = NSRange(location: 0, length: mutable.length)
+        var attachmentRuns: [(range: NSRange, attachment: MarkdownMathAttachment)] = []
+        mutable.enumerateAttribute(.attachment, in: fullRange, options: []) { value, range, _ in
+            guard let attachment = value as? MarkdownMathAttachment else { return }
+            attachmentRuns.append((range: range, attachment: attachment))
+        }
+
+        for run in attachmentRuns {
+            let replacement = run.attachment.copiedForStreamingTableCellReuse()
+            mutable.removeAttribute(.attachment, range: run.range)
+            mutable.addAttribute(.attachment, value: replacement, range: run.range)
+        }
+
+        return mutable.copy() as! NSAttributedString
+    }
+
+    private func streamingTableCellCacheWidthKey() -> Int {
+        Int((max(0, lastLayoutWidth) * 2).rounded())
+    }
+
+    private func cacheStreamingTableCell(_ attributed: NSAttributedString, for key: StreamingTableCellCacheKey) {
+        if streamingTableCellCache[key] == nil {
+            streamingTableCellCacheOrder.append(key)
+        }
+        streamingTableCellCache[key] = attributed
+
+        let limit = 512
+        guard streamingTableCellCacheOrder.count > limit else { return }
+        let overflow = streamingTableCellCacheOrder.count - limit
+        let staleKeys = streamingTableCellCacheOrder.prefix(overflow)
+        for staleKey in staleKeys {
+            streamingTableCellCache.removeValue(forKey: staleKey)
+        }
+        streamingTableCellCacheOrder.removeFirst(overflow)
+    }
+
+    private func tableRowContentEqual(_ lhs: MarkdownTableRow, _ rhs: MarkdownTableRow) -> Bool {
+        guard lhs.isHeader == rhs.isHeader else { return false }
+        guard lhs.cells.count == rhs.cells.count else { return false }
+        for index in 0..<lhs.cells.count {
+            let left = extractPlainText(from: lhs.cells[index]).trimmingCharacters(in: .whitespacesAndNewlines)
+            let right = extractPlainText(from: rhs.cells[index]).trimmingCharacters(in: .whitespacesAndNewlines)
+            if left != right {
+                return false
+            }
+        }
+        return true
     }
 
     private func looksLikeTableSeparatorLine(_ line: String) -> Bool {
@@ -1590,6 +2020,110 @@ final class MarkdownTextCoordinator: NSObject, @unchecked Sendable {
             occurrences.append(AttachmentOccurrence(range: range, attachment: attachment))
         }
         return occurrences
+    }
+
+    private func replaceCharactersPreservingStablePrefix(
+        in storage: NSTextStorage,
+        range: NSRange,
+        with replacement: NSAttributedString
+    ) -> NSRange? {
+        let clamped = clampRange(range, upperBound: storage.length)
+        guard clamped.length > 0 || replacement.length > 0 else {
+            return nil
+        }
+
+        let existing = storage.attributedSubstring(from: clamped)
+        let commonPrefixLength = commonAttributedPrefixLength(existing, replacement)
+        let oldSuffixLength = max(0, existing.length - commonPrefixLength)
+        let newSuffixLength = max(0, replacement.length - commonPrefixLength)
+
+        guard oldSuffixLength > 0 || newSuffixLength > 0 else {
+            return nil
+        }
+
+        let suffixRange = NSRange(location: clamped.location + commonPrefixLength, length: oldSuffixLength)
+        let replacementSuffix = replacement.attributedSubstring(
+            from: NSRange(location: commonPrefixLength, length: newSuffixLength)
+        )
+
+        storage.beginEditing()
+        storage.replaceCharacters(in: suffixRange, with: replacementSuffix)
+        storage.endEditing()
+
+        let remainingLength = max(0, storage.length - suffixRange.location)
+        let invalidationLength = max(1, min(max(replacementSuffix.length, oldSuffixLength), remainingLength))
+        return NSRange(location: suffixRange.location, length: invalidationLength)
+    }
+
+    private func commonAttributedPrefixLength(
+        _ lhs: NSAttributedString,
+        _ rhs: NSAttributedString
+    ) -> Int {
+        let limit = min(lhs.length, rhs.length)
+        guard limit > 0 else { return 0 }
+        let stringPrefixLength = commonStringPrefixLength(lhs.string, rhs.string, limit: limit)
+        guard stringPrefixLength > 0 else { return 0 }
+
+        var index = 0
+        while index < stringPrefixLength {
+            var lhsRange = NSRange(location: 0, length: 0)
+            var rhsRange = NSRange(location: 0, length: 0)
+            let lhsAttributes = lhs.attributes(at: index, effectiveRange: &lhsRange)
+            let rhsAttributes = rhs.attributes(at: index, effectiveRange: &rhsRange)
+            if sameMarkdownAttachmentIdentity(lhsAttributes, rhsAttributes) {
+                let nextIndex = min(NSMaxRange(lhsRange), NSMaxRange(rhsRange), stringPrefixLength)
+                index = nextIndex > index ? nextIndex : index + 1
+                continue
+            }
+            guard attributedAttributesEqual(lhsAttributes, rhsAttributes) else {
+                break
+            }
+            let nextIndex = min(NSMaxRange(lhsRange), NSMaxRange(rhsRange), stringPrefixLength)
+            index = nextIndex > index ? nextIndex : index + 1
+        }
+        return index
+    }
+
+    private func sameMarkdownAttachmentIdentity(
+        _ lhs: [NSAttributedString.Key: Any],
+        _ rhs: [NSAttributedString.Key: Any]
+    ) -> Bool {
+        guard let left = lhs[.attachment] as? MarkdownAttachment,
+              let right = rhs[.attachment] as? MarkdownAttachment
+        else {
+            return false
+        }
+        return left === right
+    }
+
+    private func commonStringPrefixLength(_ lhs: String, _ rhs: String, limit: Int) -> Int {
+        if lhs.utf16.count <= limit, rhs.hasPrefix(lhs) {
+            return lhs.utf16.count
+        }
+        if rhs.utf16.count <= limit, lhs.hasPrefix(rhs) {
+            return rhs.utf16.count
+        }
+
+        var index = 0
+        var lhsIterator = lhs.makeIterator()
+        var rhsIterator = rhs.makeIterator()
+        while index < limit {
+            guard let lhsCharacter = lhsIterator.next(),
+                  let rhsCharacter = rhsIterator.next(),
+                  lhsCharacter == rhsCharacter
+            else {
+                break
+            }
+            index += String(lhsCharacter).utf16.count
+        }
+        return index
+    }
+
+    private func attributedAttributesEqual(
+        _ lhs: [NSAttributedString.Key: Any],
+        _ rhs: [NSAttributedString.Key: Any]
+    ) -> Bool {
+        NSDictionary(dictionary: lhs).isEqual(to: rhs)
     }
 
     private func reconcileReplacementAttachments(
@@ -1756,8 +2290,11 @@ final class MarkdownTextCoordinator: NSObject, @unchecked Sendable {
             return existingRows.isEmpty && incomingRows.isEmpty ? 200_000 : nil
         }
 
-        // Require the first row (header/first data row) to match exactly.
-        guard tableRowsEqual(existingRows[0], incomingRows[0]) else { return nil }
+        // Require the first row (header/first data row) to identify the same table,
+        // but do not require identical attributed objects. During streaming the same
+        // visual row can be produced by the fast table-cell renderer and by the full
+        // Markdown renderer on adjacent updates.
+        guard tableRowsCompatibleForReuse(existingRows[0], incomingRows[0]) else { return nil }
 
         let sharedRowCount = min(existingRows.count, incomingRows.count)
         var exactSharedRows = 0
@@ -1766,7 +2303,7 @@ final class MarkdownTextCoordinator: NSObject, @unchecked Sendable {
         for rowIndex in 0..<sharedRowCount {
             let existingRow = existingRows[rowIndex]
             let incomingRow = incomingRows[rowIndex]
-            if tableRowsEqual(existingRow, incomingRow) {
+            if tableRowsCompatibleForReuse(existingRow, incomingRow) {
                 exactSharedRows += 1
                 cellMatchScore += existingRow.cells.count
                 continue
@@ -1797,20 +2334,56 @@ final class MarkdownTextCoordinator: NSObject, @unchecked Sendable {
         return true
     }
 
+    private func tableRowsCompatibleForReuse(_ lhs: MarkdownTableRow, _ rhs: MarkdownTableRow) -> Bool {
+        if tableRowsEqual(lhs, rhs) { return true }
+        guard lhs.isHeader == rhs.isHeader else { return false }
+        guard lhs.cells.count == rhs.cells.count else { return false }
+        for index in 0..<lhs.cells.count {
+            if normalizedTableCellText(lhs.cells[index]) != normalizedTableCellText(rhs.cells[index]) {
+                return false
+            }
+        }
+        return true
+    }
+
     private func tableRowPartialPrefixScore(_ lhs: MarkdownTableRow, _ rhs: MarkdownTableRow) -> Int? {
         guard lhs.isHeader == rhs.isHeader else { return nil }
         let sharedCount = min(lhs.cells.count, rhs.cells.count)
         guard sharedCount > 0 else { return nil }
-        var matchingPrefixCells = 0
+        var score = 0
+        var sawPrefixMatch = false
         for index in 0..<sharedCount {
             if lhs.cells[index].isEqual(to: rhs.cells[index]) {
-                matchingPrefixCells += 1
-            } else {
-                break
+                score += 32
+                sawPrefixMatch = true
+                continue
             }
+
+            let left = normalizedTableCellText(lhs.cells[index])
+            let right = normalizedTableCellText(rhs.cells[index])
+            if left == right {
+                score += 24
+                sawPrefixMatch = true
+                continue
+            }
+            if !left.isEmpty, right.hasPrefix(left) {
+                score += 16 + min(left.utf16.count, 128)
+                sawPrefixMatch = true
+                continue
+            }
+            if !right.isEmpty, left.hasPrefix(right) {
+                score += 12 + min(right.utf16.count, 128)
+                sawPrefixMatch = true
+                continue
+            }
+            return nil
         }
-        guard matchingPrefixCells > 0 else { return nil }
-        return matchingPrefixCells * 16
+        guard sawPrefixMatch else { return nil }
+        return score
+    }
+
+    private func normalizedTableCellText(_ cell: NSAttributedString) -> String {
+        extractPlainText(from: cell).trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     private func synchronizeReusableAttachment(
@@ -1940,6 +2513,127 @@ final class MarkdownTextCoordinator: NSObject, @unchecked Sendable {
         changedRange: NSRange?
     ) {
         enqueueLayoutInvalidation(for: textView, changedRange: changedRange)
+    }
+
+    private func invalidateStreamingTableLayout(
+        for textView: MarkdownPlatformTextView,
+        tableAttachment: MarkdownTableAttachment,
+        attachmentRange: NSRange,
+        changedRange: NSRange,
+        requiresTextLayoutInvalidation: Bool = false
+    ) {
+        #if os(iOS) || os(tvOS) || os(visionOS)
+        if !requiresTextLayoutInvalidation,
+           let markdownTextView = textView as? MarkdownUIKitTextView,
+           markdownTextView.applyHostedTableHeightDelta(changedRange: attachmentRange) {
+            cancelPendingStreamingTableInvalidation()
+            if let trailingRange = trailingInvalidationRange(
+                after: attachmentRange,
+                storageLength: markdownTextView.textStorage.length
+            ) {
+                enqueueLayoutInvalidation(for: textView, changedRange: trailingRange)
+            }
+            return
+        }
+        #endif
+        #if os(macOS)
+        if !requiresTextLayoutInvalidation,
+           let markdownTextView = textView as? MarkdownAppKitTextView,
+           markdownTextView.applyHostedTableHeightDelta(changedRange: attachmentRange) {
+            cancelPendingStreamingTableInvalidation()
+            if let trailingRange = trailingInvalidationRange(
+                after: attachmentRange,
+                storageLength: markdownTextView.textStorage?.length ?? 0
+            ) {
+                enqueueLayoutInvalidation(for: textView, changedRange: trailingRange)
+            }
+            return
+        }
+        #endif
+
+        guard tableAttachment.rows.count >= StreamingTableInvalidationTuning.largeTableRowThreshold else {
+            invalidateLayout(for: textView, changedRange: changedRange)
+            return
+        }
+
+        if let pendingView = pendingStreamingTableInvalidationTextView, pendingView !== textView {
+            let pendingRange = pendingStreamingTableInvalidationRange
+            pendingStreamingTableInvalidationTextView = nil
+            pendingStreamingTableInvalidationRange = nil
+            pendingStreamingTableInvalidationScheduled = false
+            performInvalidateLayout(for: pendingView, changedRange: pendingRange)
+            lastStreamingTableInvalidationTime = Date.timeIntervalSinceReferenceDate
+        }
+
+        let hadPendingRange = pendingStreamingTableInvalidationTextView != nil
+        pendingStreamingTableInvalidationTextView = textView
+        pendingStreamingTableInvalidationRange = hadPendingRange
+            ? mergeInvalidationRanges(pendingStreamingTableInvalidationRange, changedRange)
+            : changedRange
+
+        let now = Date.timeIntervalSinceReferenceDate
+        let elapsed = now - lastStreamingTableInvalidationTime
+        guard elapsed < StreamingTableInvalidationTuning.minimumInterval else {
+            let targetRange = pendingStreamingTableInvalidationRange
+            pendingStreamingTableInvalidationTextView = nil
+            pendingStreamingTableInvalidationRange = nil
+            pendingStreamingTableInvalidationScheduled = false
+            lastStreamingTableInvalidationTime = now
+            enqueueLayoutInvalidation(for: textView, changedRange: targetRange)
+            return
+        }
+
+        guard !pendingStreamingTableInvalidationScheduled else { return }
+        pendingStreamingTableInvalidationScheduled = true
+        let delay = StreamingTableInvalidationTuning.minimumInterval - elapsed
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self, weak textView] in
+            guard let self else { return }
+            guard self.pendingStreamingTableInvalidationScheduled else { return }
+            self.pendingStreamingTableInvalidationScheduled = false
+            let targetView = self.pendingStreamingTableInvalidationTextView ?? textView
+            let targetRange = self.pendingStreamingTableInvalidationRange
+            self.pendingStreamingTableInvalidationTextView = nil
+            self.pendingStreamingTableInvalidationRange = nil
+            self.lastStreamingTableInvalidationTime = Date.timeIntervalSinceReferenceDate
+            guard let targetView else { return }
+            self.enqueueLayoutInvalidation(for: targetView, changedRange: targetRange)
+        }
+    }
+
+    private func invalidateStreamingCodeBlockLayout(
+        for textView: MarkdownPlatformTextView,
+        codeAttachment: MarkdownCodeBlockAttachment,
+        attachmentRange: NSRange,
+        changedRange: NSRange
+    ) {
+        #if os(iOS) || os(tvOS) || os(visionOS)
+        if let markdownTextView = textView as? MarkdownUIKitTextView,
+           markdownTextView.applyHostedCodeBlockHeightDelta(changedRange: attachmentRange) {
+            return
+        }
+        #endif
+        #if os(macOS)
+        if let markdownTextView = textView as? MarkdownAppKitTextView,
+           markdownTextView.applyHostedCodeBlockHeightDelta(changedRange: attachmentRange) {
+            return
+        }
+        #endif
+
+        _ = codeAttachment.consumePendingHostedHeightDelta()
+        invalidateLayout(for: textView, changedRange: changedRange)
+    }
+
+    private func trailingInvalidationRange(after attachmentRange: NSRange, storageLength: Int) -> NSRange? {
+        let start = max(0, min(NSMaxRange(attachmentRange), storageLength))
+        guard start < storageLength else { return nil }
+        return NSRange(location: start, length: storageLength - start)
+    }
+
+    private func cancelPendingStreamingTableInvalidation() {
+        pendingStreamingTableInvalidationTextView = nil
+        pendingStreamingTableInvalidationRange = nil
+        pendingStreamingTableInvalidationScheduled = false
     }
 
     private func enqueueLayoutInvalidation(

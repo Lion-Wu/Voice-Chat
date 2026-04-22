@@ -26,15 +26,9 @@ struct MarkdownTextView: UIViewRepresentable {
     }
 
     func makeUIView(context: Context) -> MarkdownUIKitTextView {
-        let textView: MarkdownUIKitTextView
-        if #available(iOS 16.0, tvOS 16.0, *) {
-            textView = MarkdownUIKitTextView(usingTextLayoutManager: true)
-        } else {
-            textView = MarkdownUIKitTextView()
-        }
+        let textView = MarkdownUIKitTextView(usingTextLayoutManager: true)
         MarkdownAttachmentViewProviderRegistry.registerIfNeeded()
-        textView.isEditable = false
-        textView.isSelectable = true
+        textView.configureNativeReadOnlySelection()
         textView.isScrollEnabled = false
         textView.backgroundColor = .clear
         textView.textContainerInset = .zero
@@ -65,6 +59,7 @@ struct MarkdownTextView: UIViewRepresentable {
         #if os(iOS)
         uiView.disableTextDragAndDrop()
         #endif
+        uiView.configureNativeReadOnlySelection()
         uiView.onTraitChange = { [weak coordinator = context.coordinator, weak uiView] in
             guard let uiView else { return }
             Task { @MainActor in
@@ -78,12 +73,19 @@ struct MarkdownTextView: UIViewRepresentable {
                 #if os(iOS)
                 uiView.disableTextDragAndDrop()
                 #endif
+                uiView.configureNativeReadOnlySelection()
             }
         }
     }
 }
 
 final class MarkdownUIKitTextView: UITextView {
+    private enum HostedHeightDeltaKind: Equatable {
+        case table
+        case codeBlock
+        case any
+    }
+
     var onLayout: ((CGFloat) -> Void)?
     var onTraitChange: (() -> Void)?
     private var lastWidth: CGFloat = 0
@@ -122,6 +124,12 @@ final class MarkdownUIKitTextView: UITextView {
         return CGSize(width: UIView.noIntrinsicMetric, height: ceil(cachedIntrinsicHeight))
     }
 
+    func configureNativeReadOnlySelection() {
+        isEditable = false
+        isSelectable = true
+        allowsEditingTextAttributes = false
+    }
+
     func markLayoutChanged(changedRange: NSRange?) {
         let targetWidth = bounds.width > 0 ? bounds.width : fallbackLayoutWidth
         updateTextContainerSize(for: targetWidth)
@@ -129,9 +137,16 @@ final class MarkdownUIKitTextView: UITextView {
             cachedIntrinsicWidth = targetWidth
             needsIntrinsicRecalc = true
         }
+        if !needsIntrinsicRecalc,
+           cachedIntrinsicHeight > 0.5,
+           let heightDelta = consumeStreamingHostedHeightDelta(changedRange: changedRange, kind: .any) {
+            updateCachedIntrinsicHeight(cachedIntrinsicHeight + heightDelta)
+            return
+        }
 
         if needsIntrinsicRecalc || cachedIntrinsicHeight <= 0.5 {
             updateCachedIntrinsicHeight(computeFullHeight(forWidth: targetWidth))
+            _ = consumeStreamingHostedHeightDelta(changedRange: nil, kind: .any)
             return
         }
 
@@ -177,6 +192,33 @@ final class MarkdownUIKitTextView: UITextView {
         updateCachedIntrinsicHeight(used.height + insets)
     }
 
+    func applyHostedTableHeightDelta(changedRange: NSRange?) -> Bool {
+        applyHostedHeightDelta(changedRange: changedRange, kind: .table)
+    }
+
+    func applyHostedCodeBlockHeightDelta(changedRange: NSRange?) -> Bool {
+        applyHostedHeightDelta(changedRange: changedRange, kind: .codeBlock)
+    }
+
+    private func applyHostedHeightDelta(changedRange: NSRange?, kind: HostedHeightDeltaKind) -> Bool {
+        let targetWidth = bounds.width > 0 ? bounds.width : fallbackLayoutWidth
+        updateTextContainerSize(for: targetWidth)
+        if abs(targetWidth - cachedIntrinsicWidth) > 0.5 {
+            cachedIntrinsicWidth = targetWidth
+            needsIntrinsicRecalc = true
+            return false
+        }
+        guard !needsIntrinsicRecalc,
+              cachedIntrinsicHeight > 0.5,
+              let heightDelta = consumeStreamingHostedHeightDelta(changedRange: changedRange, kind: kind)
+        else {
+            return false
+        }
+        updateCachedIntrinsicHeight(cachedIntrinsicHeight + heightDelta)
+        setNeedsLayout()
+        return true
+    }
+
     private func updateCachedIntrinsicHeight(_ height: CGFloat) {
         let resolved = ceil(max(0, height))
         let didChange = abs(resolved - cachedIntrinsicHeight) > 0.5
@@ -185,6 +227,46 @@ final class MarkdownUIKitTextView: UITextView {
         if didChange {
             invalidateIntrinsicContentSize()
         }
+    }
+
+    private func consumeStreamingHostedHeightDelta(
+        changedRange: NSRange?,
+        kind: HostedHeightDeltaKind
+    ) -> CGFloat? {
+        guard textStorage.length > 0 else { return nil }
+        let range = changedRange.map {
+            normalizedInvalidationRange(changedRange: $0, storageLength: textStorage.length)
+        } ?? NSRange(location: 0, length: textStorage.length)
+        let shouldConsumeAllAttachments = changedRange == nil
+        var consumedDelta: CGFloat = 0
+        var didConsumeDelta = false
+        textStorage.enumerateAttribute(.attachment, in: range, options: []) { value, _, stop in
+            let pending: CGFloat
+            let consume: () -> Void
+            switch value {
+            case let tableAttachment as MarkdownTableAttachment where kind == .table || kind == .any:
+                pending = tableAttachment.pendingHostedHeightDeltaValue()
+                consume = { _ = tableAttachment.consumePendingHostedHeightDelta() }
+            case let codeAttachment as MarkdownCodeBlockAttachment where kind == .codeBlock || kind == .any:
+                pending = codeAttachment.pendingHostedHeightDeltaValue()
+                consume = { _ = codeAttachment.consumePendingHostedHeightDelta() }
+            default:
+                return
+            }
+            guard abs(pending) > 0.5 else {
+                if !shouldConsumeAllAttachments {
+                    stop.pointee = true
+                }
+                return
+            }
+            consumedDelta += pending
+            didConsumeDelta = true
+            consume()
+            if !shouldConsumeAllAttachments {
+                stop.pointee = true
+            }
+        }
+        return didConsumeDelta ? consumedDelta : nil
     }
 
     private var verticalInsets: CGFloat {
@@ -417,17 +499,7 @@ struct MarkdownTextView: NSViewRepresentable {
     }
 
     func makeNSView(context: Context) -> MarkdownAppKitTextView {
-        let textView: MarkdownAppKitTextView
-        if #available(macOS 12.0, *) {
-            textView = MarkdownAppKitTextView(usingTextLayoutManager: true)
-        } else {
-            let textStorage = NSTextStorage()
-            let layoutManager = NSLayoutManager()
-            textStorage.addLayoutManager(layoutManager)
-            let textContainer = NSTextContainer(size: NSSize(width: 0, height: CGFloat.greatestFiniteMagnitude))
-            layoutManager.addTextContainer(textContainer)
-            textView = MarkdownAppKitTextView(frame: .zero, textContainer: textContainer)
-        }
+        let textView = MarkdownAppKitTextView(usingTextLayoutManager: true)
         MarkdownAttachmentViewProviderRegistry.registerIfNeeded()
         textView.isEditable = false
         textView.isSelectable = true
@@ -440,8 +512,12 @@ struct MarkdownTextView: NSViewRepresentable {
         textView.isHorizontallyResizable = false
         textView.isVerticallyResizable = true
         textView.importsGraphics = true
-        textView.layoutManager?.allowsNonContiguousLayout = false
-        textView.layoutManager?.usesFontLeading = true
+        if let textLayoutManager = textView.textLayoutManager {
+            textLayoutManager.usesFontLeading = true
+        } else {
+            textView.layoutManager?.allowsNonContiguousLayout = false
+            textView.layoutManager?.usesFontLeading = true
+        }
         textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
         textView.isRichText = true
         textView.delegate = context.coordinator
@@ -476,6 +552,12 @@ struct MarkdownTextView: NSViewRepresentable {
 }
 
 final class MarkdownAppKitTextView: NSTextView {
+    private enum HostedHeightDeltaKind: Equatable {
+        case table
+        case codeBlock
+        case any
+    }
+
     var onLayout: ((CGFloat) -> Void)?
     private var lastWidth: CGFloat = 0
     private var cachedIntrinsicWidth: CGFloat = 0
@@ -596,8 +678,16 @@ final class MarkdownAppKitTextView: NSTextView {
             needsIntrinsicRecalc = true
         }
 
+        if !needsIntrinsicRecalc,
+           cachedIntrinsicHeight > 0.5,
+           let heightDelta = consumeStreamingHostedHeightDelta(changedRange: changedRange, kind: .any) {
+            updateCachedIntrinsicHeight(cachedIntrinsicHeight + heightDelta)
+            return
+        }
+
         if needsIntrinsicRecalc || cachedIntrinsicHeight <= 0.5 {
             updateCachedIntrinsicHeight(computeFullHeight(forWidth: targetWidth))
+            _ = consumeStreamingHostedHeightDelta(changedRange: nil, kind: .any)
             return
         }
 
@@ -640,6 +730,34 @@ final class MarkdownAppKitTextView: NSTextView {
         }
     }
 
+    func applyHostedTableHeightDelta(changedRange: NSRange?) -> Bool {
+        applyHostedHeightDelta(changedRange: changedRange, kind: .table)
+    }
+
+    func applyHostedCodeBlockHeightDelta(changedRange: NSRange?) -> Bool {
+        applyHostedHeightDelta(changedRange: changedRange, kind: .codeBlock)
+    }
+
+    private func applyHostedHeightDelta(changedRange: NSRange?, kind: HostedHeightDeltaKind) -> Bool {
+        let targetWidth = bounds.width > 1 ? bounds.width : (lastWidth > 1 ? lastWidth : 320)
+        updateContainerSize(for: targetWidth)
+        if abs(targetWidth - cachedIntrinsicWidth) > 0.5 {
+            cachedIntrinsicWidth = targetWidth
+            needsIntrinsicRecalc = true
+            return false
+        }
+        guard !needsIntrinsicRecalc,
+              cachedIntrinsicHeight > 0.5,
+              let heightDelta = consumeStreamingHostedHeightDelta(changedRange: changedRange, kind: kind)
+        else {
+            return false
+        }
+        updateCachedIntrinsicHeight(cachedIntrinsicHeight + heightDelta)
+        needsLayout = true
+        needsDisplay = true
+        return true
+    }
+
     private func updateCachedIntrinsicHeight(_ height: CGFloat) {
         let resolved = ceil(max(0, height))
         let didChange = abs(resolved - cachedIntrinsicHeight) > 0.5
@@ -648,6 +766,46 @@ final class MarkdownAppKitTextView: NSTextView {
         if didChange {
             invalidateIntrinsicContentSize()
         }
+    }
+
+    private func consumeStreamingHostedHeightDelta(
+        changedRange: NSRange?,
+        kind: HostedHeightDeltaKind
+    ) -> CGFloat? {
+        guard let storage = textStorage, storage.length > 0 else { return nil }
+        let range = changedRange.map {
+            normalizedInvalidationRange(changedRange: $0, storageLength: storage.length)
+        } ?? NSRange(location: 0, length: storage.length)
+        let shouldConsumeAllAttachments = changedRange == nil
+        var consumedDelta: CGFloat = 0
+        var didConsumeDelta = false
+        storage.enumerateAttribute(.attachment, in: range, options: []) { value, _, stop in
+            let pending: CGFloat
+            let consume: () -> Void
+            switch value {
+            case let tableAttachment as MarkdownTableAttachment where kind == .table || kind == .any:
+                pending = tableAttachment.pendingHostedHeightDeltaValue()
+                consume = { _ = tableAttachment.consumePendingHostedHeightDelta() }
+            case let codeAttachment as MarkdownCodeBlockAttachment where kind == .codeBlock || kind == .any:
+                pending = codeAttachment.pendingHostedHeightDeltaValue()
+                consume = { _ = codeAttachment.consumePendingHostedHeightDelta() }
+            default:
+                return
+            }
+            guard abs(pending) > 0.5 else {
+                if !shouldConsumeAllAttachments {
+                    stop.pointee = true
+                }
+                return
+            }
+            consumedDelta += pending
+            didConsumeDelta = true
+            consume()
+            if !shouldConsumeAllAttachments {
+                stop.pointee = true
+            }
+        }
+        return didConsumeDelta ? consumedDelta : nil
     }
 
     private var verticalInsets: CGFloat {

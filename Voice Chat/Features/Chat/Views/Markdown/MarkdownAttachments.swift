@@ -260,10 +260,11 @@ final class MarkdownCodeBlockAttachment: MarkdownAttachment, @unchecked Sendable
     private var cachedSize: CGSize = .zero
     private var cachedWidth: CGFloat = 0
     private var lastLayout: Layout?
+    private var pendingHostedHeightDelta: CGFloat = 0
     private var isShowingCopyFeedback = false
     private var copyFeedbackTask: Task<Void, Never>?
 
-    #if os(macOS)
+    #if os(iOS) || os(tvOS) || os(visionOS) || os(macOS)
     weak var hostedView: MarkdownCodeBlockView?
     #endif
 
@@ -377,34 +378,50 @@ final class MarkdownCodeBlockAttachment: MarkdownAttachment, @unchecked Sendable
         copyFeedbackTask?.cancel()
     }
 
-    #if os(macOS)
+    #if os(iOS) || os(tvOS) || os(visionOS) || os(macOS)
     @MainActor
     #endif
-    func appendCode(_ delta: String) {
-        guard !delta.isEmpty else { return }
+    @discardableResult
+    func appendCode(_ delta: String) -> Bool {
+        guard !delta.isEmpty else { return false }
         code.append(contentsOf: delta)
         codeAttributedStorage.append(NSAttributedString(string: delta, attributes: codeAttributes))
         Self.ingest(delta: delta, into: &estimatedMetrics)
         contentVersion &+= 1
-        invalidateForContentChange()
-        #if os(macOS)
-        hostedView?.applyUpdate(from: self)
+        #if os(iOS) || os(tvOS) || os(visionOS) || os(macOS)
+        if let hostedView {
+            let needsLayoutInvalidation = hostedView.applyUpdate(from: self)
+            if needsLayoutInvalidation && !allowsTextAttachmentView {
+                invalidateForContentChange()
+            }
+            return needsLayoutInvalidation
+        }
         #endif
+        invalidateForContentChange()
+        return true
     }
 
-    #if os(macOS)
+    #if os(iOS) || os(tvOS) || os(visionOS) || os(macOS)
     @MainActor
     #endif
-    func replaceCode(_ nextCode: String) {
-        guard nextCode != code else { return }
+    @discardableResult
+    func replaceCode(_ nextCode: String) -> Bool {
+        guard nextCode != code else { return false }
         code = nextCode
         codeAttributedStorage.setAttributedString(NSAttributedString(string: nextCode, attributes: codeAttributes))
         estimatedMetrics = Self.estimateMetrics(for: nextCode)
         contentVersion &+= 1
-        invalidateForContentChange()
-        #if os(macOS)
-        hostedView?.applyUpdate(from: self)
+        #if os(iOS) || os(tvOS) || os(visionOS) || os(macOS)
+        if let hostedView {
+            let needsLayoutInvalidation = hostedView.applyUpdate(from: self)
+            if needsLayoutInvalidation && !allowsTextAttachmentView {
+                invalidateForContentChange()
+            }
+            return needsLayoutInvalidation
+        }
         #endif
+        invalidateForContentChange()
+        return true
     }
 
     func hostedHorizontalOffset() -> CGFloat {
@@ -415,12 +432,28 @@ final class MarkdownCodeBlockAttachment: MarkdownAttachment, @unchecked Sendable
         horizontalScrollOffset = max(0, offset)
     }
 
+    func recordHostedHeightDelta(_ delta: CGFloat) {
+        guard delta.isFinite, abs(delta) > 0.5 else { return }
+        pendingHostedHeightDelta += delta
+    }
+
+    func pendingHostedHeightDeltaValue() -> CGFloat {
+        pendingHostedHeightDelta
+    }
+
+    func consumePendingHostedHeightDelta() -> CGFloat {
+        let delta = pendingHostedHeightDelta
+        pendingHostedHeightDelta = 0
+        return delta
+    }
+
     override func widthDidChange() {
         cachedImage = nil
         cachedSize = .zero
         cachedWidth = 0
         lastLayout = nil
         horizontalScrollRange = 0
+        pendingHostedHeightDelta = 0
         #if !os(macOS)
         setAttachmentImage(nil)
         #endif
@@ -432,6 +465,7 @@ final class MarkdownCodeBlockAttachment: MarkdownAttachment, @unchecked Sendable
         cachedWidth = 0
         lastLayout = nil
         horizontalScrollRange = 0
+        pendingHostedHeightDelta = 0
         #if !os(macOS)
         setAttachmentImage(nil)
         #endif
@@ -487,25 +521,37 @@ final class MarkdownCodeBlockAttachment: MarkdownAttachment, @unchecked Sendable
     }
 
     private func renderIfNeeded(maxWidth: CGFloat) -> CGSize {
+        #if os(iOS) || os(tvOS) || os(visionOS) || os(macOS)
+        if allowsTextAttachmentView, let hostedView {
+            let size = MainActor.assumeIsolated {
+                let size = hostedView.sizeThatFitsWidth(maxWidth)
+                #if os(iOS) || os(tvOS) || os(visionOS)
+                hostedView.prepareForAttachmentBounds(CGRect(origin: .zero, size: size))
+                #endif
+                return size
+            }
+            cachedSize = size
+            cachedWidth = maxWidth
+            return size
+        }
+        #endif
+
         if abs(cachedWidth - maxWidth) > 0.5 || lastLayout == nil || (!allowsTextAttachmentView && cachedImage == nil) {
             let layout = layoutBlock(maxWidth: maxWidth)
             cachedSize = layout.size
             cachedWidth = maxWidth
             lastLayout = layout
+            let viewportWidth = layout.codeRect.width + style.codePadding.width * 2
+            let scrollRange = max(0, layout.contentWidth - viewportWidth)
+            horizontalScrollRange = scrollRange
+            if horizontalScrollOffset > scrollRange {
+                horizontalScrollOffset = scrollRange
+            }
             if !allowsTextAttachmentView {
-                let viewportWidth = layout.codeRect.width + style.codePadding.width * 2
-                let scrollRange = max(0, layout.contentWidth - viewportWidth)
-                horizontalScrollRange = scrollRange
-                if horizontalScrollOffset > scrollRange {
-                    horizontalScrollOffset = scrollRange
-                }
                 cachedImage = drawBlock(layout: layout)
                 #if !os(macOS)
                 setAttachmentImage(cachedImage)
                 #endif
-            } else {
-                horizontalScrollOffset = 0
-                horizontalScrollRange = 0
             }
         }
         return cachedSize
@@ -841,8 +887,9 @@ final class MarkdownTableAttachment: MarkdownAttachment, @unchecked Sendable {
     private var cachedSize: CGSize = .zero
     private var cachedWidth: CGFloat = 0
     private var lastLayout: TableLayout?
+    private var pendingHostedHeightDelta: CGFloat = 0
 
-    #if os(macOS)
+    #if os(iOS) || os(tvOS) || os(visionOS) || os(macOS)
     weak var hostedView: MarkdownTableView?
     #endif
 
@@ -888,46 +935,74 @@ final class MarkdownTableAttachment: MarkdownAttachment, @unchecked Sendable {
         #endif
     }
 
-    #if os(macOS)
+    #if os(iOS) || os(tvOS) || os(visionOS) || os(macOS)
     @MainActor
     #endif
-    func appendRows(_ newRows: [MarkdownTableRow]) {
-        guard !newRows.isEmpty else { return }
+    @discardableResult
+    func appendRows(_ newRows: [MarkdownTableRow]) -> Bool {
+        guard !newRows.isEmpty else { return false }
         rows.append(contentsOf: newRows)
         contentVersion &+= 1
-        invalidateForContentChange()
-        #if os(macOS)
-        hostedView?.applyUpdate(from: self)
+        #if os(iOS) || os(tvOS) || os(visionOS) || os(macOS)
+        if let hostedView {
+            let needsLayoutInvalidation = hostedView.applyUpdate(from: self)
+            if needsLayoutInvalidation && !allowsTextAttachmentView {
+                invalidateForContentChange()
+            }
+            return needsLayoutInvalidation
+        }
         #endif
+        invalidateForContentChange()
+        return true
     }
 
-    #if os(macOS)
+    #if os(iOS) || os(tvOS) || os(visionOS) || os(macOS)
     @MainActor
     #endif
-    func replaceLastRow(_ row: MarkdownTableRow) {
+    @discardableResult
+    func replaceLastRow(_ row: MarkdownTableRow) -> Bool {
         if rows.isEmpty {
             rows = [row]
         } else {
+            let previous = rows[rows.count - 1]
+            guard !Self.rowEqual(previous, row) || previous.sourceMarkdown != row.sourceMarkdown else { return false }
+            guard !Self.canReuseStableRow(previous, incoming: row) else { return false }
             rows[rows.count - 1] = row
         }
         contentVersion &+= 1
-        invalidateForContentChange()
-        #if os(macOS)
-        hostedView?.applyUpdate(from: self)
+        #if os(iOS) || os(tvOS) || os(visionOS) || os(macOS)
+        if let hostedView {
+            let needsLayoutInvalidation = hostedView.applyUpdate(from: self)
+            if needsLayoutInvalidation && !allowsTextAttachmentView {
+                invalidateForContentChange()
+            }
+            return needsLayoutInvalidation
+        }
         #endif
+        invalidateForContentChange()
+        return true
     }
 
-    #if os(macOS)
+    #if os(iOS) || os(tvOS) || os(visionOS) || os(macOS)
     @MainActor
     #endif
-    func synchronizeRows(to nextRows: [MarkdownTableRow]) {
-        guard !Self.rowsEqual(rows, nextRows) else { return }
-        rows = nextRows
+    @discardableResult
+    func synchronizeRows(to nextRows: [MarkdownTableRow]) -> Bool {
+        let mergedRows = Self.rowsByReusingStableContent(existing: rows, incoming: nextRows)
+        guard !Self.rowsEqual(rows, mergedRows) || !Self.sourceMarkdownsEqual(rows, mergedRows) else { return false }
+        rows = mergedRows
         contentVersion &+= 1
-        invalidateForContentChange()
-        #if os(macOS)
-        hostedView?.applyUpdate(from: self)
+        #if os(iOS) || os(tvOS) || os(visionOS) || os(macOS)
+        if let hostedView {
+            let needsLayoutInvalidation = hostedView.applyUpdate(from: self)
+            if needsLayoutInvalidation && !allowsTextAttachmentView {
+                invalidateForContentChange()
+            }
+            return needsLayoutInvalidation
+        }
         #endif
+        invalidateForContentChange()
+        return true
     }
 
     func hostedHorizontalOffset() -> CGFloat {
@@ -938,12 +1013,28 @@ final class MarkdownTableAttachment: MarkdownAttachment, @unchecked Sendable {
         horizontalScrollOffset = max(0, offset)
     }
 
+    func recordHostedHeightDelta(_ delta: CGFloat) {
+        guard delta.isFinite, abs(delta) > 0.5 else { return }
+        pendingHostedHeightDelta += delta
+    }
+
+    func pendingHostedHeightDeltaValue() -> CGFloat {
+        pendingHostedHeightDelta
+    }
+
+    func consumePendingHostedHeightDelta() -> CGFloat {
+        let delta = pendingHostedHeightDelta
+        pendingHostedHeightDelta = 0
+        return delta
+    }
+
     override func widthDidChange() {
         cachedImage = nil
         cachedSize = .zero
         cachedWidth = 0
         lastLayout = nil
         horizontalScrollRange = 0
+        pendingHostedHeightDelta = 0
         #if !os(macOS)
         setAttachmentImage(nil)
         #endif
@@ -992,24 +1083,36 @@ final class MarkdownTableAttachment: MarkdownAttachment, @unchecked Sendable {
     }
 
     private func renderIfNeeded(maxWidth: CGFloat) -> CGSize {
+        #if os(iOS) || os(tvOS) || os(visionOS) || os(macOS)
+        if allowsTextAttachmentView, let hostedView {
+            let size = MainActor.assumeIsolated {
+                let size = hostedView.sizeThatFitsWidth(maxWidth)
+                #if os(iOS) || os(tvOS) || os(visionOS)
+                hostedView.prepareForAttachmentBounds(CGRect(origin: .zero, size: size))
+                #endif
+                return size
+            }
+            cachedSize = size
+            cachedWidth = maxWidth
+            return size
+        }
+        #endif
+
         if abs(cachedWidth - maxWidth) > 0.5 || lastLayout == nil || (!allowsTextAttachmentView && cachedImage == nil) {
             let layout = layoutTable(maxWidth: maxWidth)
             cachedSize = layout.tableSize
             cachedWidth = maxWidth
             lastLayout = layout
+            let scrollRange = max(0, layout.contentWidth - layout.tableSize.width)
+            horizontalScrollRange = scrollRange
+            if horizontalScrollOffset > scrollRange {
+                horizontalScrollOffset = scrollRange
+            }
             if !allowsTextAttachmentView {
-                let scrollRange = max(0, layout.contentWidth - layout.tableSize.width)
-                horizontalScrollRange = scrollRange
-                if horizontalScrollOffset > scrollRange {
-                    horizontalScrollOffset = scrollRange
-                }
                 cachedImage = drawTable(layout: layout)
                 #if !os(macOS)
                 setAttachmentImage(cachedImage)
                 #endif
-            } else {
-                horizontalScrollOffset = 0
-                horizontalScrollRange = 0
             }
         }
         return cachedSize
@@ -1170,15 +1273,98 @@ final class MarkdownTableAttachment: MarkdownAttachment, @unchecked Sendable {
     private static func rowsEqual(_ lhs: [MarkdownTableRow], _ rhs: [MarkdownTableRow]) -> Bool {
         guard lhs.count == rhs.count else { return false }
         for index in 0..<lhs.count {
-            let left = lhs[index]
-            let right = rhs[index]
-            if left.isHeader != right.isHeader { return false }
-            if left.cells.count != right.cells.count { return false }
-            for column in 0..<left.cells.count {
-                if !left.cells[column].isEqual(to: right.cells[column]) { return false }
+            if !rowEqual(lhs[index], rhs[index]) { return false }
+        }
+        return true
+    }
+
+    private static func rowEqual(_ lhs: MarkdownTableRow, _ rhs: MarkdownTableRow) -> Bool {
+        if lhs.isHeader != rhs.isHeader { return false }
+        if lhs.cells.count != rhs.cells.count { return false }
+        for column in 0..<lhs.cells.count {
+            if !lhs.cells[column].isEqual(to: rhs.cells[column]) { return false }
+        }
+        return true
+    }
+
+    private static func sourceMarkdownsEqual(_ lhs: [MarkdownTableRow], _ rhs: [MarkdownTableRow]) -> Bool {
+        guard lhs.count == rhs.count else { return false }
+        for index in 0..<lhs.count {
+            if lhs[index].sourceMarkdown != rhs[index].sourceMarkdown {
+                return false
             }
         }
         return true
+    }
+
+    private static func rowsByReusingStableContent(
+        existing: [MarkdownTableRow],
+        incoming: [MarkdownTableRow]
+    ) -> [MarkdownTableRow] {
+        guard !existing.isEmpty, !incoming.isEmpty else { return incoming }
+        var result: [MarkdownTableRow] = []
+        result.reserveCapacity(incoming.count)
+        for index in incoming.indices {
+            let incomingRow = incoming[index]
+            if existing.indices.contains(index),
+               canReuseStableRow(existing[index], incoming: incomingRow) {
+                result.append(existing[index])
+            } else {
+                result.append(incomingRow)
+            }
+        }
+        return result
+    }
+
+    private static func canReuseStableRow(_ existing: MarkdownTableRow, incoming: MarkdownTableRow) -> Bool {
+        guard let existingSource = existing.sourceMarkdown,
+              let incomingSource = incoming.sourceMarkdown,
+              existingSource == incomingSource
+        else {
+            return false
+        }
+        guard existing.isHeader == incoming.isHeader else { return false }
+        guard existing.cells.count == incoming.cells.count else { return false }
+        for index in existing.cells.indices {
+            guard cellsCompatibleForStableReuse(existing.cells[index], incoming.cells[index]) else {
+                return false
+            }
+        }
+        return true
+    }
+
+    private static func cellsCompatibleForStableReuse(_ lhs: NSAttributedString, _ rhs: NSAttributedString) -> Bool {
+        if lhs.isEqual(to: rhs) { return true }
+        guard extractPlainText(from: lhs) == extractPlainText(from: rhs) else { return false }
+        return paragraphStylesCompatible(firstParagraphStyle(in: lhs), firstParagraphStyle(in: rhs))
+    }
+
+    private static func firstParagraphStyle(in cell: NSAttributedString) -> NSParagraphStyle? {
+        guard cell.length > 0 else { return nil }
+        var result: NSParagraphStyle?
+        cell.enumerateAttribute(
+            .paragraphStyle,
+            in: NSRange(location: 0, length: cell.length),
+            options: []
+        ) { value, _, stop in
+            guard let style = value as? NSParagraphStyle else { return }
+            result = style
+            stop.pointee = true
+        }
+        return result
+    }
+
+    private static func paragraphStylesCompatible(_ lhs: NSParagraphStyle?, _ rhs: NSParagraphStyle?) -> Bool {
+        switch (lhs, rhs) {
+        case (nil, nil):
+            return true
+        case let (lhs?, rhs?):
+            return lhs.alignment == rhs.alignment &&
+                lhs.lineBreakMode == rhs.lineBreakMode &&
+                abs(lhs.lineSpacing - rhs.lineSpacing) <= 0.5
+        default:
+            return false
+        }
     }
 }
 

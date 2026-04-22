@@ -21,6 +21,8 @@ struct MarkdownRenderResult: @unchecked Sendable {
 @MainActor
 #endif
 final class MarkdownAttributedStringRenderer {
+    // Prefix table-cell text so the Markdown parser stays in paragraph/inline mode.
+    private static let tableCellInlinePrefix = "\u{E002}"
     private let style: MarkdownStyle
     private let maxImageWidth: CGFloat?
     private var attachments: [MarkdownAttachment] = []
@@ -39,6 +41,51 @@ final class MarkdownAttributedStringRenderer {
         let output = NSMutableAttributedString()
         renderChildrenBlocks(document, into: output, listDepth: 0, baseAttributes: style.baseAttributes)
         finalizeRenderedOutput(output)
+        return MarkdownRenderResult(attributedString: output, attachments: attachments)
+    }
+
+    func renderTableCell(
+        markdown: String,
+        attributes: [NSAttributedString.Key: Any],
+        alignment: NSTextAlignment
+    ) -> MarkdownRenderResult {
+        attachments = []
+        mathResult = MarkdownMathPreprocessor.preprocess(markdown)
+        // Keep the first line from being reinterpreted as a block-level Markdown construct.
+        let parsedDocument = Document(parsing: Self.tableCellInlinePrefix + mathResult.markdown)
+        let document = restoreNonTextMathFields(in: parsedDocument)
+        let output = NSMutableAttributedString()
+        var didRenderChild = false
+
+        for child in document.children {
+            if didRenderChild {
+                output.append(NSAttributedString(string: " ", attributes: attributes))
+            }
+
+            if let paragraph = child as? Paragraph {
+                output.append(renderInlineChildren(paragraph, attributes: attributes, context: .table))
+            } else if let heading = child as? Heading {
+                output.append(renderInlineChildren(heading, attributes: attributes, context: .table))
+            } else if let customBlock = child as? CustomBlock {
+                output.append(renderInlineChildren(customBlock, attributes: attributes, context: .table))
+            } else {
+                output.append(renderInlineChildren(child, attributes: attributes, context: .table))
+            }
+            didRenderChild = true
+        }
+
+        if output.string.hasPrefix(Self.tableCellInlinePrefix) {
+            output.deleteCharacters(
+                in: NSRange(location: 0, length: Self.tableCellInlinePrefix.utf16.count)
+            )
+        }
+
+        if output.length == 0 {
+            output.append(NSAttributedString(string: markdown, attributes: attributes))
+        }
+
+        let paragraphStyle = tableCellParagraphStyle(alignment: alignment)
+        output.addAttribute(.paragraphStyle, value: paragraphStyle, range: NSRange(location: 0, length: output.length))
         return MarkdownRenderResult(attributedString: output, attachments: attachments)
     }
 
@@ -528,24 +575,26 @@ final class MarkdownAttributedStringRenderer {
             if let font = baseAttributes[.font] as? MarkdownPlatformFont {
                 headerAttributes[.font] = boldFont(from: font)
             }
+            let headerSourceMarkdown = sourceMarkdown(for: table.head)
             let cells = buildTableCells(
                 from: headerCells,
                 columnCount: columnCount,
                 attributes: headerAttributes,
                 alignments: alignments
             )
-            rows.append(MarkdownTableRow(cells: cells, isHeader: true))
+            rows.append(MarkdownTableRow(cells: cells, isHeader: true, sourceMarkdown: headerSourceMarkdown))
         }
 
         for row in table.body.rows {
             let rowCells = row.children.compactMap { $0 as? Markdown.Table.Cell }
+            let rowSourceMarkdown = sourceMarkdown(for: row)
             let cells = buildTableCells(
                 from: rowCells,
                 columnCount: columnCount,
                 attributes: baseAttributes,
                 alignments: alignments
             )
-            rows.append(MarkdownTableRow(cells: cells, isHeader: false))
+            rows.append(MarkdownTableRow(cells: cells, isHeader: false, sourceMarkdown: rowSourceMarkdown))
         }
 
         guard !rows.isEmpty else { return }
@@ -566,6 +615,65 @@ final class MarkdownAttributedStringRenderer {
         let paragraph = style.paragraphStyle(spacingBefore: style.blockSpacing, spacingAfter: style.blockSpacing)
         result.addAttribute(.paragraphStyle, value: paragraph, range: NSRange(location: 0, length: result.length))
         output.append(result)
+    }
+
+    private func sourceMarkdown(for markup: Markup) -> String? {
+        guard let range = markup.range,
+              let source = sourceMarkdownSubstring(in: mathResult.markdown, range: range)
+        else { return nil }
+
+        return mathResult.restoringOriginalMarkup(in: source)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func sourceMarkdownSubstring(in source: String, range: SourceRange) -> String? {
+        let lineStartOffsets = sourceUTF8LineStartOffsets(in: source)
+        let totalLength = source.utf8.count
+        guard let lowerBound = utf8Offset(
+            for: range.lowerBound,
+            lineStartOffsets: lineStartOffsets,
+            totalLength: totalLength
+        ),
+        let upperBound = utf8Offset(
+            for: range.upperBound,
+            lineStartOffsets: lineStartOffsets,
+            totalLength: totalLength
+        ) else { return nil }
+
+        let utf8 = source.utf8
+        guard let lowerIndex = utf8.index(utf8.startIndex, offsetBy: lowerBound, limitedBy: utf8.endIndex),
+              let upperIndex = utf8.index(utf8.startIndex, offsetBy: upperBound, limitedBy: utf8.endIndex) else {
+            return nil
+        }
+        return String(decoding: utf8[lowerIndex..<upperIndex], as: UTF8.self)
+    }
+
+    private func sourceUTF8LineStartOffsets(in source: String) -> [Int] {
+        var offsets: [Int] = [0]
+        var utf8Offset = 0
+        for byte in source.utf8 {
+            utf8Offset += 1
+            if byte == 0x0A {
+                offsets.append(utf8Offset)
+            }
+        }
+        return offsets
+    }
+
+    private func utf8Offset(
+        for location: SourceLocation,
+        lineStartOffsets: [Int],
+        totalLength: Int
+    ) -> Int? {
+        guard location.line > 0,
+              location.column > 0,
+              location.line <= lineStartOffsets.count
+        else { return nil }
+
+        let lineStartOffset = lineStartOffsets[location.line - 1]
+        let offset = lineStartOffset + location.column - 1
+        guard offset >= 0, offset <= totalLength else { return nil }
+        return offset
     }
 
     private func buildTableCells(

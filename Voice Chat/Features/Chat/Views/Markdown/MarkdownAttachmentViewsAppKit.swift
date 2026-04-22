@@ -1,6 +1,155 @@
 #if os(macOS)
 @preconcurrency import Foundation
 @preconcurrency import AppKit
+@preconcurrency import QuartzCore
+
+private func performWithoutMarkdownImplicitAnimations(_ body: () -> Void) {
+    NSAnimationContext.runAnimationGroup { context in
+        context.duration = 0
+        context.allowsImplicitAnimation = false
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        body()
+        CATransaction.commit()
+    }
+}
+
+@MainActor
+private func makeMarkdownAppKitTextView() -> NSTextView {
+    MarkdownNonScrollingTextView(usingTextLayoutManager: true)
+}
+
+private class MarkdownNonScrollingTextView: NSTextView {
+    override func scrollWheel(with event: NSEvent) {
+        nextResponder?.scrollWheel(with: event)
+    }
+}
+
+private final class MarkdownStaticTextView: MarkdownNonScrollingTextView {
+    override var acceptsFirstResponder: Bool { false }
+
+    override func mouseDown(with event: NSEvent) {
+        nextResponder?.mouseDown(with: event)
+    }
+
+    override func rightMouseDown(with event: NSEvent) {
+        nextResponder?.rightMouseDown(with: event)
+    }
+}
+
+private final class MarkdownHorizontalScrollView: NSScrollView {
+    override func scrollWheel(with event: NSEvent) {
+        let horizontalDelta = abs(event.scrollingDeltaX)
+        let verticalDelta = abs(event.scrollingDeltaY)
+        let prefersHorizontal = horizontalDelta > 0.1 && horizontalDelta >= verticalDelta
+        guard prefersHorizontal else {
+            nextResponder?.scrollWheel(with: event)
+            return
+        }
+        super.scrollWheel(with: event)
+    }
+}
+
+@MainActor
+private func markdownClampRange(_ range: NSRange, upperBound: Int) -> NSRange {
+    let start = Swift.max(0, Swift.min(range.location, upperBound))
+    let end = Swift.max(0, Swift.min(range.location + range.length, upperBound))
+    return NSRange(location: start, length: max(0, end - start))
+}
+
+@MainActor
+private func markdownNormalizedInvalidationRange(
+    changedRange: NSRange?,
+    storageLength: Int
+) -> NSRange {
+    guard storageLength > 0 else {
+        return NSRange(location: 0, length: 0)
+    }
+    let fullRange = NSRange(location: 0, length: storageLength)
+    let clamped = markdownClampRange(changedRange ?? fullRange, upperBound: storageLength)
+    let start = max(0, min(clamped.location, storageLength))
+    guard start < storageLength else {
+        return NSRange(location: storageLength - 1, length: 1)
+    }
+    return NSRange(location: start, length: storageLength - start)
+}
+
+@MainActor
+private func markdownTextRange(
+    _ range: NSRange,
+    documentRange: NSTextRange,
+    contentManager: NSTextContentManager?,
+    storageLength: Int
+) -> NSTextRange? {
+    guard let contentManager else { return nil }
+    let clamped = markdownClampRange(range, upperBound: storageLength)
+    let startOffset = max(0, clamped.location)
+    let length = max(0, clamped.length)
+    let endOffset = min(storageLength, startOffset + length)
+
+    if startOffset == 0, endOffset == storageLength {
+        return documentRange
+    }
+
+    let startDistanceToStart = startOffset
+    let startDistanceToEnd = storageLength - startOffset
+    let useEndForStart = startDistanceToEnd < startDistanceToStart
+    let startAnchor = useEndForStart ? documentRange.endLocation : documentRange.location
+    let startAnchorOffset = useEndForStart ? startOffset - storageLength : startOffset
+    guard let startLocation = contentManager.location(startAnchor, offsetBy: startAnchorOffset) else {
+        return nil
+    }
+
+    if length == 0 {
+        return NSTextRange(location: startLocation)
+    }
+
+    let endLocation: any NSTextLocation
+    if endOffset == storageLength {
+        endLocation = documentRange.endLocation
+    } else {
+        let endDistanceToStart = endOffset
+        let endDistanceToEnd = storageLength - endOffset
+        let useEndForEnd = endDistanceToEnd < endDistanceToStart
+        let endAnchor = useEndForEnd ? documentRange.endLocation : documentRange.location
+        let endAnchorOffset = useEndForEnd ? endOffset - storageLength : endOffset
+        guard let resolvedEndLocation = contentManager.location(endAnchor, offsetBy: endAnchorOffset) else {
+            return nil
+        }
+        endLocation = resolvedEndLocation
+    }
+
+    return NSTextRange(location: startLocation, end: endLocation)
+}
+
+@MainActor
+private func ensureMarkdownTextLayout(
+    in textView: NSTextView,
+    changedRange: NSRange?,
+    invalidatesLayout: Bool = true
+) {
+    guard let storage = textView.textStorage else { return }
+    let range = markdownNormalizedInvalidationRange(changedRange: changedRange, storageLength: storage.length)
+    if let textLayoutManager = textView.textLayoutManager,
+       let documentRange = textLayoutManager.textContentManager?.documentRange {
+        let textRange = markdownTextRange(
+            range,
+            documentRange: documentRange,
+            contentManager: textLayoutManager.textContentManager,
+            storageLength: storage.length
+        ) ?? documentRange
+        if invalidatesLayout {
+            textLayoutManager.invalidateLayout(for: textRange)
+        }
+        textLayoutManager.ensureLayout(for: textRange)
+        return
+    }
+
+    guard let layoutManager = textView.layoutManager else { return }
+    layoutManager.invalidateLayout(forCharacterRange: range, actualCharacterRange: nil)
+    layoutManager.ensureLayout(forCharacterRange: range)
+    layoutManager.invalidateDisplay(forCharacterRange: range)
+}
 
 final class MarkdownCodeBlockView: NSView {
     private struct Layout {
@@ -15,8 +164,8 @@ final class MarkdownCodeBlockView: NSView {
     }
 
     private enum MeasurementSizing {
-        // Keep offscreen measurement bounded so long code lines don't trigger pathological
-        // TextKit relayout cascades while we search for the widest visible line.
+        // Keep measured code width bounded so long lines cannot grow the hosted text
+        // container without a cap during streaming updates.
         static let initialContainerWidth: CGFloat = 4_096
         static let maxContainerWidth: CGFloat = 131_072
         static let widthCapThreshold: CGFloat = 1
@@ -30,18 +179,22 @@ final class MarkdownCodeBlockView: NSView {
     private var estimatedCodeTextSize: CGSize
     private var measuredMaxLineWidth: CGFloat = 0
     private var hasMeasuredMaxLineWidth: Bool = false
+    private var renderedLineCount: Int
     private var languageText: String
     private var copyText: String
     private var appliedContentVersion: UInt64 = 0
+    private var pendingAttachmentBoundsChange = false
 
     private let headerView = NSView()
     private let headerSeparator = NSView()
     private let languageLabel = NSTextField(labelWithString: "")
     private let copyButton = NSButton()
-    private let scrollView = NSScrollView()
-    private let codeTextView = NSTextView()
+    private let scrollView = MarkdownHorizontalScrollView()
+    private let codeTextView = makeMarkdownAppKitTextView()
     private var cachedLayout: Layout?
     private var cachedWidth: CGFloat = 0
+    private weak var attachment: MarkdownCodeBlockAttachment?
+    private var pendingScrollOffsetX: CGFloat?
     private var isShowingCopyFeedback = false
     private var copyFeedbackTask: Task<Void, Never>?
 
@@ -60,6 +213,7 @@ final class MarkdownCodeBlockView: NSView {
         self.code = code
         self.codeAttributed = codeAttributed
         self.estimatedCodeTextSize = estimatedCodeTextSize
+        self.renderedLineCount = Self.lineCount(in: code)
         self.languageText = languageText
         self.copyText = copyLabel
         super.init(frame: .zero)
@@ -119,8 +273,12 @@ final class MarkdownCodeBlockView: NSView {
         codeTextView.isVerticallyResizable = false
         codeTextView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
         codeTextView.minSize = .zero
-        codeTextView.layoutManager?.allowsNonContiguousLayout = false
-        codeTextView.layoutManager?.usesFontLeading = true
+        if let textLayoutManager = codeTextView.textLayoutManager {
+            textLayoutManager.usesFontLeading = true
+        } else {
+            codeTextView.layoutManager?.allowsNonContiguousLayout = false
+            codeTextView.layoutManager?.usesFontLeading = true
+        }
         codeTextView.textStorage?.setAttributedString(codeAttributed)
         scrollView.documentView = codeTextView
 
@@ -145,9 +303,14 @@ final class MarkdownCodeBlockView: NSView {
         return cachedLayout?.size ?? CGSize(width: targetWidth, height: 0)
     }
 
-    func applyUpdate(from attachment: MarkdownCodeBlockAttachment) {
-        guard attachment.contentVersion != appliedContentVersion else { return }
-        applySnapshot(
+    @discardableResult
+    func applyUpdate(from attachment: MarkdownCodeBlockAttachment) -> Bool {
+        self.attachment = attachment
+        pendingScrollOffsetX = attachment.hostedHorizontalOffset()
+        guard attachment.contentVersion != appliedContentVersion else {
+            return pendingAttachmentBoundsChange
+        }
+        let needsLayoutInvalidation = applySnapshot(
             code: attachment.code,
             languageLabel: attachment.languageLabel,
             copyLabel: attachment.copyLabel,
@@ -155,25 +318,38 @@ final class MarkdownCodeBlockView: NSView {
             estimatedCodeTextSize: attachment.estimatedCodeTextSize
         )
         appliedContentVersion = attachment.contentVersion
+        if needsLayoutInvalidation {
+            pendingAttachmentBoundsChange = true
+        }
+        return pendingAttachmentBoundsChange
     }
 
+    func markAttachmentBoundsObserved() {
+        pendingAttachmentBoundsChange = false
+    }
+
+    @discardableResult
     func applySnapshot(
         code: String,
         languageLabel: String,
         copyLabel: String,
         codeAttributed: NSAttributedString,
         estimatedCodeTextSize: CGSize
-    ) {
+    ) -> Bool {
         let oldLen = codeTextView.textStorage?.length ?? 0
         let newLen = codeAttributed.length
-        guard newLen != oldLen || self.code != code else { return }
+        guard newLen != oldLen || self.code != code else { return false }
+        let preservedOffsetX = pendingScrollOffsetX ?? scrollView.contentView.bounds.origin.x
 
         let shouldAppend = newLen > oldLen && code.hasPrefix(self.code)
+        let redrawStartLine = shouldAppend ? max(0, renderedLineCount - 1) : 0
+        var appendedText = ""
         if let storage = codeTextView.textStorage {
             storage.beginEditing()
             if shouldAppend {
                 let delta = codeAttributed.attributedSubstring(from: NSRange(location: oldLen, length: newLen - oldLen))
                 if delta.length > 0 {
+                    appendedText = delta.string
                     storage.append(delta)
                 }
             } else {
@@ -184,31 +360,26 @@ final class MarkdownCodeBlockView: NSView {
             codeTextView.textStorage?.setAttributedString(codeAttributed)
         }
 
+        var textContainerHeightChanged = false
         if let textContainer = codeTextView.textContainer {
             let current = textContainer.containerSize
             let targetHeight = max(current.height, estimatedCodeTextSize.height)
             if abs(current.height - targetHeight) > 0.5 {
                 textContainer.containerSize = CGSize(width: current.width, height: targetHeight)
+                textContainerHeightChanged = true
             }
         }
 
-        if let layoutManager = codeTextView.layoutManager {
-            let start = max(0, oldLen - 1)
-            let range = NSRange(location: start, length: max(0, newLen - start))
-            layoutManager.invalidateLayout(forCharacterRange: range, actualCharacterRange: nil)
-            layoutManager.ensureLayout(forCharacterRange: range)
-            layoutManager.invalidateDisplay(forCharacterRange: range)
-
-            if shouldAppend {
-                updateMeasuredMaxLineWidth(reset: false, changedCharacterRange: range)
-            } else {
-                updateMeasuredMaxLineWidth(reset: true, changedCharacterRange: nil)
-            }
+        let start = max(0, oldLen - 1)
+        let range = NSRange(location: start, length: max(0, newLen - start))
+        ensureMarkdownTextLayout(in: codeTextView, changedRange: range)
+        if shouldAppend {
+            renderedLineCount += Self.lineBreakCount(in: appendedText)
+            updateMeasuredMaxLineWidth(reset: false, changedCharacterRange: range)
+        } else {
+            renderedLineCount = Self.lineCount(in: code)
+            updateMeasuredMaxLineWidth(reset: true, changedCharacterRange: nil)
         }
-
-        codeTextView.needsDisplay = true
-        codeTextView.needsLayout = true
-        scrollView.needsDisplay = true
 
         self.code = code
         self.codeAttributed = codeAttributed
@@ -218,8 +389,48 @@ final class MarkdownCodeBlockView: NSView {
         self.languageLabel.stringValue = languageLabel
         updateCopyButtonAppearance()
 
-        cachedLayout = nil
-        needsLayout = true
+        let layoutWidth = max(1, bounds.width > 0 ? bounds.width : max(cachedWidth, MeasurementSizing.initialContainerWidth))
+        let priorLayout = cachedLayout
+        let measuredLayout = computeLayout(width: layoutWidth)
+        var nextLayout = measuredLayout
+        var deferredInlineWidthGrowth = false
+        if let priorLayout {
+            let contentWidthGrowth = measuredLayout.contentWidth - priorLayout.contentWidth
+            let canDeferWidthGrowth =
+                contentWidthGrowth > 0.5 &&
+                contentWidthGrowth < 8 &&
+                abs(measuredLayout.size.height - priorLayout.size.height) <= 0.5
+            if canDeferWidthGrowth {
+                nextLayout = layoutByDeferringSmallCodeWidthGrowth(
+                    priorLayout: priorLayout,
+                    measuredLayout: measuredLayout
+                )
+                deferredInlineWidthGrowth = abs(nextLayout.contentWidth - priorLayout.contentWidth) > 0.5
+            }
+        }
+        cachedLayout = nextLayout
+        cachedWidth = layoutWidth
+
+        let geometryChanged = deferredInlineWidthGrowth
+            ? false
+            : !layoutsApproximatelyEqual(priorLayout, nextLayout)
+        let attachmentBoundsChanged = !attachmentBoundsApproximatelyEqual(priorLayout, nextLayout)
+        recordAttachmentHeightDelta(from: priorLayout, to: nextLayout)
+        if geometryChanged {
+            pendingScrollOffsetX = preservedOffsetX
+            needsLayout = true
+        } else {
+            if deferredInlineWidthGrowth {
+                applyDeferredCodeWidthGrowthWithoutRelayout(nextLayout)
+            }
+            restoreScrollOffset(preservedOffsetX, layout: nextLayout)
+        }
+        invalidateCodeTextDisplay(
+            startingAtLine: redrawStartLine,
+            fullRedraw: !shouldAppend,
+            includesLayoutChange: textContainerHeightChanged || geometryChanged
+        )
+        return attachmentBoundsChanged
     }
 
     override func layout() {
@@ -231,24 +442,27 @@ final class MarkdownCodeBlockView: NSView {
         }
         guard let layout = cachedLayout else { return }
 
-        headerView.frame = layout.headerFrame
-        headerSeparator.frame = layout.separatorFrame
-        languageLabel.frame = layout.languageFrame
-        copyButton.frame = layout.copyFrame
-        scrollView.frame = layout.scrollFrame
-        if let textContainer = codeTextView.textContainer {
-            let current = textContainer.containerSize
-            let minWidth = max(10_000, layout.contentWidth)
-            let targetWidth = max(current.width, minWidth)
-            let targetHeight = layout.codeFrame.height
-            if abs(current.width - targetWidth) > 0.5 || abs(current.height - targetHeight) > 0.5 {
-                textContainer.containerSize = CGSize(width: targetWidth, height: targetHeight)
+        performWithoutMarkdownImplicitAnimations {
+            headerView.frame = layout.headerFrame
+            headerSeparator.frame = layout.separatorFrame
+            languageLabel.frame = layout.languageFrame
+            copyButton.frame = layout.copyFrame
+            scrollView.frame = layout.scrollFrame
+            if let textContainer = codeTextView.textContainer {
+                let current = textContainer.containerSize
+                let minWidth = max(10_000, layout.contentWidth)
+                let targetWidth = max(current.width, minWidth)
+                let targetHeight = layout.codeFrame.height
+                if abs(current.width - targetWidth) > 0.5 || abs(current.height - targetHeight) > 0.5 {
+                    textContainer.containerSize = CGSize(width: targetWidth, height: targetHeight)
+                }
+            }
+            codeTextView.frame = layout.codeFrame
+            if let documentView = scrollView.documentView, documentView.frame.size != layout.codeFrame.size {
+                documentView.frame = layout.codeFrame
             }
         }
-        codeTextView.frame = layout.codeFrame
-        if let documentView = scrollView.documentView, documentView.frame.size != layout.codeFrame.size {
-            documentView.frame = layout.codeFrame
-        }
+        restoreScrollOffsetIfNeeded(layout: layout)
     }
 
     @objc private func handleCopy() {
@@ -324,6 +538,101 @@ final class MarkdownCodeBlockView: NSView {
         )
     }
 
+    private func layoutsApproximatelyEqual(_ lhs: Layout?, _ rhs: Layout) -> Bool {
+        guard let lhs else { return false }
+        return
+            abs(lhs.size.width - rhs.size.width) <= 0.5 &&
+            abs(lhs.size.height - rhs.size.height) <= 0.5 &&
+            abs(lhs.contentWidth - rhs.contentWidth) <= 0.5 &&
+            abs(lhs.scrollFrame.width - rhs.scrollFrame.width) <= 0.5 &&
+            abs(lhs.scrollFrame.height - rhs.scrollFrame.height) <= 0.5 &&
+            abs(lhs.codeFrame.height - rhs.codeFrame.height) <= 0.5 &&
+            abs(lhs.copyFrame.width - rhs.copyFrame.width) <= 0.5
+    }
+
+    private func attachmentBoundsApproximatelyEqual(_ lhs: Layout?, _ rhs: Layout) -> Bool {
+        guard let lhs else { return false }
+        return
+            abs(lhs.size.width - rhs.size.width) <= 0.5 &&
+            abs(lhs.size.height - rhs.size.height) <= 0.5
+    }
+
+    private func recordAttachmentHeightDelta(from prior: Layout?, to next: Layout?) {
+        guard let prior, let next else { return }
+        attachment?.recordHostedHeightDelta(next.size.height - prior.size.height)
+    }
+
+    private func layoutByDeferringSmallCodeWidthGrowth(
+        priorLayout: Layout,
+        measuredLayout: Layout
+    ) -> Layout {
+        let grownContentWidth = max(priorLayout.contentWidth, measuredLayout.contentWidth)
+        guard grownContentWidth > priorLayout.contentWidth + 0.5 else {
+            return priorLayout
+        }
+
+        let grownCodeFrame = CGRect(
+            x: priorLayout.codeFrame.origin.x,
+            y: priorLayout.codeFrame.origin.y,
+            width: grownContentWidth,
+            height: priorLayout.codeFrame.height
+        )
+        return Layout(
+            size: priorLayout.size,
+            headerFrame: priorLayout.headerFrame,
+            separatorFrame: priorLayout.separatorFrame,
+            languageFrame: priorLayout.languageFrame,
+            copyFrame: priorLayout.copyFrame,
+            scrollFrame: priorLayout.scrollFrame,
+            codeFrame: grownCodeFrame,
+            contentWidth: grownContentWidth
+        )
+    }
+
+    private func applyDeferredCodeWidthGrowthWithoutRelayout(_ layout: Layout) {
+        performWithoutMarkdownImplicitAnimations {
+            var codeFrame = codeTextView.frame
+            if abs(codeFrame.width - layout.codeFrame.width) > 0.5 ||
+                abs(codeFrame.height - layout.codeFrame.height) > 0.5 {
+                codeFrame.size.width = layout.codeFrame.width
+                codeFrame.size.height = layout.codeFrame.height
+                codeTextView.frame = codeFrame
+            }
+
+            if let textContainer = codeTextView.textContainer {
+                let current = textContainer.containerSize
+                let minWidth = max(10_000, layout.contentWidth)
+                let targetWidth = max(current.width, minWidth)
+                if abs(current.width - targetWidth) > 0.5 ||
+                    abs(current.height - layout.codeFrame.height) > 0.5 {
+                    textContainer.containerSize = CGSize(width: targetWidth, height: layout.codeFrame.height)
+                }
+            }
+
+            if let documentView = scrollView.documentView, documentView.frame.size != layout.codeFrame.size {
+                documentView.frame = layout.codeFrame
+            }
+        }
+    }
+
+    private func restoreScrollOffsetIfNeeded(layout: Layout) {
+        let sourceOffset = pendingScrollOffsetX ?? scrollView.contentView.bounds.origin.x
+        pendingScrollOffsetX = nil
+        restoreScrollOffset(sourceOffset, layout: layout)
+    }
+
+    private func restoreScrollOffset(_ offset: CGFloat, layout: Layout) {
+        let maxOffsetX = max(0, layout.contentWidth - layout.scrollFrame.width)
+        let clampedOffset = min(max(0, offset), maxOffsetX)
+        let clipView = scrollView.contentView
+        if abs(clipView.bounds.origin.x - clampedOffset) > 0.5 || abs(clipView.bounds.origin.y) > 0.5 {
+            clipView.scroll(to: NSPoint(x: clampedOffset, y: 0))
+            scrollView.reflectScrolledClipView(clipView)
+        }
+        pendingScrollOffsetX = nil
+        attachment?.setHostedHorizontalOffset(clampedOffset)
+    }
+
     private func measureText(_ text: String, font: MarkdownPlatformFont) -> CGSize {
         let attrs: [NSAttributedString.Key: Any] = [.font: font]
         let size = (text as NSString).size(withAttributes: attrs)
@@ -332,6 +641,60 @@ final class MarkdownCodeBlockView: NSView {
 
     private func lineHeight(for font: MarkdownPlatformFont) -> CGFloat {
         NSLayoutManager().defaultLineHeight(for: font)
+    }
+
+    private func invalidateCodeTextDisplay(
+        startingAtLine startLine: Int,
+        fullRedraw: Bool,
+        includesLayoutChange: Bool
+    ) {
+        if fullRedraw {
+            codeTextView.needsDisplay = true
+            codeTextView.needsLayout = true
+            scrollView.needsDisplay = true
+            return
+        }
+
+        let lineAdvance = max(1, lineHeight(for: style.codeFont) + 2)
+        let dirtyY = max(0, CGFloat(max(0, startLine)) * lineAdvance - lineAdvance)
+        let visibleHeight = max(codeTextView.bounds.height, codeTextView.frame.height)
+        let lineCount = max(1, renderedLineCount - max(0, startLine))
+        let wantedHeight = lineAdvance * CGFloat(lineCount + 2)
+        let dirtyHeight = visibleHeight > dirtyY ? min(visibleHeight - dirtyY, wantedHeight) : wantedHeight
+        let dirtyRect = CGRect(
+            x: 0,
+            y: dirtyY,
+            width: max(codeTextView.bounds.width, codeTextView.frame.width),
+            height: max(lineAdvance, dirtyHeight)
+        )
+        codeTextView.setNeedsDisplay(dirtyRect)
+        if includesLayoutChange {
+            codeTextView.needsLayout = true
+        }
+    }
+
+    private static func lineCount(in text: String) -> Int {
+        max(1, lineBreakCount(in: text) + 1)
+    }
+
+    private static func lineBreakCount(in text: String) -> Int {
+        var count = 0
+        var previousWasCarriageReturn = false
+        for scalar in text.unicodeScalars {
+            switch scalar.value {
+            case 10:
+                if !previousWasCarriageReturn {
+                    count += 1
+                }
+                previousWasCarriageReturn = false
+            case 13:
+                count += 1
+                previousWasCarriageReturn = true
+            default:
+                previousWasCarriageReturn = false
+            }
+        }
+        return count
     }
 
     private func showCopyFeedback() {
@@ -363,8 +726,8 @@ final class MarkdownCodeBlockView: NSView {
     }
 
     private func updateMeasuredMaxLineWidth(reset: Bool, changedCharacterRange: NSRange?) {
-        guard let layoutManager = codeTextView.layoutManager else { return }
         guard let textContainer = codeTextView.textContainer else { return }
+        guard let textStorage = codeTextView.textStorage else { return }
 
         if reset {
             measuredMaxLineWidth = 0
@@ -376,41 +739,13 @@ final class MarkdownCodeBlockView: NSView {
             }
         }
 
-        if let changedCharacterRange {
-            layoutManager.ensureLayout(forCharacterRange: changedCharacterRange)
-        } else {
-            layoutManager.ensureLayout(for: textContainer)
-        }
-
-        let glyphRange: NSRange = {
-            if let changedCharacterRange {
-                return layoutManager.glyphRange(forCharacterRange: changedCharacterRange, actualCharacterRange: nil)
-            }
-            return NSRange(location: 0, length: layoutManager.numberOfGlyphs)
-        }()
-
-        guard glyphRange.length > 0 else {
+        let localMaxX = measureMaxLineWidth(
+            in: textStorage,
+            changedCharacterRange: changedCharacterRange
+        )
+        guard localMaxX > 0 || textStorage.length == 0 else {
             hasMeasuredMaxLineWidth = true
             return
-        }
-
-        let containerWidth = textContainer.containerSize.width
-        var localMaxX: CGFloat = 0
-        let glyphEnd = NSMaxRange(glyphRange)
-        var glyphIndex = glyphRange.location
-        while glyphIndex < glyphEnd {
-            var lineGlyphRange = NSRange()
-            let usedRect = layoutManager.lineFragmentUsedRect(forGlyphAt: glyphIndex, effectiveRange: &lineGlyphRange)
-            let resolvedMaxX: CGFloat
-            if usedRect.maxX >= containerWidth - MeasurementSizing.widthCapThreshold {
-                let bounds = layoutManager.boundingRect(forGlyphRange: lineGlyphRange, in: textContainer)
-                resolvedMaxX = bounds.maxX
-            } else {
-                resolvedMaxX = usedRect.maxX
-            }
-            localMaxX = max(localMaxX, resolvedMaxX)
-            let nextIndex = NSMaxRange(lineGlyphRange)
-            glyphIndex = nextIndex > glyphIndex ? nextIndex : glyphIndex + 1
         }
 
         measuredMaxLineWidth = max(measuredMaxLineWidth, localMaxX)
@@ -427,25 +762,271 @@ final class MarkdownCodeBlockView: NSView {
         }
         hasMeasuredMaxLineWidth = true
     }
+
+    private func measureMaxLineWidth(
+        in attributedText: NSAttributedString,
+        changedCharacterRange: NSRange?
+    ) -> CGFloat {
+        let string = attributedText.string as NSString
+        guard let measurementRange = lineMeasurementRange(
+            in: string,
+            changedCharacterRange: changedCharacterRange
+        ) else {
+            return 0
+        }
+
+        var maxWidth: CGFloat = 0
+        var cursor = measurementRange.location
+        let end = NSMaxRange(measurementRange)
+        while cursor < end {
+            let rawLineRange = string.lineRange(for: NSRange(location: cursor, length: 0))
+            let lineRange = NSIntersectionRange(rawLineRange, measurementRange)
+            let drawableRange = drawableLineRange(lineRange, in: string)
+            if drawableRange.length > 0 {
+                let line = attributedText.attributedSubstring(from: drawableRange)
+                let bounds = line.boundingRect(
+                    with: CGSize(
+                        width: MeasurementSizing.maxContainerWidth,
+                        height: CGFloat.greatestFiniteMagnitude
+                    ),
+                    options: [.usesLineFragmentOrigin, .usesFontLeading],
+                    context: nil
+                )
+                maxWidth = max(maxWidth, ceil(max(0, bounds.width)))
+            }
+            let nextCursor = NSMaxRange(rawLineRange)
+            cursor = nextCursor > cursor ? nextCursor : cursor + 1
+        }
+        return maxWidth
+    }
+
+    private func lineMeasurementRange(
+        in string: NSString,
+        changedCharacterRange: NSRange?
+    ) -> NSRange? {
+        guard string.length > 0 else { return nil }
+        guard let changedCharacterRange else {
+            return NSRange(location: 0, length: string.length)
+        }
+
+        let clamped = markdownClampRange(changedCharacterRange, upperBound: string.length)
+        let location = min(max(0, clamped.location), string.length - 1)
+        let length = max(1, min(string.length - location, max(1, clamped.length)))
+        return string.lineRange(for: NSRange(location: location, length: length))
+    }
+
+    private func drawableLineRange(_ lineRange: NSRange, in string: NSString) -> NSRange {
+        var end = min(NSMaxRange(lineRange), string.length)
+        while end > lineRange.location {
+            let character = string.character(at: end - 1)
+            if character == 10 || character == 13 {
+                end -= 1
+            } else {
+                break
+            }
+        }
+        return NSRange(location: lineRange.location, length: max(0, end - lineRange.location))
+    }
 }
 
 private final class MarkdownTableRowView: NSView {
     override var isFlipped: Bool { true }
     let separatorView = NSView()
+    private let style: MarkdownTableStyle
+    private var cells: [NSAttributedString] = []
+    private var cellFrames: [CGRect] = []
+    private var hostedCellViews: [Int: NSTextView] = [:]
+    private var rowBackgroundColor: MarkdownPlatformColor = .clear
 
-    override init(frame: CGRect) {
-        super.init(frame: frame)
+    init(row: MarkdownTableRow, style: MarkdownTableStyle, columnCount: Int) {
+        self.style = style
+        super.init(frame: .zero)
         wantsLayer = true
+        layer?.backgroundColor = nil
         separatorView.wantsLayer = true
         addSubview(separatorView)
+        configure(row: row, columnCount: columnCount)
     }
 
     required init?(coder: NSCoder) {
         return nil
     }
+
+    func configure(row: MarkdownTableRow, columnCount: Int) {
+        cells = normalizedCells(for: row, columnCount: columnCount)
+        cellFrames = Array(repeating: .zero, count: columnCount)
+        reconcileHostedCellViews()
+        needsDisplay = true
+    }
+
+    func setRowBackgroundColor(_ color: MarkdownPlatformColor) {
+        guard !rowBackgroundColor.isEqual(color) else { return }
+        rowBackgroundColor = color
+        layer?.backgroundColor = color.cgColor
+        needsDisplay = true
+    }
+
+    func updateCell(at column: Int, text: NSAttributedString) {
+        guard cells.indices.contains(column) else { return }
+        if cells[column].isEqual(to: text) { return }
+        cells[column] = text
+        reconcileHostedCellView(at: column)
+        needsDisplay = true
+    }
+
+    func layoutCells(
+        columnWidths: [CGFloat],
+        rowHeight: CGFloat,
+        rowSeparator: CGFloat,
+        padding: CGSize,
+        columnGap: CGFloat
+    ) {
+        if cellFrames.count != columnWidths.count {
+            cellFrames = Array(repeating: .zero, count: columnWidths.count)
+        }
+        var x: CGFloat = 0
+        for column in 0..<columnWidths.count {
+            let cellWidth = columnWidths[column]
+            let textRect = CGRect(
+                x: x + padding.width,
+                y: padding.height,
+                width: max(0, cellWidth - padding.width * 2),
+                height: max(0, rowHeight - padding.height * 2)
+            )
+            cellFrames[column] = textRect
+            if let hosted = hostedCellViews[column] {
+                hosted.frame = textRect
+                hosted.textContainer?.containerSize = CGSize(
+                    width: textRect.width,
+                    height: max(textRect.height, 1)
+                )
+                ensureMarkdownTextLayout(in: hosted, changedRange: nil, invalidatesLayout: false)
+            }
+            x += cellWidth + columnGap
+        }
+        separatorView.frame = CGRect(x: 0, y: rowHeight, width: bounds.width, height: rowSeparator)
+        needsDisplay = true
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
+        if let context = NSGraphicsContext.current?.cgContext {
+            context.clear(bounds)
+        }
+        if rowBackgroundColor.alphaComponent > CGFloat.ulpOfOne {
+            rowBackgroundColor.setFill()
+            bounds.fill()
+        }
+        guard !cells.isEmpty else { return }
+        for column in 0..<min(cells.count, cellFrames.count) {
+            guard hostedCellViews[column] == nil else { continue }
+            let frame = cellFrames[column]
+            guard frame.intersects(dirtyRect), frame.width > 0, frame.height > 0 else { continue }
+            cells[column].draw(
+                with: frame,
+                options: [.usesLineFragmentOrigin, .usesFontLeading],
+                context: nil
+            )
+        }
+    }
+
+    private func normalizedCells(for row: MarkdownTableRow, columnCount: Int) -> [NSAttributedString] {
+        let emptyCell = NSAttributedString(string: "", attributes: [.font: style.baseFont])
+        return (0..<columnCount).map { column in
+            column < row.cells.count ? row.cells[column] : emptyCell
+        }
+    }
+
+    private func reconcileHostedCellViews() {
+        for column in 0..<cells.count {
+            reconcileHostedCellView(at: column)
+        }
+        for column in hostedCellViews.keys where !cells.indices.contains(column) {
+            hostedCellViews[column]?.removeFromSuperview()
+            hostedCellViews[column] = nil
+        }
+    }
+
+    private func reconcileHostedCellView(at column: Int) {
+        guard cells.indices.contains(column) else { return }
+        let text = cells[column]
+        guard tableCellRequiresHostedTextView(text) else {
+            if let hosted = hostedCellViews.removeValue(forKey: column) {
+                hosted.removeFromSuperview()
+            }
+            return
+        }
+        let hosted = hostedCellViews[column] ?? makeHostedCellView()
+        hostedCellViews[column] = hosted
+        if hosted.superview == nil {
+            addSubview(hosted)
+        }
+        apply(text: text, to: hosted)
+        if cellFrames.indices.contains(column) {
+            hosted.frame = cellFrames[column]
+        }
+    }
+
+    private func makeHostedCellView() -> NSTextView {
+        let cellView = MarkdownStaticTextView(usingTextLayoutManager: true)
+        cellView.drawsBackground = false
+        cellView.backgroundColor = .clear
+        cellView.isEditable = false
+        cellView.isSelectable = false
+        cellView.isRichText = false
+        cellView.importsGraphics = false
+        cellView.allowsUndo = false
+        cellView.focusRingType = .none
+        cellView.wantsLayer = true
+        cellView.layer?.backgroundColor = NSColor.clear.cgColor
+        cellView.layer?.borderWidth = 0
+        cellView.layer?.cornerRadius = 0
+        cellView.textContainerInset = .zero
+        cellView.textContainer?.lineFragmentPadding = 0
+        cellView.textContainer?.lineBreakMode = .byWordWrapping
+        cellView.textContainer?.widthTracksTextView = true
+        cellView.textContainer?.heightTracksTextView = false
+        cellView.textContainer?.containerSize = CGSize(width: 0, height: CGFloat.greatestFiniteMagnitude)
+        cellView.isHorizontallyResizable = false
+        cellView.isVerticallyResizable = false
+        cellView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
+        cellView.minSize = .zero
+        if let textLayoutManager = cellView.textLayoutManager {
+            textLayoutManager.usesFontLeading = true
+        } else {
+            cellView.layoutManager?.allowsNonContiguousLayout = false
+            cellView.layoutManager?.usesFontLeading = true
+        }
+        return cellView
+    }
+
+    private func apply(text: NSAttributedString, to view: NSTextView) {
+        guard let storage = view.textStorage else { return }
+        guard !storage.isEqual(to: text) else { return }
+        storage.setAttributedString(text)
+        ensureMarkdownTextLayout(in: view, changedRange: nil)
+        view.needsDisplay = true
+        view.needsLayout = true
+    }
+}
+
+private func tableCellRequiresHostedTextView(_ text: NSAttributedString) -> Bool {
+    guard text.length > 0 else { return false }
+    var requiresHostedView = false
+    text.enumerateAttribute(.attachment, in: NSRange(location: 0, length: text.length), options: []) { value, _, stop in
+        if value is NSTextAttachment {
+            requiresHostedView = true
+            stop.pointee = true
+        }
+    }
+    return requiresHostedView
 }
 
 final class MarkdownTableView: NSView {
+    private enum IncrementalLayoutTuning {
+        static let largeTableRowThreshold = 32
+    }
+
     private struct Layout {
         let tableSize: CGSize
         let contentWidth: CGFloat
@@ -464,10 +1045,9 @@ final class MarkdownTableView: NSView {
         override var isFlipped: Bool { true }
     }
 
-    private let scrollView = NSScrollView()
+    private let scrollView = MarkdownHorizontalScrollView()
     private let contentView = FlippedContentView()
     private var rowViews: [MarkdownTableRowView] = []
-    private var cellViews: [[NSTextView]] = []
     private var cachedLayout: Layout?
     private var cachedWidth: CGFloat = 0
     private var appliedContentVersion: UInt64 = 0
@@ -475,6 +1055,9 @@ final class MarkdownTableView: NSView {
     private var laidOutContentWidth: CGFloat = 0
     private var laidOutContentHeight: CGFloat = 0
     private var laidOutColumnWidths: [CGFloat] = []
+    private weak var attachment: MarkdownTableAttachment?
+    private var pendingScrollOffsetX: CGFloat?
+    private var pendingAttachmentBoundsChange = false
 
     init(rows: [MarkdownTableRow], style: MarkdownTableStyle) {
         self.rows = rows
@@ -511,192 +1094,326 @@ final class MarkdownTableView: NSView {
         return cachedLayout?.tableSize ?? CGSize(width: targetWidth, height: 0)
     }
 
-    func applyUpdate(from attachment: MarkdownTableAttachment) {
-        guard attachment.contentVersion != appliedContentVersion else { return }
-        applySnapshot(rows: attachment.rows)
+    @discardableResult
+    func applyUpdate(from attachment: MarkdownTableAttachment) -> Bool {
+        self.attachment = attachment
+        pendingScrollOffsetX = attachment.hostedHorizontalOffset()
+        guard attachment.contentVersion != appliedContentVersion else {
+            return pendingAttachmentBoundsChange
+        }
+        let needsLayoutInvalidation = applySnapshot(rows: attachment.rows)
         appliedContentVersion = attachment.contentVersion
+        if needsLayoutInvalidation {
+            pendingAttachmentBoundsChange = true
+        }
+        return pendingAttachmentBoundsChange
     }
 
-	    func applySnapshot(rows nextRows: [MarkdownTableRow]) {
-	        guard !nextRows.isEmpty else { return }
+    func markAttachmentBoundsObserved() {
+        pendingAttachmentBoundsChange = false
+    }
 
-	        if nextRows.count < rows.count || columnCount == 0 {
-	            let nextColumnCount = nextRows.map { $0.cells.count }.max() ?? 0
-	            guard nextColumnCount > 0 else { return }
-	            rebuild(rows: nextRows, columnCount: nextColumnCount)
-	            needsLayout = true
-	            return
-	        }
+    @discardableResult
+    func applySnapshot(rows nextRows: [MarkdownTableRow]) -> Bool {
+        guard !nextRows.isEmpty else { return false }
+        let preservedOffsetX = pendingScrollOffsetX ?? scrollView.contentView.bounds.origin.x
 
-	        let appendedCount = nextRows.count - rows.count
-	        if appendedCount == 0 {
-	            let nextMaxColumns = nextRows.map { $0.cells.count }.max() ?? 0
-	            let nextColumnCount = max(columnCount, nextMaxColumns)
-	            if nextColumnCount != columnCount {
-	                rebuild(rows: nextRows, columnCount: nextColumnCount)
-	                needsLayout = true
-	                return
-	            }
-	            guard !rows.isEmpty else { return }
+        if nextRows.count < rows.count || columnCount == 0 {
+            let nextColumnCount = nextRows.map { $0.cells.count }.max() ?? 0
+            guard nextColumnCount > 0 else { return false }
+            rebuild(rows: nextRows, columnCount: nextColumnCount)
+            pendingScrollOffsetX = preservedOffsetX
+            needsLayout = true
+            return true
+        }
 
-	            let lastIndex = rows.count - 1
-	            let priorLayout = cachedLayout
-	            let oldLastRowHeight: CGFloat? = {
-	                guard let priorLayout, priorLayout.rowHeights.indices.contains(lastIndex) else { return nil }
-	                return priorLayout.rowHeights[lastIndex]
-	            }()
+        let appendedCount = nextRows.count - rows.count
+        if appendedCount == 0 {
+            guard !rows.isEmpty else { return false }
+            let lastIndex = rows.count - 1
+            let previousLastRow = rows[lastIndex]
+            let nextLastRow = nextRows[lastIndex]
+            let isStreamingAppend: Bool = {
+                guard let previousSource = previousLastRow.sourceMarkdown,
+                      let nextSource = nextLastRow.sourceMarkdown
+                else { return false }
+                return nextSource.hasPrefix(previousSource)
+            }()
+            let nextMaxColumns = isStreamingAppend
+                ? max(columnCount, nextLastRow.cells.count)
+                : (nextRows.map { $0.cells.count }.max() ?? 0)
+            let nextColumnCount = isStreamingAppend ? max(columnCount, nextMaxColumns) : nextMaxColumns
+            if nextColumnCount != columnCount {
+                rebuild(rows: nextRows, columnCount: nextColumnCount)
+                pendingScrollOffsetX = preservedOffsetX
+                needsLayout = true
+                return true
+            }
 
-	            rows = nextRows
-	            updateRowContent(at: lastIndex)
+            if rowsHaveChanged(beforeLastRow: rows, nextRows: nextRows) {
+                rebuild(rows: nextRows, columnCount: nextRows.map { $0.cells.count }.max() ?? 0)
+                pendingScrollOffsetX = preservedOffsetX
+                needsLayout = true
+                return true
+            }
 
-		            if let priorLayout,
-		               let oldLastRowHeight,
-		               priorLayout.columnWidths.count == columnCount,
-		               priorLayout.rowHeights.count == rows.count {
-		                let paddingX = style.cellPadding.width
-		                let maxCellTextWidth = max(80, min(cachedWidth * 0.8, 360))
-		                let maxColumnWidth = maxCellTextWidth + paddingX * 2
-		                let emptyCell = NSAttributedString(string: "", attributes: [.font: style.baseFont])
-		                let lastRow = rows[lastIndex]
+            let priorLayout = cachedLayout
+            let oldLastRowHeight: CGFloat? = {
+                guard let priorLayout, priorLayout.rowHeights.indices.contains(lastIndex) else { return nil }
+                return priorLayout.rowHeights[lastIndex]
+            }()
+            var shouldRelayout = false
+            let changedColumns = changedColumnIndices(previous: previousLastRow, next: nextLastRow, columnCount: columnCount)
 
-		                var updatedColumnWidths = priorLayout.columnWidths
-		                for column in 0..<columnCount {
-		                    guard updatedColumnWidths[column] < maxColumnWidth - 0.5 else { continue }
-		                    let cell = column < lastRow.cells.count ? lastRow.cells[column] : emptyCell
-		                    let size = measureAttributedText(cell, width: .greatestFiniteMagnitude)
-		                    let desiredTextWidth = min(size.width, maxCellTextWidth)
-		                    let desiredColumnWidth = desiredTextWidth + paddingX * 2
-		                    if desiredColumnWidth > updatedColumnWidths[column] + 0.5 {
-		                        updatedColumnWidths[column] = desiredColumnWidth
-		                    }
-		                }
+            rows = nextRows
+            updateRowContent(at: lastIndex, columns: changedColumns)
 
-		                let totalColumnGap = priorLayout.columnGap * CGFloat(max(0, columnCount - 1))
-		                let updatedContentWidth = updatedColumnWidths.reduce(0, +) + totalColumnGap
-		                let newLastRowHeight = measureRowHeight(rows[lastIndex], columnWidths: updatedColumnWidths)
-		                let heightDelta = newLastRowHeight - oldLastRowHeight
-		                var updatedHeights = priorLayout.rowHeights
-		                updatedHeights[lastIndex] = newLastRowHeight
-		                let viewportWidth = min(cachedWidth, updatedContentWidth)
-		                cachedLayout = Layout(
-		                    tableSize: CGSize(width: viewportWidth, height: priorLayout.tableSize.height + heightDelta),
-		                    contentWidth: updatedContentWidth,
-		                    columnWidths: updatedColumnWidths,
-		                    rowHeights: updatedHeights,
-		                    rowSeparatorWidth: priorLayout.rowSeparatorWidth,
-		                    columnGap: priorLayout.columnGap
-		                )
+            if let priorLayout,
+               let oldLastRowHeight,
+               priorLayout.columnWidths.count == columnCount,
+               priorLayout.rowHeights.count == rows.count {
+                let paddingX = style.cellPadding.width
+                let maxCellTextWidth = max(80, min(cachedWidth * 0.8, 360))
+                let maxColumnWidth = maxCellTextWidth + paddingX * 2
+                let columnWidthGrowthStep = max(8, style.baseFont.pointSize * 0.55)
+                let emptyCell = NSAttributedString(string: "", attributes: [.font: style.baseFont])
+                let lastRow = rows[lastIndex]
 
-		                let needsFullRelayout =
-		                    abs(updatedContentWidth - priorLayout.contentWidth) > 0.5 ||
-		                    !columnWidthsApproximatelyEqual(updatedColumnWidths, priorLayout.columnWidths)
+                var updatedColumnWidths = priorLayout.columnWidths
+                let freezesColumnWidths = shouldFreezeColumnWidthsForIncrementalUpdate(rowCount: rows.count)
+                if !freezesColumnWidths {
+                    for column in changedColumns {
+                        guard updatedColumnWidths[column] < maxColumnWidth - 0.5 else { continue }
+                        let cell = column < lastRow.cells.count ? lastRow.cells[column] : emptyCell
+                        let size = measureAttributedText(cell, width: .greatestFiniteMagnitude)
+                        let desiredTextWidth = min(size.width, maxCellTextWidth)
+                        let desiredColumnWidth = desiredTextWidth + paddingX * 2
+                        let growth = desiredColumnWidth - updatedColumnWidths[column]
+                        if growth > 0.5 {
+                            let reachesColumnCap = desiredColumnWidth >= maxColumnWidth - 0.5
+                            guard reachesColumnCap || growth >= columnWidthGrowthStep else { continue }
+                            updatedColumnWidths[column] = desiredColumnWidth
+                        }
+                    }
+                }
 
-		                if needsFullRelayout {
-		                    laidOutRowCount = 0
-		                    laidOutContentHeight = 0
-		                    laidOutContentWidth = 0
-		                    laidOutColumnWidths.removeAll(keepingCapacity: false)
-		                } else if laidOutRowCount == rows.count {
-		                    let startY = max(0, priorLayout.tableSize.height - (oldLastRowHeight + priorLayout.rowSeparatorWidth))
-		                    laidOutRowCount = lastIndex
-		                    laidOutContentHeight = startY
-		                } else {
-		                    laidOutRowCount = 0
-		                    laidOutContentHeight = 0
-		                    laidOutContentWidth = 0
-		                    laidOutColumnWidths.removeAll(keepingCapacity: false)
-		                }
-		            } else {
-		                cachedLayout = nil
-		                laidOutRowCount = 0
-		                laidOutContentHeight = 0
-	                laidOutContentWidth = 0
-	                laidOutColumnWidths.removeAll(keepingCapacity: false)
-	            }
+                let totalColumnGap = priorLayout.columnGap * CGFloat(max(0, columnCount - 1))
+                let updatedContentWidth = updatedColumnWidths.reduce(0, +) + totalColumnGap
+                let measuredLastRowHeight = measureRowHeight(rows[lastIndex], columnWidths: updatedColumnWidths)
+                let newLastRowHeight = measuredLastRowHeight
+                let heightDelta = newLastRowHeight - oldLastRowHeight
+                var updatedHeights = priorLayout.rowHeights
+                updatedHeights[lastIndex] = newLastRowHeight
+                let viewportWidth = min(cachedWidth, updatedContentWidth)
+                cachedLayout = Layout(
+                    tableSize: CGSize(width: viewportWidth, height: priorLayout.tableSize.height + heightDelta),
+                    contentWidth: updatedContentWidth,
+                    columnWidths: updatedColumnWidths,
+                    rowHeights: updatedHeights,
+                    rowSeparatorWidth: priorLayout.rowSeparatorWidth,
+                    columnGap: priorLayout.columnGap
+                )
 
-	            needsLayout = true
-	            return
-	        } else if appendedCount < 0 {
-	            return
-	        }
+                let needsFullRelayout =
+                    abs(updatedContentWidth - priorLayout.contentWidth) > 0.5 ||
+                    !columnWidthsApproximatelyEqual(updatedColumnWidths, priorLayout.columnWidths)
+                let rowHeightChanged = abs(heightDelta) > 0.5
 
-	        let appendedRows = Array(nextRows.suffix(appendedCount))
-	        let appendedMaxColumns = appendedRows.map { $0.cells.count }.max() ?? 0
-	        let nextColumnCount = max(columnCount, appendedMaxColumns)
+                if needsFullRelayout {
+                    laidOutRowCount = 0
+                    laidOutContentHeight = 0
+                    laidOutContentWidth = 0
+                    laidOutColumnWidths.removeAll(keepingCapacity: false)
+                    shouldRelayout = true
+                } else if laidOutRowCount == rows.count {
+                    let startY = max(0, priorLayout.tableSize.height - (oldLastRowHeight + priorLayout.rowSeparatorWidth))
+                    laidOutRowCount = lastIndex
+                    laidOutContentHeight = startY
+                    shouldRelayout = rowHeightChanged
+                } else if needsLayout {
+                    shouldRelayout = true
+                } else {
+                    laidOutRowCount = 0
+                    laidOutContentHeight = 0
+                    laidOutContentWidth = 0
+                    laidOutColumnWidths.removeAll(keepingCapacity: false)
+                    shouldRelayout = true
+                }
+            } else {
+                cachedLayout = nil
+                laidOutRowCount = 0
+                laidOutContentHeight = 0
+                laidOutContentWidth = 0
+                laidOutColumnWidths.removeAll(keepingCapacity: false)
+                shouldRelayout = true
+            }
+
+            let attachmentBoundsChanged = !tableBoundsApproximatelyEqual(priorLayout, cachedLayout)
+            recordAttachmentHeightDelta(from: priorLayout, to: cachedLayout)
+            if shouldRelayout {
+                pendingScrollOffsetX = preservedOffsetX
+                needsLayout = true
+            } else {
+                restoreScrollOffset(preservedOffsetX)
+            }
+            return attachmentBoundsChanged
+        } else if appendedCount < 0 {
+            return false
+        }
+
+        let appendedRows = Array(nextRows.suffix(appendedCount))
+        let appendedMaxColumns = appendedRows.map { $0.cells.count }.max() ?? 0
+        let nextColumnCount = max(columnCount, appendedMaxColumns)
         if nextColumnCount != columnCount {
             rebuild(rows: nextRows, columnCount: nextColumnCount)
+            pendingScrollOffsetX = preservedOffsetX
             needsLayout = true
-            return
+            return true
         }
 
         rows = nextRows
         appendRows(appendedRows)
+        let priorLayout = cachedLayout
         if let updatedLayout = extendLayout(with: appendedRows) {
             cachedLayout = updatedLayout
         } else {
             cachedLayout = nil
         }
+        let attachmentBoundsChanged = !tableBoundsApproximatelyEqual(priorLayout, cachedLayout)
+        recordAttachmentHeightDelta(from: priorLayout, to: cachedLayout)
 
-	        needsLayout = true
-	    }
+        pendingScrollOffsetX = preservedOffsetX
+        needsLayout = true
+        return attachmentBoundsChanged
+    }
 
-	    private func updateRowContent(at rowIndex: Int) {
-	        guard rowIndex >= 0, rowIndex < rows.count else { return }
-	        guard rowIndex < cellViews.count else { return }
-	        let row = rows[rowIndex]
-	        let emptyCell = NSAttributedString(string: "", attributes: [.font: style.baseFont])
-	        for column in 0..<columnCount {
-	            guard column < cellViews[rowIndex].count else { continue }
-	            let cellText = column < row.cells.count ? row.cells[column] : emptyCell
-	            updateCellText(cellViews[rowIndex][column], next: cellText)
-	        }
-	    }
+    private func updateRowContent(at rowIndex: Int, columns: [Int]? = nil) {
+        guard rowIndex >= 0, rowIndex < rows.count else { return }
+        guard rowIndex < rowViews.count else { return }
+        let row = rows[rowIndex]
+        let emptyCell = NSAttributedString(string: "", attributes: [.font: style.baseFont])
+        let targetColumns = columns ?? Array(0..<columnCount)
+        for column in targetColumns {
+            guard column < columnCount else { continue }
+            let cellText = column < row.cells.count ? row.cells[column] : emptyCell
+            rowViews[rowIndex].updateCell(at: column, text: cellText)
+        }
+    }
 
-		    private func updateCellText(_ cellView: NSTextView, next: NSAttributedString) {
-		        guard let storage = cellView.textStorage else { return }
-		        let oldLen = storage.length
-		        let newLen = next.length
-	        if oldLen == newLen, storage.isEqual(to: next) {
-	            return
-	        }
+    private func measureRowHeight(_ row: MarkdownTableRow, columnWidths: [CGFloat]) -> CGFloat {
+        let paddingX = style.cellPadding.width
+        let paddingY = style.cellPadding.height
+        let minRowHeight = lineHeight(for: style.baseFont)
+        let emptyCell = NSAttributedString(string: "", attributes: [.font: style.baseFont])
 
-	        storage.beginEditing()
-	        if newLen >= oldLen, next.string.hasPrefix(storage.string) {
-	            let delta = next.attributedSubstring(from: NSRange(location: oldLen, length: newLen - oldLen))
-	            if delta.length > 0 {
-	                storage.append(delta)
-	            }
-	        } else {
-	            storage.setAttributedString(next)
-	        }
-	        storage.endEditing()
+        var rowHeight: CGFloat = 0
+        for column in 0..<columnCount {
+            let cell = column < row.cells.count ? row.cells[column] : emptyCell
+            let textWidth = max(0, columnWidths[column] - paddingX * 2)
+            let size = measureAttributedText(cell, width: textWidth)
+            rowHeight = max(rowHeight, max(size.height, minRowHeight))
+        }
+        return ceil(rowHeight + paddingY * 2 + 1)
+    }
 
-		        if let layoutManager = cellView.layoutManager {
-		            let start = max(0, oldLen - 1)
-		            let range = NSRange(location: start, length: max(0, storage.length - start))
-		            layoutManager.invalidateLayout(forCharacterRange: range, actualCharacterRange: nil)
-		            layoutManager.ensureLayout(forCharacterRange: range)
-		            layoutManager.invalidateDisplay(forCharacterRange: range)
-		        }
-		        cellView.needsDisplay = true
-		        cellView.needsLayout = true
-		    }
+    private func changedColumnIndices(
+        previous: MarkdownTableRow,
+        next: MarkdownTableRow,
+        columnCount: Int
+    ) -> [Int] {
+        guard columnCount > 0 else { return [] }
+        var columns: [Int] = []
+        columns.reserveCapacity(min(columnCount, 4))
+        for column in 0..<columnCount {
+            let previousCell = column < previous.cells.count ? previous.cells[column] : nil
+            let nextCell = column < next.cells.count ? next.cells[column] : nil
+            switch (previousCell, nextCell) {
+            case let (left?, right?):
+                if !left.isEqual(to: right) {
+                    columns.append(column)
+                }
+            case (nil, nil):
+                continue
+            default:
+                columns.append(column)
+            }
+        }
+        return columns
+    }
 
-	    private func measureRowHeight(_ row: MarkdownTableRow, columnWidths: [CGFloat]) -> CGFloat {
-	        let paddingX = style.cellPadding.width
-	        let paddingY = style.cellPadding.height
-	        let minRowHeight = lineHeight(for: style.baseFont)
-	        let emptyCell = NSAttributedString(string: "", attributes: [.font: style.baseFont])
+    private func rowsHaveChanged(beforeLastRow previousRows: [MarkdownTableRow], nextRows: [MarkdownTableRow]) -> Bool {
+        guard previousRows.count == nextRows.count, previousRows.count > 1 else { return false }
+        let lastIndex = previousRows.count - 1
+        for rowIndex in 0..<lastIndex {
+            if !tableRowStableContentEqual(previousRows[rowIndex], nextRows[rowIndex]) {
+                return true
+            }
+        }
+        return false
+    }
 
-	        var rowHeight: CGFloat = 0
-	        for column in 0..<columnCount {
-	            let cell = column < row.cells.count ? row.cells[column] : emptyCell
-	            let textWidth = max(0, columnWidths[column] - paddingX * 2)
-	            let size = measureAttributedText(cell, width: textWidth)
-	            rowHeight = max(rowHeight, max(size.height, minRowHeight))
-	        }
-	        return rowHeight + paddingY * 2
-	    }
+    private func tableRowStableContentEqual(_ lhs: MarkdownTableRow, _ rhs: MarkdownTableRow) -> Bool {
+        if tableRowContentEqual(lhs, rhs) { return true }
+        guard let lhsSource = lhs.sourceMarkdown,
+              let rhsSource = rhs.sourceMarkdown,
+              lhsSource == rhsSource
+        else {
+            return false
+        }
+        guard lhs.isHeader == rhs.isHeader else { return false }
+        guard lhs.cells.count == rhs.cells.count else { return false }
+        for index in 0..<lhs.cells.count {
+            if extractPlainText(from: lhs.cells[index]) != extractPlainText(from: rhs.cells[index]) {
+                return false
+            }
+            if !paragraphStylesCompatible(
+                firstParagraphStyle(in: lhs.cells[index]),
+                firstParagraphStyle(in: rhs.cells[index])
+            ) {
+                return false
+            }
+        }
+        return true
+    }
+
+    private func tableRowContentEqual(_ lhs: MarkdownTableRow, _ rhs: MarkdownTableRow) -> Bool {
+        guard lhs.isHeader == rhs.isHeader else { return false }
+        guard lhs.cells.count == rhs.cells.count else { return false }
+        for index in 0..<lhs.cells.count {
+            if !lhs.cells[index].isEqual(to: rhs.cells[index]) {
+                return false
+            }
+        }
+        return true
+    }
+
+    private func firstParagraphStyle(in cell: NSAttributedString) -> NSParagraphStyle? {
+        guard cell.length > 0 else { return nil }
+        var result: NSParagraphStyle?
+        cell.enumerateAttribute(
+            .paragraphStyle,
+            in: NSRange(location: 0, length: cell.length),
+            options: []
+        ) { value, _, stop in
+            guard let style = value as? NSParagraphStyle else { return }
+            result = style
+            stop.pointee = true
+        }
+        return result
+    }
+
+    private func paragraphStylesCompatible(_ lhs: NSParagraphStyle?, _ rhs: NSParagraphStyle?) -> Bool {
+        switch (lhs, rhs) {
+        case (nil, nil):
+            return true
+        case let (lhs?, rhs?):
+            return lhs.alignment == rhs.alignment &&
+                lhs.lineBreakMode == rhs.lineBreakMode &&
+                abs(lhs.lineSpacing - rhs.lineSpacing) <= 0.5
+        default:
+            return false
+        }
+    }
 
     override func layout() {
         super.layout()
@@ -711,12 +1428,6 @@ final class MarkdownTableView: NSView {
             didRecomputeLayout = false
         }
         guard let layout = cachedLayout else { return }
-
-        scrollView.frame = bounds
-        contentView.frame = CGRect(x: 0, y: 0, width: layout.contentWidth, height: layout.tableSize.height)
-        if let documentView = scrollView.documentView, documentView.frame.size != contentView.frame.size {
-            documentView.frame = contentView.frame
-        }
 
         let padding = style.cellPadding
         let rowSeparator = layout.rowSeparatorWidth
@@ -736,53 +1447,55 @@ final class MarkdownTableView: NSView {
         }
 
         let startIndex = needsFullRelayout ? 0 : laidOutRowCount
-        guard startIndex < rows.count else { return }
+        guard startIndex < rows.count else {
+            restoreScrollOffsetIfNeeded()
+            return
+        }
 
         var y: CGFloat = needsFullRelayout ? 0 : laidOutContentHeight
-        for rowIndex in startIndex..<rows.count {
-            guard rowIndex < rowViews.count, rowIndex < layout.rowHeights.count else { continue }
-            let row = rows[rowIndex]
-            let rowHeight = layout.rowHeights[rowIndex]
-            let rowView = rowViews[rowIndex]
-            let rowViewHeight = rowHeight + rowSeparator
-            rowView.frame = CGRect(x: 0, y: y, width: layout.contentWidth, height: rowViewHeight)
-            rowView.separatorView.frame = CGRect(x: 0, y: rowHeight, width: layout.contentWidth, height: rowSeparator)
-            rowView.separatorView.layer?.backgroundColor = style.borderColor.cgColor
+        performWithoutMarkdownImplicitAnimations {
+            scrollView.frame = bounds
+            contentView.frame = CGRect(x: 0, y: 0, width: layout.contentWidth, height: layout.tableSize.height)
+            if let documentView = scrollView.documentView, documentView.frame.size != contentView.frame.size {
+                documentView.frame = contentView.frame
+            }
 
-            if row.isHeader {
-                rowView.layer?.backgroundColor = style.headerBackground.cgColor
-            } else {
-                let bodyIndex = rowIndex - (hasHeader ? 1 : 0)
-                if bodyIndex % 2 == 1 {
-                    rowView.layer?.backgroundColor = style.stripeBackground.cgColor
+            for rowIndex in startIndex..<rows.count {
+                guard rowIndex < rowViews.count, rowIndex < layout.rowHeights.count else { continue }
+                let row = rows[rowIndex]
+                let rowHeight = layout.rowHeights[rowIndex]
+                let rowView = rowViews[rowIndex]
+                let rowViewHeight = rowHeight + rowSeparator
+                rowView.frame = CGRect(x: 0, y: y, width: layout.contentWidth, height: rowViewHeight)
+                rowView.separatorView.frame = CGRect(x: 0, y: rowHeight, width: layout.contentWidth, height: rowSeparator)
+                rowView.separatorView.layer?.backgroundColor = style.borderColor.cgColor
+
+                if row.isHeader {
+                    rowView.setRowBackgroundColor(style.headerBackground)
                 } else {
-                    rowView.layer?.backgroundColor = nil
+                    let bodyIndex = rowIndex - (hasHeader ? 1 : 0)
+                    if bodyIndex % 2 == 1 {
+                        rowView.setRowBackgroundColor(style.stripeBackground)
+                    } else {
+                        rowView.setRowBackgroundColor(.clear)
+                    }
                 }
-            }
 
-            var x: CGFloat = 0
-            for column in 0..<layout.columnWidths.count {
-                guard rowIndex < cellViews.count, column < cellViews[rowIndex].count else { continue }
-                let cellWidth = layout.columnWidths[column]
-                let cellView = cellViews[rowIndex][column]
-                let textRect = CGRect(
-                    x: x + padding.width,
-                    y: padding.height,
-                    width: max(0, cellWidth - padding.width * 2),
-                    height: max(0, rowHeight - padding.height * 2)
+                rowView.layoutCells(
+                    columnWidths: layout.columnWidths,
+                    rowHeight: rowHeight,
+                    rowSeparator: rowSeparator,
+                    padding: padding,
+                    columnGap: layout.columnGap
                 )
-                cellView.frame = textRect
-                if let textContainer = cellView.textContainer, let layoutManager = cellView.layoutManager {
-                    layoutManager.ensureLayout(for: textContainer)
-                }
-                x += cellWidth + layout.columnGap
-            }
 
-            y += rowViewHeight
+                y += rowViewHeight
+            }
         }
 
         laidOutRowCount = rows.count
         laidOutContentHeight = y
+        restoreScrollOffsetIfNeeded()
     }
 
     private func columnWidthsApproximatelyEqual(_ a: [CGFloat], _ b: [CGFloat]) -> Bool {
@@ -793,13 +1506,46 @@ final class MarkdownTableView: NSView {
         return true
     }
 
+    private func tableBoundsApproximatelyEqual(_ lhs: Layout?, _ rhs: Layout?) -> Bool {
+        guard let lhs, let rhs else { return false }
+        return
+            abs(lhs.tableSize.width - rhs.tableSize.width) <= 0.5 &&
+            abs(lhs.tableSize.height - rhs.tableSize.height) <= 0.5
+    }
+
+    private func recordAttachmentHeightDelta(from prior: Layout?, to next: Layout?) {
+        guard let prior, let next else { return }
+        let delta = next.tableSize.height - prior.tableSize.height
+        attachment?.recordHostedHeightDelta(delta)
+    }
+
+    private func restoreScrollOffsetIfNeeded() {
+        let sourceOffset = pendingScrollOffsetX ?? scrollView.contentView.bounds.origin.x
+        pendingScrollOffsetX = nil
+        restoreScrollOffset(sourceOffset)
+    }
+
+    private func restoreScrollOffset(_ offset: CGFloat) {
+        let documentWidth = scrollView.documentView?.frame.width ?? contentView.frame.width
+        let maxOffsetX = max(0, documentWidth - scrollView.contentView.bounds.width)
+        let clampedOffset = min(max(0, offset), maxOffsetX)
+        let clipView = scrollView.contentView
+        if abs(clipView.bounds.origin.x - clampedOffset) > 0.5 || abs(clipView.bounds.origin.y) > 0.5 {
+            clipView.scroll(to: NSPoint(x: clampedOffset, y: 0))
+            scrollView.reflectScrolledClipView(clipView)
+        }
+        pendingScrollOffsetX = nil
+        attachment?.setHostedHorizontalOffset(clampedOffset)
+    }
+
     private func rebuild(rows: [MarkdownTableRow], columnCount: Int) {
         self.rows = rows
         self.columnCount = columnCount
-        rowViews.forEach { $0.removeFromSuperview() }
-        rowViews.removeAll(keepingCapacity: false)
-        cellViews.removeAll(keepingCapacity: false)
-        buildRows()
+        performWithoutMarkdownImplicitAnimations {
+            rowViews.forEach { $0.removeFromSuperview() }
+            rowViews.removeAll(keepingCapacity: false)
+            buildRows()
+        }
         cachedLayout = nil
         cachedWidth = 0
         laidOutRowCount = 0
@@ -810,38 +1556,13 @@ final class MarkdownTableView: NSView {
 
     private func appendRows(_ newRows: [MarkdownTableRow]) {
         guard !newRows.isEmpty, columnCount > 0 else { return }
-        let emptyCell = NSAttributedString(string: "", attributes: [.font: style.baseFont])
-        for row in newRows {
-            let rowView = MarkdownTableRowView()
-            rowView.separatorView.layer?.backgroundColor = style.borderColor.cgColor
-            contentView.addSubview(rowView)
-            rowViews.append(rowView)
-
-            var rowCells: [NSTextView] = []
-            rowCells.reserveCapacity(columnCount)
-            for column in 0..<columnCount {
-                let cellText = column < row.cells.count ? row.cells[column] : emptyCell
-                let cellView = NSTextView()
-                cellView.drawsBackground = false
-                cellView.isEditable = false
-                cellView.isSelectable = true
-                cellView.textContainerInset = .zero
-                cellView.textContainer?.lineFragmentPadding = 0
-                cellView.textContainer?.lineBreakMode = .byWordWrapping
-                cellView.textContainer?.widthTracksTextView = true
-                cellView.textContainer?.heightTracksTextView = false
-                cellView.textContainer?.containerSize = CGSize(width: 0, height: CGFloat.greatestFiniteMagnitude)
-                cellView.isHorizontallyResizable = false
-                cellView.isVerticallyResizable = false
-                cellView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
-                cellView.minSize = .zero
-                cellView.layoutManager?.allowsNonContiguousLayout = false
-                cellView.layoutManager?.usesFontLeading = true
-                cellView.textStorage?.setAttributedString(cellText)
-                rowView.addSubview(cellView)
-                rowCells.append(cellView)
+        performWithoutMarkdownImplicitAnimations {
+            for row in newRows {
+                let rowView = MarkdownTableRowView(row: row, style: style, columnCount: columnCount)
+                rowView.separatorView.layer?.backgroundColor = style.borderColor.cgColor
+                contentView.addSubview(rowView)
+                rowViews.append(rowView)
             }
-            cellViews.append(rowCells)
         }
     }
 
@@ -860,15 +1581,17 @@ final class MarkdownTableView: NSView {
 
         let emptyCell = NSAttributedString(string: "", attributes: [.font: style.baseFont])
         var columnWidths = existing.columnWidths
-        for row in appendedRows {
-            for column in 0..<columnCount {
-                guard columnWidths[column] < maxColumnWidth - 0.5 else { continue }
-                let cell = column < row.cells.count ? row.cells[column] : emptyCell
-                let size = measureAttributedText(cell, width: .greatestFiniteMagnitude)
-                let desiredTextWidth = min(size.width, maxCellTextWidth)
-                let desiredColumnWidth = desiredTextWidth + paddingX * 2
-                if desiredColumnWidth > columnWidths[column] + 0.5 {
-                    columnWidths[column] = desiredColumnWidth
+        if !shouldFreezeColumnWidthsForIncrementalUpdate(rowCount: existing.rowHeights.count) {
+            for row in appendedRows {
+                for column in 0..<columnCount {
+                    guard columnWidths[column] < maxColumnWidth - 0.5 else { continue }
+                    let cell = column < row.cells.count ? row.cells[column] : emptyCell
+                    let size = measureAttributedText(cell, width: .greatestFiniteMagnitude)
+                    let desiredTextWidth = min(size.width, maxCellTextWidth)
+                    let desiredColumnWidth = desiredTextWidth + paddingX * 2
+                    if desiredColumnWidth > columnWidths[column] + 0.5 {
+                        columnWidths[column] = desiredColumnWidth
+                    }
                 }
             }
         }
@@ -884,7 +1607,7 @@ final class MarkdownTableView: NSView {
                 let size = measureAttributedText(cell, width: textWidth)
                 rowHeight = max(rowHeight, max(size.height, minRowHeight))
             }
-            let finalHeight = rowHeight + paddingY * 2
+            let finalHeight = ceil(rowHeight + paddingY * 2 + 1)
             rowHeights.append(finalHeight)
             appendedHeightsSum += finalHeight
         }
@@ -903,42 +1626,18 @@ final class MarkdownTableView: NSView {
         )
     }
 
+    private func shouldFreezeColumnWidthsForIncrementalUpdate(rowCount: Int) -> Bool {
+        rowCount >= IncrementalLayoutTuning.largeTableRowThreshold
+    }
+
     private func buildRows() {
         guard columnCount > 0 else { return }
-        let emptyCell = NSAttributedString(string: "", attributes: [.font: style.baseFont])
         rowViews.reserveCapacity(rows.count)
-        cellViews.reserveCapacity(rows.count)
         for row in rows {
-            let rowView = MarkdownTableRowView()
+            let rowView = MarkdownTableRowView(row: row, style: style, columnCount: columnCount)
             rowView.separatorView.layer?.backgroundColor = style.borderColor.cgColor
             contentView.addSubview(rowView)
             rowViews.append(rowView)
-
-            var rowCells: [NSTextView] = []
-            rowCells.reserveCapacity(columnCount)
-            for column in 0..<columnCount {
-                let cellText = column < row.cells.count ? row.cells[column] : emptyCell
-                let cellView = NSTextView()
-                cellView.drawsBackground = false
-                cellView.isEditable = false
-                cellView.isSelectable = true
-                cellView.textContainerInset = .zero
-                cellView.textContainer?.lineFragmentPadding = 0
-                cellView.textContainer?.lineBreakMode = .byWordWrapping
-                cellView.textContainer?.widthTracksTextView = true
-                cellView.textContainer?.heightTracksTextView = false
-                cellView.textContainer?.containerSize = CGSize(width: 0, height: CGFloat.greatestFiniteMagnitude)
-                cellView.isHorizontallyResizable = false
-                cellView.isVerticallyResizable = false
-                cellView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
-                cellView.minSize = .zero
-                cellView.layoutManager?.allowsNonContiguousLayout = false
-                cellView.layoutManager?.usesFontLeading = true
-                cellView.textStorage?.setAttributedString(cellText)
-                rowView.addSubview(cellView)
-                rowCells.append(cellView)
-            }
-            cellViews.append(rowCells)
         }
     }
 
@@ -983,7 +1682,7 @@ final class MarkdownTableView: NSView {
                 let size = measureAttributedText(cell, width: textWidth)
                 rowHeight = max(rowHeight, max(size.height, minRowHeight))
             }
-            rowHeights.append(rowHeight + paddingY * 2)
+            rowHeights.append(ceil(rowHeight + paddingY * 2 + 1))
         }
 
         let tableWidth = columnWidths.reduce(0, +) + totalColumnGap
@@ -1016,51 +1715,59 @@ private final class MarkdownQuoteView: NSView {
     private let content: NSAttributedString
     private let style: MarkdownQuoteStyle
     private let borderView = NSView()
-    private let textView: MarkdownAppKitTextView
+    private let textView: NSTextView
     private var cachedLayout: Layout?
     private var cachedWidth: CGFloat = 0
 
     init(content: NSAttributedString, style: MarkdownQuoteStyle) {
         self.content = content
         self.style = style
-        if #available(macOS 12.0, *) {
-            self.textView = MarkdownAppKitTextView(usingTextLayoutManager: true)
-        } else {
-            let textStorage = NSTextStorage()
-            let layoutManager = NSLayoutManager()
-            textStorage.addLayoutManager(layoutManager)
-            let textContainer = NSTextContainer(size: NSSize(width: 0, height: CGFloat.greatestFiniteMagnitude))
-            layoutManager.addTextContainer(textContainer)
-            self.textView = MarkdownAppKitTextView(frame: .zero, textContainer: textContainer)
-        }
+        self.textView = MarkdownStaticTextView(usingTextLayoutManager: true)
         super.init(frame: .zero)
         MarkdownAttachmentViewProviderRegistry.registerIfNeeded()
+        wantsLayer = true
+        layer?.backgroundColor = NSColor.clear.cgColor
 
         borderView.wantsLayer = true
         borderView.layer?.backgroundColor = style.borderColor.cgColor
         addSubview(borderView)
 
         textView.drawsBackground = false
+        textView.backgroundColor = .clear
+        textView.focusRingType = .none
+        textView.wantsLayer = true
+        textView.layer?.backgroundColor = NSColor.clear.cgColor
+        textView.layer?.borderWidth = 0
+        textView.layer?.cornerRadius = 0
         textView.isEditable = false
-        textView.isSelectable = true
+        textView.isSelectable = false
         textView.importsGraphics = true
+        textView.allowsUndo = false
         textView.textContainerInset = .zero
         textView.textContainer?.lineFragmentPadding = 0
         textView.textContainer?.widthTracksTextView = true
         textView.textContainer?.heightTracksTextView = false
         textView.textContainer?.containerSize = NSSize(width: 0, height: CGFloat.greatestFiniteMagnitude)
         textView.isHorizontallyResizable = false
-        textView.isVerticallyResizable = true
+        textView.isVerticallyResizable = false
         textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
         textView.isRichText = true
-        textView.layoutManager?.allowsNonContiguousLayout = false
-        textView.layoutManager?.usesFontLeading = true
+        if let textLayoutManager = textView.textLayoutManager {
+            textLayoutManager.usesFontLeading = true
+        } else {
+            textView.layoutManager?.allowsNonContiguousLayout = false
+            textView.layoutManager?.usesFontLeading = true
+        }
         textView.textStorage?.setAttributedString(content)
         addSubview(textView)
     }
 
     required init?(coder: NSCoder) {
         return nil
+    }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        nil
     }
 
     func sizeThatFitsWidth(_ width: CGFloat) -> CGSize {
@@ -1174,6 +1881,12 @@ final class MarkdownAttachmentViewProvider: NSTextAttachmentViewProvider, @unche
     private var cachedBoundsKey: BoundsCacheKey?
     private var cachedBounds: CGRect = .zero
 
+    @MainActor
+    private static let viewCache = NSMapTable<MarkdownAttachment, NSView>(
+        keyOptions: .weakMemory,
+        valueOptions: .weakMemory
+    )
+
     override init(
         textAttachment: NSTextAttachment,
         parentView: NSView?,
@@ -1192,7 +1905,14 @@ final class MarkdownAttachmentViewProvider: NSTextAttachmentViewProvider, @unche
     override func loadView() {
         let markdownAttachmentBox = UncheckedSendableBox(value: textAttachment as? MarkdownAttachment)
         let viewBox: UncheckedSendableBox<NSView> = MainActor.assumeIsolated {
+            if let attachment = markdownAttachmentBox.value,
+               let cached = Self.cachedView(for: attachment) {
+                return UncheckedSendableBox(value: cached)
+            }
             let created = Self.makeView(for: markdownAttachmentBox.value)
+            if let attachment = markdownAttachmentBox.value {
+                Self.cache(view: created, for: attachment)
+            }
             return UncheckedSendableBox(value: created)
         }
         view = viewBox.value
@@ -1237,6 +1957,26 @@ final class MarkdownAttachmentViewProvider: NSTextAttachmentViewProvider, @unche
                 return AttachmentLayout(view: UncheckedSendableBox(value: existing), bounds: cachedBoundsSnapshot, cacheKey: key)
             }
 
+            func cachedLayoutAfterContentOnlyUpdate(
+                kind: Kind,
+                key: BoundsCacheKey,
+                view resolvedView: NSView,
+                needsLayoutInvalidation: Bool
+            ) -> AttachmentLayout? {
+                guard !needsLayoutInvalidation,
+                      let cachedKey = cachedBoundsKeySnapshot,
+                      cachedKey.kind == kind,
+                      cachedKey.availableWidthKey == key.availableWidthKey
+                else {
+                    return nil
+                }
+                return AttachmentLayout(
+                    view: UncheckedSendableBox(value: resolvedView),
+                    bounds: cachedBoundsSnapshot,
+                    cacheKey: key
+                )
+            }
+
             switch attachment {
             case let codeAttachment as MarkdownCodeBlockAttachment:
                 if let cached = cachedLayoutIfPossible(kind: .codeBlock, contentVersion: codeAttachment.contentVersion) {
@@ -1245,6 +1985,8 @@ final class MarkdownAttachmentViewProvider: NSTextAttachmentViewProvider, @unche
                 let resolvedView: MarkdownCodeBlockView
                 if let existing = currentViewBox.value as? MarkdownCodeBlockView {
                     resolvedView = existing
+                } else if let cached = Self.cachedView(for: codeAttachment) as? MarkdownCodeBlockView {
+                    resolvedView = cached
                 } else {
                     resolvedView = MarkdownCodeBlockView(
                         code: codeAttachment.code,
@@ -1256,13 +1998,23 @@ final class MarkdownAttachmentViewProvider: NSTextAttachmentViewProvider, @unche
                     )
                 }
                 codeAttachment.hostedView = resolvedView
-                resolvedView.applyUpdate(from: codeAttachment)
-                let bounds = CGRect(origin: .zero, size: resolvedView.sizeThatFitsWidth(available))
+                Self.cache(view: resolvedView, for: codeAttachment)
                 let key = BoundsCacheKey(
                     kind: .codeBlock,
                     contentVersion: codeAttachment.contentVersion,
                     availableWidthKey: availableWidthKey
                 )
+                let needsLayoutInvalidation = resolvedView.applyUpdate(from: codeAttachment)
+                if let cached = cachedLayoutAfterContentOnlyUpdate(
+                    kind: .codeBlock,
+                    key: key,
+                    view: resolvedView,
+                    needsLayoutInvalidation: needsLayoutInvalidation
+                ) {
+                    return cached
+                }
+                let bounds = CGRect(origin: .zero, size: resolvedView.sizeThatFitsWidth(available))
+                resolvedView.markAttachmentBoundsObserved()
                 return AttachmentLayout(view: UncheckedSendableBox(value: resolvedView), bounds: bounds, cacheKey: key)
 
             case let tableAttachment as MarkdownTableAttachment:
@@ -1272,17 +2024,29 @@ final class MarkdownAttachmentViewProvider: NSTextAttachmentViewProvider, @unche
                 let resolvedView: MarkdownTableView
                 if let existing = currentViewBox.value as? MarkdownTableView {
                     resolvedView = existing
+                } else if let cached = Self.cachedView(for: tableAttachment) as? MarkdownTableView {
+                    resolvedView = cached
                 } else {
                     resolvedView = MarkdownTableView(rows: tableAttachment.rows, style: tableAttachment.style)
                 }
                 tableAttachment.hostedView = resolvedView
-                resolvedView.applyUpdate(from: tableAttachment)
-                let bounds = CGRect(origin: .zero, size: resolvedView.sizeThatFitsWidth(available))
+                Self.cache(view: resolvedView, for: tableAttachment)
                 let key = BoundsCacheKey(
                     kind: .table,
                     contentVersion: tableAttachment.contentVersion,
                     availableWidthKey: availableWidthKey
                 )
+                let needsLayoutInvalidation = resolvedView.applyUpdate(from: tableAttachment)
+                if let cached = cachedLayoutAfterContentOnlyUpdate(
+                    kind: .table,
+                    key: key,
+                    view: resolvedView,
+                    needsLayoutInvalidation: needsLayoutInvalidation
+                ) {
+                    return cached
+                }
+                let bounds = CGRect(origin: .zero, size: resolvedView.sizeThatFitsWidth(available))
+                resolvedView.markAttachmentBoundsObserved()
                 return AttachmentLayout(view: UncheckedSendableBox(value: resolvedView), bounds: bounds, cacheKey: key)
 
             case let quoteAttachment as MarkdownQuoteAttachment:
@@ -1292,9 +2056,12 @@ final class MarkdownAttachmentViewProvider: NSTextAttachmentViewProvider, @unche
                 let resolvedView: MarkdownQuoteView
                 if let existing = currentViewBox.value as? MarkdownQuoteView {
                     resolvedView = existing
+                } else if let cached = Self.cachedView(for: quoteAttachment) as? MarkdownQuoteView {
+                    resolvedView = cached
                 } else {
                     resolvedView = MarkdownQuoteView(content: quoteAttachment.content, style: quoteAttachment.style)
                 }
+                Self.cache(view: resolvedView, for: quoteAttachment)
                 let bounds = CGRect(origin: .zero, size: resolvedView.sizeThatFitsWidth(available))
                 let key = BoundsCacheKey(
                     kind: .quote,
@@ -1310,6 +2077,8 @@ final class MarkdownAttachmentViewProvider: NSTextAttachmentViewProvider, @unche
                 let resolvedView: MarkdownRuleView
                 if let existing = currentViewBox.value as? MarkdownRuleView {
                     resolvedView = existing
+                } else if let cached = Self.cachedView(for: ruleAttachment) as? MarkdownRuleView {
+                    resolvedView = cached
                 } else {
                     resolvedView = MarkdownRuleView(
                         color: ruleAttachment.color,
@@ -1317,6 +2086,7 @@ final class MarkdownAttachmentViewProvider: NSTextAttachmentViewProvider, @unche
                         verticalPadding: ruleAttachment.verticalPadding
                     )
                 }
+                Self.cache(view: resolvedView, for: ruleAttachment)
                 let bounds = CGRect(origin: .zero, size: resolvedView.sizeThatFitsWidth(available))
                 let key = BoundsCacheKey(
                     kind: .rule,
@@ -1341,9 +2111,12 @@ final class MarkdownAttachmentViewProvider: NSTextAttachmentViewProvider, @unche
                 let resolvedView: MarkdownMathView
                 if let existing = currentViewBox.value as? MarkdownMathView {
                     resolvedView = existing
+                } else if let cached = Self.cachedView(for: mathAttachment) as? MarkdownMathView {
+                    resolvedView = cached
                 } else {
                     resolvedView = MarkdownMathView(attachment: mathAttachment)
                 }
+                Self.cache(view: resolvedView, for: mathAttachment)
                 resolvedView.applyUpdate(from: mathAttachment)
                 _ = resolvedView.sizeThatFitsWidth(mathAvailable)
                 let bounds = mathAttachment.layoutBounds(availableWidth: mathAvailable)
@@ -1369,7 +2142,9 @@ final class MarkdownAttachmentViewProvider: NSTextAttachmentViewProvider, @unche
             }
         }
 
-        view = layout.view.value
+        if view !== layout.view.value {
+            view = layout.view.value
+        }
         if let key = layout.cacheKey {
             self.cachedBoundsKey = key
             self.cachedBounds = layout.bounds
@@ -1415,6 +2190,16 @@ final class MarkdownAttachmentViewProvider: NSTextAttachmentViewProvider, @unche
 
     private static func widthKey(_ width: CGFloat) -> Int {
         Int((max(0, width) * 2).rounded())
+    }
+
+    @MainActor
+    private static func cachedView(for attachment: MarkdownAttachment) -> NSView? {
+        viewCache.object(forKey: attachment)
+    }
+
+    @MainActor
+    private static func cache(view: NSView, for attachment: MarkdownAttachment) {
+        viewCache.setObject(view, forKey: attachment)
     }
 }
 

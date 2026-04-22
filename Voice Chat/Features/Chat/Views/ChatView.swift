@@ -555,6 +555,10 @@ struct ChatView: View {
     @State private var contentHeight: CGFloat = 0
     @State private var viewportHeight: CGFloat = 0
     @State private var bottomAnchorMaxY: CGFloat = 0
+    @State private var pendingContentHeight: CGFloat?
+    @State private var pendingViewportHeight: CGFloat?
+    @State private var pendingBottomAnchorMaxY: CGFloat?
+    @State private var scrollMetricUpdateScheduled: Bool = false
     @State private var showScrollToBottomButton: Bool = false
     @State private var errorNoticeStackHeight: CGFloat = 0
     @State private var scrollProxy: ScrollViewProxy?
@@ -997,24 +1001,64 @@ struct ChatView: View {
     }
 
     private func updateContentHeightIfNeeded(_ newHeight: CGFloat) {
-        let cleaned = max(0, newHeight)
-        if abs(cleaned - contentHeight) > 0.5 {
-            contentHeight = cleaned
-            updateScrollToBottomVisibility()
-        }
+        enqueueScrollMetricUpdate(contentHeight: max(0, newHeight))
     }
 
     private func updateViewportHeightIfNeeded(_ newHeight: CGFloat) {
-        let cleaned = max(0, newHeight)
-        if abs(cleaned - viewportHeight) > 0.5 {
-            viewportHeight = cleaned
-            updateScrollToBottomVisibility()
-        }
+        enqueueScrollMetricUpdate(viewportHeight: max(0, newHeight))
     }
 
     private func updateBottomAnchorIfNeeded(_ newValue: CGFloat) {
-        if abs(newValue - bottomAnchorMaxY) > 0.5 {
-            bottomAnchorMaxY = newValue
+        enqueueScrollMetricUpdate(bottomAnchorMaxY: newValue)
+    }
+
+    private func enqueueScrollMetricUpdate(
+        contentHeight nextContentHeight: CGFloat? = nil,
+        viewportHeight nextViewportHeight: CGFloat? = nil,
+        bottomAnchorMaxY nextBottomAnchorMaxY: CGFloat? = nil
+    ) {
+        if let nextContentHeight {
+            pendingContentHeight = nextContentHeight
+        }
+        if let nextViewportHeight {
+            pendingViewportHeight = nextViewportHeight
+        }
+        if let nextBottomAnchorMaxY {
+            pendingBottomAnchorMaxY = nextBottomAnchorMaxY
+        }
+
+        applyPendingScrollMetricUpdate()
+    }
+
+    private func applyPendingScrollMetricUpdate() {
+        scrollMetricUpdateScheduled = false
+        var didUpdate = false
+
+        if let pendingContentHeight {
+            self.pendingContentHeight = nil
+            if abs(pendingContentHeight - contentHeight) > 0.5 {
+                contentHeight = pendingContentHeight
+                didUpdate = true
+            }
+        }
+
+        if let pendingViewportHeight {
+            self.pendingViewportHeight = nil
+            if abs(pendingViewportHeight - viewportHeight) > 0.5 {
+                viewportHeight = pendingViewportHeight
+                didUpdate = true
+            }
+        }
+
+        if let pendingBottomAnchorMaxY {
+            self.pendingBottomAnchorMaxY = nil
+            if abs(pendingBottomAnchorMaxY - bottomAnchorMaxY) > 0.5 {
+                bottomAnchorMaxY = pendingBottomAnchorMaxY
+                didUpdate = true
+            }
+        }
+
+        if didUpdate {
             updateScrollToBottomVisibility()
         }
     }
