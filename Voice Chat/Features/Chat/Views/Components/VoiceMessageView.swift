@@ -485,7 +485,9 @@ private struct ThinkingPreviewBubble: View {
 }
 
 private struct ThinkingDetailView: View {
+    #if os(visionOS)
     @Environment(\.dismiss) private var dismiss
+    #endif
 
     let title: LocalizedStringKey
     let iconName: String
@@ -515,6 +517,7 @@ private struct ThinkingDetailView: View {
                         .padding(.bottom, 20)
                 }
             }
+            #if os(visionOS)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Close") {
@@ -522,6 +525,7 @@ private struct ThinkingDetailView: View {
                     }
                 }
             }
+            #endif
         }
         #if os(macOS)
         .frame(minWidth: 520, idealWidth: 680, maxWidth: 760, minHeight: 360, idealHeight: 620)
