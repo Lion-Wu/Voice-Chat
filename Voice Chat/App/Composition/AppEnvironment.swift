@@ -149,6 +149,38 @@ final class AppEnvironment: ObservableObject {
             }
             .store(in: &cancellables)
 
+        settingsManager.$apiAdvancedSettings
+            .removeDuplicates()
+            .dropFirst()
+            .sink { [weak self] _ in
+                self?.chatSessionsViewModel.refreshChatConfigurationIfNeeded()
+            }
+            .store(in: &cancellables)
+
+        settingsManager.$developerModeEnabled
+            .removeDuplicates()
+            .dropFirst()
+            .sink { [weak self] _ in
+                self?.chatSessionsViewModel.refreshChatConfigurationIfNeeded()
+            }
+            .store(in: &cancellables)
+
+        settingsManager.$chatModelThinkingCapabilities
+            .removeDuplicates()
+            .dropFirst()
+            .sink { [weak self] _ in
+                self?.chatSessionsViewModel.refreshChatConfigurationIfNeeded()
+            }
+            .store(in: &cancellables)
+
+        settingsManager.$chatModelThinkingPreferences
+            .removeDuplicates()
+            .dropFirst()
+            .sink { [weak self] _ in
+                self?.chatSessionsViewModel.refreshChatConfigurationIfNeeded()
+            }
+            .store(in: &cancellables)
+
         let chatPresetRoutingSignaturePublisher = settingsManager.$chatServerPresets
             .combineLatest(settingsManager.$selectedChatServerPresetID.removeDuplicates())
             .map { presets, selectedID in

@@ -16,6 +16,9 @@ protocol ChatServiceConfiguring {
     var apiKey: String { get }
     var providerHint: ChatProvider? { get }
     var requestStyleHint: ChatRequestStyle? { get }
+    var thinkingCapability: ModelThinkingCapability? { get }
+    var thinkingOption: ModelThinkingOption? { get }
+    var apiAdvancedSettings: APIAdvancedSettings { get }
 }
 
 /// Lightweight snapshot of chat configuration to avoid actor-hopping from main-actor singletons.
@@ -25,19 +28,28 @@ struct ChatServiceConfiguration: ChatServiceConfiguring, Equatable {
     let apiKey: String
     let providerHint: ChatProvider?
     let requestStyleHint: ChatRequestStyle?
+    let thinkingCapability: ModelThinkingCapability?
+    let thinkingOption: ModelThinkingOption?
+    let apiAdvancedSettings: APIAdvancedSettings
 
     init(
         apiBaseURL: String,
         modelIdentifier: String,
         apiKey: String,
         providerHint: ChatProvider? = nil,
-        requestStyleHint: ChatRequestStyle? = nil
+        requestStyleHint: ChatRequestStyle? = nil,
+        thinkingCapability: ModelThinkingCapability? = nil,
+        thinkingOption: ModelThinkingOption? = nil,
+        apiAdvancedSettings: APIAdvancedSettings = .defaults
     ) {
         self.apiBaseURL = apiBaseURL
         self.modelIdentifier = modelIdentifier
         self.apiKey = apiKey
         self.providerHint = providerHint
         self.requestStyleHint = requestStyleHint
+        self.thinkingCapability = thinkingCapability
+        self.thinkingOption = thinkingOption
+        self.apiAdvancedSettings = apiAdvancedSettings.sanitized
     }
 }
 

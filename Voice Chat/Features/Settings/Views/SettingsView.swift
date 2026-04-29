@@ -29,15 +29,137 @@ private enum SettingsDeletionTarget: String, Identifiable {
     }
 }
 
+private enum SettingsNavigationDestination: Hashable {
+    case advancedAPISettings
+}
+
+private enum AdvancedAPISettingsSectionID: String, CaseIterable, Identifiable {
+    case metadata
+    case currentBackend
+    case backendOverrides
+    case defaults
+
+    var id: String { rawValue }
+}
+
+private enum AdvancedAPIBackendOverrideID: String, CaseIterable, Identifiable {
+    case openAIResponses
+    case openAIChat
+    case anthropic
+    case gemini
+    case deepSeek
+    case xAI
+    case openRouter
+    case lmStudioREST
+    case lmStudioOpenAICompatible
+    case llamaCpp
+    case genericOpenAICompatible
+
+    var id: String { rawValue }
+
+    var title: LocalizedStringKey {
+        switch self {
+        case .openAIResponses:
+            return "OpenAI Responses"
+        case .openAIChat:
+            return "OpenAI Chat Completions"
+        case .anthropic:
+            return "Anthropic Messages"
+        case .gemini:
+            return "Gemini OpenAI Compatibility"
+        case .deepSeek:
+            return "DeepSeek Chat Completions"
+        case .xAI:
+            return "xAI Chat Completions"
+        case .openRouter:
+            return "OpenRouter Chat Completions"
+        case .lmStudioREST:
+            return "LM Studio REST v1"
+        case .lmStudioOpenAICompatible:
+            return "LM Studio OpenAI Compatibility"
+        case .llamaCpp:
+            return "llama.cpp OpenAI Compatibility"
+        case .genericOpenAICompatible:
+            return "Generic OpenAI Compatible"
+        }
+    }
+}
+
+private struct RawJSONPreviewBlock: View {
+    let title: LocalizedStringKey
+    let value: JSONValue?
+    let missingText: String
+
+    @State private var previewText: String?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            if let previewText {
+                ScrollView(.horizontal) {
+                    Text(previewText)
+                        .font(.system(.caption, design: .monospaced))
+                        .textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            } else if value == nil {
+                Text(missingText)
+                    .font(.system(.caption, design: .monospaced))
+                    .textSelection(.enabled)
+                    .fixedSize(horizontal: false, vertical: true)
+            } else {
+                HStack(spacing: 8) {
+                    ProgressView()
+                    Text("Loading...")
+                        .foregroundStyle(.secondary)
+                }
+                .task {
+                    loadPreviewIfNeeded()
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.vertical, 4)
+    }
+
+    private func loadPreviewIfNeeded() {
+        guard previewText == nil else { return }
+        previewText = value?.debugPreviewJSONString() ?? missingText
+    }
+}
+
+#if os(macOS)
+private enum MacSettingsTab: Hashable {
+    case servers
+    case chat
+    case voiceOutput
+    case developer
+}
+
+private enum MacSettingsLayout {
+    static let minContentSize = NSSize(width: 500, height: 180)
+    static let fallbackMaxContentSize = NSSize(width: 860, height: 720)
+    static let topLevelContentSize = NSSize(width: 560, height: 540)
+    static let screenMargin: CGFloat = 72
+    static let resizeThreshold: CGFloat = 1
+}
+#endif
+
 // MARK: - Settings View
 
 struct SettingsView: View {
     @StateObject private var viewModel: SettingsViewModel
     @ObservedObject private var settingsManager: SettingsManager
     @State private var pendingDeletionTarget: SettingsDeletionTarget?
+    @State private var showingAPIAdvancedResetConfirmation = false
     @Environment(\.dismiss) private var dismiss
 #if os(macOS)
     @State private var measuredContentSize: CGSize = .zero
+    @State private var macSelectedSettingsTab: MacSettingsTab = .servers
+    @State private var macShowsAdvancedSettings = false
 #endif
 
     init(settingsManager: SettingsManager = .shared) {
@@ -60,12 +182,14 @@ struct SettingsView: View {
     var body: some View {
         #if os(macOS)
         applyCommonModifiers(
-            macSettingsTabs
-                .fixedSize()
+            macSettingsContent
                 .overlay(WindowSizeReader().allowsHitTesting(false))
         )
         .onPreferenceChange(WindowSizePreferenceKey.self) { newSize in
             updateWindowSizeIfNeeded(newSize)
+        }
+        .onChange(of: macShowsAdvancedSettings) { _, _ in
+            updateWindowSizeIfNeeded(measuredContentSize)
         }
         #else
         applyCommonModifiers(
@@ -83,6 +207,12 @@ struct SettingsView: View {
                 .toolbar {
                     ToolbarItem(placement: .topBarTrailing) {
                         Button("Close") { dismiss() }
+                    }
+                }
+                .navigationDestination(for: SettingsNavigationDestination.self) { destination in
+                    switch destination {
+                    case .advancedAPISettings:
+                        advancedAPISettingsView
                     }
                 }
             }
@@ -147,14 +277,33 @@ struct SettingsView: View {
     // MARK: - Sections
 
 #if os(macOS)
+    @ViewBuilder
+    private var macSettingsContent: some View {
+        macSettingsTabs
+            .frame(
+                width: MacSettingsLayout.topLevelContentSize.width,
+                height: MacSettingsLayout.topLevelContentSize.height,
+                alignment: .top
+            )
+    }
+
     private var macSettingsTabs: some View {
-        TabView {
+        TabView(selection: $macSelectedSettingsTab) {
             macServersTab
+                .tag(MacSettingsTab.servers)
             macChatTab
+                .tag(MacSettingsTab.chat)
             macVoiceOutputTab
+                .tag(MacSettingsTab.voiceOutput)
             macDeveloperTab
+                .tag(MacSettingsTab.developer)
         }
         .scenePadding()
+        .onChange(of: macSelectedSettingsTab) { _, newTab in
+            if newTab != .developer {
+                macShowsAdvancedSettings = false
+            }
+        }
     }
 
     private var macServersTab: some View {
@@ -191,12 +340,53 @@ struct SettingsView: View {
     }
 
     private var macDeveloperTab: some View {
+        Group {
+            if macShowsAdvancedSettings {
+                macAdvancedSettingsPage
+            } else {
+                macDeveloperSettingsPage
+            }
+        }
+        .tabItem {
+            Label("Developer", systemImage: "ladybug")
+        }
+    }
+
+    private var macDeveloperSettingsPage: some View {
         Form {
             developerSection()
         }
         .formStyle(.grouped)
-        .tabItem {
-            Label("Developer", systemImage: "ladybug")
+    }
+
+    private var macAdvancedSettingsPage: some View {
+        VStack(spacing: 0) {
+            HStack {
+                Button {
+                    macShowsAdvancedSettings = false
+                    macSelectedSettingsTab = .developer
+                } label: {
+                    Label("Developer", systemImage: "chevron.left")
+                }
+                .buttonStyle(.borderless)
+                .controlSize(.small)
+                .help("Back to Developer settings")
+
+                Spacer()
+
+                Text("Advanced Options")
+                    .font(.headline)
+
+                Spacer()
+
+                Label("Developer", systemImage: "chevron.left")
+                    .hidden()
+            }
+            .padding(.horizontal, 24)
+            .padding(.top, 16)
+            .padding(.bottom, 8)
+
+            advancedAPISettingsView
         }
     }
 #endif
@@ -624,6 +814,10 @@ struct SettingsView: View {
                     Text("Automatic").tag(ChatAPIFormatPreference.automatic)
                     Text("OpenAI").tag(ChatAPIFormatPreference.openAI)
                     Text("Anthropic").tag(ChatAPIFormatPreference.anthropic)
+                    Text("Gemini").tag(ChatAPIFormatPreference.gemini)
+                    Text("DeepSeek").tag(ChatAPIFormatPreference.deepSeek)
+                    Text("xAI").tag(ChatAPIFormatPreference.xAI)
+                    Text("OpenRouter").tag(ChatAPIFormatPreference.openRouter)
                     Text("LM Studio").tag(ChatAPIFormatPreference.lmStudio)
                     Text("llama.cpp").tag(ChatAPIFormatPreference.llamaCpp)
                     Text("OpenAI Compatible").tag(ChatAPIFormatPreference.openAICompatible)
@@ -826,6 +1020,716 @@ struct SettingsView: View {
                 sectionHeader("Developer")
             }
         }
+
+        advancedAPIEntrySection()
+    }
+
+    @ViewBuilder
+    private func advancedAPIEntrySection() -> some View {
+        if settingsManager.developerModeEnabled {
+            Section {
+                #if os(macOS)
+                Button {
+                    macShowsAdvancedSettings = true
+                    macSelectedSettingsTab = .developer
+                } label: {
+                    Label("Advanced Options", systemImage: "slider.horizontal.3")
+                }
+                .buttonStyle(.plain)
+                #else
+                NavigationLink(value: SettingsNavigationDestination.advancedAPISettings) {
+                    Label("Advanced Options", systemImage: "slider.horizontal.3")
+                }
+                #endif
+            }
+        }
+    }
+
+    private var advancedAPISettingsView: some View {
+        Form {
+            ForEach(AdvancedAPISettingsSectionID.allCases) { section in
+                advancedAPISettingsSection(section)
+            }
+        }
+        .formStyle(.grouped)
+        .navigationTitle("Advanced Options")
+    }
+
+    private func advancedAPISettingsSection(_ section: AdvancedAPISettingsSectionID) -> AnyView {
+        switch section {
+        case .metadata:
+            return advancedMetadataSection()
+        case .currentBackend:
+            return currentBackendAdvancedSettingsSection()
+        case .backendOverrides:
+            return allBackendAdvancedSettingsSection()
+        case .defaults:
+            return restoreAdvancedDefaultsSection()
+        }
+    }
+
+    private func restoreAdvancedDefaultsSection() -> AnyView {
+        AnyView(Section {
+            Button(role: .destructive) {
+                showingAPIAdvancedResetConfirmation = true
+            } label: {
+                Label("Restore Defaults", systemImage: "arrow.counterclockwise")
+            }
+            .confirmationDialog(
+                "Restore defaults?",
+                isPresented: $showingAPIAdvancedResetConfirmation,
+                titleVisibility: .visible
+            ) {
+                Button("Restore Defaults", role: .destructive) {
+                    viewModel.resetAPIAdvancedSettingsToDefaults()
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("This will reset all options to defaults.")
+            }
+        } header: {
+            sectionHeader("Defaults")
+        })
+    }
+
+    private func advancedMetadataSection() -> AnyView {
+        AnyView(Section {
+            metadataRow("Provider", currentAdvancedProvider.displayName)
+            metadataRow("Request Style", currentAdvancedRequestStyleDisplayName)
+            metadataRow("API Format", selectedAPIFormatDisplayName)
+            metadataRow("Fetched Models", "\(viewModel.availableModels.count)")
+            if let endpoint = viewModel.lastModelFetchEndpoint {
+                metadataRow("Models Endpoint", endpoint.modelsURL.absoluteString)
+                metadataRow("Chat Endpoint", endpoint.chatURL.absoluteString)
+            } else {
+                metadataRow("Models Endpoint", String(localized: "Not fetched"))
+            }
+
+            if let metadata = selectedModelMetadata {
+                selectedModelMetadataDisclosure(metadata)
+            }
+
+            if !viewModel.lastFetchedModelMetadata.isEmpty {
+                fetchedModelsMetadataDisclosure()
+            }
+        } header: {
+            sectionHeader("Model List Metadata")
+        })
+    }
+
+    private func selectedModelMetadataDisclosure(_ metadata: ModelInfo) -> AnyView {
+        AnyView(DisclosureGroup("Selected Model Metadata") {
+            metadataRow("ID", metadata.id)
+            metadataRow("Object", metadata.object ?? localizedUnknown)
+            metadataRow("Owner", metadata.owned_by ?? localizedUnknown)
+            metadataRow("Type", metadata.type ?? metadata.arch ?? localizedUnknown)
+            metadataRow("Input Modalities", joined(metadata.input_modalities ?? metadata.capabilities?.input_modalities))
+            metadataRow("Modalities", joined(metadata.modalities ?? metadata.capabilities?.modalities))
+            metadataRow("Supported Parameters", joined(metadata.supported_parameters ?? metadata.capabilities?.supported_parameters))
+            metadataRow("Image Input", optionalBool(metadata.supportsImageInputHint))
+            if let thinking = metadata.thinkingCapabilityHint(
+                provider: currentAdvancedProvider,
+                requestStyle: currentAdvancedRequestStyle
+            ) {
+                metadataRow("Thinking Options", thinking.options.map(\.rawValue).joined(separator: ", "))
+                metadataRow("Thinking Parameter", thinking.requestParameter?.rawValue ?? String(localized: "Provider default"))
+            } else {
+                metadataRow("Thinking Options", String(localized: "Not detected"))
+            }
+            rawJSONBlock("Raw Model JSON", metadata.rawMetadata)
+        })
+    }
+
+    private func fetchedModelsMetadataDisclosure() -> AnyView {
+        AnyView(DisclosureGroup("Fetched Models Metadata") {
+            ForEach(Array(viewModel.lastFetchedModelMetadata.enumerated()), id: \.offset) { _, model in
+                fetchedModelMetadataDisclosure(model)
+            }
+        })
+    }
+
+    private func fetchedModelMetadataDisclosure(_ model: ModelInfo) -> AnyView {
+        AnyView(DisclosureGroup(model.id) {
+            metadataRow("Object", model.object ?? localizedUnknown)
+            metadataRow("Owner", model.owned_by ?? localizedUnknown)
+            metadataRow("Type", model.type ?? model.arch ?? localizedUnknown)
+            metadataRow("Supported Parameters", joined(model.supported_parameters ?? model.capabilities?.supported_parameters))
+            metadataRow("Image Input", optionalBool(model.supportsImageInputHint))
+            rawJSONBlock("Raw JSON", model.rawMetadata)
+        })
+    }
+
+    private func currentBackendAdvancedSettingsSection() -> AnyView {
+        AnyView(Section {
+            currentBackendControls()
+        } header: {
+            sectionHeader("Current Backend Parameters")
+        } footer: {
+            Text("Only enabled sampling fields are added to requests.")
+        })
+    }
+
+    private func currentBackendControls() -> AnyView {
+        switch currentAdvancedRequestStyle {
+        case .anthropicMessages:
+            return anthropicControls()
+        case .lmStudioRESTV1, .lmStudioRESTV1LegacyMessage:
+            return lmStudioRESTControls()
+        case .openAIChatCompletions:
+            return openAICompatibleBackendControls()
+        }
+    }
+
+    private func allBackendAdvancedSettingsSection() -> AnyView {
+        AnyView(Section {
+            ForEach(AdvancedAPIBackendOverrideID.allCases) { backend in
+                backendOverrideDisclosure(backend)
+            }
+        } header: {
+            sectionHeader("Backend Request Overrides")
+        })
+    }
+
+    private func backendOverrideDisclosure(_ backend: AdvancedAPIBackendOverrideID) -> AnyView {
+        AnyView(DisclosureGroup(backend.title) {
+            backendOverrideControls(backend)
+        })
+    }
+
+    private func backendOverrideControls(_ backend: AdvancedAPIBackendOverrideID) -> AnyView {
+        switch backend {
+        case .openAIResponses:
+            return openAIResponsesControls()
+        case .openAIChat:
+            return openAIChatControls()
+        case .anthropic:
+            return anthropicControls()
+        case .gemini:
+            return geminiControls()
+        case .deepSeek:
+            return deepSeekControls()
+        case .xAI:
+            return xAIControls()
+        case .openRouter:
+            return openRouterControls()
+        case .lmStudioREST:
+            return lmStudioRESTControls()
+        case .lmStudioOpenAICompatible:
+            return lmStudioOpenAICompatibleControls()
+        case .llamaCpp:
+            return llamaCppControls()
+        case .genericOpenAICompatible:
+            return openAICompatibleControls()
+        }
+    }
+
+    private func openAICompatibleBackendControls() -> AnyView {
+        if isCurrentOpenAIResponsesEndpoint {
+            return openAIResponsesControls()
+        } else {
+            switch currentAdvancedProvider {
+            case .openAI:
+                return openAIChatControls()
+            case .gemini:
+                return geminiControls()
+            case .deepSeek:
+                return deepSeekControls()
+            case .xAI:
+                return xAIControls()
+            case .openRouter:
+                return openRouterControls()
+            case .lmStudio:
+                return lmStudioOpenAICompatibleControls()
+            case .llamaCpp:
+                return llamaCppControls()
+            case .openAICompatible, .unknown, .anthropic:
+                return openAICompatibleControls()
+            }
+        }
+    }
+
+    private func openAIResponsesControls() -> AnyView {
+        AnyView(Group {
+            apiIntegerField("max_output_tokens", value: $viewModel.apiAdvancedSettings.openAIResponsesMaxOutputTokens)
+            apiSamplingControls(
+                $viewModel.apiAdvancedSettings.openAIResponsesSampling,
+                includePenalties: false,
+                includeSeed: false,
+                includeJSONMode: true,
+                includeLogprobs: false
+            )
+            verbosityControl(
+                $viewModel.apiAdvancedSettings.openAIResponsesSampling,
+                title: "text.verbosity",
+                options: ["low", "medium", "high"]
+            )
+        })
+    }
+
+    private func openAIChatControls() -> AnyView {
+        AnyView(Group {
+            apiIntegerField("max_completion_tokens", value: $viewModel.apiAdvancedSettings.openAIChatMaxCompletionTokens)
+            apiSamplingControls($viewModel.apiAdvancedSettings.openAIChatSampling)
+        })
+    }
+
+    private func openAICompatibleControls() -> AnyView {
+        AnyView(Group {
+            apiIntegerField("max_tokens", value: $viewModel.apiAdvancedSettings.openAICompatibleMaxTokens)
+            apiSamplingControls($viewModel.apiAdvancedSettings.openAICompatibleSampling)
+        })
+    }
+
+    private func anthropicControls() -> AnyView {
+        AnyView(Group {
+            apiIntegerField("max_tokens", value: $viewModel.apiAdvancedSettings.anthropicMaxTokens)
+            apiIntegerField(
+                "Extended thinking response reserve tokens",
+                value: $viewModel.apiAdvancedSettings.anthropicThinkingResponseReserve
+            )
+            apiIntegerField(
+                "Extended thinking low budget_tokens",
+                value: $viewModel.apiAdvancedSettings.anthropicLowThinkingBudget
+            )
+            apiIntegerField(
+                "Extended thinking medium budget_tokens",
+                value: $viewModel.apiAdvancedSettings.anthropicMediumThinkingBudget
+            )
+            apiIntegerField(
+                "Extended thinking high budget_tokens",
+                value: $viewModel.apiAdvancedSettings.anthropicHighThinkingBudget
+            )
+            apiSamplingControls(
+                $viewModel.apiAdvancedSettings.anthropicSampling,
+                includeTopK: true,
+                includePenalties: false,
+                includeSeed: false,
+                includeJSONMode: false,
+                includeLogprobs: false
+            )
+        })
+    }
+
+    private func geminiControls() -> AnyView {
+        AnyView(Group {
+            apiIntegerField("max_tokens", value: $viewModel.apiAdvancedSettings.geminiMaxTokens)
+            apiSamplingControls(
+                $viewModel.apiAdvancedSettings.geminiSampling,
+                includePenalties: false,
+                includeSeed: false,
+                includeJSONMode: false,
+                includeLogprobs: false
+            )
+        })
+    }
+
+    private func deepSeekControls() -> AnyView {
+        AnyView(Group {
+            apiIntegerField("max_tokens", value: $viewModel.apiAdvancedSettings.deepSeekMaxTokens)
+            apiSamplingControls(
+                $viewModel.apiAdvancedSettings.deepSeekSampling,
+                includePenalties: true,
+                includeSeed: false,
+                includeJSONMode: true,
+                includeLogprobs: true
+            )
+        })
+    }
+
+    private func xAIControls() -> AnyView {
+        AnyView(Group {
+            apiIntegerField("max_tokens", value: $viewModel.apiAdvancedSettings.xAIMaxTokens)
+            apiSamplingControls($viewModel.apiAdvancedSettings.xAISampling)
+        })
+    }
+
+    private func openRouterControls() -> AnyView {
+        AnyView(Group {
+            apiIntegerField("max_tokens", value: $viewModel.apiAdvancedSettings.openRouterMaxTokens)
+            apiIntegerField("max_completion_tokens", value: $viewModel.apiAdvancedSettings.openRouterMaxCompletionTokens)
+            apiSamplingControls(
+                $viewModel.apiAdvancedSettings.openRouterSampling,
+                includeTopK: true,
+                includeMinP: true,
+                includeTopA: true,
+                includeRepetitionPenalty: true,
+                includeStructuredOutputs: true
+            )
+            verbosityControl(
+                $viewModel.apiAdvancedSettings.openRouterSampling,
+                title: "verbosity",
+                options: ["low", "medium", "high", "max"]
+            )
+        })
+    }
+
+    private func lmStudioRESTControls() -> AnyView {
+        AnyView(Group {
+            apiIntegerField("max_output_tokens", value: $viewModel.apiAdvancedSettings.lmStudioMaxTokens)
+            apiIntegerToggleField(
+                "context_length",
+                enabled: $viewModel.apiAdvancedSettings.lmStudioSampling.contextLengthEnabled,
+                value: $viewModel.apiAdvancedSettings.lmStudioSampling.contextLength
+            )
+            apiSamplingControls(
+                $viewModel.apiAdvancedSettings.lmStudioSampling,
+                includeTopK: true,
+                includeMinP: true,
+                includePenalties: false,
+                includeRepetitionPenalty: true,
+                repetitionPenaltyTitle: "repeat_penalty",
+                includeSeed: false,
+                includeJSONMode: false,
+                includeLogprobs: false
+            )
+        })
+    }
+
+    private func lmStudioOpenAICompatibleControls() -> AnyView {
+        AnyView(Group {
+            apiIntegerField("max_tokens", value: $viewModel.apiAdvancedSettings.lmStudioOpenAICompatibleMaxTokens)
+            apiSamplingControls(
+                $viewModel.apiAdvancedSettings.lmStudioOpenAICompatibleSampling,
+                includeTopK: true,
+                includeRepetitionPenalty: true,
+                repetitionPenaltyTitle: "repeat_penalty"
+            )
+        })
+    }
+
+    private func llamaCppControls() -> AnyView {
+        AnyView(Group {
+            apiIntegerField("max_tokens", value: $viewModel.apiAdvancedSettings.llamaCppMaxTokens)
+            apiSamplingControls(
+                $viewModel.apiAdvancedSettings.llamaCppSampling,
+                includeTopK: true,
+                includeMinP: true,
+                includeRepetitionPenalty: true,
+                repetitionPenaltyTitle: "repeat_penalty"
+            )
+        })
+    }
+
+    private func apiSamplingControls(
+        _ sampling: Binding<APIAdvancedSamplingSettings>,
+        includeTopK: Bool = false,
+        includeMinP: Bool = false,
+        includeTopA: Bool = false,
+        includePenalties: Bool = true,
+        includeRepetitionPenalty: Bool = false,
+        repetitionPenaltyTitle: LocalizedStringKey = "repetition_penalty",
+        includeSeed: Bool = true,
+        includeJSONMode: Bool = true,
+        includeStructuredOutputs: Bool = false,
+        includeLogprobs: Bool = true
+    ) -> AnyView {
+        AnyView(Group {
+            apiDoubleToggleField(
+                "temperature",
+                enabled: sampling.temperatureEnabled,
+                value: sampling.temperature
+            )
+            apiDoubleToggleField(
+                "top_p",
+                enabled: sampling.topPEnabled,
+                value: sampling.topP
+            )
+            if includeTopK {
+                apiIntegerToggleField("top_k", enabled: sampling.topKEnabled, value: sampling.topK)
+            }
+            if includeMinP {
+                apiDoubleToggleField("min_p", enabled: sampling.minPEnabled, value: sampling.minP)
+            }
+            if includeTopA {
+                apiDoubleToggleField("top_a", enabled: sampling.topAEnabled, value: sampling.topA)
+            }
+            if includePenalties {
+                apiDoubleToggleField(
+                    "presence_penalty",
+                    enabled: sampling.presencePenaltyEnabled,
+                    value: sampling.presencePenalty
+                )
+                apiDoubleToggleField(
+                    "frequency_penalty",
+                    enabled: sampling.frequencyPenaltyEnabled,
+                    value: sampling.frequencyPenalty
+                )
+            }
+            if includeRepetitionPenalty {
+                apiDoubleToggleField(repetitionPenaltyTitle, enabled: sampling.repetitionPenaltyEnabled, value: sampling.repetitionPenalty)
+            }
+            if includeSeed {
+                apiIntegerToggleField("seed", enabled: sampling.seedEnabled, value: sampling.seed)
+            }
+            if includeJSONMode {
+                apiBooleanToggleField("JSON mode", isOn: sampling.jsonModeEnabled)
+            }
+            if includeStructuredOutputs {
+                apiBooleanToggleField("structured_outputs", isOn: sampling.structuredOutputsEnabled)
+            }
+            if includeLogprobs {
+                apiBooleanToggleField("logprobs", isOn: sampling.logprobsEnabled)
+                if sampling.logprobsEnabled.wrappedValue {
+                    apiIntegerToggleField("top_logprobs", enabled: sampling.topLogprobsEnabled, value: sampling.topLogprobs)
+                }
+            }
+        })
+    }
+
+    private func verbosityControl(
+        _ sampling: Binding<APIAdvancedSamplingSettings>,
+        title: LocalizedStringKey,
+        options: [String]
+    ) -> AnyView {
+        #if os(macOS)
+        return AnyView(apiLabeledContent(title) {
+            HStack(spacing: 10) {
+                Toggle("", isOn: sampling.verbosityEnabled)
+                    .labelsHidden()
+                    .toggleStyle(.switch)
+
+                if sampling.verbosityEnabled.wrappedValue {
+                    Picker("verbosity", selection: sampling.verbosity) {
+                        ForEach(options, id: \.self) { option in
+                            Text(option).tag(option)
+                        }
+                    }
+                    .labelsHidden()
+                    .pickerStyle(.segmented)
+                    .frame(maxWidth: 260)
+                }
+            }
+        })
+        #else
+        return AnyView(VStack(alignment: .leading, spacing: 6) {
+            Toggle(title, isOn: sampling.verbosityEnabled)
+            if sampling.verbosityEnabled.wrappedValue {
+                Picker("verbosity", selection: sampling.verbosity) {
+                    ForEach(options, id: \.self) { option in
+                        Text(option).tag(option)
+                    }
+                }
+                .pickerStyle(.segmented)
+            }
+        }
+        .padding(.vertical, 4))
+        #endif
+    }
+
+    private func apiBooleanToggleField(_ title: LocalizedStringKey, isOn: Binding<Bool>) -> AnyView {
+        #if os(macOS)
+        return AnyView(apiLabeledContent(title) {
+            Toggle("", isOn: isOn)
+                .labelsHidden()
+                .toggleStyle(.switch)
+        })
+        #else
+        return AnyView(Toggle(title, isOn: isOn))
+        #endif
+    }
+
+    private func apiIntegerField(_ title: LocalizedStringKey, value: Binding<Int>) -> AnyView {
+        #if os(macOS)
+        return AnyView(apiLabeledContent(title) {
+            TextField("", value: value, format: .number)
+                .multilineTextAlignment(.trailing)
+                .textFieldStyle(.roundedBorder)
+                .frame(width: 180)
+        })
+        #else
+        return AnyView(VStack(alignment: .leading, spacing: 6) {
+            Text(title)
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            TextField("", value: value, format: .number)
+                .multilineTextAlignment(.trailing)
+                .keyboardType(.numberPad)
+        }
+        .padding(.vertical, 4))
+        #endif
+    }
+
+    private func apiIntegerToggleField(
+        _ title: LocalizedStringKey,
+        enabled: Binding<Bool>,
+        value: Binding<Int>
+    ) -> AnyView {
+        #if os(macOS)
+        return AnyView(apiLabeledContent(title) {
+            HStack(spacing: 10) {
+                Toggle("", isOn: enabled)
+                    .labelsHidden()
+                    .toggleStyle(.switch)
+
+                if enabled.wrappedValue {
+                    TextField("", value: value, format: .number)
+                        .multilineTextAlignment(.trailing)
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 180)
+                }
+            }
+        })
+        #else
+        return AnyView(VStack(alignment: .leading, spacing: 6) {
+            Toggle(title, isOn: enabled)
+            if enabled.wrappedValue {
+                TextField("", value: value, format: .number)
+                    .multilineTextAlignment(.trailing)
+                    .keyboardType(.numberPad)
+            }
+        }
+        .padding(.vertical, 4))
+        #endif
+    }
+
+    private func apiDoubleToggleField(
+        _ title: LocalizedStringKey,
+        enabled: Binding<Bool>,
+        value: Binding<Double>
+    ) -> AnyView {
+        #if os(macOS)
+        return AnyView(apiLabeledContent(title) {
+            HStack(spacing: 10) {
+                Toggle("", isOn: enabled)
+                    .labelsHidden()
+                    .toggleStyle(.switch)
+
+                if enabled.wrappedValue {
+                    TextField("", value: value, format: .number.precision(.fractionLength(0...3)))
+                        .multilineTextAlignment(.trailing)
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 180)
+                }
+            }
+        })
+        #else
+        return AnyView(VStack(alignment: .leading, spacing: 6) {
+            Toggle(title, isOn: enabled)
+            if enabled.wrappedValue {
+                TextField("", value: value, format: .number.precision(.fractionLength(0...3)))
+                    .multilineTextAlignment(.trailing)
+                    .keyboardType(.decimalPad)
+            }
+        }
+        .padding(.vertical, 4))
+        #endif
+    }
+
+    #if os(macOS)
+    private func apiLabeledContent<Content: View>(
+        _ title: LocalizedStringKey,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        LabeledContent {
+            content()
+                .frame(maxWidth: .infinity, alignment: .trailing)
+        } label: {
+            Text(title)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+    #endif
+
+    private func metadataRow(_ title: LocalizedStringKey, _ value: String) -> AnyView {
+        AnyView(VStack(alignment: .leading, spacing: 4) {
+            Text(title)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Text(value.isEmpty ? String(localized: "None") : value)
+                .font(.callout)
+                .textSelection(.enabled)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.vertical, 2))
+    }
+
+    private func rawJSONBlock(_ title: LocalizedStringKey, _ value: JSONValue?) -> AnyView {
+        AnyView(RawJSONPreviewBlock(
+            title: title,
+            value: value,
+            missingText: String(localized: "Raw metadata was not captured.")
+        ))
+    }
+
+    private var currentAdvancedProvider: ChatProvider {
+        let base = viewModel.apiURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        return viewModel.selectedChatAPIFormatPreference.providerHint
+            ?? settingsManager.detectedChatProvider(for: base)
+            ?? ChatAPIEndpointResolver.officialProviderHint(for: base)
+            ?? .openAICompatible
+    }
+
+    private var currentAdvancedRequestStyle: ChatRequestStyle {
+        let base = viewModel.apiURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        return viewModel.selectedChatAPIFormatPreference.requestStyleHint
+            ?? settingsManager.detectedChatRequestStyle(for: base)
+            ?? .openAIChatCompletions
+    }
+
+    private var currentAdvancedRequestStyleDisplayName: String {
+        switch currentAdvancedRequestStyle {
+        case .openAIChatCompletions:
+            return isCurrentOpenAIResponsesEndpoint ? String(localized: "OpenAI Responses") : String(localized: "OpenAI Chat Completions")
+        case .lmStudioRESTV1:
+            return String(localized: "LM Studio REST v1")
+        case .lmStudioRESTV1LegacyMessage:
+            return String(localized: "LM Studio REST legacy message")
+        case .anthropicMessages:
+            return String(localized: "Anthropic Messages")
+        }
+    }
+
+    private var selectedAPIFormatDisplayName: String {
+        switch viewModel.selectedChatAPIFormatPreference {
+        case .automatic:
+            return String(localized: "Automatic")
+        case .openAI:
+            return ChatProvider.openAI.displayName
+        case .anthropic:
+            return ChatProvider.anthropic.displayName
+        case .gemini:
+            return ChatProvider.gemini.displayName
+        case .deepSeek:
+            return ChatProvider.deepSeek.displayName
+        case .xAI:
+            return ChatProvider.xAI.displayName
+        case .openRouter:
+            return ChatProvider.openRouter.displayName
+        case .lmStudio:
+            return ChatProvider.lmStudio.displayName
+        case .llamaCpp:
+            return ChatProvider.llamaCpp.displayName
+        case .openAICompatible:
+            return ChatProvider.openAICompatible.displayName
+        }
+    }
+
+    private var isCurrentOpenAIResponsesEndpoint: Bool {
+        guard currentAdvancedRequestStyle == .openAIChatCompletions else { return false }
+        if let endpoint = viewModel.lastModelFetchEndpoint {
+            return endpoint.chatURL.path.lowercased().hasSuffix("/responses")
+        }
+        return viewModel.apiURL.lowercased().contains("/responses")
+    }
+
+    private var selectedModelMetadata: ModelInfo? {
+        viewModel.lastFetchedModelMetadata.first { $0.id == viewModel.selectedModel }
+    }
+
+    private var localizedUnknown: String {
+        String(localized: "Unknown")
+    }
+
+    private func joined(_ values: [String]?) -> String {
+        guard let values, !values.isEmpty else { return String(localized: "None") }
+        return values.joined(separator: ", ")
+    }
+
+    private func optionalBool(_ value: Bool?) -> String {
+        guard let value else { return localizedUnknown }
+        return value ? String(localized: "Yes") : String(localized: "No")
     }
 
     @ViewBuilder
@@ -1000,16 +1904,74 @@ struct SettingsView: View {
 
 #if os(macOS)
     private func updateWindowSizeIfNeeded(_ newSize: CGSize) {
-        guard newSize.width > 0, newSize.height > 0 else { return }
-        guard measuredContentSize != newSize else { return }
-        measuredContentSize = newSize
+        if newSize.width > 0, newSize.height > 0 {
+            measuredContentSize = newSize
+        }
 
         DispatchQueue.main.async {
             guard let window = NSApp?.windows.first(where: { $0.isKeyWindow }) else { return }
-            let targetSize = NSSize(width: newSize.width, height: newSize.height)
-            window.setContentSize(targetSize)
+            let maxContentSize = maxSettingsContentSize(for: window)
+            let targetSize = clampedSettingsContentSize(preferredSettingsContentSize, maxContentSize: maxContentSize)
+
             window.contentMinSize = targetSize
             window.contentMaxSize = targetSize
+
+            let currentSize = window.contentView?.bounds.size ?? .zero
+            if abs(currentSize.width - targetSize.width) > MacSettingsLayout.resizeThreshold ||
+                abs(currentSize.height - targetSize.height) > MacSettingsLayout.resizeThreshold {
+                window.setContentSize(targetSize)
+                keepSettingsWindowVisible(window)
+            }
+        }
+    }
+
+    private var preferredSettingsContentSize: NSSize {
+        MacSettingsLayout.topLevelContentSize
+    }
+
+    private func clampedSettingsContentSize(_ preferredSize: NSSize, maxContentSize: NSSize) -> NSSize {
+        NSSize(
+            width: min(max(preferredSize.width, MacSettingsLayout.minContentSize.width), maxContentSize.width),
+            height: min(max(preferredSize.height, MacSettingsLayout.minContentSize.height), maxContentSize.height)
+        )
+    }
+
+    private func maxSettingsContentSize(for window: NSWindow) -> NSSize {
+        guard let visibleFrame = (window.screen ?? NSScreen.main)?.visibleFrame else {
+            return MacSettingsLayout.fallbackMaxContentSize
+        }
+
+        return NSSize(
+            width: max(
+                MacSettingsLayout.minContentSize.width,
+                min(MacSettingsLayout.fallbackMaxContentSize.width, visibleFrame.width - MacSettingsLayout.screenMargin)
+            ),
+            height: max(
+                MacSettingsLayout.minContentSize.height,
+                min(MacSettingsLayout.fallbackMaxContentSize.height, visibleFrame.height - MacSettingsLayout.screenMargin)
+            )
+        )
+    }
+
+    private func keepSettingsWindowVisible(_ window: NSWindow) {
+        guard let visibleFrame = (window.screen ?? NSScreen.main)?.visibleFrame else { return }
+        var frame = window.frame
+
+        if frame.maxX > visibleFrame.maxX {
+            frame.origin.x = visibleFrame.maxX - frame.width
+        }
+        if frame.minX < visibleFrame.minX {
+            frame.origin.x = visibleFrame.minX
+        }
+        if frame.maxY > visibleFrame.maxY {
+            frame.origin.y = visibleFrame.maxY - frame.height
+        }
+        if frame.minY < visibleFrame.minY {
+            frame.origin.y = visibleFrame.minY
+        }
+
+        if frame.origin != window.frame.origin {
+            window.setFrameOrigin(frame.origin)
         }
     }
 #endif

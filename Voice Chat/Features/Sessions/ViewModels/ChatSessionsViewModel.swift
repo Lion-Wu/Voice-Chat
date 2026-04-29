@@ -69,7 +69,10 @@ final class ChatSessionsViewModel: ObservableObject {
             modelIdentifier: self.settingsManager.chatSettings.selectedModel,
             apiKey: self.settingsManager.chatSettings.apiKey,
             providerHint: self.settingsManager.resolvedChatProvider(for: self.settingsManager.chatSettings.apiURL),
-            requestStyleHint: self.settingsManager.resolvedChatRequestStyle(for: self.settingsManager.chatSettings.apiURL)
+            requestStyleHint: self.settingsManager.resolvedChatRequestStyle(for: self.settingsManager.chatSettings.apiURL),
+            thinkingCapability: self.settingsManager.thinkingCapability(for: self.settingsManager.chatSettings.selectedModel),
+            thinkingOption: self.settingsManager.selectedThinkingOption(for: self.settingsManager.chatSettings.selectedModel),
+            apiAdvancedSettings: self.settingsManager.activeAPIAdvancedSettings
         )
         self.repository.didPersistSessions = { [weak self] sessionIDs in
             self?.handlePersistedSessions(sessionIDs)
@@ -83,7 +86,10 @@ final class ChatSessionsViewModel: ObservableObject {
             modelIdentifier: settingsManager.chatSettings.selectedModel,
             apiKey: settingsManager.chatSettings.apiKey,
             providerHint: settingsManager.resolvedChatProvider(for: settingsManager.chatSettings.apiURL),
-            requestStyleHint: settingsManager.resolvedChatRequestStyle(for: settingsManager.chatSettings.apiURL)
+            requestStyleHint: settingsManager.resolvedChatRequestStyle(for: settingsManager.chatSettings.apiURL),
+            thinkingCapability: settingsManager.thinkingCapability(for: settingsManager.chatSettings.selectedModel),
+            thinkingOption: settingsManager.selectedThinkingOption(for: settingsManager.chatSettings.selectedModel),
+            apiAdvancedSettings: settingsManager.activeAPIAdvancedSettings
         )
     }
 
