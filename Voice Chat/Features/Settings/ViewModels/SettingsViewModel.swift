@@ -47,6 +47,12 @@ final class SettingsViewModel: ObservableObject {
             saveHapticFeedbackSettings()
         }
     }
+    @Published var apiAdvancedSettings: APIAdvancedSettings {
+        didSet {
+            guard !suppressAutoSaves else { return }
+            saveAPIAdvancedSettings()
+        }
+    }
 
     // MARK: - Model List (Networking)
 
@@ -56,6 +62,8 @@ final class SettingsViewModel: ObservableObject {
     @Published private(set) var modelRetryAttempt: Int = 0
     @Published private(set) var modelRetryLastError: String?
     @Published private(set) var chatServerErrorMessage: String?
+    @Published private(set) var lastFetchedModelMetadata: [ModelInfo] = []
+    @Published private(set) var lastModelFetchEndpoint: ChatAPIEndpointCandidate?
 
     private var modelFetchRequestID = UUID()
     private var modelFetchTask: Task<Void, Never>?
@@ -181,6 +189,7 @@ final class SettingsViewModel: ObservableObject {
         modelId = ""
         language = "auto"
         hapticFeedbackEnabled = true
+        apiAdvancedSettings = .defaults
 
         refreshFromSettingsManager()
         bindInitialStoreSync()
@@ -339,15 +348,23 @@ final class SettingsViewModel: ObservableObject {
 
         let models = decodedModels.map(\.id)
         var supportMap: [String: Bool] = [:]
+        var thinkingMap: [String: ModelThinkingCapability] = [:]
         supportMap.reserveCapacity(decodedModels.count)
+        thinkingMap.reserveCapacity(decodedModels.count)
         for model in decodedModels {
             if let support = model.supportsImageInputHint {
                 supportMap[model.id] = support
+            }
+            if let thinking = model.thinkingCapabilityHint(provider: candidate.provider, requestStyle: candidate.style) {
+                thinkingMap[model.id] = thinking
             }
         }
 
         settingsManager.noteDetectedChatEndpoint(candidate, for: apiURL)
         settingsManager.updateChatModelImageInputSupport(supportMap, for: apiURL)
+        settingsManager.updateChatModelThinkingCapabilities(thinkingMap, for: apiURL)
+        lastFetchedModelMetadata = decodedModels
+        lastModelFetchEndpoint = candidate
         availableModels = models
         if !availableModels.contains(selectedModel),
            let firstModel = availableModels.first {
@@ -444,6 +461,7 @@ final class SettingsViewModel: ObservableObject {
 
         enableStreaming = v.enableStreaming
         hapticFeedbackEnabled = settingsManager.hapticFeedbackEnabled
+        apiAdvancedSettings = settingsManager.apiAdvancedSettings
 
         autoSplit = m.autoSplit
         modelId = m.modelId
@@ -499,6 +517,17 @@ final class SettingsViewModel: ObservableObject {
 
     func saveHapticFeedbackSettings() {
         settingsManager.updateHapticFeedbackEnabled(hapticFeedbackEnabled)
+    }
+
+    func saveAPIAdvancedSettings() {
+        settingsManager.updateAPIAdvancedSettings(apiAdvancedSettings)
+    }
+
+    func resetAPIAdvancedSettingsToDefaults() {
+        suppressAutoSaves = true
+        apiAdvancedSettings = .defaults
+        suppressAutoSaves = false
+        settingsManager.resetAPIAdvancedSettingsToDefaults()
     }
 
     func saveModelSettings() {

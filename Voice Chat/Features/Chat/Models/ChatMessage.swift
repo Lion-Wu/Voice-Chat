@@ -26,6 +26,7 @@ final class ChatMessage {
     // MARK: - Telemetry & Metadata
     var modelIdentifier: String?
     var apiBaseURL: String?
+    var thinkingOptionRawValue: String?
     var requestID: UUID?
     var providerResponseID: String?
     var streamStartedAt: Date?
@@ -63,6 +64,7 @@ final class ChatMessage {
         activeChildMessageID: UUID? = nil,
         modelIdentifier: String? = nil,
         apiBaseURL: String? = nil,
+        thinkingOptionRawValue: String? = nil,
         requestID: UUID? = nil,
         providerResponseID: String? = nil,
         streamStartedAt: Date? = nil,
@@ -97,6 +99,7 @@ final class ChatMessage {
         self.createdAt = createdAt
         self.modelIdentifier = modelIdentifier
         self.apiBaseURL = apiBaseURL
+        self.thinkingOptionRawValue = thinkingOptionRawValue
         self.requestID = requestID
         self.providerResponseID = providerResponseID
         self.streamStartedAt = streamStartedAt
@@ -142,5 +145,14 @@ extension ChatMessage {
 
     var imageAttachmentsFingerprint: Int {
         imageAttachmentsData?.hashValue ?? 0
+    }
+
+    var thinkingOption: ModelThinkingOption? {
+        get {
+            thinkingOptionRawValue.flatMap(ModelThinkingOption.normalized)
+        }
+        set {
+            thinkingOptionRawValue = newValue?.rawValue
+        }
     }
 }
