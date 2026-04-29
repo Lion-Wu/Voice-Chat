@@ -10,6 +10,10 @@ import Foundation
 enum ChatProvider: String, Codable, Sendable {
     case openAI = "openai"
     case anthropic = "anthropic"
+    case gemini = "gemini"
+    case deepSeek = "deepseek"
+    case xAI = "xai"
+    case openRouter = "openrouter"
     case lmStudio = "lmstudio"
     case llamaCpp = "llama.cpp"
     case openAICompatible = "openai-compatible"
@@ -21,6 +25,14 @@ enum ChatProvider: String, Codable, Sendable {
             return NSLocalizedString("OpenAI", comment: "Provider display name")
         case .anthropic:
             return NSLocalizedString("Anthropic", comment: "Provider display name")
+        case .gemini:
+            return NSLocalizedString("Gemini", comment: "Provider display name")
+        case .deepSeek:
+            return NSLocalizedString("DeepSeek", comment: "Provider display name")
+        case .xAI:
+            return NSLocalizedString("xAI", comment: "Provider display name")
+        case .openRouter:
+            return NSLocalizedString("OpenRouter", comment: "Provider display name")
         case .lmStudio:
             return NSLocalizedString("LM Studio", comment: "Provider display name")
         case .llamaCpp:
@@ -44,6 +56,10 @@ enum ChatAPIFormatPreference: String, Codable, CaseIterable, Sendable {
     case automatic
     case openAI
     case anthropic
+    case gemini
+    case deepSeek
+    case xAI
+    case openRouter
     case lmStudio
     case llamaCpp
     case openAICompatible
@@ -56,6 +72,14 @@ enum ChatAPIFormatPreference: String, Codable, CaseIterable, Sendable {
             return .openAI
         case .anthropic:
             return .anthropic
+        case .gemini:
+            return .gemini
+        case .deepSeek:
+            return .deepSeek
+        case .xAI:
+            return .xAI
+        case .openRouter:
+            return .openRouter
         case .lmStudio:
             return .lmStudio
         case .llamaCpp:
@@ -69,7 +93,7 @@ enum ChatAPIFormatPreference: String, Codable, CaseIterable, Sendable {
         switch self {
         case .automatic:
             return nil
-        case .openAI, .llamaCpp, .openAICompatible:
+        case .openAI, .gemini, .deepSeek, .xAI, .openRouter, .llamaCpp, .openAICompatible:
             return .openAIChatCompletions
         case .anthropic:
             return .anthropicMessages
@@ -96,6 +120,18 @@ enum ChatAPIEndpointResolver {
         }
         if hostMatchesOfficialDomain(host, domain: "anthropic.com") {
             return .anthropic
+        }
+        if hostMatchesOfficialDomain(host, domain: "googleapis.com") {
+            return .gemini
+        }
+        if hostMatchesOfficialDomain(host, domain: "deepseek.com") {
+            return .deepSeek
+        }
+        if hostMatchesOfficialDomain(host, domain: "x.ai") {
+            return .xAI
+        }
+        if hostMatchesOfficialDomain(host, domain: "openrouter.ai") {
+            return .openRouter
         }
         return nil
     }
@@ -212,6 +248,10 @@ enum ChatAPIEndpointResolver {
 
         let isLocal = isLocalHost(host)
         let looksAnthropic = host.contains("anthropic.com") || path.hasSuffix("/v1/messages")
+        let looksGemini = host.contains("googleapis.com") || path.contains("/v1beta/openai")
+        let looksDeepSeek = host.contains("deepseek.com")
+        let looksXAI = host.contains("x.ai")
+        let looksOpenRouter = host.contains("openrouter.ai")
         let looksOpenAI = host.contains("openai.com")
         let looksLMStudio = host.contains("lmstudio") || path.contains("/api/v1") || path.contains("/api/v0") || (isLocal && (port == 1234))
         let looksLlamaCpp = host.contains("llama") || path.contains("llama.cpp") || (isLocal && (port == 8080 || port == 8081))
@@ -224,6 +264,18 @@ enum ChatAPIEndpointResolver {
 
         if looksAnthropic {
             appendHeuristic(.anthropic)
+        }
+        if looksGemini {
+            appendHeuristic(.gemini)
+        }
+        if looksDeepSeek {
+            appendHeuristic(.deepSeek)
+        }
+        if looksXAI {
+            appendHeuristic(.xAI)
+        }
+        if looksOpenRouter {
+            appendHeuristic(.openRouter)
         }
         if looksLMStudio {
             appendHeuristic(.lmStudio)
@@ -251,6 +303,10 @@ enum ChatAPIEndpointResolver {
                 // Keep explicit cloud providers as later fallbacks for non-local endpoints.
                 append(.openAI)
                 append(.anthropic)
+                append(.gemini)
+                append(.deepSeek)
+                append(.xAI)
+                append(.openRouter)
             }
         }
 
@@ -259,6 +315,10 @@ enum ChatAPIEndpointResolver {
         append(.openAICompatible)
         append(.openAI)
         append(.anthropic)
+        append(.gemini)
+        append(.deepSeek)
+        append(.xAI)
+        append(.openRouter)
 
         return order
     }
@@ -299,6 +359,58 @@ enum ChatAPIEndpointResolver {
                     ChatAPIEndpointCandidate(
                         provider: .anthropic,
                         style: .anthropicMessages,
+                        chatURL: urls.chat,
+                        modelsURL: urls.models
+                    ),
+                    to: &list
+                )
+            }
+
+        case .gemini:
+            if let urls = geminiOpenAICompatibleURLs(from: base) {
+                appendUnique(
+                    ChatAPIEndpointCandidate(
+                        provider: .gemini,
+                        style: .openAIChatCompletions,
+                        chatURL: urls.chat,
+                        modelsURL: urls.models
+                    ),
+                    to: &list
+                )
+            }
+
+        case .deepSeek:
+            if let urls = chatCompletionsCompatibleURLs(from: base) {
+                appendUnique(
+                    ChatAPIEndpointCandidate(
+                        provider: .deepSeek,
+                        style: .openAIChatCompletions,
+                        chatURL: urls.chat,
+                        modelsURL: urls.models
+                    ),
+                    to: &list
+                )
+            }
+
+        case .xAI:
+            if let urls = chatCompletionsCompatibleURLs(from: base) {
+                appendUnique(
+                    ChatAPIEndpointCandidate(
+                        provider: .xAI,
+                        style: .openAIChatCompletions,
+                        chatURL: urls.chat,
+                        modelsURL: urls.models
+                    ),
+                    to: &list
+                )
+            }
+
+        case .openRouter:
+            if let urls = chatCompletionsCompatibleURLs(from: base) {
+                appendUnique(
+                    ChatAPIEndpointCandidate(
+                        provider: .openRouter,
+                        style: .openAIChatCompletions,
                         chatURL: urls.chat,
                         modelsURL: urls.models
                     ),
@@ -481,6 +593,67 @@ enum ChatAPIEndpointResolver {
         comps.path = chatPath
         guard let chatURL = comps.url else { return nil }
         comps.path = modelsPath
+        guard let modelsURL = comps.url else { return nil }
+        return (chatURL, modelsURL)
+    }
+
+    private static func chatCompletionsCompatibleURLs(from base: URLComponents) -> (chat: URL, models: URL)? {
+        var comps = base
+        let path = canonicalPath(comps.path)
+
+        let chatPath: String
+        let modelsPath: String
+
+        if path.hasSuffix("/chat/completions") {
+            chatPath = path
+            modelsPath = String(path.dropLast("/chat/completions".count)) + "/models"
+        } else if path.hasSuffix("/models") {
+            modelsPath = path
+            chatPath = String(path.dropLast("/models".count)) + "/chat/completions"
+        } else if path.hasSuffix("/chat") {
+            chatPath = path + "/completions"
+            modelsPath = String(path.dropLast("/chat".count)) + "/models"
+        } else if path.hasSuffix("/v1") {
+            chatPath = path + "/chat/completions"
+            modelsPath = path + "/models"
+        } else {
+            chatPath = joinPath(path, "/v1/chat/completions")
+            modelsPath = joinPath(path, "/v1/models")
+        }
+
+        comps.path = chatPath
+        guard let chatURL = comps.url else { return nil }
+        comps.path = modelsPath
+        guard let modelsURL = comps.url else { return nil }
+        return (chatURL, modelsURL)
+    }
+
+    private static func geminiOpenAICompatibleURLs(from base: URLComponents) -> (chat: URL, models: URL)? {
+        var comps = base
+        let path = canonicalPath(comps.path)
+
+        func geminiCompatibilityBase(from candidate: String) -> String {
+            if candidate.hasSuffix("/openai") {
+                return candidate
+            }
+            if candidate.hasSuffix("/v1beta") || candidate.hasSuffix("/v1") {
+                return candidate + "/openai"
+            }
+            return joinPath(candidate, "/v1beta/openai")
+        }
+
+        let compatibilityBase: String
+        if path.hasSuffix("/chat/completions") {
+            compatibilityBase = String(path.dropLast("/chat/completions".count))
+        } else if path.hasSuffix("/models") {
+            compatibilityBase = geminiCompatibilityBase(from: String(path.dropLast("/models".count)))
+        } else {
+            compatibilityBase = geminiCompatibilityBase(from: path)
+        }
+
+        comps.path = compatibilityBase + "/chat/completions"
+        guard let chatURL = comps.url else { return nil }
+        comps.path = compatibilityBase + "/models"
         guard let modelsURL = comps.url else { return nil }
         return (chatURL, modelsURL)
     }

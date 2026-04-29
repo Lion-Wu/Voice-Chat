@@ -13,6 +13,7 @@ private struct ActiveStreamTelemetry {
     let startedAt: Date
     let modelIdentifier: String
     let apiBaseURL: String
+    let thinkingOption: ModelThinkingOption?
     let promptMessageCount: Int
     let promptCharacterCount: Int
     var firstTokenAt: Date?
@@ -127,7 +128,10 @@ final class ChatViewModel: ObservableObject {
             modelIdentifier: resolvedSettings.chatSettings.selectedModel,
             apiKey: resolvedSettings.chatSettings.apiKey,
             providerHint: resolvedSettings.resolvedChatProvider(for: resolvedSettings.chatSettings.apiURL),
-            requestStyleHint: resolvedSettings.resolvedChatRequestStyle(for: resolvedSettings.chatSettings.apiURL)
+            requestStyleHint: resolvedSettings.resolvedChatRequestStyle(for: resolvedSettings.chatSettings.apiURL),
+            thinkingCapability: resolvedSettings.thinkingCapability(for: resolvedSettings.chatSettings.selectedModel),
+            thinkingOption: resolvedSettings.selectedThinkingOption(for: resolvedSettings.chatSettings.selectedModel),
+            apiAdvancedSettings: resolvedSettings.activeAPIAdvancedSettings
         )
         self.chatServiceFactory = chatServiceFactory ?? { ChatService(configurationProvider: $0) }
         self.chatService = chatService ?? self.chatServiceFactory(self.chatConfiguration)
@@ -161,6 +165,34 @@ final class ChatViewModel: ObservableObject {
         let selected = settingsManager.chatSettings.selectedModel.trimmingCharacters(in: .whitespacesAndNewlines)
         let effectiveModel = selected.isEmpty ? chatConfiguration.modelIdentifier : selected
         return settingsManager.supportsImageInput(for: effectiveModel)
+    }
+
+    func currentModelThinkingCapability() -> ModelThinkingCapability? {
+        let selected = settingsManager.chatSettings.selectedModel.trimmingCharacters(in: .whitespacesAndNewlines)
+        let effectiveModel = selected.isEmpty ? chatConfiguration.modelIdentifier : selected
+        return settingsManager.thinkingCapability(for: effectiveModel)
+    }
+
+    func currentThinkingOption() -> ModelThinkingOption? {
+        let selected = settingsManager.chatSettings.selectedModel.trimmingCharacters(in: .whitespacesAndNewlines)
+        let effectiveModel = selected.isEmpty ? chatConfiguration.modelIdentifier : selected
+        return settingsManager.selectedThinkingOption(for: effectiveModel)
+    }
+
+    func setCurrentThinkingOption(_ option: ModelThinkingOption) {
+        let selected = settingsManager.chatSettings.selectedModel.trimmingCharacters(in: .whitespacesAndNewlines)
+        let effectiveModel = selected.isEmpty ? chatConfiguration.modelIdentifier : selected
+        settingsManager.setSelectedThinkingOption(option, for: effectiveModel)
+        syncChatConfigurationFromSettingsIfNeeded()
+        objectWillChange.send()
+    }
+
+    func toggleCurrentThinking() {
+        let selected = settingsManager.chatSettings.selectedModel.trimmingCharacters(in: .whitespacesAndNewlines)
+        let effectiveModel = selected.isEmpty ? chatConfiguration.modelIdentifier : selected
+        settingsManager.toggleSelectedThinking(for: effectiveModel)
+        syncChatConfigurationFromSettingsIfNeeded()
+        objectWillChange.send()
     }
 
     func activeBranchContainsImageInputs(includePending: Bool = true) -> Bool {
@@ -409,6 +441,7 @@ final class ChatViewModel: ObservableObject {
             createdAt: now,
             modelIdentifier: telemetry?.modelIdentifier ?? chatConfiguration.modelIdentifier,
             apiBaseURL: telemetry?.apiBaseURL ?? chatConfiguration.apiBaseURL,
+            thinkingOptionRawValue: (telemetry?.thinkingOption ?? chatConfiguration.thinkingOption)?.rawValue,
             requestID: telemetry?.streamID,
             providerResponseID: pendingServerMetadata.providerResponseID,
             streamStartedAt: telemetry?.startedAt,
@@ -534,7 +567,10 @@ final class ChatViewModel: ObservableObject {
             modelIdentifier: settings.selectedModel,
             apiKey: settings.apiKey,
             providerHint: settingsManager.resolvedChatProvider(for: settings.apiURL),
-            requestStyleHint: settingsManager.resolvedChatRequestStyle(for: settings.apiURL)
+            requestStyleHint: settingsManager.resolvedChatRequestStyle(for: settings.apiURL),
+            thinkingCapability: settingsManager.thinkingCapability(for: settings.selectedModel),
+            thinkingOption: settingsManager.selectedThinkingOption(for: settings.selectedModel),
+            apiAdvancedSettings: settingsManager.activeAPIAdvancedSettings
         )
         updateChatConfiguration(latest)
     }
@@ -647,6 +683,7 @@ final class ChatViewModel: ObservableObject {
             startedAt: Date(),
             modelIdentifier: chatConfiguration.modelIdentifier,
             apiBaseURL: chatConfiguration.apiBaseURL,
+            thinkingOption: chatConfiguration.thinkingOption,
             promptMessageCount: eligibleMessages.count,
             promptCharacterCount: promptCharacterCount,
             firstTokenAt: nil
@@ -663,6 +700,9 @@ final class ChatViewModel: ObservableObject {
             }
             if message.apiBaseURL == nil {
                 message.apiBaseURL = telemetry.apiBaseURL
+            }
+            if message.thinkingOptionRawValue == nil {
+                message.thinkingOption = telemetry.thinkingOption
             }
             if message.requestID == nil {
                 message.requestID = telemetry.streamID
@@ -690,6 +730,9 @@ final class ChatViewModel: ObservableObject {
             }
             if message.apiBaseURL == nil {
                 message.apiBaseURL = chatConfiguration.apiBaseURL
+            }
+            if message.thinkingOptionRawValue == nil {
+                message.thinkingOption = chatConfiguration.thinkingOption
             }
         }
         if let start = message.streamStartedAt,

@@ -85,6 +85,7 @@ struct MessageDetailsView: View {
                     sectionBox("Telemetry", systemImage: "chart.xyaxis.line") {
                         detailRow("Model Identifier", fieldKey: "modelIdentifier", source: .local) { valueCode(message.modelIdentifier) }
                         detailRow("API Base URL", fieldKey: "apiBaseURL", source: .local) { valueCode(message.apiBaseURL) }
+                        detailRow("Thinking Setting", fieldKey: "thinkingOptionRawValue", source: .local) { valueText(formatThinkingOption(message.thinkingOptionRawValue)) }
                         detailRow("Request ID", fieldKey: "requestID", source: .local) { valueCode(formatUUID(message.requestID)) }
                         detailRow("Provider Response ID", fieldKey: "providerResponseID", source: .provider) { valueCode(message.providerResponseID) }
                         detailRow("Finish Reason", fieldKey: "finishReason", source: finishReasonSourceBadge) { valueText(message.finishReason) }
@@ -377,6 +378,17 @@ struct MessageDetailsView: View {
         guard let value else { return nil }
         return String(format: "%.3fs", value)
     }
+
+    private func formatThinkingOption(_ value: String?) -> String? {
+        guard let raw = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !raw.isEmpty else {
+            return nil
+        }
+        guard let option = ModelThinkingOption.normalized(raw) else {
+            return raw
+        }
+        return "\(option.displayName) (\(option.rawValue))"
+    }
 }
 
 #Preview {
@@ -390,6 +402,7 @@ struct MessageDetailsView: View {
             createdAt: now.addingTimeInterval(-12),
             modelIdentifier: "preview-model",
             apiBaseURL: "http://localhost:1234",
+            thinkingOptionRawValue: ModelThinkingOption.high.rawValue,
             requestID: UUID(),
             streamStartedAt: now.addingTimeInterval(-12),
             streamFirstTokenAt: now.addingTimeInterval(-11),

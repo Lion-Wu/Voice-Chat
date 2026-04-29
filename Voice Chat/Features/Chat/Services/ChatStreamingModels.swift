@@ -174,17 +174,20 @@ struct Delta: Decodable {
     var role: String?
     var content: String?
     var reasoning: ReasoningValue?
+    var reasoning_content: String?
 
     private enum CodingKeys: String, CodingKey {
         case role
         case content
         case reasoning
+        case reasoning_content
     }
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         role = try? container.decodeIfPresent(String.self, forKey: .role)
         reasoning = try? container.decodeIfPresent(ReasoningValue.self, forKey: .reasoning)
+        reasoning_content = try? container.decodeIfPresent(String.self, forKey: .reasoning_content)
 
         if let text = try? container.decodeIfPresent(String.self, forKey: .content) {
             content = text

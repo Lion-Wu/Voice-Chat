@@ -289,19 +289,23 @@ final class ChatService: NSObject, URLSessionDataDelegate, @unchecked Sendable {
         switch style {
         case .openAIChatCompletions:
             if isOpenAIResponsesEndpoint(endpoint.chatURL) {
-                let requestBody: [String: Any] = [
+                var requestBody: [String: Any] = [
                     "model": model,
                     "stream": true,
                     "input": openAIResponsesInput(from: messagePayload)
                 ]
+                applyAdvancedAPIConfiguration(to: &requestBody, model: model, endpoint: endpoint)
+                applyThinkingConfiguration(to: &requestBody, model: model, endpoint: endpoint)
                 return try JSONSerialization.data(withJSONObject: requestBody, options: [])
             }
 
-            let requestBody: [String: Any] = [
+            var requestBody: [String: Any] = [
                 "model": model,
                 "stream": true,
                 "messages": messagePayload
             ]
+            applyAdvancedAPIConfiguration(to: &requestBody, model: model, endpoint: endpoint)
+            applyThinkingConfiguration(to: &requestBody, model: model, endpoint: endpoint)
             return try JSONSerialization.data(withJSONObject: requestBody, options: [])
 
         case .lmStudioRESTV1, .lmStudioRESTV1LegacyMessage:
@@ -318,20 +322,479 @@ final class ChatService: NSObject, URLSessionDataDelegate, @unchecked Sendable {
                !prompt.isEmpty {
                 requestBody["system_prompt"] = prompt
             }
+            applyAdvancedAPIConfiguration(to: &requestBody, model: model, endpoint: endpoint)
+            applyThinkingConfiguration(to: &requestBody, model: model, endpoint: endpoint)
             return try JSONSerialization.data(withJSONObject: requestBody, options: [])
 
         case .anthropicMessages:
+            let advancedSettings = configurationProvider.apiAdvancedSettings.sanitized
             var requestBody: [String: Any] = [
                 "model": model,
                 "stream": true,
-                "max_tokens": 4096,
+                "max_tokens": advancedSettings.anthropicMaxTokens,
                 "messages": anthropicMessagesInput(from: messagePayload)
             ]
             if let prompt = developerPrompt?.trimmingCharacters(in: .whitespacesAndNewlines),
                !prompt.isEmpty {
                 requestBody["system"] = prompt
             }
+            applyAdvancedAPIConfiguration(to: &requestBody, model: model, endpoint: endpoint)
+            applyThinkingConfiguration(to: &requestBody, model: model, endpoint: endpoint)
             return try JSONSerialization.data(withJSONObject: requestBody, options: [])
+        }
+    }
+
+    private func applyAdvancedAPIConfiguration(
+        to requestBody: inout [String: Any],
+        model: String,
+        endpoint: ChatAPIEndpointCandidate
+    ) {
+        let settings = configurationProvider.apiAdvancedSettings.sanitized
+        switch endpoint.style {
+        case .openAIChatCompletions:
+            if isOpenAIResponsesEndpoint(endpoint.chatURL) {
+                applyPositiveInteger(settings.openAIResponsesMaxOutputTokens, key: "max_output_tokens", to: &requestBody)
+                applyOpenAIResponsesSamplingConfiguration(settings.openAIResponsesSampling, to: &requestBody)
+                return
+            }
+
+            switch endpoint.provider {
+            case .openAI:
+                applyPositiveInteger(settings.openAIChatMaxCompletionTokens, key: "max_completion_tokens", to: &requestBody)
+                applyOpenAIChatSamplingConfiguration(settings.openAIChatSampling, to: &requestBody)
+            case .gemini:
+                applyPositiveInteger(settings.geminiMaxTokens, key: "max_tokens", to: &requestBody)
+                applyGeminiSamplingConfiguration(settings.geminiSampling, to: &requestBody)
+            case .deepSeek:
+                applyPositiveInteger(settings.deepSeekMaxTokens, key: "max_tokens", to: &requestBody)
+                applyDeepSeekSamplingConfiguration(settings.deepSeekSampling, model: model, to: &requestBody)
+            case .xAI:
+                applyPositiveInteger(settings.xAIMaxTokens, key: "max_tokens", to: &requestBody)
+                applyOpenAIChatSamplingConfiguration(settings.xAISampling, to: &requestBody, topLogprobsLimit: 8)
+            case .openRouter:
+                applyPositiveInteger(settings.openRouterMaxTokens, key: "max_tokens", to: &requestBody)
+                applyPositiveInteger(settings.openRouterMaxCompletionTokens, key: "max_completion_tokens", to: &requestBody)
+                applyOpenRouterSamplingConfiguration(settings.openRouterSampling, to: &requestBody)
+            case .lmStudio:
+                applyPositiveInteger(settings.lmStudioOpenAICompatibleMaxTokens, key: "max_tokens", to: &requestBody)
+                applyLMStudioOpenAICompatibleSamplingConfiguration(settings.lmStudioOpenAICompatibleSampling, to: &requestBody)
+            case .llamaCpp:
+                applyPositiveInteger(settings.llamaCppMaxTokens, key: "max_tokens", to: &requestBody)
+                applyLlamaCppSamplingConfiguration(settings.llamaCppSampling, to: &requestBody)
+            case .openAICompatible, .unknown, .anthropic:
+                applyPositiveInteger(settings.openAICompatibleMaxTokens, key: "max_tokens", to: &requestBody)
+                applyOpenAIChatSamplingConfiguration(settings.openAICompatibleSampling, to: &requestBody)
+            }
+
+        case .lmStudioRESTV1, .lmStudioRESTV1LegacyMessage:
+            applyPositiveInteger(settings.lmStudioMaxTokens, key: "max_output_tokens", to: &requestBody)
+            applyLMStudioRESTSamplingConfiguration(settings.lmStudioSampling, to: &requestBody)
+
+        case .anthropicMessages:
+            applyAnthropicSamplingConfiguration(settings.anthropicSampling, to: &requestBody)
+        }
+    }
+
+    private func applyPositiveInteger(_ value: Int, key: String, to requestBody: inout [String: Any]) {
+        guard value > 0 else { return }
+        requestBody[key] = value
+    }
+
+    private func applyIntegerOverride(_ isEnabled: Bool, _ value: Int, key: String, to requestBody: inout [String: Any]) {
+        guard isEnabled else { return }
+        requestBody[key] = max(0, value)
+    }
+
+    private func applyOpenAIChatSamplingConfiguration(
+        _ sampling: APIAdvancedSamplingSettings,
+        to requestBody: inout [String: Any],
+        includeSeed: Bool = true,
+        includeJSONMode: Bool = true,
+        includeLogprobs: Bool = true,
+        topLogprobsLimit: Int = 20
+    ) {
+        if sampling.temperatureEnabled {
+            requestBody["temperature"] = sampling.temperature
+        }
+        if sampling.topPEnabled {
+            requestBody["top_p"] = sampling.topP
+        }
+        if sampling.presencePenaltyEnabled {
+            requestBody["presence_penalty"] = sampling.presencePenalty
+        }
+        if sampling.frequencyPenaltyEnabled {
+            requestBody["frequency_penalty"] = sampling.frequencyPenalty
+        }
+        if includeJSONMode, sampling.jsonModeEnabled {
+            requestBody["response_format"] = ["type": "json_object"]
+        }
+        if includeLogprobs, sampling.logprobsEnabled {
+            requestBody["logprobs"] = true
+            applyIntegerOverride(
+                sampling.topLogprobsEnabled,
+                min(sampling.topLogprobs, topLogprobsLimit),
+                key: "top_logprobs",
+                to: &requestBody
+            )
+        }
+        if includeSeed {
+            applyIntegerOverride(sampling.seedEnabled, sampling.seed, key: "seed", to: &requestBody)
+        }
+    }
+
+    private func applyAnthropicSamplingConfiguration(
+        _ sampling: APIAdvancedSamplingSettings,
+        to requestBody: inout [String: Any]
+    ) {
+        if sampling.temperatureEnabled {
+            requestBody["temperature"] = min(sampling.temperature, 1)
+        }
+        if sampling.topPEnabled {
+            requestBody["top_p"] = sampling.topP
+        }
+        applyIntegerOverride(sampling.topKEnabled, sampling.topK, key: "top_k", to: &requestBody)
+    }
+
+    private func applyOpenAIResponsesSamplingConfiguration(
+        _ sampling: APIAdvancedSamplingSettings,
+        to requestBody: inout [String: Any]
+    ) {
+        if sampling.temperatureEnabled {
+            requestBody["temperature"] = sampling.temperature
+        }
+        if sampling.topPEnabled {
+            requestBody["top_p"] = sampling.topP
+        }
+        if sampling.jsonModeEnabled {
+            mergeOpenAIResponsesTextOptions(["format": ["type": "json_object"]], into: &requestBody)
+        }
+        if sampling.verbosityEnabled {
+            mergeOpenAIResponsesTextOptions(["verbosity": openAIResponsesVerbosity(sampling.verbosity)], into: &requestBody)
+        }
+    }
+
+    private func mergeOpenAIResponsesTextOptions(_ options: [String: Any], into requestBody: inout [String: Any]) {
+        var textOptions = requestBody["text"] as? [String: Any] ?? [:]
+        for (key, value) in options {
+            textOptions[key] = value
+        }
+        requestBody["text"] = textOptions
+    }
+
+    private func openAIResponsesVerbosity(_ verbosity: String) -> String {
+        switch verbosity {
+        case "low", "high":
+            return verbosity
+        default:
+            return "medium"
+        }
+    }
+
+    private func applyGeminiSamplingConfiguration(
+        _ sampling: APIAdvancedSamplingSettings,
+        to requestBody: inout [String: Any]
+    ) {
+        if sampling.temperatureEnabled {
+            requestBody["temperature"] = sampling.temperature
+        }
+        if sampling.topPEnabled {
+            requestBody["top_p"] = sampling.topP
+        }
+    }
+
+    private func applyDeepSeekSamplingConfiguration(
+        _ sampling: APIAdvancedSamplingSettings,
+        model: String,
+        to requestBody: inout [String: Any]
+    ) {
+        let normalizedModel = model.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let isReasoner = normalizedModel.contains("reasoner")
+        if !isReasoner {
+            if sampling.temperatureEnabled {
+                requestBody["temperature"] = sampling.temperature
+            }
+            if sampling.topPEnabled {
+                requestBody["top_p"] = sampling.topP
+            }
+            if sampling.presencePenaltyEnabled {
+                requestBody["presence_penalty"] = sampling.presencePenalty
+            }
+            if sampling.frequencyPenaltyEnabled {
+                requestBody["frequency_penalty"] = sampling.frequencyPenalty
+            }
+            if sampling.logprobsEnabled {
+                requestBody["logprobs"] = true
+                applyIntegerOverride(sampling.topLogprobsEnabled, sampling.topLogprobs, key: "top_logprobs", to: &requestBody)
+            }
+        }
+        if sampling.jsonModeEnabled {
+            requestBody["response_format"] = ["type": "json_object"]
+        }
+    }
+
+    private func applyOpenRouterSamplingConfiguration(
+        _ sampling: APIAdvancedSamplingSettings,
+        to requestBody: inout [String: Any]
+    ) {
+        applyOpenAIChatSamplingConfiguration(sampling, to: &requestBody)
+        applyIntegerOverride(sampling.topKEnabled, sampling.topK, key: "top_k", to: &requestBody)
+        if sampling.minPEnabled {
+            requestBody["min_p"] = sampling.minP
+        }
+        if sampling.topAEnabled {
+            requestBody["top_a"] = sampling.topA
+        }
+        if sampling.repetitionPenaltyEnabled {
+            requestBody["repetition_penalty"] = sampling.repetitionPenalty
+        }
+        if sampling.structuredOutputsEnabled {
+            requestBody["structured_outputs"] = true
+        }
+        if sampling.verbosityEnabled {
+            requestBody["verbosity"] = sampling.verbosity
+        }
+    }
+
+    private func applyLMStudioRESTSamplingConfiguration(
+        _ sampling: APIAdvancedSamplingSettings,
+        to requestBody: inout [String: Any]
+    ) {
+        if sampling.temperatureEnabled {
+            requestBody["temperature"] = min(sampling.temperature, 1)
+        }
+        if sampling.topPEnabled {
+            requestBody["top_p"] = sampling.topP
+        }
+        applyIntegerOverride(sampling.topKEnabled, sampling.topK, key: "top_k", to: &requestBody)
+        if sampling.minPEnabled {
+            requestBody["min_p"] = sampling.minP
+        }
+        if sampling.repetitionPenaltyEnabled {
+            requestBody["repeat_penalty"] = sampling.repetitionPenalty
+        }
+        applyIntegerOverride(sampling.contextLengthEnabled, sampling.contextLength, key: "context_length", to: &requestBody)
+    }
+
+    private func applyLMStudioOpenAICompatibleSamplingConfiguration(
+        _ sampling: APIAdvancedSamplingSettings,
+        to requestBody: inout [String: Any]
+    ) {
+        applyOpenAIChatSamplingConfiguration(sampling, to: &requestBody, includeLogprobs: false)
+        applyIntegerOverride(sampling.topKEnabled, sampling.topK, key: "top_k", to: &requestBody)
+        if sampling.repetitionPenaltyEnabled {
+            requestBody["repeat_penalty"] = sampling.repetitionPenalty
+        }
+    }
+
+    private func applyLlamaCppSamplingConfiguration(
+        _ sampling: APIAdvancedSamplingSettings,
+        to requestBody: inout [String: Any]
+    ) {
+        applyOpenAIChatSamplingConfiguration(sampling, to: &requestBody)
+        applyIntegerOverride(sampling.topKEnabled, sampling.topK, key: "top_k", to: &requestBody)
+        if sampling.minPEnabled {
+            requestBody["min_p"] = sampling.minP
+        }
+        if sampling.repetitionPenaltyEnabled {
+            requestBody["repeat_penalty"] = sampling.repetitionPenalty
+        }
+    }
+
+    private func applyThinkingConfiguration(
+        to requestBody: inout [String: Any],
+        model: String,
+        endpoint: ChatAPIEndpointCandidate
+    ) {
+        guard let option = configurationProvider.thinkingOption else { return }
+        if let capability = configurationProvider.thinkingCapability,
+           !capability.isConfigurable {
+            return
+        }
+        let requestParameter = configurationProvider.thinkingCapability?.requestParameter
+
+        switch endpoint.style {
+        case .lmStudioRESTV1, .lmStudioRESTV1LegacyMessage:
+            requestBody["reasoning"] = lmStudioReasoningValue(for: option)
+
+        case .anthropicMessages:
+            guard !option.isDisabled else { return }
+            if isAnthropicAdaptiveThinkingModel(model) {
+                requestBody["thinking"] = [
+                    "type": "adaptive",
+                    "display": "summarized"
+                ]
+                requestBody["output_config"] = [
+                    "effort": anthropicAdaptiveEffort(for: option, model: model)
+                ]
+                return
+            }
+
+            let budget = anthropicThinkingBudget(for: option)
+            requestBody["thinking"] = [
+                "type": "enabled",
+                "budget_tokens": budget
+            ]
+            let settings = configurationProvider.apiAdvancedSettings.sanitized
+            let currentMaxTokens = (requestBody["max_tokens"] as? Int) ?? settings.anthropicMaxTokens
+            requestBody["max_tokens"] = max(currentMaxTokens, budget + settings.anthropicThinkingResponseReserve)
+
+        case .openAIChatCompletions:
+            if endpoint.provider == .deepSeek {
+                applyDeepSeekThinkingConfiguration(to: &requestBody, option: option)
+                return
+            }
+
+            if isOpenAIResponsesEndpoint(endpoint.chatURL) {
+                requestBody["reasoning"] = ["effort": openAIReasoningEffort(for: option)]
+                return
+            }
+
+            if let requestParameter {
+                switch requestParameter {
+                case .reasoningEffort:
+                    requestBody["reasoning_effort"] = reasoningEffortValue(for: option, endpoint: endpoint)
+                case .reasoning:
+                    requestBody["reasoning"] = ["effort": reasoningEffortValue(for: option, endpoint: endpoint)]
+                case .thinking:
+                    requestBody["thinking"] = ["type": option.isDisabled ? "disabled" : "enabled"]
+                }
+                return
+            }
+
+            switch endpoint.provider {
+            case .deepSeek:
+                if !option.isDisabled {
+                    requestBody["thinking"] = ["type": "enabled"]
+                }
+            case .gemini:
+                requestBody["reasoning_effort"] = geminiReasoningEffort(for: option)
+            case .openRouter:
+                requestBody["reasoning"] = ["effort": openRouterReasoningEffort(for: option)]
+            case .openAI, .lmStudio, .openAICompatible, .llamaCpp, .unknown:
+                requestBody["reasoning_effort"] = openAIReasoningEffort(for: option)
+            case .xAI, .anthropic:
+                break
+            }
+        }
+    }
+
+    private func reasoningEffortValue(for option: ModelThinkingOption, endpoint: ChatAPIEndpointCandidate) -> String {
+        switch endpoint.provider {
+        case .gemini:
+            return geminiReasoningEffort(for: option)
+        case .openRouter:
+            return openRouterReasoningEffort(for: option)
+        case .openAI, .lmStudio, .openAICompatible, .llamaCpp, .unknown, .deepSeek, .anthropic, .xAI:
+            return openAIReasoningEffort(for: option)
+        }
+    }
+
+    private func lmStudioReasoningValue(for option: ModelThinkingOption) -> String {
+        switch option {
+        case .none:
+            return "off"
+        case .minimal:
+            return "low"
+        case .xhigh, .max:
+            return "high"
+        default:
+            return option.rawValue
+        }
+    }
+
+    private func openAIReasoningEffort(for option: ModelThinkingOption) -> String {
+        switch option {
+        case .off:
+            return "none"
+        case .on:
+            return "medium"
+        case .max:
+            return "xhigh"
+        default:
+            return option.rawValue
+        }
+    }
+
+    private func geminiReasoningEffort(for option: ModelThinkingOption) -> String {
+        switch option {
+        case .off:
+            return "none"
+        case .on:
+            return "medium"
+        case .xhigh, .max:
+            return "high"
+        default:
+            return option.rawValue
+        }
+    }
+
+    private func openRouterReasoningEffort(for option: ModelThinkingOption) -> String {
+        switch option {
+        case .off:
+            return "none"
+        case .on:
+            return "medium"
+        case .max:
+            return "xhigh"
+        default:
+            return option.rawValue
+        }
+    }
+
+    private func applyDeepSeekThinkingConfiguration(to requestBody: inout [String: Any], option: ModelThinkingOption) {
+        requestBody["thinking"] = ["type": option.isDisabled ? "disabled" : "enabled"]
+        guard !option.isDisabled else { return }
+        requestBody["reasoning_effort"] = deepSeekReasoningEffort(for: option)
+    }
+
+    private func deepSeekReasoningEffort(for option: ModelThinkingOption) -> String {
+        switch option {
+        case .xhigh, .max:
+            return "max"
+        case .off, .none:
+            return "high"
+        case .minimal, .low, .medium, .high, .on:
+            return "high"
+        }
+    }
+
+    private func anthropicThinkingBudget(for option: ModelThinkingOption) -> Int {
+        let settings = configurationProvider.apiAdvancedSettings.sanitized
+        switch option {
+        case .minimal, .low, .on:
+            return settings.anthropicLowThinkingBudget
+        case .medium:
+            return settings.anthropicMediumThinkingBudget
+        case .high, .xhigh, .max:
+            return settings.anthropicHighThinkingBudget
+        case .off, .none:
+            return 0
+        }
+    }
+
+    private func isAnthropicAdaptiveThinkingModel(_ model: String) -> Bool {
+        let normalized = model.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return normalized.contains("claude-opus-4-7") ||
+            normalized.contains("claude-opus-4-6") ||
+            normalized.contains("claude-sonnet-4-6") ||
+            normalized.contains("claude-mythos")
+    }
+
+    private func anthropicAdaptiveEffort(for option: ModelThinkingOption, model: String) -> String {
+        switch option {
+        case .xhigh:
+            let normalized = model.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            return normalized.contains("claude-opus-4-7") ? "xhigh" : "max"
+        case .max:
+            return "max"
+        case .minimal, .low, .on:
+            return "low"
+        case .medium:
+            return "medium"
+        case .high:
+            return "high"
+        case .off, .none:
+            return "low"
         }
     }
 
@@ -1718,13 +2181,17 @@ final class ChatService: NSObject, URLSessionDataDelegate, @unchecked Sendable {
                 isLegacyThinkStream = true
             }
 
-            if let r = delta.reasoning?.text, !r.isEmpty {
+            var reasoningText = delta.reasoning?.text ?? ""
+            if reasoningText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                reasoningText = delta.reasoning_content ?? ""
+            }
+            if !reasoningText.isEmpty {
                 newFormatActive = true
                 if !isLegacyThinkStream && !sentThinkOpen {
                     emitDelta(thinkOpenLine, marksPrimaryOutput: false)
                     sentThinkOpen = true
                 }
-                emitDelta(r, marksPrimaryOutput: false)
+                emitDelta(reasoningText, marksPrimaryOutput: false)
             }
 
             if !deltaText.isEmpty {

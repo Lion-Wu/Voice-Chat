@@ -25,11 +25,18 @@ final class SettingsManager: ObservableObject {
     @Published var chatSettings: ChatSettings
     @Published private(set) var chatModelImageInputSupport: [String: Bool] = [:]
     @Published private(set) var chatModelImageInputOverrides: [String: Bool] = [:]
+    @Published private(set) var chatModelThinkingCapabilities: [String: ModelThinkingCapability] = [:]
+    @Published private(set) var chatModelThinkingPreferences: [String: ModelThinkingOption] = [:]
     @Published private(set) var detectedChatProviderHints: [String: ChatProvider] = [:]
     @Published private(set) var detectedChatRequestStyleHints: [String: ChatRequestStyle] = [:]
     @Published var voiceSettings: VoiceSettings
     @Published var developerModeEnabled: Bool
     @Published var hapticFeedbackEnabled: Bool
+    @Published var apiAdvancedSettings: APIAdvancedSettings
+
+    var activeAPIAdvancedSettings: APIAdvancedSettings {
+        developerModeEnabled ? apiAdvancedSettings : Defaults.apiAdvancedSettings
+    }
 
     // Voice server preset list and selection state.
     @Published private(set) var voiceServerPresets: [VoiceServerPreset] = []
@@ -80,6 +87,7 @@ final class SettingsManager: ObservableObject {
     private var entity: AppSettings?
     private var pendingDeveloperModeEnabled: Bool?
     private var pendingHapticFeedbackEnabled: Bool?
+    private var pendingAPIAdvancedSettings: APIAdvancedSettings?
 
     // Used to gate one-time work performed at launch.
     private var didApplyOnLaunch = false
@@ -100,6 +108,8 @@ final class SettingsManager: ObservableObject {
         static let enableStreaming = true
         static let developerModeEnabled = false
         static let hapticFeedbackEnabled = true
+        static let apiAdvancedSettings = APIAdvancedSettings.defaults
+        static let chatModelThinkingPreferencesKey = "VoiceChat.chatModelThinkingPreferences.v1"
     }
 
     private init() {
@@ -110,9 +120,11 @@ final class SettingsManager: ObservableObject {
         )
         self.modelSettings = ModelSettings(modelId: "", language: Defaults.modelLanguage, autoSplit: Defaults.autoSplit)
         self.chatSettings = ChatSettings(apiURL: Defaults.apiURL, selectedModel: "", apiKey: "")
+        self.chatModelThinkingPreferences = Self.loadChatModelThinkingPreferences()
         self.voiceSettings = VoiceSettings(enableStreaming: Defaults.enableStreaming)
         self.developerModeEnabled = Defaults.developerModeEnabled
         self.hapticFeedbackEnabled = Defaults.hapticFeedbackEnabled
+        self.apiAdvancedSettings = Defaults.apiAdvancedSettings
     }
 
     private func scopedImageSupportPrefix(for apiBaseURL: String) -> String? {
@@ -125,6 +137,29 @@ final class SettingsManager: ObservableObject {
         guard !trimmedModel.isEmpty else { return nil }
         guard let prefix = scopedImageSupportPrefix(for: apiBaseURL) else { return nil }
         return "\(prefix)\(trimmedModel)"
+    }
+
+    private func scopedThinkingCapabilityKey(apiBaseURL: String, modelIdentifier: String) -> String? {
+        scopedImageSupportKey(apiBaseURL: apiBaseURL, modelIdentifier: modelIdentifier)
+    }
+
+    private static func loadChatModelThinkingPreferences() -> [String: ModelThinkingOption] {
+        guard let raw = UserDefaults.standard.dictionary(forKey: Defaults.chatModelThinkingPreferencesKey) as? [String: String] else {
+            return [:]
+        }
+        var out: [String: ModelThinkingOption] = [:]
+        out.reserveCapacity(raw.count)
+        for (key, value) in raw {
+            if let option = ModelThinkingOption.normalized(value) {
+                out[key] = option
+            }
+        }
+        return out
+    }
+
+    private func saveChatModelThinkingPreferences() {
+        let encoded = chatModelThinkingPreferences.mapValues(\.rawValue)
+        UserDefaults.standard.set(encoded, forKey: Defaults.chatModelThinkingPreferencesKey)
     }
 
     private func explicitImageInputSupport(for modelIdentifier: String, apiBaseURL: String) -> Bool? {
@@ -143,6 +178,19 @@ final class SettingsManager: ObservableObject {
             updated[key] = supportsImageInput
         }
         chatModelImageInputSupport = updated
+    }
+
+    func updateChatModelThinkingCapabilities(_ capabilitiesByModel: [String: ModelThinkingCapability], for apiBaseURL: String) {
+        guard let prefix = scopedImageSupportPrefix(for: apiBaseURL) else { return }
+
+        var updated = chatModelThinkingCapabilities
+        updated.keys.filter { $0.hasPrefix(prefix) }.forEach { updated.removeValue(forKey: $0) }
+
+        for (modelID, capability) in capabilitiesByModel {
+            guard let key = scopedThinkingCapabilityKey(apiBaseURL: apiBaseURL, modelIdentifier: modelID) else { continue }
+            updated[key] = capability
+        }
+        chatModelThinkingCapabilities = updated
     }
 
     func noteDetectedChatProvider(_ provider: ChatProvider, for apiBaseURL: String) {
@@ -263,13 +311,73 @@ final class SettingsManager: ObservableObject {
         supportsImageInput(for: chatSettings.selectedModel)
     }
 
+    func thinkingCapability(for modelIdentifier: String) -> ModelThinkingCapability? {
+        let trimmed = modelIdentifier.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+
+        let requestStyle = resolvedChatRequestStyle(for: chatSettings.apiURL)
+        let provider = resolvedChatProvider(for: chatSettings.apiURL)
+            ?? Self.providerHint(from: requestStyle)
+            ?? ChatAPIEndpointResolver.officialProviderHint(for: chatSettings.apiURL)
+            ?? .openAICompatible
+        let inferred = Self.inferThinkingCapability(
+            fromModelIdentifier: trimmed,
+            provider: provider,
+            requestStyle: requestStyle
+        )
+
+        if let key = scopedThinkingCapabilityKey(apiBaseURL: chatSettings.apiURL, modelIdentifier: trimmed),
+           let explicit = chatModelThinkingCapabilities[key] {
+            return explicit
+        }
+
+        return inferred
+    }
+
+    private static func providerHint(from requestStyle: ChatRequestStyle?) -> ChatProvider? {
+        switch requestStyle {
+        case .lmStudioRESTV1, .lmStudioRESTV1LegacyMessage:
+            return .lmStudio
+        case .anthropicMessages:
+            return .anthropic
+        case .openAIChatCompletions, nil:
+            return nil
+        }
+    }
+
+    func selectedThinkingOption(for modelIdentifier: String? = nil) -> ModelThinkingOption? {
+        let model = (modelIdentifier ?? chatSettings.selectedModel).trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !model.isEmpty, let capability = thinkingCapability(for: model) else { return nil }
+        let key = scopedThinkingCapabilityKey(apiBaseURL: chatSettings.apiURL, modelIdentifier: model)
+        return capability.normalizedSelection(key.flatMap { chatModelThinkingPreferences[$0] })
+    }
+
+    func setSelectedThinkingOption(_ option: ModelThinkingOption?, for modelIdentifier: String? = nil) {
+        let model = (modelIdentifier ?? chatSettings.selectedModel).trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !model.isEmpty,
+              let capability = thinkingCapability(for: model),
+              let key = scopedThinkingCapabilityKey(apiBaseURL: chatSettings.apiURL, modelIdentifier: model) else {
+            return
+        }
+        guard let normalized = capability.normalizedSelection(option) else { return }
+        chatModelThinkingPreferences[key] = normalized
+        saveChatModelThinkingPreferences()
+    }
+
+    func toggleSelectedThinking(for modelIdentifier: String? = nil) {
+        let model = (modelIdentifier ?? chatSettings.selectedModel).trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !model.isEmpty, let capability = thinkingCapability(for: model) else { return }
+        let next = capability.toggledSelection(from: selectedThinkingOption(for: model))
+        setSelectedThinkingOption(next, for: model)
+    }
+
     private static func inferImageInputSupportFromModelIdentifier(_ identifier: String) -> Bool? {
         let normalized = identifier.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         guard !normalized.isEmpty else { return nil }
 
         let knownVisionHints = [
             // OpenAI
-            "gpt-5", "gpt-5.1", "gpt-5.2", "gpt-4o", "gpt-4.1", "gpt-4.5", "o1", "o3", "o4",
+            "gpt-5", "gpt-5.1", "gpt-5.2", "gpt-5.4", "gpt-5.5", "gpt-4o", "gpt-4.1", "gpt-4.5", "o1", "o3", "o4",
             // Anthropic
             "claude-3", "claude-4",
             // Google
@@ -297,6 +405,154 @@ final class SettingsManager: ObservableObject {
         return nil
     }
 
+    private static func inferThinkingCapability(
+        fromModelIdentifier identifier: String,
+        provider: ChatProvider,
+        requestStyle: ChatRequestStyle?
+    ) -> ModelThinkingCapability? {
+        let normalized = identifier.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !normalized.isEmpty else { return nil }
+
+        switch provider {
+        case .openAI:
+            if normalized.contains("gpt-5-pro") {
+                return nil
+            }
+            if normalized.contains("gpt-5.5") {
+                return ModelThinkingCapability(options: [.low, .medium, .high, .xhigh], defaultOption: .medium)
+            }
+            if normalized.contains("gpt-5.4-pro") {
+                return ModelThinkingCapability(options: [.medium, .high, .xhigh], defaultOption: .medium)
+            }
+            if normalized.contains("gpt-5.4") {
+                return ModelThinkingCapability(options: [.none, .low, .medium, .high, .xhigh], defaultOption: ModelThinkingOption.none)
+            }
+            if normalized.contains("gpt-5.3-codex") ||
+                normalized.contains("gpt-5.2-codex") ||
+                normalized.contains("gpt-5.1-codex-max") {
+                return ModelThinkingCapability(options: [.low, .medium, .high, .xhigh], defaultOption: .medium)
+            }
+            if normalized.contains("gpt-5.2-pro") {
+                return ModelThinkingCapability(options: [.medium, .high, .xhigh], defaultOption: .medium)
+            }
+            if normalized.contains("gpt-5.2") {
+                return ModelThinkingCapability(options: [.none, .low, .medium, .high, .xhigh], defaultOption: ModelThinkingOption.none)
+            }
+            if normalized.contains("gpt-5.1") {
+                return ModelThinkingCapability(options: [.none, .low, .medium, .high], defaultOption: ModelThinkingOption.none)
+            }
+            if normalized.contains("gpt-5") {
+                return ModelThinkingCapability(options: [.minimal, .low, .medium, .high], defaultOption: .medium)
+            }
+            if normalized.contains("o1") || normalized.contains("o3") || normalized.contains("o4") || normalized.contains("gpt-oss") {
+                return ModelThinkingCapability(options: [.low, .medium, .high], defaultOption: .medium)
+            }
+            return nil
+
+        case .anthropic:
+            if normalized.contains("claude-opus-4-7") {
+                return ModelThinkingCapability(options: [.off, .low, .medium, .high, .xhigh, .max], defaultOption: .off)
+            }
+            if normalized.contains("claude-opus-4-6") ||
+                normalized.contains("claude-sonnet-4-6") {
+                return ModelThinkingCapability(options: [.off, .low, .medium, .high, .max], defaultOption: .off)
+            }
+            if normalized.contains("claude-mythos") {
+                return ModelThinkingCapability(options: [.low, .medium, .high, .max], defaultOption: .high)
+            }
+            if normalized.contains("claude-opus-4") ||
+                normalized.contains("claude-sonnet-4") ||
+                normalized.contains("claude-3-7-sonnet") {
+                return ModelThinkingCapability(options: [.off, .low, .medium, .high], defaultOption: .off)
+            }
+            return nil
+
+        case .gemini:
+            if normalized.contains("gemini-3") {
+                if normalized.contains("pro") {
+                    return ModelThinkingCapability(options: [.minimal, .low, .high], defaultOption: .high)
+                }
+                return ModelThinkingCapability(options: [.minimal, .low, .medium, .high], defaultOption: .high)
+            }
+            if normalized.contains("gemini-2.5") {
+                if normalized.contains("pro") {
+                    return ModelThinkingCapability(options: [.minimal, .low, .medium, .high], defaultOption: .high)
+                }
+                return ModelThinkingCapability(options: [.none, .minimal, .low, .medium, .high], defaultOption: ModelThinkingOption.none)
+            }
+            return nil
+
+        case .deepSeek:
+            if normalized.contains("deepseek-v4") ||
+                normalized.contains("deepseek-reasoner") ||
+                normalized == "deepseek-chat" ||
+                normalized.hasSuffix("/deepseek-chat") {
+                return ModelThinkingCapability(options: [.off, .high, .max], defaultOption: .high)
+            }
+            return nil
+
+        case .lmStudio:
+            return nil
+
+        case .xAI:
+            if normalized.contains("multi-agent") {
+                return ModelThinkingCapability(
+                    options: [.low, .medium, .high, .xhigh],
+                    defaultOption: .medium,
+                    requestParameter: .reasoning
+                )
+            }
+            // xAI reasoning models reason automatically; current docs warn that generic
+            // reasoning effort parameters return errors for normal Grok reasoning models.
+            return nil
+
+        case .openRouter:
+            if let openAI = inferThinkingCapability(fromModelIdentifier: normalized, provider: .openAI, requestStyle: .openAIChatCompletions) {
+                return openRouterReasoningCapability(from: openAI)
+            }
+            if let gemini = inferThinkingCapability(fromModelIdentifier: normalized, provider: .gemini, requestStyle: .openAIChatCompletions) {
+                return openRouterReasoningCapability(from: gemini)
+            }
+            if let anthropic = inferThinkingCapability(fromModelIdentifier: normalized, provider: .anthropic, requestStyle: .openAIChatCompletions) {
+                return openRouterReasoningCapability(from: anthropic)
+            }
+            if normalized.contains("deepseek-v4") ||
+                normalized.contains("deepseek-chat") ||
+                normalized.contains("deepseek-reasoner") {
+                return ModelThinkingCapability(options: [.off, .high, .xhigh], defaultOption: .high, requestParameter: .reasoning)
+            }
+            return nil
+
+        case .llamaCpp:
+            return nil
+
+        case .openAICompatible, .unknown:
+            guard requestStyle == nil || requestStyle == .openAIChatCompletions else { return nil }
+            if let openAI = inferThinkingCapability(fromModelIdentifier: normalized, provider: .openAI, requestStyle: .openAIChatCompletions) {
+                return openAI
+            }
+            if let gemini = inferThinkingCapability(fromModelIdentifier: normalized, provider: .gemini, requestStyle: .openAIChatCompletions) {
+                return gemini
+            }
+            if normalized.contains("gpt-oss") {
+                return ModelThinkingCapability(options: [.low, .medium, .high], defaultOption: .medium)
+            }
+            return nil
+        }
+    }
+
+    private static func openRouterReasoningCapability(from capability: ModelThinkingCapability) -> ModelThinkingCapability {
+        let options = capability.options.map { option in
+            option == .max ? .xhigh : option
+        }
+        let defaultOption = capability.defaultOption == .max ? ModelThinkingOption.xhigh : capability.defaultOption
+        return ModelThinkingCapability(
+            options: options,
+            defaultOption: defaultOption,
+            requestParameter: .reasoning
+        )
+    }
+
     // SwiftData context injected from the app or root view.
     func attach(context: ModelContext) {
         guard self.context == nil else { return }
@@ -313,6 +569,12 @@ final class SettingsManager: ObservableObject {
             entity?.hapticFeedbackEnabled = pending
             saveContext(label: "apply pending haptic feedback")
             pendingHapticFeedbackEnabled = nil
+        }
+        if let pending = pendingAPIAdvancedSettings {
+            apiAdvancedSettings = pending.sanitized
+            entity?.apiAdvancedSettingsJSON = encodeAPIAdvancedSettings(apiAdvancedSettings)
+            saveContext(label: "apply pending API advanced settings")
+            pendingAPIAdvancedSettings = nil
         }
         loadVoiceServerPresetsFromStore()
         ensureDefaultVoiceServerPresetIfNeeded()
@@ -390,6 +652,7 @@ final class SettingsManager: ObservableObject {
         let resolvedHapticEnabled = e.hapticFeedbackEnabled ?? Defaults.hapticFeedbackEnabled
         self.hapticFeedbackEnabled = resolvedHapticEnabled
         self.chatModelImageInputOverrides = decodeChatModelImageInputOverrides(from: e.modelImageInputOverrideJSON)
+        self.apiAdvancedSettings = decodeAPIAdvancedSettings(from: e.apiAdvancedSettingsJSON).sanitized
         self.selectedVoiceServerPresetID = e.selectedVoiceServerPresetID
         self.selectedChatServerPresetID = e.selectedChatServerPresetID
         self.selectedPresetID = e.selectedPresetID
@@ -400,6 +663,10 @@ final class SettingsManager: ObservableObject {
         if e.hapticFeedbackEnabled == nil {
             e.hapticFeedbackEnabled = resolvedHapticEnabled
             saveContext(label: "backfill haptic feedback setting")
+        }
+        if e.apiAdvancedSettingsJSON == nil {
+            e.apiAdvancedSettingsJSON = encodeAPIAdvancedSettings(apiAdvancedSettings)
+            saveContext(label: "backfill API advanced settings")
         }
     }
 
@@ -423,6 +690,21 @@ final class SettingsManager: ObservableObject {
     private func encodeChatModelImageInputOverrides(_ overrides: [String: Bool]) -> String? {
         guard !overrides.isEmpty else { return nil }
         guard let data = try? JSONEncoder().encode(overrides) else { return nil }
+        return String(data: data, encoding: .utf8)
+    }
+
+    private func decodeAPIAdvancedSettings(from json: String?) -> APIAdvancedSettings {
+        guard let json, !json.isEmpty, let data = json.data(using: .utf8) else {
+            return Defaults.apiAdvancedSettings
+        }
+        guard let decoded = try? JSONDecoder().decode(APIAdvancedSettings.self, from: data) else {
+            return Defaults.apiAdvancedSettings
+        }
+        return decoded
+    }
+
+    private func encodeAPIAdvancedSettings(_ settings: APIAdvancedSettings) -> String? {
+        guard let data = try? JSONEncoder().encode(settings.sanitized) else { return nil }
         return String(data: data, encoding: .utf8)
     }
 
@@ -876,6 +1158,19 @@ final class SettingsManager: ObservableObject {
         saveHapticFeedbackEnabled()
     }
 
+    func updateAPIAdvancedSettings(_ settings: APIAdvancedSettings) {
+        apiAdvancedSettings = settings.sanitized
+        guard entity != nil, context != nil else {
+            pendingAPIAdvancedSettings = apiAdvancedSettings
+            return
+        }
+        saveAPIAdvancedSettings()
+    }
+
+    func resetAPIAdvancedSettingsToDefaults() {
+        updateAPIAdvancedSettings(Defaults.apiAdvancedSettings)
+    }
+
     // MARK: - Preset CRUD
 
     func createPreset(name: String = String(localized: "New Preset")) -> VoicePreset? {
@@ -1121,6 +1416,12 @@ final class SettingsManager: ObservableObject {
         saveContext(label: "save haptic feedback")
     }
 
+    func saveAPIAdvancedSettings() {
+        guard let e = entity, context != nil else { return }
+        e.apiAdvancedSettingsJSON = encodeAPIAdvancedSettings(apiAdvancedSettings)
+        saveContext(label: "save API advanced settings")
+    }
+
     private struct ProviderModelFetchPayload {
         let models: [ModelInfo]
     }
@@ -1234,13 +1535,19 @@ final class SettingsManager: ObservableObject {
                 noteDetectedChatEndpoint(candidate, for: rawBase)
 
                 var supportMap: [String: Bool] = [:]
+                var thinkingMap: [String: ModelThinkingCapability] = [:]
                 supportMap.reserveCapacity(models.count)
+                thinkingMap.reserveCapacity(models.count)
                 for model in models {
                     if let support = model.supportsImageInputHint {
                         supportMap[model.id] = support
                     }
+                    if let thinking = model.thinkingCapabilityHint(provider: candidate.provider, requestStyle: candidate.style) {
+                        thinkingMap[model.id] = thinking
+                    }
                 }
                 updateChatModelImageInputSupport(supportMap, for: rawBase)
+                updateChatModelThinkingCapabilities(thinkingMap, for: rawBase)
 
                 let selected = chatSettings.selectedModel.trimmingCharacters(in: .whitespacesAndNewlines)
                 let availableModelIDs = Set(models.map(\.id))
