@@ -143,6 +143,13 @@ func renderMarkdownImage(
 struct MarkdownTableRow: @unchecked Sendable {
     let cells: [NSAttributedString]
     let isHeader: Bool
+    let sourceMarkdown: String?
+
+    init(cells: [NSAttributedString], isHeader: Bool, sourceMarkdown: String? = nil) {
+        self.cells = cells
+        self.isHeader = isHeader
+        self.sourceMarkdown = sourceMarkdown
+    }
 }
 
 struct MarkdownTableStyle {

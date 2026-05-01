@@ -74,6 +74,33 @@ final class MarkdownMathAttachment: MarkdownAttachment, @unchecked Sendable {
         configureTextAttachmentViewIfAvailable()
     }
 
+    private init(
+        source: String,
+        latex: String,
+        displayMode: Bool,
+        style: MarkdownMathStyle,
+        renderOutput: MarkdownMathRenderOutput,
+        maxWidth: CGFloat,
+        cachedAvailableWidth: CGFloat,
+        cachedBounds: CGRect,
+        cachedImage: MarkdownPlatformImage?,
+        hasAppliedAttachmentImage: Bool
+    ) {
+        self.source = source
+        self.latex = latex
+        self.displayMode = displayMode
+        self.style = style
+        self.renderOutput = renderOutput
+        self.cachedAvailableWidth = cachedAvailableWidth
+        self.cachedBounds = cachedBounds
+        self.cachedImage = cachedImage
+        self.hasAppliedAttachmentImage = hasAppliedAttachmentImage
+        super.init(data: nil, ofType: nil)
+        self.maxWidth = maxWidth
+        configureTextAttachmentViewIfAvailable()
+        self.image = cachedImage
+    }
+
     required init?(coder: NSCoder) {
         self.source = ""
         self.latex = ""
@@ -94,6 +121,23 @@ final class MarkdownMathAttachment: MarkdownAttachment, @unchecked Sendable {
         )
         super.init(coder: coder)
         configureTextAttachmentViewIfAvailable()
+    }
+
+    func copiedForStreamingTableCellReuse() -> MarkdownMathAttachment {
+        let copy = MarkdownMathAttachment(
+            source: source,
+            latex: latex,
+            displayMode: displayMode,
+            style: style,
+            renderOutput: renderOutput,
+            maxWidth: maxWidth,
+            cachedAvailableWidth: cachedAvailableWidth,
+            cachedBounds: cachedBounds,
+            cachedImage: cachedImage,
+            hasAppliedAttachmentImage: hasAppliedAttachmentImage
+        )
+        copy.contentVersion = contentVersion
+        return copy
     }
 
     override func widthDidChange() {

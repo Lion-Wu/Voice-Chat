@@ -39,6 +39,31 @@ extension MarkdownPlatformColor {
         return usingColorSpace(.sRGB)?.alphaComponent ?? alphaComponent
         #endif
     }
+
+    var markdownCacheComponent: String {
+        #if os(iOS) || os(tvOS) || os(watchOS) || os(visionOS)
+        var red: CGFloat = 0
+        var green: CGFloat = 0
+        var blue: CGFloat = 0
+        var alpha: CGFloat = 0
+        guard getRed(&red, green: &green, blue: &blue, alpha: &alpha) else {
+            return "\(self)"
+        }
+        #elseif os(macOS)
+        guard let color = usingColorSpace(.sRGB) else {
+            return "\(self)"
+        }
+        let red = color.redComponent
+        let green = color.greenComponent
+        let blue = color.blueComponent
+        let alpha = color.alphaComponent
+        #endif
+        let r = Int((red * 255).rounded())
+        let g = Int((green * 255).rounded())
+        let b = Int((blue * 255).rounded())
+        let a = Int((alpha * 255).rounded())
+        return "\(r),\(g),\(b),\(a)"
+    }
 }
 
 struct MarkdownStyle: @unchecked Sendable {
@@ -125,7 +150,19 @@ struct MarkdownStyle: @unchecked Sendable {
     }
 
     var cacheKey: String {
-        "md:\(baseFont.pointSize):\(colorScheme)"
+        [
+            "md",
+            "\(baseFont.pointSize)",
+            "\(codeFont.pointSize)",
+            "\(colorScheme)",
+            baseColor.markdownCacheComponent,
+            secondaryColor.markdownCacheComponent,
+            linkColor.markdownCacheComponent,
+            inlineCodeBackground.markdownCacheComponent,
+            codeBlockBackground.markdownCacheComponent,
+            tableBorderColor.markdownCacheComponent,
+            quoteBorderColor.markdownCacheComponent
+        ].joined(separator: ":")
     }
 
     func paragraphStyle(
@@ -174,7 +211,7 @@ struct MarkdownStyle: @unchecked Sendable {
                 codeBlockBackground: MarkdownPlatformColor.markdownHex(0x1c1c1e),
                 tableHeaderBackground: MarkdownPlatformColor.clear,
                 tableStripeBackground: MarkdownPlatformColor.clear,
-                quoteBorder: MarkdownPlatformColor.markdownHex(0x3a3a3c),
+                quoteBorder: MarkdownPlatformColor.markdownHex(0x636366),
                 rule: MarkdownPlatformColor.markdownHex(0x3a3a3c)
             )
         } else {
@@ -187,14 +224,14 @@ struct MarkdownStyle: @unchecked Sendable {
                 codeBlockBackground: MarkdownPlatformColor.markdownHex(0xf2f2f7),
                 tableHeaderBackground: MarkdownPlatformColor.clear,
                 tableStripeBackground: MarkdownPlatformColor.clear,
-                quoteBorder: MarkdownPlatformColor.markdownHex(0xd1d1d6),
+                quoteBorder: MarkdownPlatformColor.markdownHex(0x8e8e93),
                 rule: MarkdownPlatformColor.markdownHex(0xd1d1d6)
             )
         }
         #else
         if scheme == .dark {
             return Palette(
-                text: MarkdownPlatformColor.markdownHex(0xc9d1d9),
+                text: MarkdownPlatformColor.markdownHex(0xffffff),
                 secondaryText: MarkdownPlatformColor.markdownHex(0x8b949e),
                 link: MarkdownPlatformColor.markdownHex(0x58a6ff),
                 border: MarkdownPlatformColor.markdownHex(0x30363d),
@@ -202,12 +239,12 @@ struct MarkdownStyle: @unchecked Sendable {
                 codeBlockBackground: MarkdownPlatformColor.markdownHex(0x161b22),
                 tableHeaderBackground: MarkdownPlatformColor.clear,
                 tableStripeBackground: MarkdownPlatformColor.clear,
-                quoteBorder: MarkdownPlatformColor.markdownHex(0x30363d),
+                quoteBorder: MarkdownPlatformColor.markdownHex(0x6e7681),
                 rule: MarkdownPlatformColor.markdownHex(0x30363d)
             )
         } else {
             return Palette(
-                text: MarkdownPlatformColor.markdownHex(0x24292f),
+                text: MarkdownPlatformColor.markdownHex(0x000000),
                 secondaryText: MarkdownPlatformColor.markdownHex(0x57606a),
                 link: MarkdownPlatformColor.markdownHex(0x0969da),
                 border: MarkdownPlatformColor.markdownHex(0xe5e7eb),
@@ -215,7 +252,7 @@ struct MarkdownStyle: @unchecked Sendable {
                 codeBlockBackground: MarkdownPlatformColor.markdownHex(0xf7f7f8),
                 tableHeaderBackground: MarkdownPlatformColor.clear,
                 tableStripeBackground: MarkdownPlatformColor.clear,
-                quoteBorder: MarkdownPlatformColor.markdownHex(0xd8dbe0),
+                quoteBorder: MarkdownPlatformColor.markdownHex(0x8c959f),
                 rule: MarkdownPlatformColor.markdownHex(0xe5e7eb)
             )
         }
