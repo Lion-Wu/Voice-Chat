@@ -197,14 +197,16 @@ final class MarkdownAttributedStringRenderer {
             attrs[.foregroundColor] = quoteTextColor
             let content = NSMutableAttributedString()
             renderChildrenBlocks(quote, into: content, listDepth: listDepth, baseAttributes: attrs)
+            finalizeRenderedOutput(content)
+            let quoteContent = NSAttributedString(attributedString: content)
             let quoteStyle = MarkdownQuoteStyle(
                 textColor: quoteTextColor,
                 borderColor: style.quoteBorderColor,
-                borderWidth: 3,
+                borderWidth: 4,
                 padding: CGSize(width: 12, height: 6)
             )
             let attachment = MarkdownQuoteAttachment(
-                content: content,
+                content: quoteContent,
                 style: quoteStyle,
                 maxWidth: maxImageWidth ?? 0
             )
@@ -705,7 +707,7 @@ final class MarkdownAttributedStringRenderer {
         }
         let paragraphStyle = tableCellParagraphStyle(alignment: alignment)
         content.addAttribute(.paragraphStyle, value: paragraphStyle, range: NSRange(location: 0, length: content.length))
-        return content
+        return NSAttributedString(attributedString: content)
     }
 
     private func tableCellParagraphStyle(alignment: NSTextAlignment) -> NSMutableParagraphStyle {

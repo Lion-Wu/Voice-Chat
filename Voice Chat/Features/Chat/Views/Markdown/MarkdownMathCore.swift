@@ -1249,6 +1249,28 @@ private struct MarkdownMathParser {
         return simplify(atom)
     }
 
+    private mutating func parseScriptArgument() -> MarkdownMathExpression {
+        guard index < characters.count else {
+            return .run(MarkdownMathRun(text: "", kind: .symbol))
+        }
+
+        if characters[index] == "{" {
+            index += 1
+            let content = parseSequence(stoppingAt: .closingBrace)
+            if index < characters.count, characters[index] == "}" {
+                index += 1
+            }
+            return simplify(content)
+        }
+
+        if let commandExpression = parseCommandOrEscape(stoppingAt: .none) {
+            return simplify(commandExpression)
+        }
+
+        let atom = parseScriptPlainRun()
+        return simplify(atom)
+    }
+
     private mutating func parseOptionalBracketArgument() -> MarkdownMathExpression? {
         guard index < characters.count, characters[index] == "[" else { return nil }
         index += 1
@@ -1404,6 +1426,77 @@ private struct MarkdownMathParser {
         return simplify(.sequence(runs.map(MarkdownMathExpression.run)))
     }
 
+    private mutating func parseScriptPlainRun() -> MarkdownMathExpression {
+        guard index < characters.count else {
+            return .run(MarkdownMathRun(text: "", kind: .symbol))
+        }
+
+        let first = characters[index]
+        if isSignedNumberScriptStart(at: index) {
+            return parseSignedNumberScriptRun()
+        }
+        if isScriptBoundary(first) {
+            index += 1
+            return .run(MarkdownMathRun(text: String(first), kind: scriptRunKind(for: first)))
+        }
+
+        let start = index
+        let firstKind = scriptRunKind(for: first)
+        index += 1
+        while index < characters.count {
+            let character = characters[index]
+            if isScriptBoundary(character) {
+                break
+            }
+            guard scriptRunKind(for: character) == firstKind else {
+                break
+            }
+            index += 1
+        }
+
+        let text = String(characters[start..<index])
+        return .run(MarkdownMathRun(text: text, kind: firstKind))
+    }
+
+    private mutating func parseSignedNumberScriptRun() -> MarkdownMathExpression {
+        let start = index
+        index += 1
+        while index < characters.count {
+            let character = characters[index]
+            guard character.isNumber || character == "." else { break }
+            index += 1
+        }
+        return .run(MarkdownMathRun(text: String(characters[start..<index]), kind: .number))
+    }
+
+    private func isSignedNumberScriptStart(at position: Int) -> Bool {
+        guard position + 1 < characters.count else { return false }
+        guard characters[position] == "+" || characters[position] == "-" else { return false }
+        return characters[position + 1].isNumber
+    }
+
+    private func isScriptBoundary(_ character: Character) -> Bool {
+        character == "\\" ||
+            character == "{" ||
+            character == "}" ||
+            character == "^" ||
+            character == "_" ||
+            character == "'" ||
+            character == "&" ||
+            character.isWhitespace ||
+            Self.scriptArgumentTrailingStops.contains(character)
+    }
+
+    private func scriptRunKind(for character: Character) -> MarkdownMathRunKind {
+        if character.isNumber { return .number }
+        if character.isLetter { return .variable }
+        return .symbol
+    }
+
+    private static let scriptArgumentTrailingStops: Set<Character> = [
+        ")", "]", ",", ";", ":", "+", "-", "=", "<", ">", "/", "*", "|"
+    ]
+
     private mutating func applyScriptsIfNeeded(to base: MarkdownMathExpression) -> MarkdownMathExpression {
         var superscript: MarkdownMathExpression?
         var subscriptExpression: MarkdownMathExpression?
@@ -1416,9 +1509,9 @@ private struct MarkdownMathParser {
             index += 1
             switch marker {
             case "^":
-                superscript = parseRequiredArgument()
+                superscript = parseScriptArgument()
             case "_":
-                subscriptExpression = parseRequiredArgument()
+                subscriptExpression = parseScriptArgument()
             case "'":
                 let prime = MarkdownMathExpression.run(MarkdownMathRun(text: "′", kind: .symbol))
                 if let existingSuperscript = superscript {
@@ -1634,11 +1727,13 @@ private enum MarkdownMathCommandMap {
         case "neq", "ne": return MarkdownMathRun(text: "≠", kind: .symbol)
         case "leq", "le": return MarkdownMathRun(text: "≤", kind: .symbol)
         case "geq", "ge": return MarkdownMathRun(text: "≥", kind: .symbol)
+        case "gg": return MarkdownMathRun(text: "≫", kind: .symbol)
         case "approx": return MarkdownMathRun(text: "≈", kind: .symbol)
         case "equiv": return MarkdownMathRun(text: "≡", kind: .symbol)
         case "sim": return MarkdownMathRun(text: "∼", kind: .symbol)
         case "propto": return MarkdownMathRun(text: "∝", kind: .symbol)
         case "to", "rightarrow", "longrightarrow": return MarkdownMathRun(text: "→", kind: .symbol)
+        case "uparrow": return MarkdownMathRun(text: "↑", kind: .symbol)
         case "leftarrow", "longleftarrow": return MarkdownMathRun(text: "←", kind: .symbol)
         case "leftrightarrow", "longleftrightarrow": return MarkdownMathRun(text: "↔", kind: .symbol)
         case "Rightarrow", "Longrightarrow": return MarkdownMathRun(text: "⇒", kind: .symbol)

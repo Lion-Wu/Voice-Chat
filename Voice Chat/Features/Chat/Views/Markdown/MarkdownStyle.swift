@@ -160,7 +160,8 @@ struct MarkdownStyle: @unchecked Sendable {
             linkColor.markdownCacheComponent,
             inlineCodeBackground.markdownCacheComponent,
             codeBlockBackground.markdownCacheComponent,
-            tableBorderColor.markdownCacheComponent
+            tableBorderColor.markdownCacheComponent,
+            quoteBorderColor.markdownCacheComponent
         ].joined(separator: ":")
     }
 
@@ -210,7 +211,7 @@ struct MarkdownStyle: @unchecked Sendable {
                 codeBlockBackground: MarkdownPlatformColor.markdownHex(0x1c1c1e),
                 tableHeaderBackground: MarkdownPlatformColor.clear,
                 tableStripeBackground: MarkdownPlatformColor.clear,
-                quoteBorder: MarkdownPlatformColor.markdownHex(0x3a3a3c),
+                quoteBorder: MarkdownPlatformColor.markdownHex(0x636366),
                 rule: MarkdownPlatformColor.markdownHex(0x3a3a3c)
             )
         } else {
@@ -223,7 +224,7 @@ struct MarkdownStyle: @unchecked Sendable {
                 codeBlockBackground: MarkdownPlatformColor.markdownHex(0xf2f2f7),
                 tableHeaderBackground: MarkdownPlatformColor.clear,
                 tableStripeBackground: MarkdownPlatformColor.clear,
-                quoteBorder: MarkdownPlatformColor.markdownHex(0xd1d1d6),
+                quoteBorder: MarkdownPlatformColor.markdownHex(0x8e8e93),
                 rule: MarkdownPlatformColor.markdownHex(0xd1d1d6)
             )
         }
@@ -238,7 +239,7 @@ struct MarkdownStyle: @unchecked Sendable {
                 codeBlockBackground: MarkdownPlatformColor.markdownHex(0x161b22),
                 tableHeaderBackground: MarkdownPlatformColor.clear,
                 tableStripeBackground: MarkdownPlatformColor.clear,
-                quoteBorder: MarkdownPlatformColor.markdownHex(0x30363d),
+                quoteBorder: MarkdownPlatformColor.markdownHex(0x6e7681),
                 rule: MarkdownPlatformColor.markdownHex(0x30363d)
             )
         } else {
@@ -251,7 +252,7 @@ struct MarkdownStyle: @unchecked Sendable {
                 codeBlockBackground: MarkdownPlatformColor.markdownHex(0xf7f7f8),
                 tableHeaderBackground: MarkdownPlatformColor.clear,
                 tableStripeBackground: MarkdownPlatformColor.clear,
-                quoteBorder: MarkdownPlatformColor.markdownHex(0xd8dbe0),
+                quoteBorder: MarkdownPlatformColor.markdownHex(0x8c959f),
                 rule: MarkdownPlatformColor.markdownHex(0xe5e7eb)
             )
         }

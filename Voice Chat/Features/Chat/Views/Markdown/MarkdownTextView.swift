@@ -130,7 +130,20 @@ final class MarkdownUIKitTextView: UITextView {
         allowsEditingTextAttributes = false
     }
 
+    override func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+        #if os(iOS)
+        if gestureRecognizer is UILongPressGestureRecognizer {
+            let location = gestureRecognizer.location(in: self)
+            if isHostedSelectableAttachmentText(at: location) || isMarkdownAttachment(at: location) {
+                return false
+            }
+        }
+        #endif
+        return super.gestureRecognizerShouldBegin(gestureRecognizer)
+    }
+
     func markLayoutChanged(changedRange: NSRange?) {
+        defer { setNeedsLayout() }
         let targetWidth = bounds.width > 0 ? bounds.width : fallbackLayoutWidth
         updateTextContainerSize(for: targetWidth)
         if abs(targetWidth - cachedIntrinsicWidth) > 0.5 {
@@ -283,6 +296,67 @@ final class MarkdownUIKitTextView: UITextView {
         }
     }
 
+    #if os(iOS)
+    private func isHostedSelectableAttachmentText(at point: CGPoint) -> Bool {
+        var current = hitTest(point, with: nil)
+        while let view = current {
+            if view is MarkdownSelectableAttachmentTextView {
+                return true
+            }
+            if view === self {
+                break
+            }
+            current = view.superview
+        }
+        return false
+    }
+
+    private func isMarkdownAttachment(at point: CGPoint) -> Bool {
+        guard textStorage.length > 0,
+              bounds.insetBy(dx: -8, dy: -8).contains(point),
+              let position = closestPosition(to: point)
+        else { return false }
+
+        let offset = self.offset(from: beginningOfDocument, to: position)
+        for candidate in [offset, offset - 1, offset + 1] {
+            guard candidate >= 0, candidate < textStorage.length else { continue }
+            var effectiveRange = NSRange(location: 0, length: 0)
+            guard textStorage.attribute(.attachment, at: candidate, effectiveRange: &effectiveRange) is MarkdownAttachment
+            else { continue }
+            if markdownAttachmentRange(effectiveRange, contains: point) {
+                return true
+            }
+        }
+
+        var foundAttachmentAtPoint = false
+        textStorage.enumerateAttribute(
+            .attachment,
+            in: NSRange(location: 0, length: textStorage.length),
+            options: []
+        ) { value, range, stop in
+            guard value is MarkdownAttachment else { return }
+            if markdownAttachmentRange(range, contains: point) {
+                foundAttachmentAtPoint = true
+                stop.pointee = true
+            }
+        }
+        return foundAttachmentAtPoint
+    }
+
+    private func markdownAttachmentRange(_ range: NSRange, contains point: CGPoint) -> Bool {
+        guard let start = position(from: beginningOfDocument, offset: range.location),
+              let end = position(from: start, offset: range.length),
+              let textRange = textRange(from: start, to: end)
+        else { return true }
+
+        let rect = firstRect(for: textRange)
+        if rect.isNull || rect.isInfinite {
+            return true
+        }
+        return rect.insetBy(dx: -6, dy: -6).contains(point)
+    }
+    #endif
+
     private func computeFullHeight(forWidth width: CGFloat) -> CGFloat {
         updateTextContainerSize(for: width)
         let insets = verticalInsets
@@ -419,6 +493,28 @@ final class MarkdownUIKitTextView: UITextView {
             return
         }
         UIPasteboard.general.string = plain
+    }
+
+    func clearSelectionIfItOnlyCoversMarkdownAttachments() {
+        let range = selectedRange
+        guard range.length > 0, textStorage.length >= NSMaxRange(range) else { return }
+
+        var hasMarkdownAttachment = false
+        var hasNonAttachmentContent = false
+        textStorage.enumerateAttributes(in: range, options: []) { attributes, subRange, stop in
+            if attributes[.attachment] is MarkdownAttachment {
+                hasMarkdownAttachment = true
+                return
+            }
+            let string = textStorage.attributedSubstring(from: subRange).string
+            if string.unicodeScalars.contains(where: { !$0.properties.isWhitespace }) {
+                hasNonAttachmentContent = true
+                stop.pointee = true
+            }
+        }
+
+        guard hasMarkdownAttachment, !hasNonAttachmentContent else { return }
+        selectedRange = NSRange(location: range.location, length: 0)
     }
 
     func installTraitObserver() {
@@ -999,6 +1095,10 @@ extension MarkdownTextCoordinator: NSTextViewDelegate {
 
 #if os(iOS)
 extension MarkdownTextCoordinator: UITextViewDelegate {
+    func textViewDidChangeSelection(_ textView: UITextView) {
+        (textView as? MarkdownUIKitTextView)?.clearSelectionIfItOnlyCoversMarkdownAttachments()
+    }
+
     @available(iOS 17.0, *)
     func textView(_ textView: UITextView, primaryActionFor textItem: UITextItem, defaultAction: UIAction) -> UIAction? {
         _ = textView

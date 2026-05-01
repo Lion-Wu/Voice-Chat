@@ -561,6 +561,7 @@ struct ChatView: View {
     @State private var scrollMetricUpdateScheduled: Bool = false
     @State private var showScrollToBottomButton: Bool = false
     @State private var errorNoticeStackHeight: CGFloat = 0
+    @State private var measuredFloatingInputPanelHeight: CGFloat = 0
     @State private var scrollProxy: ScrollViewProxy?
     @State private var visibleMessages: [ChatMessage] = []
     @State private var fingerprintCache: [UUID: ContentFingerprint] = [:]
@@ -674,8 +675,14 @@ struct ChatView: View {
         return CGFloat(viewModel.queuedDrafts.count) * queuedDraftRowHeight + 2
     }
 
-    private var floatingInputPanelHeight: CGFloat {
+    private var estimatedFloatingInputPanelHeight: CGFloat {
         composerMainBarHeight + composerSupportingContentEstimatedHeight
+    }
+
+    private var floatingInputPanelHeight: CGFloat {
+        measuredFloatingInputPanelHeight > 0
+            ? measuredFloatingInputPanelHeight
+            : estimatedFloatingInputPanelHeight
     }
 
     private var composerBottomPadding: CGFloat {
@@ -803,7 +810,9 @@ struct ChatView: View {
     }
 
     private var messageListBottomInset: CGFloat {
-        return floatingInputPanelHeight + composerBottomPadding + 6
+        let composerClearance = floatingInputPanelHeight + composerBottomPadding + 6
+        guard !errorCenter.notices.isEmpty else { return composerClearance }
+        return max(composerClearance, noticeBottomPadding + errorNoticeStackHeight + 6)
     }
 
     private var composerHeightForNotice: CGFloat {
@@ -1116,6 +1125,14 @@ struct ChatView: View {
                         floatingInputPanel
                             .frame(maxWidth: composerPanelMaxWidth(availableWidth: availableMessageWidth))
                             .frame(maxWidth: .infinity)
+                            .background(
+                                GeometryReader { proxy in
+                                    Color.clear.preference(
+                                        key: FloatingInputPanelHeightKey.self,
+                                        value: proxy.size.height
+                                    )
+                                }
+                            )
                     }
                     .padding(.horizontal, floatingPanelHorizontalInset)
                     .padding(.bottom, composerBottomPadding)
@@ -1154,6 +1171,12 @@ struct ChatView: View {
                 let cleaned = max(0, newHeight)
                 if abs(cleaned - errorNoticeStackHeight) > 0.5 {
                     errorNoticeStackHeight = cleaned
+                }
+            }
+            .onPreferenceChange(FloatingInputPanelHeightKey.self) { newHeight in
+                let cleaned = max(0, newHeight)
+                if abs(cleaned - measuredFloatingInputPanelHeight) > 0.5 {
+                    measuredFloatingInputPanelHeight = cleaned
                 }
             }
             .onChange(of: errorCenter.notices.isEmpty) { _, isEmpty in

@@ -57,6 +57,8 @@ final class MarkdownTextCoordinator: NSObject, @unchecked Sendable {
     private static let tableLinkDetector: NSDataDetector? = try? NSDataDetector(
         types: NSTextCheckingResult.CheckingType.link.rawValue
     )
+    private static let tableCellMarkdownSyntaxCharacters = CharacterSet(charactersIn: "*_`[]()!#<>\\$~")
+    private static let tableCellLinkBoundaryScanLimit = 256
 
     private struct SendableAttributes: @unchecked Sendable {
         let attributes: [NSAttributedString.Key: Any]
@@ -1690,7 +1692,8 @@ final class MarkdownTextCoordinator: NSObject, @unchecked Sendable {
         styleKey: String,
         columnCount: Int,
         alignments: [NSTextAlignment],
-        previousRow: MarkdownTableRow?
+        previousRow: MarkdownTableRow?,
+        previousRawCells: [String]? = nil
     ) -> MarkdownTableRow {
         var attrs = style.baseAttributes
         let paragraphStyle = NSMutableParagraphStyle()
@@ -1700,7 +1703,7 @@ final class MarkdownTextCoordinator: NSObject, @unchecked Sendable {
 
         var cells: [NSAttributedString] = []
         cells.reserveCapacity(columnCount)
-        let previousRawCells = previousRow?.sourceMarkdown.map(splitTableRowCells)
+        let previousRawCells = previousRawCells ?? previousRow?.sourceMarkdown.map(splitTableRowCells)
         for column in 0..<columnCount {
             let text = column < rawCells.count ? rawCells[column] : ""
             let alignment = column < alignments.count ? alignments[column] : .left
@@ -1750,6 +1753,7 @@ final class MarkdownTextCoordinator: NSObject, @unchecked Sendable {
         }
         guard !streamingActiveTableDraftRawCells.isEmpty else { return nil }
 
+        let previousRawCells = streamingActiveTableDraftRawCells
         streamingActiveTableDraftRawCells[streamingActiveTableDraftRawCells.count - 1].append(contentsOf: delta)
         let nextSource = streamingActiveTableDraftLine + delta
         let columnCount = max(columnCountHint ?? 0, streamingActiveTableDraftRawCells.count)
@@ -1761,7 +1765,8 @@ final class MarkdownTextCoordinator: NSObject, @unchecked Sendable {
             styleKey: styleKey,
             columnCount: columnCount,
             alignments: alignments,
-            previousRow: existingRow
+            previousRow: existingRow,
+            previousRawCells: previousRawCells
         )
     }
 
@@ -1819,21 +1824,21 @@ final class MarkdownTextCoordinator: NSObject, @unchecked Sendable {
     private func canAppendPlainTableCellDelta(_ delta: String, to priorMarkdown: String) -> Bool {
         guard !delta.isEmpty else { return false }
         if delta.contains("\n") || delta.contains("\r") { return false }
-        let combined = priorMarkdown + delta
-        guard !cellContainsMarkdownSyntax(combined) else { return false }
-        guard !combinedContainsDetectedLinkOrEmail(combined) else { return false }
+        guard !cellContainsMarkdownSyntax(delta) else { return false }
+        guard !deltaMayChangeDetectedLinkOrEmail(priorMarkdown: priorMarkdown, delta: delta) else { return false }
         return true
     }
 
     private func cellContainsMarkdownSyntax(_ text: String) -> Bool {
-        let syntax = CharacterSet(charactersIn: "*_`[]()!#<>\\$~")
-        return text.rangeOfCharacter(from: syntax) != nil
+        text.rangeOfCharacter(from: Self.tableCellMarkdownSyntaxCharacters) != nil
     }
 
-    private func combinedContainsDetectedLinkOrEmail(_ text: String) -> Bool {
+    private func deltaMayChangeDetectedLinkOrEmail(priorMarkdown: String, delta: String) -> Bool {
         guard let detector = Self.tableLinkDetector else { return false }
-        let range = NSRange(location: 0, length: (text as NSString).length)
-        return detector.firstMatch(in: text, options: [], range: range) != nil
+        let suffix = priorMarkdown.suffix(Self.tableCellLinkBoundaryScanLimit)
+        let sample = String(suffix) + delta
+        let range = NSRange(location: 0, length: (sample as NSString).length)
+        return detector.firstMatch(in: sample, options: [], range: range) != nil
     }
 
     private func streamingTableCellAttributedString(
@@ -2455,6 +2460,14 @@ final class MarkdownTextCoordinator: NSObject, @unchecked Sendable {
             abs(lhs.cellPadding.height - rhs.cellPadding.height) < 0.5
     }
 
+    private func quoteStylesEqual(_ lhs: MarkdownQuoteStyle, _ rhs: MarkdownQuoteStyle) -> Bool {
+        colorsEqual(lhs.textColor, rhs.textColor) &&
+            colorsEqual(lhs.borderColor, rhs.borderColor) &&
+            abs(lhs.borderWidth - rhs.borderWidth) < 0.5 &&
+            abs(lhs.padding.width - rhs.padding.width) < 0.5 &&
+            abs(lhs.padding.height - rhs.padding.height) < 0.5
+    }
+
     private func codeBlockStylesEqual(_ lhs: MarkdownCodeBlockStyle, _ rhs: MarkdownCodeBlockStyle) -> Bool {
         fontsEqual(lhs.codeFont, rhs.codeFont) &&
             fontsEqual(lhs.headerFont, rhs.headerFont) &&
@@ -2471,14 +2484,6 @@ final class MarkdownTextCoordinator: NSObject, @unchecked Sendable {
             abs(lhs.codePadding.height - rhs.codePadding.height) < 0.5 &&
             abs(lhs.headerPadding.width - rhs.headerPadding.width) < 0.5 &&
             abs(lhs.headerPadding.height - rhs.headerPadding.height) < 0.5
-    }
-
-    private func quoteStylesEqual(_ lhs: MarkdownQuoteStyle, _ rhs: MarkdownQuoteStyle) -> Bool {
-        colorsEqual(lhs.textColor, rhs.textColor) &&
-            colorsEqual(lhs.borderColor, rhs.borderColor) &&
-            abs(lhs.borderWidth - rhs.borderWidth) < 0.5 &&
-            abs(lhs.padding.width - rhs.padding.width) < 0.5 &&
-            abs(lhs.padding.height - rhs.padding.height) < 0.5
     }
 
     private func updateAttachmentWidth() {

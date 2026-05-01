@@ -108,7 +108,7 @@ final class MarkdownQuoteAttachment: MarkdownAttachment, @unchecked Sendable {
         self.style = MarkdownQuoteStyle(
             textColor: MarkdownPlatformColor.markdownHex(0x24292f),
             borderColor: MarkdownPlatformColor.markdownHex(0xd8dbe0),
-            borderWidth: 3,
+            borderWidth: 4,
             padding: CGSize(width: 12, height: 6)
         )
         super.init(coder: coder)
@@ -138,6 +138,11 @@ final class MarkdownQuoteAttachment: MarkdownAttachment, @unchecked Sendable {
         return CGRect(x: 0, y: 0, width: size.width, height: size.height)
     }
 
+    private struct QuoteLayout {
+        let size: CGSize
+        let textRect: CGRect
+    }
+
     private func renderIfNeeded(maxWidth: CGFloat) -> CGSize {
         if abs(cachedWidth - maxWidth) > 0.5 || lastLayout == nil || (!allowsTextAttachmentView && cachedImage == nil) {
             let layout = layoutQuote(maxWidth: maxWidth)
@@ -154,23 +159,19 @@ final class MarkdownQuoteAttachment: MarkdownAttachment, @unchecked Sendable {
         return cachedSize
     }
 
-    private struct QuoteLayout {
-        let size: CGSize
-        let textRect: CGRect
-    }
-
     private func layoutQuote(maxWidth: CGFloat) -> QuoteLayout {
         let borderWidth = max(1, style.borderWidth)
         let padding = style.padding
         let textInsetX = borderWidth + padding.width
         let textWidth = max(1, maxWidth - textInsetX - padding.width)
-        let textSize = measureAttributed(content, width: textWidth)
-        let height = textSize.height + padding.height * 2
+        let textSize = measureHostedAttributedText(content, width: textWidth)
+        let textHeight = ceil(textSize.height)
+        let height = ceil(textHeight + padding.height * 2)
         let textRect = CGRect(
             x: textInsetX,
             y: padding.height,
             width: textWidth,
-            height: textSize.height
+            height: textHeight
         )
         return QuoteLayout(size: CGSize(width: maxWidth, height: height), textRect: textRect)
     }
@@ -203,10 +204,6 @@ final class MarkdownQuoteAttachment: MarkdownAttachment, @unchecked Sendable {
             options: [.usesLineFragmentOrigin, .usesFontLeading],
             context: nil
         )
-    }
-
-    private func measureAttributed(_ text: NSAttributedString, width: CGFloat) -> CGSize {
-        measureAttributedText(text, width: width)
     }
 }
 
@@ -889,6 +886,14 @@ final class MarkdownTableAttachment: MarkdownAttachment, @unchecked Sendable {
     private var lastLayout: TableLayout?
     private var pendingHostedHeightDelta: CGFloat = 0
 
+    private static func resolvedViewportAndContentWidth(
+        contentWidth rawContentWidth: CGFloat,
+        availableWidth: CGFloat
+    ) -> (viewportWidth: CGFloat, contentWidth: CGFloat) {
+        let viewportWidth = max(1, availableWidth)
+        return (viewportWidth, max(rawContentWidth, viewportWidth))
+    }
+
     #if os(iOS) || os(tvOS) || os(visionOS) || os(macOS)
     weak var hostedView: MarkdownTableView?
     #endif
@@ -1135,16 +1140,18 @@ final class MarkdownTableAttachment: MarkdownAttachment, @unchecked Sendable {
         let columnGap: CGFloat = 0
         let paddingX = style.cellPadding.width
         let paddingY = style.cellPadding.height
-        let maxCellTextWidth = max(80, min(maxWidth * 0.8, 360))
         let emptyCell = NSAttributedString(string: "", attributes: [.font: style.baseFont])
 
-        var contentWidths = Array(repeating: CGFloat(0), count: columnCount)
-        for row in rows {
-            for column in 0..<columnCount {
-                let cell = column < row.cells.count ? row.cells[column] : emptyCell
-                let size = measureCell(cell, width: .greatestFiniteMagnitude)
-                contentWidths[column] = max(contentWidths[column], min(size.width, maxCellTextWidth))
-            }
+        let contentWidths = markdownMeasuredTableContentWidths(
+            rows: rows,
+            columnCount: columnCount,
+            availableWidth: maxWidth,
+            paddingX: paddingX,
+            columnGap: columnGap,
+            baseFont: style.baseFont,
+            emptyCell: emptyCell
+        ) { cell, textWidth in
+            measureCell(cell, width: textWidth)
         }
 
         let totalColumnGap = columnGap * CGFloat(max(0, columnCount - 1))
@@ -1161,15 +1168,18 @@ final class MarkdownTableAttachment: MarkdownAttachment, @unchecked Sendable {
                 let size = measureCell(cell, width: textWidth)
                 rowHeight = max(rowHeight, max(size.height, minRowHeight))
             }
-            rowHeights.append(rowHeight + paddingY * 2)
+            rowHeights.append(ceil(rowHeight + paddingY * 2))
         }
 
         let tableWidth = columnWidths.reduce(0, +) + totalColumnGap
         let tableHeight = rowHeights.reduce(0, +) + rowSeparator * CGFloat(rows.count)
-        let viewportWidth = min(maxWidth, tableWidth)
-        return TableLayout(
-            tableSize: CGSize(width: viewportWidth, height: tableHeight),
+        let resolvedWidths = Self.resolvedViewportAndContentWidth(
             contentWidth: tableWidth,
+            availableWidth: maxWidth
+        )
+        return TableLayout(
+            tableSize: CGSize(width: resolvedWidths.viewportWidth, height: tableHeight),
+            contentWidth: resolvedWidths.contentWidth,
             columnWidths: columnWidths,
             rowHeights: rowHeights,
             rowSeparatorWidth: rowSeparator,
@@ -1259,7 +1269,13 @@ final class MarkdownTableAttachment: MarkdownAttachment, @unchecked Sendable {
     }
 
     private func measureCell(_ cell: NSAttributedString, width: CGFloat) -> CGSize {
-        measureAttributedText(cell, width: width)
+        if !width.isFinite || width >= 10_000 {
+            return CGSize(
+                width: measureUnwrappedAttributedTextWidth(cell, fallbackFont: style.baseFont),
+                height: lineHeight(for: style.baseFont)
+            )
+        }
+        return measureAttributedText(cell, width: width)
     }
 
     private func lineHeight(for font: MarkdownPlatformFont) -> CGFloat {
