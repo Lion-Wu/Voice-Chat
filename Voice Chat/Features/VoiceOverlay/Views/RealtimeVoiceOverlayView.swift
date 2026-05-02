@@ -24,31 +24,50 @@ struct RealtimeVoiceOverlayView: View {
     // Animation state
     @State private var smoothedInputLevel: CGFloat = 0
     @State private var smoothedOutputLevel: CGFloat = 0
-    @State private var displayedScale: CGFloat = 1
+    @State private var displayedCircleDiameter: CGFloat = 0
+    @State private var displayedCircleLevelScale: CGFloat = 1
+    @State private var errorCutoutProgress: CGFloat = 0
     @State private var loadingBreath: CGFloat = 0
     @State private var isLoadingBreathing: Bool = false
     @State private var isCirclePressed: Bool = false
+    @State private var isCircleHoldActive: Bool = false
     @State private var didTriggerCircleLongPress: Bool = false
+    @State private var shouldSuppressCircleTapOnEnd: Bool = false
     @State private var circleGestureCancelled: Bool = false
     @State private var circlePressOrigin: CGPoint?
+    @State private var pressedCircleBaseSize: CGFloat?
+    @State private var pressedCircleScale: CGFloat?
     @State private var longPressTriggerTask: Task<Void, Never>?
     @State private var interactionPulse: CGFloat = 1
 
-    private let stateAnimation = Animation.spring(response: 0.28, dampingFraction: 0.85, blendDuration: 0.2)
+    private let stateAnimation = Animation.spring(response: 0.34, dampingFraction: 0.92, blendDuration: 0.16)
+    private let cutoutAnimation = Animation.timingCurve(0.78, 0.0, 0.18, 1.0, duration: 0.34)
     private let circlePressInAnimation = Animation.easeOut(duration: 0.12)
     private let circlePressOutAnimation = Animation.easeOut(duration: 0.15)
-    private let levelScaleAnimation = Animation.interpolatingSpring(stiffness: 245, damping: 26)
-    private let levelSmoothingFactor: CGFloat = 0.34
+    private let levelScaleAnimation = Animation.interpolatingSpring(stiffness: 220, damping: 32)
+    private let levelSmoothingFactor: CGFloat = 0.40
     private let scaleUpdateEpsilon: CGFloat = 0.0012
     private let circleLongPressDuration: Double = 0.38
     private let circleLongPressMaximumDistance: CGFloat = 42
+    private let circleErrorRingWidth: CGFloat = 14
+    private let inputLevelScaleAmplitude: CGFloat = 0.38
+    private let outputLevelScaleAmplitude: CGFloat = 0.34
 
     private var circleBaseColor: Color {
         colorScheme == .dark ? .white : .black
     }
 
-    private var circleErrorRingColor: Color {
-        colorScheme == .dark ? Color.white.opacity(0.55) : Color.black.opacity(0.28)
+    private var circleCutoutProgress: CGFloat {
+        min(1, max(0, errorCutoutProgress))
+    }
+
+    private var circleVisualColor: Color {
+        circleBaseColor.opacity(Double(circleVisualOpacity))
+    }
+
+    private var circleVisualOpacity: CGFloat {
+        let errorOpacity: CGFloat = colorScheme == .dark ? 0.55 : 0.28
+        return 1 - ((1 - errorOpacity) * circleCutoutProgress)
     }
 
     private var overlayErrorText: String? {
@@ -83,7 +102,7 @@ struct RealtimeVoiceOverlayView: View {
     }
 
     private var defaultBaseSize: CGFloat {
-        isVisionSceneStyle ? 236 : 200
+        isVisionSceneStyle ? 264 : 224
     }
 
     private var listeningBaseSize: CGFloat {
@@ -178,6 +197,7 @@ struct RealtimeVoiceOverlayView: View {
 
     private var standardLayout: some View {
         ZStack {
+            #if !os(macOS)
             VStack(spacing: 28) {
                 HStack {
                     Spacer()
@@ -187,6 +207,7 @@ struct RealtimeVoiceOverlayView: View {
                 .padding(.horizontal, closeButtonHorizontalPadding)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+            #endif
 
             VStack(spacing: 18) {
                 voiceControl
@@ -234,22 +255,20 @@ struct RealtimeVoiceOverlayView: View {
 
     private var voiceControl: some View {
         ZStack {
-            let baseSize = currentCircleBaseSize
-            Group {
-                if overlayErrorText != nil {
-                    Circle()
-                        .strokeBorder(circleErrorRingColor, lineWidth: 14)
-                } else {
-                    Circle()
-                        .fill(circleBaseColor)
-                }
-            }
-            .frame(width: baseSize, height: baseSize)
+            let diameter = currentCircleDiameter
+            let cutoutProgress = circleCutoutProgress
+            VoiceControlCircleShape(
+                cutoutProgress: cutoutProgress,
+                ringThickness: circleErrorRingWidth
+            )
+            .fill(circleVisualColor, style: FillStyle(eoFill: true))
+            .frame(width: diameter, height: diameter)
             .scaleEffect(currentCircleScale * interactionPulse * circlePressScale)
             .shadow(color: .black.opacity(isCirclePressed ? 0.28 : 0.25), radius: isCirclePressed ? 22 : 16, x: 0, y: isCirclePressed ? 8 : 6)
             .contentShape(Circle())
             .highPriorityGesture(circlePressGesture)
         }
+        .frame(width: circleControlFrameSize, height: circleControlFrameSize)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Realtime voice control")
         .accessibilityValue(voiceControlAccessibilityValue)
@@ -361,7 +380,9 @@ struct RealtimeVoiceOverlayView: View {
     // MARK: - Lifecycle helpers
 
     private func configureInitialState() {
-        displayedScale = circleTargetScale(for: viewModel.state)
+        displayedCircleDiameter = circleTargetDiameter(for: viewModel.state)
+        displayedCircleLevelScale = circleTargetLevelScale(for: viewModel.state)
+        errorCutoutProgress = circleTargetCutoutProgress(for: viewModel.state)
         if viewModel.state == .loading {
             startLoadingBreathIfNeeded()
         }
@@ -380,27 +401,35 @@ struct RealtimeVoiceOverlayView: View {
     }
 
     private var circlePressScale: CGFloat {
-        isCirclePressed ? 1.12 : 1.0
+        if isCircleHoldActive { return 1.10 }
+        return isCirclePressed ? 1.015 : 1.0
     }
 
-    private var currentCircleBaseSize: CGFloat {
-        // Keep the pressed-down shape stable while holding to avoid a visible size snap
-        // when state transitions happen under the finger.
-        if isCirclePressed {
-            return listeningBaseSize
-        }
-        return (viewModel.state == .listening) ? listeningBaseSize : defaultBaseSize
+    private var circleControlFrameSize: CGFloat {
+        listeningBaseSize
+    }
+
+    private var currentCircleDiameter: CGFloat {
+        if let pressedCircleBaseSize { return pressedCircleBaseSize }
+        return effectiveDisplayedCircleDiameter
+    }
+
+    private var effectiveDisplayedCircleDiameter: CGFloat {
+        if displayedCircleDiameter > 0 { return displayedCircleDiameter }
+        return circleTargetDiameter(for: viewModel.state)
     }
 
     private var currentCircleScale: CGFloat {
-        if viewModel.state == .loading {
-            return 0.95 + (0.09 * loadingBreath)
-        }
-        return displayedScale
+        if let pressedCircleScale { return pressedCircleScale }
+        return displayedCircleLevelScale * loadingBreathScale
+    }
+
+    private var loadingBreathScale: CGFloat {
+        1.0 + (0.055 * loadingBreath)
     }
 
     private var circlePressGesture: some Gesture {
-        DragGesture(minimumDistance: 0, coordinateSpace: .local)
+        DragGesture(minimumDistance: 0, coordinateSpace: .global)
             .onChanged { value in
                 handleCircleDragChanged(value)
             }
@@ -420,6 +449,7 @@ struct RealtimeVoiceOverlayView: View {
         guard !circleGestureCancelled else { return }
 
         circleGestureCancelled = true
+        shouldSuppressCircleTapOnEnd = true
         cancelPendingLongPressTrigger()
 
         if didTriggerCircleLongPress {
@@ -427,52 +457,74 @@ struct RealtimeVoiceOverlayView: View {
             didTriggerCircleLongPress = false
         }
 
-        guard isCirclePressed else { return }
-        withAnimation(circlePressOutAnimation) {
-            isCirclePressed = false
-        }
+        endCirclePressVisualState()
     }
 
     private func handleCircleDragEnded() {
         cancelPendingLongPressTrigger()
 
-        if isCirclePressed {
-            withAnimation(circlePressOutAnimation) {
-                isCirclePressed = false
-            }
-        }
+        let didTriggerLongPress = didTriggerCircleLongPress
+        let shouldSendTap = !circleGestureCancelled && !shouldSuppressCircleTapOnEnd
 
-        if didTriggerCircleLongPress {
+        if didTriggerLongPress {
             viewModel.handleCircleLongPressEnded()
-        } else if !circleGestureCancelled {
+        } else if shouldSendTap {
             triggerTapAction()
         }
 
+        endCirclePressVisualState()
+
         didTriggerCircleLongPress = false
+        isCircleHoldActive = false
+        shouldSuppressCircleTapOnEnd = false
         circleGestureCancelled = false
         circlePressOrigin = nil
     }
 
     private func beginCirclePress(at start: CGPoint) {
         circlePressOrigin = start
+        pressedCircleBaseSize = currentCircleDiameter
+        pressedCircleScale = currentCircleScale
         circleGestureCancelled = false
         didTriggerCircleLongPress = false
+        isCircleHoldActive = false
+        shouldSuppressCircleTapOnEnd = false
         withAnimation(circlePressInAnimation) {
             isCirclePressed = true
         }
         schedulePendingLongPressTrigger()
     }
 
+    private func endCirclePressVisualState() {
+        guard isCirclePressed || pressedCircleBaseSize != nil || pressedCircleScale != nil else { return }
+        withAnimation(circlePressOutAnimation) {
+            isCirclePressed = false
+            isCircleHoldActive = false
+            pressedCircleBaseSize = nil
+            pressedCircleScale = nil
+        }
+    }
+
     private func schedulePendingLongPressTrigger() {
         cancelPendingLongPressTrigger()
         longPressTriggerTask = Task { @MainActor in
             let delay = UInt64(circleLongPressDuration * 1_000_000_000)
-            try? await Task.sleep(nanoseconds: delay)
+            do {
+                try await Task.sleep(nanoseconds: delay)
+            } catch {
+                return
+            }
+            guard !Task.isCancelled else { return }
             guard isCirclePressed else { return }
             guard !circleGestureCancelled else { return }
             guard !didTriggerCircleLongPress else { return }
-            didTriggerCircleLongPress = true
-            triggerLongPressAction(viewModel: viewModel)
+            shouldSuppressCircleTapOnEnd = true
+            didTriggerCircleLongPress = triggerLongPressAction(viewModel: viewModel)
+            if didTriggerCircleLongPress {
+                withAnimation(circlePressInAnimation) {
+                    isCircleHoldActive = true
+                }
+            }
         }
     }
 
@@ -494,13 +546,14 @@ struct RealtimeVoiceOverlayView: View {
         viewModel.handleCircleTap()
     }
 
-    private func triggerLongPressAction(viewModel: VoiceChatOverlayViewModel?) {
-        guard viewModel?.state == .listening else { return }
+    private func triggerLongPressAction(viewModel: VoiceChatOverlayViewModel?) -> Bool {
+        guard let viewModel, viewModel.state == .listening else { return false }
         AppHaptics.trigger(.selection)
-        viewModel?.handleCircleLongPressBegan()
+        viewModel.handleCircleLongPressBegan()
+        return true
     }
 
-    private func animateInteractionPulse(strength: CGFloat = 1.06) {
+    private func animateInteractionPulse(strength: CGFloat = 1.025) {
         interactionPulse = strength
         withAnimation(.spring(response: 0.22, dampingFraction: 0.65)) {
             interactionPulse = 1.0
@@ -509,17 +562,34 @@ struct RealtimeVoiceOverlayView: View {
 
     // MARK: - Animation helpers
 
-    private func circleTargetScale(for state: VoiceChatOverlayViewModel.OverlayState) -> CGFloat {
+    private func circleTargetDiameter(for state: VoiceChatOverlayViewModel.OverlayState) -> CGFloat {
         switch state {
         case .listening:
-            return 1.0 + 0.30 * smoothedInputLevel
+            return listeningBaseSize
+        case .speaking, .loading, .error:
+            return defaultBaseSize
+        }
+    }
+
+    private func circleTargetLevelScale(for state: VoiceChatOverlayViewModel.OverlayState) -> CGFloat {
+        switch state {
+        case .listening:
+            return levelScale(for: smoothedInputLevel, amplitude: inputLevelScaleAmplitude)
         case .speaking:
-            return 1.0 + 0.30 * smoothedOutputLevel
-        case .loading:
-            return 0.95
-        case .error:
+            return levelScale(for: smoothedOutputLevel, amplitude: outputLevelScaleAmplitude)
+        case .loading, .error:
             return 1.0
         }
+    }
+
+    private func circleTargetCutoutProgress(for state: VoiceChatOverlayViewModel.OverlayState) -> CGFloat {
+        if case .error = state { return 1 }
+        return 0
+    }
+
+    private func levelScale(for level: CGFloat, amplitude: CGFloat) -> CGFloat {
+        let responsiveLevel = pow(min(1, max(0, level)), 0.55)
+        return 1.0 + amplitude * responsiveLevel
     }
 
     private func handleStateChange(from oldState: VoiceChatOverlayViewModel.OverlayState, to newState: VoiceChatOverlayViewModel.OverlayState) {
@@ -559,19 +629,25 @@ struct RealtimeVoiceOverlayView: View {
             smoothedOutputLevel = 0
         }
 
-        displayedScale = circleTargetScale(for: newState)
+        withAnimation(stateAnimation) {
+            displayedCircleDiameter = circleTargetDiameter(for: newState)
+            displayedCircleLevelScale = circleTargetLevelScale(for: newState)
+        }
+        withAnimation(cutoutAnimation) {
+            errorCutoutProgress = circleTargetCutoutProgress(for: newState)
+        }
     }
 
     private func handleInputLevelChange(_ newLevel: Double) {
         guard viewModel.state == .listening else { return }
         smoothedInputLevel = smoothedLevel(current: smoothedInputLevel, target: normalizedLevel(newLevel))
-        updateDisplayedScaleIfNeeded(circleTargetScale(for: .listening))
+        updateDisplayedLevelScaleIfNeeded(circleTargetLevelScale(for: .listening))
     }
 
     private func handleOutputLevelChange(_ newLevel: Double) {
         guard viewModel.state == .speaking else { return }
         smoothedOutputLevel = smoothedLevel(current: smoothedOutputLevel, target: normalizedLevel(newLevel))
-        updateDisplayedScaleIfNeeded(circleTargetScale(for: .speaking))
+        updateDisplayedLevelScaleIfNeeded(circleTargetLevelScale(for: .speaking))
     }
 
     private func normalizedLevel(_ rawLevel: Double) -> CGFloat {
@@ -585,10 +661,10 @@ struct RealtimeVoiceOverlayView: View {
         current + (target - current) * levelSmoothingFactor
     }
 
-    private func updateDisplayedScaleIfNeeded(_ scale: CGFloat) {
-        guard abs(scale - displayedScale) >= scaleUpdateEpsilon else { return }
+    private func updateDisplayedLevelScaleIfNeeded(_ scale: CGFloat) {
+        guard abs(scale - displayedCircleLevelScale) >= scaleUpdateEpsilon else { return }
         withAnimation(levelScaleAnimation) {
-            displayedScale = scale
+            displayedCircleLevelScale = scale
         }
     }
 
@@ -604,9 +680,7 @@ struct RealtimeVoiceOverlayView: View {
     private func stopLoadingBreath() {
         guard isLoadingBreathing || loadingBreath != 0 else { return }
         isLoadingBreathing = false
-        var transaction = Transaction()
-        transaction.disablesAnimations = true
-        withTransaction(transaction) {
+        withAnimation(.easeOut(duration: 0.18)) {
             loadingBreath = 0
         }
     }
@@ -614,13 +688,54 @@ struct RealtimeVoiceOverlayView: View {
     private func resetInteractionState() {
         cancelPendingLongPressTrigger()
         isCirclePressed = false
+        isCircleHoldActive = false
         didTriggerCircleLongPress = false
+        shouldSuppressCircleTapOnEnd = false
         circleGestureCancelled = false
         circlePressOrigin = nil
+        pressedCircleBaseSize = nil
+        pressedCircleScale = nil
         interactionPulse = 1
         smoothedInputLevel = 0
         smoothedOutputLevel = 0
-        displayedScale = 1
+        displayedCircleDiameter = 0
+        displayedCircleLevelScale = 1
+        errorCutoutProgress = 0
+    }
+}
+
+private struct VoiceControlCircleShape: Shape {
+    var cutoutProgress: CGFloat
+    var ringThickness: CGFloat
+
+    var animatableData: CGFloat {
+        get { cutoutProgress }
+        set { cutoutProgress = newValue }
+    }
+
+    func path(in rect: CGRect) -> Path {
+        let side = min(rect.width, rect.height)
+        let outer = CGRect(
+            x: rect.midX - side / 2,
+            y: rect.midY - side / 2,
+            width: side,
+            height: side
+        )
+        let progress = min(1, max(0, cutoutProgress))
+        let innerSide = max(0, side - ringThickness * 2) * progress
+        let inner = CGRect(
+            x: rect.midX - innerSide / 2,
+            y: rect.midY - innerSide / 2,
+            width: innerSide,
+            height: innerSide
+        )
+
+        var path = Path()
+        path.addEllipse(in: outer)
+        if innerSide > 0 {
+            path.addEllipse(in: inner)
+        }
+        return path
     }
 }
 
