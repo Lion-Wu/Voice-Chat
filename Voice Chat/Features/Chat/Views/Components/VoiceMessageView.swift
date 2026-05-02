@@ -27,6 +27,7 @@ struct VoiceMessageView: View {
     let developerModeEnabled: Bool
     let maxBubbleWidth: CGFloat?
     let contentFingerprint: ContentFingerprint
+    let searchHighlightQuery: String?
     let onSelectText: (String) -> Void
     let onRegenerate: (ChatMessage) -> Void
     let onEditUserMessage: (ChatMessage) -> Void
@@ -43,6 +44,7 @@ struct VoiceMessageView: View {
         developerModeEnabled: Bool,
         maxBubbleWidth: CGFloat? = nil,
         contentFingerprint: ContentFingerprint,
+        searchHighlightQuery: String? = nil,
         onSelectText: @escaping (String) -> Void,
         onRegenerate: @escaping (ChatMessage) -> Void,
         onEditUserMessage: @escaping (ChatMessage) -> Void,
@@ -55,6 +57,7 @@ struct VoiceMessageView: View {
         self.developerModeEnabled = developerModeEnabled
         self.maxBubbleWidth = maxBubbleWidth
         self.contentFingerprint = contentFingerprint
+        self.searchHighlightQuery = searchHighlightQuery
         self.onSelectText = onSelectText
         self.onRegenerate = onRegenerate
         self.onEditUserMessage = onEditUserMessage
@@ -88,6 +91,7 @@ struct VoiceMessageView: View {
                 developerModeEnabled: developerModeEnabled,
                 maxBubbleWidth: maxBubbleWidth,
                 contentFingerprint: contentFingerprint,
+                searchHighlightQuery: searchHighlightQuery,
                 onCopy: { copyToClipboard(message.content.extractThinkParts().body) },
                 onRegenerate: { onRegenerate(message) },
                 onReadAloud: {
@@ -104,6 +108,7 @@ struct VoiceMessageView: View {
                             text: message.content,
                             attachments: userAttachments,
                             maxBubbleWidth: maxBubbleWidth,
+                            searchHighlightQuery: searchHighlightQuery,
                             onPreviewImage: { attachment in
                                 presentMessageAttachmentPreview(attachment)
                             }
@@ -601,6 +606,7 @@ struct SystemTextBubble: View {
     let developerModeEnabled: Bool
     let maxBubbleWidth: CGFloat?
     let contentFingerprint: ContentFingerprint
+    let searchHighlightQuery: String?
 
     let onCopy: () -> Void
     let onRegenerate: () -> Void
@@ -624,7 +630,7 @@ struct SystemTextBubble: View {
 
         let bodyView = Group {
             if !parts.body.isEmpty {
-                RichMarkdownView(markdown: parts.body)
+                RichMarkdownView(markdown: parts.body, searchHighlightQuery: searchHighlightQuery)
                     .frame(maxWidth: contentMaxWidthForAssistant(availableWidth: maxBubbleWidth), alignment: .leading)
                     .frame(maxWidth: .infinity, alignment: .center)
             }
@@ -728,12 +734,17 @@ struct UserTextBubble: View {
     let text: String
     let attachments: [ChatImageAttachment]
     let maxBubbleWidth: CGFloat?
+    let searchHighlightQuery: String?
     let onPreviewImage: (ChatImageAttachment) -> Void
     @State private var expanded = false
     private let maxCharacters = 1000
 
+    private var shouldShowFullText: Bool {
+        expanded || searchHighlightQuery != nil || text.count <= maxCharacters
+    }
+
     var body: some View {
-        let display = (expanded || text.count <= maxCharacters) ? text : (String(text.prefix(maxCharacters)) + "...")
+        let display = shouldShowFullText ? text : (String(text.prefix(maxCharacters)) + "...")
 
         VStack(alignment: .trailing, spacing: 6) {
             if !attachments.isEmpty {
@@ -749,8 +760,7 @@ struct UserTextBubble: View {
             }
 
             if !display.isEmpty {
-                Text(display)
-                    .foregroundColor(.white)
+                Text(highlightedUserText(display))
                     .fixedSize(horizontal: false, vertical: true)
                     .bubbleStyle(isUser: true)
                     .frame(maxWidth: contentMaxWidthForUser(availableWidth: maxBubbleWidth), alignment: .trailing)
@@ -767,6 +777,27 @@ struct UserTextBubble: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .trailing)
+    }
+
+    private func highlightedUserText(_ display: String) -> AttributedString {
+        var attributed = AttributedString(display)
+        attributed.foregroundColor = .white
+
+        let query = searchHighlightQuery?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !query.isEmpty else { return attributed }
+
+        var searchRange = attributed.startIndex..<attributed.endIndex
+        while let foundRange = attributed[searchRange].range(
+            of: query,
+            options: [.caseInsensitive, .diacriticInsensitive]
+        ) {
+            attributed[foundRange].backgroundColor = Color.yellow.opacity(0.68)
+            attributed[foundRange].foregroundColor = .black
+            guard foundRange.upperBound < attributed.endIndex else { break }
+            searchRange = foundRange.upperBound..<attributed.endIndex
+        }
+
+        return attributed
     }
 }
 

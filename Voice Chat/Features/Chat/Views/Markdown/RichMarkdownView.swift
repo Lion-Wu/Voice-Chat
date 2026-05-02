@@ -11,11 +11,17 @@ import Markdown
 
 struct RichMarkdownView: View {
     let markdown: String
+    var searchHighlightQuery: String? = nil
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.sizeCategory) private var sizeCategory
 
     var body: some View {
-        MarkdownTextView(markdown: markdown, colorScheme: colorScheme, sizeCategory: sizeCategory)
+        MarkdownTextView(
+            markdown: markdown,
+            colorScheme: colorScheme,
+            sizeCategory: sizeCategory,
+            searchHighlightQuery: searchHighlightQuery
+        )
             .fixedSize(horizontal: false, vertical: true)
     }
 }

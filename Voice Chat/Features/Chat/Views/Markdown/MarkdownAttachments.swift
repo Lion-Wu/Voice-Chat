@@ -295,7 +295,8 @@ final class MarkdownCodeBlockAttachment: MarkdownAttachment, @unchecked Sendable
         languageLabel: String,
         copyLabel: String,
         style: MarkdownCodeBlockStyle,
-        maxWidth: CGFloat
+        maxWidth: CGFloat,
+        searchHighlightQuery: String? = nil
     ) {
         self.code = code
         self.languageLabel = languageLabel
@@ -320,6 +321,9 @@ final class MarkdownCodeBlockAttachment: MarkdownAttachment, @unchecked Sendable
             .paragraphStyle: paragraph
         ]
         self.codeAttributedStorage = NSMutableAttributedString(string: code, attributes: self.codeAttributes)
+        if let searchHighlightQuery = markdownCleanedSearchHighlightQuery(searchHighlightQuery) {
+            markdownApplySearchHighlight(to: self.codeAttributedStorage, query: searchHighlightQuery)
+        }
         super.init(data: nil, ofType: nil)
         self.maxWidth = maxWidth
         #if os(iOS) || os(tvOS) || os(visionOS) || os(macOS)

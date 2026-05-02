@@ -49,10 +49,20 @@ private struct VoiceMessageEqKey: Equatable, Sendable {
     let branchControlsEnabled: Bool
     let contentFP: ContentFingerprint
     let developerModeEnabled: Bool
+    let searchHighlightID: UUID?
 }
 
 private enum ScrollTarget: Hashable {
     case bottom
+}
+
+private struct SearchScrollLock {
+    let targetID: UUID
+    let messageID: UUID
+    let anchorY: CGFloat
+    let generation: UUID
+    let hardDeadline: Date
+    var settleDeadline: Date
 }
 
 private struct TextSelectionSheetItem: Identifiable {
@@ -572,6 +582,11 @@ struct ChatView: View {
     @State private var pendingRefreshAfterHydration: Bool = false
     @State private var refreshGeneration = UUID()
     @State private var branchRenderEpoch: Int = 0
+    @State private var pendingSearchScrollTarget: ChatSearchNavigationTarget?
+    @State private var activeSearchHighlightMessageID: UUID?
+    @State private var activeSearchHighlightTargetID: UUID?
+    @State private var searchScrollLock: SearchScrollLock?
+    @State private var searchScrollReanchorTask: Task<Void, Never>?
     @State private var activeAlert: ChatAlert?
     @State private var expectAssistantResponseHaptics: Bool = false
     @State private var didTriggerResponseStartHaptic: Bool = false
@@ -938,6 +953,7 @@ struct ChatView: View {
 
             isHydratingSession = false
             hydrationTask = nil
+            _ = attemptSearchTargetScroll()
 
             if pendingRefreshAfterHydration {
                 pendingRefreshAfterHydration = false
@@ -1011,6 +1027,204 @@ struct ChatView: View {
         }
     }
 
+    private func normalizedSearchText(_ text: String) -> String {
+        text
+            .folding(options: [.diacriticInsensitive, .caseInsensitive], locale: .current)
+            .lowercased()
+    }
+
+    private func visibleSearchText(for message: ChatMessage) -> String {
+        message.content.extractThinkParts().body
+    }
+
+    private func searchAnchorY(in text: String, query: String) -> Double {
+        let nsText = text as NSString
+        guard nsText.length > 0 else { return 0.5 }
+
+        let foundRange = nsText.range(
+            of: query,
+            options: [.caseInsensitive, .diacriticInsensitive],
+            range: NSRange(location: 0, length: nsText.length)
+        )
+        guard foundRange.location != NSNotFound, foundRange.length > 0 else { return 0.5 }
+
+        let midpoint = Double(foundRange.location) + Double(foundRange.length) / 2
+        if let lineAnchor = searchLineAnchorY(in: text, foundRange: foundRange) {
+            return lineAnchor
+        }
+        return clampedSearchAnchorY(midpoint / Double(nsText.length))
+    }
+
+    private func searchLineAnchorY(in text: String, foundRange: NSRange) -> Double? {
+        guard text.contains(where: \.isNewline),
+              let range = Range(foundRange, in: text) else {
+            return nil
+        }
+
+        let lineIndex = text[..<range.lowerBound].reduce(0) { partial, character in
+            partial + (character.isNewline ? 1 : 0)
+        }
+        let lineCount = text.reduce(1) { partial, character in
+            partial + (character.isNewline ? 1 : 0)
+        }
+        guard lineCount > 1 else { return nil }
+        return clampedSearchAnchorY((Double(lineIndex) + 0.5) / Double(lineCount))
+    }
+
+    private func clampedSearchAnchorY(_ anchorY: Double) -> Double {
+        min(0.95, max(0.05, anchorY))
+    }
+
+    private func currentSearchNavigationTarget() -> ChatSearchNavigationTarget? {
+        guard let target = chatSessionsViewModel.searchNavigationTarget,
+              target.sessionID == viewModel.chatSession.id else {
+            return nil
+        }
+        return target
+    }
+
+    private func searchHighlightQuery(for message: ChatMessage) -> String? {
+        guard let target = currentSearchNavigationTarget(),
+              activeSearchHighlightTargetID == target.id,
+              activeSearchHighlightMessageID == message.id else {
+            return nil
+        }
+        return target.query
+    }
+
+    private func scheduleSearchNavigationIfNeeded(_ target: ChatSearchNavigationTarget?) {
+        guard let target, target.sessionID == viewModel.chatSession.id else {
+            pendingSearchScrollTarget = nil
+            activeSearchHighlightMessageID = nil
+            activeSearchHighlightTargetID = nil
+            clearSearchScrollLock()
+            return
+        }
+
+        pendingSearchScrollTarget = target
+        activeSearchHighlightMessageID = target.messageID
+        activeSearchHighlightTargetID = target.id
+        _ = attemptSearchTargetScroll()
+    }
+
+    @discardableResult
+    private func attemptSearchTargetScroll() -> Bool {
+        guard let target = pendingSearchScrollTarget,
+              target.sessionID == viewModel.chatSession.id,
+              let proxy = scrollProxy else {
+            return false
+        }
+
+        let targetMessageID: UUID
+        let targetAnchorY: Double
+        if visibleMessages.contains(where: { $0.id == target.messageID }) {
+            targetMessageID = target.messageID
+            targetAnchorY = target.anchorY
+        } else {
+            let normalizedQuery = normalizedSearchText(target.query)
+            guard !normalizedQuery.isEmpty,
+                  let fallback = visibleMessages.first(where: {
+                      normalizedSearchText(visibleSearchText(for: $0)).contains(normalizedQuery)
+                  }) else {
+                return false
+            }
+            targetMessageID = fallback.id
+            targetAnchorY = searchAnchorY(in: visibleSearchText(for: fallback), query: target.query)
+        }
+
+        activeSearchHighlightMessageID = targetMessageID
+        activeSearchHighlightTargetID = target.id
+        pendingSearchScrollTarget = nil
+        let anchorY = CGFloat(targetAnchorY)
+        withAnimation(.easeInOut(duration: 0.28)) {
+            proxy.scrollTo(targetMessageID, anchor: UnitPoint(x: 0.5, y: anchorY))
+        }
+        beginSearchScrollLock(targetID: target.id, messageID: targetMessageID, anchorY: anchorY)
+        return true
+    }
+
+    private func beginSearchScrollLock(targetID: UUID, messageID: UUID, anchorY: CGFloat) {
+        let now = Date()
+        let generation = UUID()
+        searchScrollLock = SearchScrollLock(
+            targetID: targetID,
+            messageID: messageID,
+            anchorY: anchorY,
+            generation: generation,
+            hardDeadline: now.addingTimeInterval(3.0),
+            settleDeadline: now.addingTimeInterval(0.45)
+        )
+        scheduleSearchScrollReanchor(delayNanoseconds: 90_000_000)
+    }
+
+    private func clearSearchScrollLock() {
+        searchScrollReanchorTask?.cancel()
+        searchScrollReanchorTask = nil
+        searchScrollLock = nil
+    }
+
+    private func reanchorSearchScroll(_ lock: SearchScrollLock, animated: Bool) {
+        guard let proxy = scrollProxy,
+              activeSearchHighlightTargetID == lock.targetID,
+              visibleMessages.contains(where: { $0.id == lock.messageID }) else {
+            return
+        }
+
+        let action = {
+            proxy.scrollTo(lock.messageID, anchor: UnitPoint(x: 0.5, y: lock.anchorY))
+        }
+
+        if animated {
+            withAnimation(.easeInOut(duration: 0.18)) {
+                action()
+            }
+        } else {
+            action()
+        }
+    }
+
+    private func scheduleSearchScrollReanchor(delayNanoseconds: UInt64) {
+        searchScrollReanchorTask?.cancel()
+        guard let lock = searchScrollLock else { return }
+        let generation = lock.generation
+
+        searchScrollReanchorTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: delayNanoseconds)
+            guard let lock = searchScrollLock,
+                  lock.generation == generation,
+                  !Task.isCancelled else {
+                return
+            }
+
+            reanchorSearchScroll(lock, animated: false)
+
+            let now = Date()
+            if now < lock.settleDeadline {
+                scheduleSearchScrollReanchor(delayNanoseconds: 120_000_000)
+            } else {
+                searchScrollLock = nil
+                searchScrollReanchorTask = nil
+            }
+        }
+    }
+
+    private func extendSearchScrollLockForLayoutChange() {
+        guard var lock = searchScrollLock else { return }
+        let now = Date()
+        guard now < lock.hardDeadline else {
+            clearSearchScrollLock()
+            return
+        }
+
+        let nextSettleDeadline = min(now.addingTimeInterval(0.45), lock.hardDeadline)
+        if nextSettleDeadline > lock.settleDeadline {
+            lock.settleDeadline = nextSettleDeadline
+            searchScrollLock = lock
+        }
+
+        scheduleSearchScrollReanchor(delayNanoseconds: 16_000_000)
+    }
+
     private func applyContentFingerprintUpdate(_ update: ChatViewModel.MessageContentUpdate) {
         if hydrationTask != nil || isHydratingSession {
             pendingRefreshAfterHydration = true
@@ -1060,12 +1274,14 @@ struct ChatView: View {
     private func applyPendingScrollMetricUpdate() {
         scrollMetricUpdateScheduled = false
         var didUpdate = false
+        var didUpdateScrollableGeometry = false
 
         if let pendingContentHeight {
             self.pendingContentHeight = nil
             if abs(pendingContentHeight - contentHeight) > 0.5 {
                 contentHeight = pendingContentHeight
                 didUpdate = true
+                didUpdateScrollableGeometry = true
             }
         }
 
@@ -1074,6 +1290,7 @@ struct ChatView: View {
             if abs(pendingViewportHeight - viewportHeight) > 0.5 {
                 viewportHeight = pendingViewportHeight
                 didUpdate = true
+                didUpdateScrollableGeometry = true
             }
         }
 
@@ -1087,6 +1304,9 @@ struct ChatView: View {
 
         if didUpdate {
             updateScrollToBottomVisibility()
+            if didUpdateScrollableGeometry {
+                extendSearchScrollLockForLayoutChange()
+            }
         }
     }
 
@@ -1186,6 +1406,7 @@ struct ChatView: View {
             }
             .onAppear {
                 refreshVisibleMessages(hydrating: true)
+                scheduleSearchNavigationIfNeeded(chatSessionsViewModel.searchNavigationTarget)
 #if os(macOS)
                 registerReturnKeyMonitor()
 #endif
@@ -1198,6 +1419,10 @@ struct ChatView: View {
                 hydrationTask = nil
                 isHydratingSession = false
                 pendingRefreshAfterHydration = false
+                pendingSearchScrollTarget = nil
+                activeSearchHighlightMessageID = nil
+                activeSearchHighlightTargetID = nil
+                clearSearchScrollLock()
                 expectAssistantResponseHaptics = false
                 didTriggerResponseStartHaptic = false
 #if os(iOS) || os(macOS) || os(visionOS)
@@ -1354,6 +1579,7 @@ struct ChatView: View {
                 textFieldHeight = InputMetrics.defaultHeight
                 inputOverflow = false
                 refreshVisibleMessages(hydrating: true)
+                scheduleSearchNavigationIfNeeded(chatSessionsViewModel.searchNavigationTarget)
             }
             .onChange(of: viewModel.chatSession.messages.count) { _, _ in
                 refreshVisibleMessages()
@@ -1365,8 +1591,14 @@ struct ChatView: View {
 
     private var visibleCountObservedChatView: some View {
         sessionObservedChatView
+            .onChange(of: chatSessionsViewModel.searchNavigationTarget) { _, newTarget in
+                scheduleSearchNavigationIfNeeded(newTarget)
+            }
             .onChange(of: visibleMessages.count) { _, _ in
-                if !showScrollToBottomButton {
+                if attemptSearchTargetScroll() {
+                    return
+                }
+                if pendingSearchScrollTarget == nil, !showScrollToBottomButton {
                     scrollToBottom()
                 }
             }
@@ -1522,7 +1754,9 @@ struct ChatView: View {
                                     updateAvailableMessageWidth(outerGeo.size.width)
                                     scrollProxy = proxy
                                     DispatchQueue.main.async {
-                                        scrollToBottom(animated: false)
+                                        if !attemptSearchTargetScroll(), pendingSearchScrollTarget == nil {
+                                            scrollToBottom(animated: false)
+                                        }
                                     }
                                 }
                             }
@@ -2366,6 +2600,8 @@ struct ChatView: View {
 
                 // Skip re-rendering when the message content and state have not changed.
                 let fingerprint = fingerprintCache[message.id] ?? ContentFingerprint.make(message.content)
+                let searchHighlightQuery = searchHighlightQuery(for: message)
+                let searchHighlightID = searchHighlightQuery == nil ? nil : activeSearchHighlightTargetID
                 let key = VoiceMessageEqKey(
                     id: message.id,
                     isUser: message.isUser,
@@ -2375,7 +2611,8 @@ struct ChatView: View {
                     showActionButtons: showButtons,
                     branchControlsEnabled: branchControlsEnabled,
                     contentFP: fingerprint,
-                    developerModeEnabled: developerModeEnabled
+                    developerModeEnabled: developerModeEnabled,
+                    searchHighlightID: searchHighlightID
                 )
 
                 EquatableRender(value: key) {
@@ -2386,6 +2623,7 @@ struct ChatView: View {
                         developerModeEnabled: developerModeEnabled,
                         maxBubbleWidth: availableMessageWidth,
                         contentFingerprint: fingerprint,
+                        searchHighlightQuery: searchHighlightQuery,
                         onSelectText: { showSelectTextSheet(with: $0) },
                         onRegenerate: {
                             expectAssistantResponseHaptics = true

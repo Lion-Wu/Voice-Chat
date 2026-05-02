@@ -25,12 +25,14 @@ final class MarkdownAttributedStringRenderer {
     private static let tableCellInlinePrefix = "\u{E002}"
     private let style: MarkdownStyle
     private let maxImageWidth: CGFloat?
+    private let searchHighlightQuery: String?
     private var attachments: [MarkdownAttachment] = []
     private var mathResult = MarkdownMathPreprocessor.Result(markdown: "", segments: [])
 
-    init(style: MarkdownStyle, maxImageWidth: CGFloat?) {
+    init(style: MarkdownStyle, maxImageWidth: CGFloat?, searchHighlightQuery: String? = nil) {
         self.style = style
         self.maxImageWidth = maxImageWidth
+        self.searchHighlightQuery = markdownCleanedSearchHighlightQuery(searchHighlightQuery)
     }
 
     func render(markdown: String) -> MarkdownRenderResult {
@@ -86,7 +88,10 @@ final class MarkdownAttributedStringRenderer {
 
         let paragraphStyle = tableCellParagraphStyle(alignment: alignment)
         output.addAttribute(.paragraphStyle, value: paragraphStyle, range: NSRange(location: 0, length: output.length))
-        return MarkdownRenderResult(attributedString: output, attachments: attachments)
+        return MarkdownRenderResult(
+            attributedString: highlightedAttachmentContent(output),
+            attachments: attachments
+        )
     }
 
     private func renderChildrenBlocks(
@@ -169,7 +174,8 @@ final class MarkdownAttributedStringRenderer {
                 languageLabel: languageLabel,
                 copyLabel: copyLabel,
                 style: codeStyle,
-                maxWidth: maxImageWidth ?? 0
+                maxWidth: maxImageWidth ?? 0,
+                searchHighlightQuery: searchHighlightQuery
             )
             attachments.append(attachment)
             primeAttachmentForMac(attachment)
@@ -198,7 +204,7 @@ final class MarkdownAttributedStringRenderer {
             let content = NSMutableAttributedString()
             renderChildrenBlocks(quote, into: content, listDepth: listDepth, baseAttributes: attrs)
             finalizeRenderedOutput(content)
-            let quoteContent = NSAttributedString(attributedString: content)
+            let quoteContent = highlightedAttachmentContent(content)
             let quoteStyle = MarkdownQuoteStyle(
                 textColor: quoteTextColor,
                 borderColor: style.quoteBorderColor,
@@ -707,7 +713,11 @@ final class MarkdownAttributedStringRenderer {
         }
         let paragraphStyle = tableCellParagraphStyle(alignment: alignment)
         content.addAttribute(.paragraphStyle, value: paragraphStyle, range: NSRange(location: 0, length: content.length))
-        return NSAttributedString(attributedString: content)
+        return highlightedAttachmentContent(content)
+    }
+
+    private func highlightedAttachmentContent(_ content: NSAttributedString) -> NSAttributedString {
+        markdownAttributedStringByApplyingSearchHighlight(to: content, query: searchHighlightQuery)
     }
 
     private func tableCellParagraphStyle(alignment: NSTextAlignment) -> NSMutableParagraphStyle {

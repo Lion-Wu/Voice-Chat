@@ -349,6 +349,39 @@ struct SidebarView: View {
         onConversationTap(draft)
     }
 
+    private func selectSessionFromSidebar(_ session: ChatSession) {
+        chatSessionsViewModel.selectSession(session, matchingSidebarQuery: visibleSearchKeyword)
+        onConversationTap(session)
+    }
+
+    private func sidebarPreview(for session: ChatSession) -> SidebarSessionPreview {
+        chatSessionsViewModel.sidebarPreview(for: session, matchingSearchQuery: visibleSearchKeyword)
+    }
+
+    private func sidebarPreviewText(for preview: SidebarSessionPreview) -> Text {
+        guard !preview.emphasizedRanges.isEmpty else {
+            return Text(verbatim: preview.text)
+        }
+
+        var result = Text("")
+        var cursor = preview.text.startIndex
+        for nsRange in preview.emphasizedRanges {
+            guard let range = Range(nsRange, in: preview.text),
+                  range.lowerBound >= cursor else {
+                continue
+            }
+            if cursor < range.lowerBound {
+                result = result + Text(verbatim: String(preview.text[cursor..<range.lowerBound]))
+            }
+            result = result + Text(verbatim: String(preview.text[range])).bold()
+            cursor = range.upperBound
+        }
+        if cursor < preview.text.endIndex {
+            result = result + Text(verbatim: String(preview.text[cursor..<preview.text.endIndex]))
+        }
+        return result
+    }
+
     @ViewBuilder
     private var macSidebar: some View {
         List(selection: $chatSessionsViewModel.selectedSessionID) {
@@ -433,8 +466,7 @@ struct SidebarView: View {
                                 iosSessionRow(session)
                                     .contentShape(Rectangle())
                                     .onTapGesture {
-                                        chatSessionsViewModel.selectedSession = session
-                                        onConversationTap(session)
+                                        selectSessionFromSidebar(session)
                                     }
                                     .contextMenu {
                                         Button("Rename") { renameSession(session) }
@@ -501,8 +533,7 @@ struct SidebarView: View {
                             iosSessionRow(session)
                                 .contentShape(Rectangle())
                                 .onTapGesture {
-                                    chatSessionsViewModel.selectedSession = session
-                                    onConversationTap(session)
+                                    selectSessionFromSidebar(session)
                                 }
                                 .contextMenu {
                                     Button("Rename") { renameSession(session) }
@@ -647,7 +678,7 @@ struct SidebarView: View {
                 Text(session.title)
                     .font(.headline)
                     .lineLimit(1)
-                Text(chatSessionsViewModel.sidebarSubtitle(for: session))
+                sidebarPreviewText(for: sidebarPreview(for: session))
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
@@ -657,8 +688,7 @@ struct SidebarView: View {
         .padding(.vertical, 4)
         .contentShape(Rectangle())
         .onTapGesture {
-            chatSessionsViewModel.selectedSession = session
-            onConversationTap(session)
+            selectSessionFromSidebar(session)
         }
         .popover(isPresented: renamePopoverBinding(for: session), arrowEdge: .trailing) {
             renameSheetView()
@@ -684,7 +714,7 @@ struct SidebarView: View {
                 Text(session.title)
                     .font(.body.weight(.semibold))
                     .lineLimit(1)
-                Text(chatSessionsViewModel.sidebarSubtitle(for: session))
+                sidebarPreviewText(for: sidebarPreview(for: session))
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)

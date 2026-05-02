@@ -20,6 +20,7 @@ struct MarkdownTextView: UIViewRepresentable {
     let markdown: String
     let colorScheme: ColorScheme
     let sizeCategory: ContentSizeCategory
+    var searchHighlightQuery: String? = nil
 
     func makeCoordinator() -> MarkdownTextCoordinator {
         MarkdownTextCoordinator()
@@ -54,7 +55,8 @@ struct MarkdownTextView: UIViewRepresentable {
             textView: uiView,
             markdown: markdown,
             colorScheme: colorScheme,
-            sizeCategory: sizeCategory
+            sizeCategory: sizeCategory,
+            searchHighlightQuery: searchHighlightQuery
         )
         #if os(iOS)
         uiView.disableTextDragAndDrop()
@@ -68,7 +70,8 @@ struct MarkdownTextView: UIViewRepresentable {
                     markdown: markdown,
                     colorScheme: colorScheme,
                     sizeCategory: sizeCategory,
-                    force: true
+                    force: true,
+                    searchHighlightQuery: searchHighlightQuery
                 )
                 #if os(iOS)
                 uiView.disableTextDragAndDrop()
@@ -589,6 +592,7 @@ struct MarkdownTextView: NSViewRepresentable {
     let markdown: String
     let colorScheme: ColorScheme
     let sizeCategory: ContentSizeCategory
+    var searchHighlightQuery: String? = nil
 
     func makeCoordinator() -> MarkdownTextCoordinator {
         MarkdownTextCoordinator()
@@ -630,7 +634,8 @@ struct MarkdownTextView: NSViewRepresentable {
             textView: nsView,
             markdown: markdown,
             colorScheme: colorScheme,
-            sizeCategory: sizeCategory
+            sizeCategory: sizeCategory,
+            searchHighlightQuery: searchHighlightQuery
         )
     }
 
