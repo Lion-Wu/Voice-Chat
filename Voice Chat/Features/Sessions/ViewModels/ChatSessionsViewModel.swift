@@ -714,15 +714,17 @@ final class ChatSessionsViewModel: ObservableObject {
     }
 
     private func sidebarPresentation(for session: ChatSession) -> SidebarPresentationCacheEntry {
+        let lastMessage = latestSidebarMessage(in: session)
+        let lastMessageContent = lastMessage?.content
+
         if let cached = sidebarPresentationCache[session.id],
            cached.title == session.title,
            cached.messageCount == session.messages.count,
+           cached.lastMessageID == lastMessage?.id,
+           cached.lastMessageContent == lastMessageContent,
            cached.lastMessageAt == session.lastMessageAt {
             return cached
         }
-
-        let lastMessage = latestSidebarMessage(in: session)
-        let lastMessageContent = lastMessage?.content
 
         let bodyText = lastMessageContent?
             .extractThinkParts()

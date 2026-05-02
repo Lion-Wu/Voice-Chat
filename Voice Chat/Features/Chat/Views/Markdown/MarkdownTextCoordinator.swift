@@ -1483,7 +1483,7 @@ final class MarkdownTextCoordinator: NSObject, @unchecked Sendable {
                 searchHighlightQuery: searchHighlightQuery
             )
             let result = renderer.render(markdown: markdown)
-            if result.attachments.isEmpty {
+            if searchHighlightQuery == nil, result.attachments.isEmpty {
                 MarkdownRenderCache.shared.store(
                     result.attributedString,
                     markdown: markdown,
@@ -1508,7 +1508,7 @@ final class MarkdownTextCoordinator: NSObject, @unchecked Sendable {
                 searchHighlightQuery: searchHighlightQuery
             )
             let result = renderer.render(markdown: markdown)
-            if result.attachments.isEmpty {
+            if searchHighlightQuery == nil, result.attachments.isEmpty {
                 MarkdownRenderCache.shared.store(
                     result.attributedString,
                     markdown: markdown,
