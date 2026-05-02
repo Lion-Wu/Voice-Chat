@@ -16,6 +16,7 @@ import SwiftUI
 final class MarkdownTextCoordinator: NSObject, @unchecked Sendable {
     private var lastMarkdown: String = ""
     private var lastStyleKey: String = ""
+    private var lastSearchHighlightQuery: String?
     private var lastMarkdownHasPotentialMathSyntax: Bool = false
     private var currentRenderID: UInt64 = 0
     private var attachments: [MarkdownAttachment] = []
@@ -105,19 +106,35 @@ final class MarkdownTextCoordinator: NSObject, @unchecked Sendable {
         markdown: String,
         colorScheme: ColorScheme,
         sizeCategory: ContentSizeCategory,
-        force: Bool = false
+        force: Bool = false,
+        searchHighlightQuery: String? = nil
     ) {
         currentTextView = textView
         let resolvedScheme = resolvedColorScheme(for: textView, fallback: colorScheme)
         let style = MarkdownStyle(colorScheme: resolvedScheme, sizeCategory: sizeCategory)
         let styleKey = style.cacheKey
+        let cleanedSearchHighlightQuery = cleanedSearchHighlightQuery(searchHighlightQuery)
         configure(textView: textView, style: style)
         if lastLayoutWidth <= 1 {
             let width = resolveLayoutWidth(textView.bounds.width, textView: textView)
             if width > 1 { lastLayoutWidth = width }
         }
 
-        if !force, markdown == lastMarkdown && styleKey == lastStyleKey {
+        if !force,
+           markdown == lastMarkdown,
+           styleKey == lastStyleKey,
+           cleanedSearchHighlightQuery == lastSearchHighlightQuery {
+            return
+        }
+
+        if cleanedSearchHighlightQuery != nil || lastSearchHighlightQuery != nil {
+            renderMarkdown(
+                markdown,
+                style: style,
+                styleKey: styleKey,
+                textView: textView,
+                searchHighlightQuery: cleanedSearchHighlightQuery
+            )
             return
         }
 
@@ -154,10 +171,19 @@ final class MarkdownTextCoordinator: NSObject, @unchecked Sendable {
         textView.linkTextAttributes = style.linkAttributes
     }
 
-    private func updateLastRenderState(markdown: String, styleKey: String) {
+    private func cleanedSearchHighlightQuery(_ query: String?) -> String? {
+        markdownCleanedSearchHighlightQuery(query)
+    }
+
+    private func updateLastRenderState(
+        markdown: String,
+        styleKey: String,
+        searchHighlightQuery: String? = nil
+    ) {
         updatePotentialMathSyntaxCache(for: markdown, previousMarkdown: lastMarkdown)
         lastMarkdown = markdown
         lastStyleKey = styleKey
+        lastSearchHighlightQuery = searchHighlightQuery
     }
 
     private func updatePotentialMathSyntaxCache(for markdown: String, previousMarkdown: String) {
@@ -1424,7 +1450,8 @@ final class MarkdownTextCoordinator: NSObject, @unchecked Sendable {
         _ markdown: String,
         style: MarkdownStyle,
         styleKey: String,
-        textView: MarkdownPlatformTextView
+        textView: MarkdownPlatformTextView,
+        searchHighlightQuery: String? = nil
     ) {
         currentRenderID &+= 1
         let renderID = currentRenderID
@@ -1441,7 +1468,8 @@ final class MarkdownTextCoordinator: NSObject, @unchecked Sendable {
                 to: textView,
                 markdown: markdown,
                 styleKey: styleKey,
-                renderID: renderID
+                renderID: renderID,
+                searchHighlightQuery: searchHighlightQuery
             )
             return
         }
@@ -1449,9 +1477,13 @@ final class MarkdownTextCoordinator: NSObject, @unchecked Sendable {
         #if os(macOS)
         Task { @MainActor [weak self] in
             guard let self, self.currentRenderID == renderID else { return }
-            let renderer = MarkdownAttributedStringRenderer(style: style, maxImageWidth: maxWidth)
+            let renderer = MarkdownAttributedStringRenderer(
+                style: style,
+                maxImageWidth: maxWidth,
+                searchHighlightQuery: searchHighlightQuery
+            )
             let result = renderer.render(markdown: markdown)
-            if result.attachments.isEmpty {
+            if searchHighlightQuery == nil, result.attachments.isEmpty {
                 MarkdownRenderCache.shared.store(
                     result.attributedString,
                     markdown: markdown,
@@ -1464,14 +1496,19 @@ final class MarkdownTextCoordinator: NSObject, @unchecked Sendable {
                 to: textView,
                 markdown: markdown,
                 styleKey: styleKey,
-                renderID: renderID
+                renderID: renderID,
+                searchHighlightQuery: searchHighlightQuery
             )
         }
         #else
         renderQueue.async { [weak self] in
-            let renderer = MarkdownAttributedStringRenderer(style: style, maxImageWidth: maxWidth)
+            let renderer = MarkdownAttributedStringRenderer(
+                style: style,
+                maxImageWidth: maxWidth,
+                searchHighlightQuery: searchHighlightQuery
+            )
             let result = renderer.render(markdown: markdown)
-            if result.attachments.isEmpty {
+            if searchHighlightQuery == nil, result.attachments.isEmpty {
                 MarkdownRenderCache.shared.store(
                     result.attributedString,
                     markdown: markdown,
@@ -1486,11 +1523,19 @@ final class MarkdownTextCoordinator: NSObject, @unchecked Sendable {
                     to: textView,
                     markdown: markdown,
                     styleKey: styleKey,
-                    renderID: renderID
+                    renderID: renderID,
+                    searchHighlightQuery: searchHighlightQuery
                 )
             }
         }
         #endif
+    }
+
+    private func attributedStringByApplyingSearchHighlight(
+        to attributedString: NSAttributedString,
+        query: String?
+    ) -> NSAttributedString {
+        markdownAttributedStringByApplyingSearchHighlight(to: attributedString, query: query)
     }
 
     private func applyRender(
@@ -1498,17 +1543,23 @@ final class MarkdownTextCoordinator: NSObject, @unchecked Sendable {
         to textView: MarkdownPlatformTextView,
         markdown: String,
         styleKey: String,
-        renderID: UInt64
+        renderID: UInt64,
+        searchHighlightQuery: String? = nil
     ) {
         guard currentRenderID == renderID else { return }
         if let storage = textStorage(for: textView) {
-            storage.setAttributedString(result.attributedString)
+            storage.setAttributedString(
+                attributedStringByApplyingSearchHighlight(
+                    to: result.attributedString,
+                    query: searchHighlightQuery
+                )
+            )
         }
         attachments = result.attachments
         resetStreamingIncrementalState()
         updateAttachmentWidth()
         queueImageLoads(attachments: result.attachments)
-        updateLastRenderState(markdown: markdown, styleKey: styleKey)
+        updateLastRenderState(markdown: markdown, styleKey: styleKey, searchHighlightQuery: searchHighlightQuery)
         invalidateLayout(for: textView, changedRange: nil)
     }
 

@@ -151,6 +151,7 @@
 "Waiting for connection" = "في انتظار الاتصال";
 "Unable to set up audio session: %@" = "تعذر إعداد جلسة الصوت: %@";
 "Search Chats" = "البحث في الدردشات";
+"Searching..." = "جارٍ البحث...";
 "Today" = "اليوم";
 "Yesterday" = "أمس";
 "Last 7 Days" = "آخر 7 أيام";
@@ -158,9 +159,12 @@
 "Past Year" = "العام الماضي";
 "Older" = "أقدم";
 "No chats yet" = "لا توجد دردشات بعد";
+"Fresh conversation" = "محادثة جديدة";
+"No recent replies" = "لا توجد ردود حديثة";
 "No chats match \"%@\"" = "لا توجد دردشات تطابق \"%@\"";
 "No Results" = "لا توجد نتائج";
 "Try a different chat name." = "جرّب اسم دردشة مختلفًا.";
+"Try a different search." = "جرّب بحثًا مختلفًا.";
 "Select or start a chat" = "اختر دردشة أو ابدأ واحدة";
 "No Chat Selected" = "لم يتم تحديد أي دردشة";
 "Start a new conversation to begin talking." = "ابدأ محادثة جديدة لبدء التحدث.";

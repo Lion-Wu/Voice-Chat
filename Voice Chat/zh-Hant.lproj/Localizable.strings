@@ -129,6 +129,7 @@
 "Waiting for connection" = "等待連線";
 "Unable to set up audio session: %@" = "無法設定音訊工作階段：%@";
 "Search Chats" = "搜尋聊天";
+"Searching..." = "正在搜尋…";
 "Today" = "今天";
 "Yesterday" = "昨天";
 "Last 7 Days" = "最近 7 天";
@@ -136,9 +137,12 @@
 "Past Year" = "過去一年";
 "Older" = "更早";
 "No chats yet" = "尚無聊天記錄";
+"Fresh conversation" = "新的對話";
+"No recent replies" = "暫無最近回覆";
 "No chats match \"%@\"" = "沒有與「%@」相符的聊天";
 "No Results" = "沒有結果";
 "Try a different chat name." = "試試不同的聊天名稱。";
+"Try a different search." = "試試其他搜尋關鍵字。";
 "Select or start a chat" = "選擇或開始一段聊天";
 "No Chat Selected" = "未選取聊天";
 "Start a new conversation to begin talking." = "開始新的對話即可開始交流。";

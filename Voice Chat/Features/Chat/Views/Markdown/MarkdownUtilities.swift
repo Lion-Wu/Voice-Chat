@@ -34,6 +34,53 @@ func extractPlainText(from attributed: NSAttributedString) -> String {
     return output
 }
 
+func markdownCleanedSearchHighlightQuery(_ query: String?) -> String? {
+    let cleaned = query?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    return cleaned.isEmpty ? nil : cleaned
+}
+
+func markdownAttributedStringByApplyingSearchHighlight(
+    to attributedString: NSAttributedString,
+    query: String?
+) -> NSAttributedString {
+    guard let query = markdownCleanedSearchHighlightQuery(query) else {
+        return attributedString
+    }
+
+    let mutable = NSMutableAttributedString(attributedString: attributedString)
+    markdownApplySearchHighlight(to: mutable, query: query)
+    return mutable
+}
+
+func markdownApplySearchHighlight(
+    to mutable: NSMutableAttributedString,
+    query: String
+) {
+    let nsString = mutable.string as NSString
+    guard nsString.length > 0 else { return }
+
+    let fullRange = NSRange(location: 0, length: nsString.length)
+    let highlightColor = MarkdownPlatformColor.markdownHex(0xffd84d, alpha: 0.58)
+
+    var searchRange = fullRange
+    while searchRange.location < nsString.length {
+        let foundRange = nsString.range(
+            of: query,
+            options: [.caseInsensitive, .diacriticInsensitive],
+            range: searchRange
+        )
+        guard foundRange.location != NSNotFound, foundRange.length > 0 else { break }
+
+        mutable.addAttribute(.backgroundColor, value: highlightColor, range: foundRange)
+
+        let nextLocation = foundRange.location + foundRange.length
+        searchRange = NSRange(
+            location: nextLocation,
+            length: max(0, nsString.length - nextLocation)
+        )
+    }
+}
+
 private final class MarkdownAttributedTextMeasurementCache: @unchecked Sendable {
     static let shared = MarkdownAttributedTextMeasurementCache()
 

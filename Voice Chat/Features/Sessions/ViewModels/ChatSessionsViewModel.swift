@@ -9,6 +9,31 @@ import Foundation
 import SwiftData
 import Combine
 
+struct ChatSearchNavigationTarget: Equatable, Sendable {
+    let id: UUID
+    let sessionID: UUID
+    let messageID: UUID
+    let query: String
+    let anchorY: Double
+
+    init(sessionID: UUID, messageID: UUID, query: String, anchorY: Double) {
+        self.id = UUID()
+        self.sessionID = sessionID
+        self.messageID = messageID
+        self.query = query
+        self.anchorY = anchorY
+    }
+}
+
+struct SidebarSessionPreview: Equatable {
+    let text: String
+    let emphasizedRanges: [NSRange]
+
+    static func plain(_ text: String) -> SidebarSessionPreview {
+        SidebarSessionPreview(text: text, emphasizedRanges: [])
+    }
+}
+
 @MainActor
 final class ChatSessionsViewModel: ObservableObject {
     private struct PendingOrderingUpdate {
@@ -16,9 +41,17 @@ final class ChatSessionsViewModel: ObservableObject {
         let shouldPromoteDraft: Bool
     }
 
+    private struct SidebarSearchBodyMatch {
+        let messageID: UUID
+        let bodyText: String
+        let foundRange: NSRange?
+        let anchorY: Double
+    }
+
     private struct SidebarPresentationCacheEntry {
         let title: String
         let messageCount: Int
+        let lastMessageAt: Date?
         let lastMessageID: UUID?
         let lastMessageContent: String?
         let subtitle: String
@@ -28,7 +61,15 @@ final class ChatSessionsViewModel: ObservableObject {
     // MARK: - Published State
     @Published private(set) var chatSessions: [ChatSession] = []
     @Published private(set) var draftSession: ChatSession = ChatSession()
-    @Published var selectedSessionID: UUID? = nil
+    @Published private(set) var searchNavigationTarget: ChatSearchNavigationTarget? = nil
+    @Published var selectedSessionID: UUID? = nil {
+        didSet {
+            guard oldValue != selectedSessionID else { return }
+            if searchNavigationTarget?.sessionID != selectedSessionID {
+                searchNavigationTarget = nil
+            }
+        }
+    }
     @Published private(set) var isRealtimeVoiceLocked: Bool = false
     @Published private(set) var hasActiveTextRequests: Bool = false
 
@@ -121,8 +162,53 @@ final class ChatSessionsViewModel: ObservableObject {
         }
     }
 
+    func normalizedSidebarSearchQuery(_ rawQuery: String) -> String {
+        normalizedSidebarSearchText(rawQuery.trimmingCharacters(in: .whitespacesAndNewlines))
+    }
+
+    private func normalizedSidebarSearchText(_ text: String) -> String {
+        text
+            .folding(options: [.diacriticInsensitive, .caseInsensitive], locale: .current)
+            .lowercased()
+    }
+
+    func sessions(
+        in candidateSessions: [ChatSession],
+        matchingNormalizedSidebarQuery normalizedQuery: String
+    ) -> [ChatSession] {
+        guard !normalizedQuery.isEmpty else { return candidateSessions }
+        return candidateSessions.filter { session in
+            sidebarSearchCorpus(for: session).contains(normalizedQuery)
+        }
+    }
+
     func sidebarSubtitle(for session: ChatSession) -> String {
         sidebarPresentation(for: session).subtitle
+    }
+
+    func sidebarPreview(for session: ChatSession, matchingSearchQuery rawQuery: String) -> SidebarSessionPreview {
+        let query = rawQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedQuery = normalizedSidebarSearchQuery(query)
+        guard !normalizedQuery.isEmpty,
+              let match = sidebarBodySearchMatch(
+                  in: session,
+                  rawQuery: query,
+                  matchingNormalizedSidebarQuery: normalizedQuery
+              ),
+              let preview = sidebarSearchContextPreview(
+                  in: match.bodyText,
+                  query: query,
+                  foundRange: match.foundRange
+              ) else {
+            return .plain(sidebarSubtitle(for: session))
+        }
+
+        return preview
+    }
+
+    func selectSession(_ session: ChatSession, matchingSidebarQuery rawQuery: String? = nil) {
+        selectedSession = session
+        configureSearchNavigationTarget(for: session, rawQuery: rawQuery)
     }
 
     func cancelAllActiveTextRequests(autostartQueuedDrafts: Bool = true) {
@@ -178,6 +264,7 @@ final class ChatSessionsViewModel: ObservableObject {
     // MARK: - Session Ops
     func startNewSession() {
         guard !isRealtimeVoiceLocked else { return }
+        searchNavigationTarget = nil
         selectedSessionID = draftSession.id
     }
 
@@ -210,6 +297,7 @@ final class ChatSessionsViewModel: ObservableObject {
         repository.ensureSessionTracked(session)
         cacheViewModel(for: session)
         persist(session: session, reason: .immediate)
+        searchNavigationTarget = nil
         selectedSessionID = session.id
     }
 
@@ -234,6 +322,7 @@ final class ChatSessionsViewModel: ObservableObject {
     @discardableResult
     func persist(session: ChatSession, reason: SessionPersistReason = .throttled) -> Bool {
         guard shouldPersist(session) else { return false }
+        invalidateSidebarPresentationCache(for: session.id)
         let didPersist = repository.persist(session: session, reason: reason)
 
         if didPersist {
@@ -343,22 +432,297 @@ final class ChatSessionsViewModel: ObservableObject {
         }
     }
 
-    private func normalizedSidebarSearchQuery(_ rawQuery: String) -> String {
-        rawQuery
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .folding(options: [.diacriticInsensitive, .caseInsensitive], locale: .current)
-            .lowercased()
+    private func invalidateSidebarPresentationCache(for sessionID: UUID) {
+        sidebarPresentationCache.removeValue(forKey: sessionID)
+    }
+
+    private func latestSidebarMessage(in session: ChatSession) -> ChatMessage? {
+        if let lastMessageAt = session.lastMessageAt,
+           let message = session.messages.first(where: { $0.createdAt == lastMessageAt }) {
+            return message
+        }
+        return session.messages.max(by: { $0.createdAt < $1.createdAt })
+    }
+
+    private func sidebarSearchText(for message: ChatMessage) -> String {
+        message.content.extractThinkParts().body
+    }
+
+    private func sidebarSearchMessages(in session: ChatSession) -> [ChatMessage] {
+        activeSidebarBranchMessages(in: session)
+    }
+
+    private func activeSidebarBranchMessages(in session: ChatSession) -> [ChatMessage] {
+        let lookup = sidebarMessageLookup(in: session)
+        let childrenByParent = sidebarChildrenByParent(in: session)
+        guard let root = activeSidebarRootMessage(in: session, lookup: lookup) else {
+            return []
+        }
+
+        var out: [ChatMessage] = []
+        out.reserveCapacity(min(64, session.messages.count))
+
+        var visited = Set<UUID>()
+        var current: ChatMessage? = root
+        while let message = current, visited.insert(message.id).inserted {
+            out.append(message)
+            guard let next = activeSidebarChild(
+                for: message,
+                lookup: lookup,
+                childrenByParent: childrenByParent
+            ) else {
+                break
+            }
+            current = next
+        }
+
+        return out
+    }
+
+    private func sidebarMessageLookup(in session: ChatSession) -> [UUID: ChatMessage] {
+        var lookup: [UUID: ChatMessage] = [:]
+        lookup.reserveCapacity(session.messages.count)
+        for message in session.messages {
+            lookup[message.id] = message
+        }
+        return lookup
+    }
+
+    private func sidebarChildrenByParent(in session: ChatSession) -> [UUID: [ChatMessage]] {
+        var childrenByParent: [UUID: [ChatMessage]] = [:]
+        childrenByParent.reserveCapacity(session.messages.count)
+        for message in session.messages {
+            if let parent = message.parentMessage {
+                childrenByParent[parent.id, default: []].append(message)
+            }
+        }
+        return childrenByParent
+    }
+
+    private func activeSidebarRootMessage(
+        in session: ChatSession,
+        lookup: [UUID: ChatMessage]
+    ) -> ChatMessage? {
+        if let id = session.activeRootMessageID,
+           let active = lookup[id] {
+            return sidebarRootMessage(for: active, lookup: lookup)
+        }
+
+        if let root = session.messages
+            .filter({ $0.parentMessage == nil })
+            .sorted(by: stableSidebarMessageOrder)
+            .first {
+            return root
+        }
+
+        return session.messages.sorted(by: stableSidebarMessageOrder).first
+    }
+
+    private func activeSidebarChild(
+        for message: ChatMessage,
+        lookup: [UUID: ChatMessage],
+        childrenByParent: [UUID: [ChatMessage]]
+    ) -> ChatMessage? {
+        let children = childrenByParent[message.id, default: []].sorted(by: stableSidebarMessageOrder)
+        guard !children.isEmpty else { return nil }
+
+        if let activeChildID = message.activeChildMessageID,
+           let activeChild = lookup[activeChildID],
+           activeChild.parentMessage?.id == message.id {
+            return activeChild
+        }
+
+        return children.last
+    }
+
+    private func sidebarRootMessage(
+        for message: ChatMessage,
+        lookup: [UUID: ChatMessage]
+    ) -> ChatMessage {
+        var cursor = message
+        var visited = Set<UUID>()
+        while let parent = cursor.parentMessage,
+              lookup[parent.id] != nil,
+              visited.insert(cursor.id).inserted {
+            cursor = parent
+        }
+        return cursor
+    }
+
+    private func stableSidebarMessageOrder(_ lhs: ChatMessage, _ rhs: ChatMessage) -> Bool {
+        if lhs.createdAt == rhs.createdAt {
+            return lhs.id.uuidString < rhs.id.uuidString
+        }
+        return lhs.createdAt < rhs.createdAt
+    }
+
+    private func sidebarBodySearchMatch(
+        in session: ChatSession,
+        rawQuery: String,
+        matchingNormalizedSidebarQuery normalizedQuery: String
+    ) -> SidebarSearchBodyMatch? {
+        guard !normalizedQuery.isEmpty else { return nil }
+
+        for message in sidebarSearchMessages(in: session) {
+            let body = sidebarSearchText(for: message)
+            let normalizedBody = normalizedSidebarSearchText(body)
+            if normalizedBody.contains(normalizedQuery) {
+                let foundRange = sidebarSearchRange(in: body, query: rawQuery)
+                return SidebarSearchBodyMatch(
+                    messageID: message.id,
+                    bodyText: body,
+                    foundRange: foundRange,
+                    anchorY: searchAnchorY(in: body, foundRange: foundRange)
+                )
+            }
+        }
+
+        return nil
+    }
+
+    private func sidebarSearchRange(in text: String, query: String) -> NSRange? {
+        let nsText = text as NSString
+        guard nsText.length > 0 else { return nil }
+
+        let foundRange = nsText.range(
+            of: query,
+            options: [.caseInsensitive, .diacriticInsensitive],
+            range: NSRange(location: 0, length: nsText.length)
+        )
+        guard foundRange.location != NSNotFound, foundRange.length > 0 else { return nil }
+        return foundRange
+    }
+
+    private func searchAnchorY(in text: String, foundRange: NSRange?) -> Double {
+        let nsText = text as NSString
+        guard nsText.length > 0,
+              let foundRange,
+              foundRange.location != NSNotFound,
+              foundRange.length > 0 else {
+            return 0.5
+        }
+
+        let midpoint = Double(foundRange.location) + Double(foundRange.length) / 2
+        if let lineAnchor = searchLineAnchorY(in: text, foundRange: foundRange) {
+            return lineAnchor
+        }
+        return clampedSearchAnchorY(midpoint / Double(nsText.length))
+    }
+
+    private func searchLineAnchorY(in text: String, foundRange: NSRange) -> Double? {
+        guard text.contains(where: \.isNewline),
+              let range = Range(foundRange, in: text) else {
+            return nil
+        }
+
+        let lineIndex = text[..<range.lowerBound].reduce(0) { partial, character in
+            partial + (character.isNewline ? 1 : 0)
+        }
+        let lineCount = text.reduce(1) { partial, character in
+            partial + (character.isNewline ? 1 : 0)
+        }
+        guard lineCount > 1 else { return nil }
+        return clampedSearchAnchorY((Double(lineIndex) + 0.5) / Double(lineCount))
+    }
+
+    private func clampedSearchAnchorY(_ anchorY: Double) -> Double {
+        min(0.95, max(0.05, anchorY))
+    }
+
+    private func sidebarSearchContextPreview(
+        in text: String,
+        query: String,
+        foundRange: NSRange?
+    ) -> SidebarSessionPreview? {
+        guard let foundRange,
+              let range = Range(foundRange, in: text) else {
+            return nil
+        }
+
+        let leadingContextLength = 8
+        let trailingContextLength = 64
+        let contextStart = text.index(
+            range.lowerBound,
+            offsetBy: -leadingContextLength,
+            limitedBy: text.startIndex
+        ) ?? text.startIndex
+        let contextEnd = text.index(
+            range.upperBound,
+            offsetBy: trailingContextLength,
+            limitedBy: text.endIndex
+        ) ?? text.endIndex
+
+        var snippet = String(text[contextStart..<contextEnd])
+        snippet = singleLineSidebarSnippet(snippet).trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !snippet.isEmpty else { return nil }
+
+        if contextStart > text.startIndex {
+            snippet = "…" + snippet
+        }
+        if contextEnd < text.endIndex {
+            snippet += "…"
+        }
+
+        let emphasizedRanges = sidebarSearchRanges(in: snippet, query: query)
+        return SidebarSessionPreview(text: snippet, emphasizedRanges: emphasizedRanges)
+    }
+
+    private func singleLineSidebarSnippet(_ text: String) -> String {
+        text.replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+    }
+
+    private func sidebarSearchRanges(in text: String, query: String) -> [NSRange] {
+        let nsText = text as NSString
+        guard nsText.length > 0 else { return [] }
+
+        var ranges: [NSRange] = []
+        var searchRange = NSRange(location: 0, length: nsText.length)
+        while searchRange.location < nsText.length {
+            let foundRange = nsText.range(
+                of: query,
+                options: [.caseInsensitive, .diacriticInsensitive],
+                range: searchRange
+            )
+            guard foundRange.location != NSNotFound, foundRange.length > 0 else { break }
+
+            ranges.append(foundRange)
+            let nextLocation = foundRange.location + foundRange.length
+            searchRange = NSRange(location: nextLocation, length: max(0, nsText.length - nextLocation))
+        }
+        return ranges
+    }
+
+    private func configureSearchNavigationTarget(for session: ChatSession, rawQuery: String?) {
+        let query = rawQuery?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let normalizedQuery = normalizedSidebarSearchQuery(query)
+        guard !normalizedQuery.isEmpty,
+              let match = sidebarBodySearchMatch(
+                  in: session,
+                  rawQuery: query,
+                  matchingNormalizedSidebarQuery: normalizedQuery
+              ) else {
+            searchNavigationTarget = nil
+            return
+        }
+
+        searchNavigationTarget = ChatSearchNavigationTarget(
+            sessionID: session.id,
+            messageID: match.messageID,
+            query: query,
+            anchorY: match.anchorY
+        )
     }
 
     private func sidebarPresentation(for session: ChatSession) -> SidebarPresentationCacheEntry {
-        let lastMessage = session.messages.max(by: { $0.createdAt < $1.createdAt })
+        let lastMessage = latestSidebarMessage(in: session)
         let lastMessageContent = lastMessage?.content
 
         if let cached = sidebarPresentationCache[session.id],
            cached.title == session.title,
            cached.messageCount == session.messages.count,
            cached.lastMessageID == lastMessage?.id,
-           cached.lastMessageContent == lastMessageContent {
+           cached.lastMessageContent == lastMessageContent,
+           cached.lastMessageAt == session.lastMessageAt {
             return cached
         }
 
@@ -369,9 +733,9 @@ final class ChatSessionsViewModel: ObservableObject {
 
         let subtitle: String
         if lastMessage == nil {
-            subtitle = "Fresh conversation"
+            subtitle = String(localized: "Fresh conversation")
         } else if bodyText.isEmpty {
-            subtitle = "No recent replies"
+            subtitle = String(localized: "No recent replies")
         } else {
             let snippet = bodyText.prefix(60)
             subtitle = bodyText.count > 60 ? "\(snippet)…" : String(snippet)
@@ -380,6 +744,7 @@ final class ChatSessionsViewModel: ObservableObject {
         let entry = SidebarPresentationCacheEntry(
             title: session.title,
             messageCount: session.messages.count,
+            lastMessageAt: session.lastMessageAt,
             lastMessageID: lastMessage?.id,
             lastMessageContent: lastMessageContent,
             subtitle: subtitle,
@@ -395,14 +760,15 @@ final class ChatSessionsViewModel: ObservableObject {
             return cachedCorpus
         }
 
-        let searchCorpus = ([session.title] + session.messages.map(\.content))
-            .joined(separator: "\n")
-            .folding(options: [.diacriticInsensitive, .caseInsensitive], locale: .current)
-            .lowercased()
+        let messageSearchText = sidebarSearchMessages(in: session).map { sidebarSearchText(for: $0) }
+        let searchCorpus = normalizedSidebarSearchText(
+            ([session.title] + messageSearchText).joined(separator: "\n")
+        )
 
         let updatedEntry = SidebarPresentationCacheEntry(
             title: presentation.title,
             messageCount: presentation.messageCount,
+            lastMessageAt: presentation.lastMessageAt,
             lastMessageID: presentation.lastMessageID,
             lastMessageContent: presentation.lastMessageContent,
             subtitle: presentation.subtitle,
