@@ -75,6 +75,7 @@ struct SidebarView: View {
     @State private var renamingSession: ChatSession? = nil
     @State private var newTitle: String = ""
     @State private var searchText: String = ""
+    // Query that produced the currently visible sidebar results; it intentionally lags searchText during debounce.
     @State private var visibleSearchKeyword: String = ""
     @State private var sidebarGroups: [SidebarSessionGroup] = []
     @State private var isSidebarSearchLoading: Bool = false
@@ -350,7 +351,7 @@ struct SidebarView: View {
     }
 
     private func selectSessionFromSidebar(_ session: ChatSession) {
-        chatSessionsViewModel.selectSession(session, matchingSidebarQuery: searchKeyword)
+        chatSessionsViewModel.selectSession(session, matchingSidebarQuery: visibleSearchKeyword)
         onConversationTap(session)
     }
 
