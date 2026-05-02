@@ -454,7 +454,7 @@ struct SidebarView: View {
                             ContentUnavailableView(
                                 LocalizedStringKey("No Results"),
                                 systemImage: "magnifyingglass",
-                                description: Text("Try a different chat name.")
+                                description: Text("Try a different search.")
                             )
                             .listRowBackground(Color.clear)
                         }
@@ -522,7 +522,7 @@ struct SidebarView: View {
                         ContentUnavailableView(
                             LocalizedStringKey("No Results"),
                             systemImage: "magnifyingglass",
-                            description: Text("Try a different chat name.")
+                            description: Text("Try a different search.")
                         )
                     }
                 }

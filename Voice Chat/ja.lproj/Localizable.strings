@@ -129,6 +129,7 @@
 "Waiting for connection" = "接続待機中";
 "Unable to set up audio session: %@" = "オーディオセッションを設定できませんでした: %@";
 "Search Chats" = "チャットを検索";
+"Searching..." = "検索中…";
 "Today" = "今日";
 "Yesterday" = "昨日";
 "Last 7 Days" = "過去7日間";
@@ -136,9 +137,12 @@
 "Past Year" = "過去1年";
 "Older" = "それ以前";
 "No chats yet" = "チャット履歴はありません";
+"Fresh conversation" = "新しい会話";
+"No recent replies" = "最近の返信はありません";
 "No chats match \"%@\"" = "「%@」に一致するチャットはありません";
 "No Results" = "結果なし";
 "Try a different chat name." = "別のチャット名を試してください。";
+"Try a different search." = "別の検索語を試してください。";
 "Select or start a chat" = "チャットを選択するか作成してください";
 "No Chat Selected" = "チャットが選択されていません";
 "Start a new conversation to begin talking." = "新しい会話を開始してチャットを始めましょう。";

@@ -151,6 +151,7 @@
 "Waiting for connection" = "Warte auf Verbindung";
 "Unable to set up audio session: %@" = "Audiositzung konnte nicht eingerichtet werden: %@";
 "Search Chats" = "Chats durchsuchen";
+"Searching..." = "Suche läuft...";
 "Today" = "Heute";
 "Yesterday" = "Gestern";
 "Last 7 Days" = "Letzte 7 Tage";
@@ -158,9 +159,12 @@
 "Past Year" = "Letztes Jahr";
 "Older" = "Älter";
 "No chats yet" = "Noch keine Chats";
+"Fresh conversation" = "Neue Unterhaltung";
+"No recent replies" = "Keine aktuellen Antworten";
 "No chats match \"%@\"" = "Keine Chats entsprechen \"%@\"";
 "No Results" = "Keine Ergebnisse";
 "Try a different chat name." = "Versuche einen anderen Chatnamen.";
+"Try a different search." = "Versuche eine andere Suche.";
 "Select or start a chat" = "Wähle einen Chat aus oder starte einen";
 "No Chat Selected" = "Kein Chat ausgewählt";
 "Start a new conversation to begin talking." = "Starte ein neues Gespräch, um zu sprechen.";

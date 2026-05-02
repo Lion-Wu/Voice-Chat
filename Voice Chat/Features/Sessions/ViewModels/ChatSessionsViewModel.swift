@@ -731,9 +731,9 @@ final class ChatSessionsViewModel: ObservableObject {
 
         let subtitle: String
         if lastMessage == nil {
-            subtitle = "Fresh conversation"
+            subtitle = String(localized: "Fresh conversation")
         } else if bodyText.isEmpty {
-            subtitle = "No recent replies"
+            subtitle = String(localized: "No recent replies")
         } else {
             let snippet = bodyText.prefix(60)
             subtitle = bodyText.count > 60 ? "\(snippet)…" : String(snippet)

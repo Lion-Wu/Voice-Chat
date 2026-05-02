@@ -151,6 +151,7 @@
 "Waiting for connection" = "연결 대기 중";
 "Unable to set up audio session: %@" = "오디오 세션을 설정할 수 없습니다: %@";
 "Search Chats" = "채팅 검색";
+"Searching..." = "검색 중...";
 "Today" = "오늘";
 "Yesterday" = "어제";
 "Last 7 Days" = "최근 7일";
@@ -158,9 +159,12 @@
 "Past Year" = "지난 1년";
 "Older" = "이전";
 "No chats yet" = "아직 채팅이 없습니다";
+"Fresh conversation" = "새 대화";
+"No recent replies" = "최근 답변 없음";
 "No chats match \"%@\"" = "\"%@\"와 일치하는 채팅이 없습니다";
 "No Results" = "결과 없음";
 "Try a different chat name." = "다른 채팅 이름을 시도해 보세요.";
+"Try a different search." = "다른 검색어를 입력해 보세요.";
 "Select or start a chat" = "채팅을 선택하거나 시작하세요";
 "No Chat Selected" = "선택된 채팅이 없습니다";
 "Start a new conversation to begin talking." = "새 대화를 시작해 말을 시작하세요.";

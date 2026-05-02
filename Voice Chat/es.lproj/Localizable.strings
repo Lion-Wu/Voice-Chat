@@ -151,6 +151,7 @@
 "Waiting for connection" = "Esperando conexión";
 "Unable to set up audio session: %@" = "No se pudo configurar la sesión de audio: %@";
 "Search Chats" = "Buscar chats";
+"Searching..." = "Buscando...";
 "Today" = "Hoy";
 "Yesterday" = "Ayer";
 "Last 7 Days" = "Últimos 7 días";
@@ -158,9 +159,12 @@
 "Past Year" = "Último año";
 "Older" = "Más antiguos";
 "No chats yet" = "Aún no hay chats";
+"Fresh conversation" = "Conversación nueva";
+"No recent replies" = "Sin respuestas recientes";
 "No chats match \"%@\"" = "Ningún chat coincide con \"%@\"";
 "No Results" = "Sin resultados";
 "Try a different chat name." = "Prueba con otro nombre de chat.";
+"Try a different search." = "Prueba con otra búsqueda.";
 "Select or start a chat" = "Selecciona o inicia un chat";
 "No Chat Selected" = "Ningún chat seleccionado";
 "Start a new conversation to begin talking." = "Inicia una nueva conversación para empezar a hablar.";
