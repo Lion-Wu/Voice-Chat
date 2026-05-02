@@ -350,7 +350,7 @@ struct SidebarView: View {
     }
 
     private func selectSessionFromSidebar(_ session: ChatSession) {
-        chatSessionsViewModel.selectSession(session, matchingSidebarQuery: visibleSearchKeyword)
+        chatSessionsViewModel.selectSession(session, matchingSidebarQuery: searchKeyword)
         onConversationTap(session)
     }
 
