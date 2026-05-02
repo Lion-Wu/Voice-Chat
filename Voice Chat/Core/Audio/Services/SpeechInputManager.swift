@@ -364,6 +364,8 @@ actor SpeechRecognizerWorker {
     private var lastNonEmptyText: String = ""
     private var didEmitFinal   : Bool = false
     private var isStopping: Bool = false
+    private var isRecoveringEmptyRecognition: Bool = false
+    private var recognitionTaskGeneration: Int = 0
 
     /// When true, the worker will not terminate the session due to silence and will restart
     /// internally if the recognizer produces a final result.
@@ -410,6 +412,7 @@ actor SpeechRecognizerWorker {
         holdToSpeakAccumulatedText = ""
         didEmitFinal       = false
         isStopping         = false
+        isRecoveringEmptyRecognition = false
 
         // Important: silence cannot end the session until real speech has been heard.
         lastSpeechAt           = nil
@@ -475,6 +478,7 @@ actor SpeechRecognizerWorker {
     /// Stops recognition and releases resources.
     func stop() async {
         isStopping = true
+        recognitionTaskGeneration &+= 1
 
         // Tear down the recognition task and audio tap.
         task?.cancel()
@@ -516,6 +520,7 @@ actor SpeechRecognizerWorker {
         lastSpeechAt = nil
         graceUntil = nil
         firstTextAt = nil
+        isRecoveringEmptyRecognition = false
     }
 
     // MARK: - Internal setup helpers ---------------------------------------------------
@@ -560,30 +565,93 @@ actor SpeechRecognizerWorker {
     /// Establishes the recognition task.
     private func attachRecognitionTask() {
         guard let recognizer, let req = request else { return }
+        recognitionTaskGeneration &+= 1
+        let generation = recognitionTaskGeneration
         task = recognizer.recognitionTask(with: req) { [weak self] result, err in
             guard let self else { return }
 
             if let err {
-                let message = err.localizedDescription.trimmingCharacters(in: .whitespacesAndNewlines)
-                Task { await self.handleRecognizerErrorMessage(message) }
+                Task { await self.handleRecognizerError(err, generation: generation) }
                 return
             }
             guard let r = result else { return }
             let txt = r.bestTranscription.formattedString
             let isFinal = r.isFinal
-            Task { await self.handleRecognitionResult(text: txt, isFinal: isFinal) }
+            Task { await self.handleRecognitionResult(text: txt, isFinal: isFinal, generation: generation) }
         }
     }
 
     // MARK: - Actor helpers ------------------------------------------------------------
 
-    private func handleRecognizerErrorMessage(_ message: String) async {
+    private func handleRecognizerError(_ error: Error, generation: Int) async {
+        guard generation == recognitionTaskGeneration else { return }
         guard !isStopping else { return }
+        if shouldRecoverFromEmptyRecognitionError(error) {
+            await recoverFromEmptyRecognitionEnd()
+            return
+        }
+
         isStopping = true
+        let message = error.localizedDescription.trimmingCharacters(in: .whitespacesAndNewlines)
         if !message.isEmpty {
             onErrorHandler?(message)
         }
         await stop()
+    }
+
+    private func shouldRecoverFromEmptyRecognitionError(_ error: Error) -> Bool {
+        guard !hasRecognizedText else { return false }
+        guard lastNonEmptyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
+
+        let nsError = error as NSError
+        if nsError.domain == "kAFAssistantErrorDomain", nsError.code == 1110 {
+            return true
+        }
+
+        let message = nsError.localizedDescription.lowercased()
+        return message.contains("no speech")
+            || message.contains("no speech detected")
+    }
+
+    private func recoverFromEmptyRecognitionEnd() async {
+        guard !isRecoveringEmptyRecognition else { return }
+        isRecoveringEmptyRecognition = true
+        defer { isRecoveringEmptyRecognition = false }
+
+        isStopping = true
+        task?.cancel()
+        task = nil
+        request?.endAudio()
+        request = nil
+        if tapInstalled {
+            audioEngine.inputNode.removeTap(onBus: 0)
+            tapInstalled = false
+            audioTap = nil
+        }
+
+        lastSpeechAt = nil
+        hasRecognizedText = false
+        didEndAudioForSilence = false
+        didEmitFinal = false
+        graceUntil = nil
+        firstTextAt = nil
+
+        do {
+            try await makeNewRequestAndTap()
+            if !audioEngine.isRunning {
+                audioEngine.prepare()
+                try audioEngine.start()
+            }
+            isStopping = false
+            attachRecognitionTask()
+        } catch {
+            isStopping = true
+            let message = error.localizedDescription.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !message.isEmpty {
+                onErrorHandler?(message)
+            }
+            await stop()
+        }
     }
 
     private func handleAmplitude(_ level: Float) {
@@ -636,7 +704,8 @@ actor SpeechRecognizerWorker {
         return needsSpace ? "\(left) \(right)" : (left + right)
     }
 
-    private func handleRecognitionResult(text: String, isFinal: Bool) async {
+    private func handleRecognitionResult(text: String, isFinal: Bool, generation: Int) async {
+        guard generation == recognitionTaskGeneration else { return }
         guard !isStopping else { return }
 
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
