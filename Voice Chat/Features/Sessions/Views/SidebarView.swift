@@ -75,15 +75,18 @@ struct SidebarView: View {
     @State private var renamingSession: ChatSession? = nil
     @State private var newTitle: String = ""
     @State private var searchText: String = ""
+    @State private var visibleSearchKeyword: String = ""
+    @State private var sidebarGroups: [SidebarSessionGroup] = []
+    @State private var isSidebarSearchLoading: Bool = false
+    @State private var sidebarSearchRefreshTask: Task<Void, Never>? = nil
     @FocusState private var isRenameFieldFocused: Bool
 
     // Deletion confirmation
     @State private var showDeleteChatAlert: Bool = false
     @State private var pendingDeleteSessionIDs: [UUID] = []
 
-    private var filteredSessions: [ChatSession] {
-        chatSessionsViewModel.sessions(matchingSidebarQuery: searchKeyword)
-    }
+    private static let sidebarSearchDebounceNanoseconds: UInt64 = 180_000_000
+    private static let sidebarSearchBatchSize: Int = 12
 
     private var searchKeyword: String {
         searchText.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -93,11 +96,15 @@ struct SidebarView: View {
         newTitle.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    private var groupedFilteredSessions: [SidebarSessionGroup] {
+    private var shouldShowSidebarSearchLoading: Bool {
+        isSidebarSearchLoading && !visibleSearchKeyword.isEmpty
+    }
+
+    private func groupedSessions(_ sessions: [ChatSession]) -> [SidebarSessionGroup] {
         let calendar = Calendar.autoupdatingCurrent
         var grouped: [SidebarTimeSection: [ChatSession]] = [:]
 
-        for session in filteredSessions {
+        for session in sessions {
             let section = SidebarTimeSection.from(session.lastActivityAt, calendar: calendar)
             grouped[section, default: []].append(session)
         }
@@ -105,6 +112,28 @@ struct SidebarView: View {
         return SidebarTimeSection.allCases.compactMap { section in
             guard let sessions = grouped[section], !sessions.isEmpty else { return nil }
             return SidebarSessionGroup(section: section, sessions: sessions)
+        }
+    }
+
+    @ViewBuilder
+    private var sidebarSearchLoadingRow: some View {
+        HStack(spacing: 10) {
+            ProgressView()
+                .controlSize(.small)
+            Text("Searching...")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Spacer(minLength: 0)
+        }
+        .padding(.vertical, sidebarRowVerticalPadding)
+    }
+
+    @ViewBuilder
+    private var sidebarSearchLoadingSection: some View {
+        if shouldShowSidebarSearchLoading {
+            Section {
+                sidebarSearchLoadingRow
+            }
         }
     }
 
@@ -148,6 +177,70 @@ struct SidebarView: View {
             }
         } message: {
             Text("This action cannot be undone.")
+        }
+        .onAppear {
+            scheduleSidebarSearchRefresh(debounce: false)
+        }
+        .onReceive(chatSessionsViewModel.$chatSessions) { _ in
+            scheduleSidebarSearchRefresh(debounce: !searchKeyword.isEmpty)
+        }
+        .onChange(of: searchText) { _, _ in
+            scheduleSidebarSearchRefresh(debounce: !searchKeyword.isEmpty)
+        }
+        .onDisappear {
+            sidebarSearchRefreshTask?.cancel()
+            sidebarSearchRefreshTask = nil
+        }
+    }
+
+    private func scheduleSidebarSearchRefresh(debounce: Bool) {
+        let requestedKeyword = searchKeyword
+        let shouldDebounce = debounce && !requestedKeyword.isEmpty
+        sidebarSearchRefreshTask?.cancel()
+        sidebarSearchRefreshTask = Task { @MainActor in
+            if shouldDebounce {
+                try? await Task.sleep(nanoseconds: Self.sidebarSearchDebounceNanoseconds)
+                guard !Task.isCancelled else { return }
+            }
+
+            let normalizedQuery = chatSessionsViewModel.normalizedSidebarSearchQuery(requestedKeyword)
+            if normalizedQuery.isEmpty {
+                isSidebarSearchLoading = false
+                sidebarGroups = groupedSessions(chatSessionsViewModel.chatSessions)
+                visibleSearchKeyword = requestedKeyword
+                return
+            }
+
+            let candidates = chatSessionsViewModel.chatSessions
+            var matchedSessions: [ChatSession] = []
+            visibleSearchKeyword = requestedKeyword
+            sidebarGroups = []
+            isSidebarSearchLoading = !candidates.isEmpty
+
+            var startIndex = 0
+            while startIndex < candidates.count {
+                guard !Task.isCancelled else { return }
+
+                let endIndex = min(startIndex + Self.sidebarSearchBatchSize, candidates.count)
+                let batch = Array(candidates[startIndex..<endIndex])
+                let newMatches = chatSessionsViewModel.sessions(
+                    in: batch,
+                    matchingNormalizedSidebarQuery: normalizedQuery
+                )
+
+                if !newMatches.isEmpty {
+                    matchedSessions.append(contentsOf: newMatches)
+                    sidebarGroups = groupedSessions(matchedSessions)
+                }
+
+                startIndex = endIndex
+                isSidebarSearchLoading = startIndex < candidates.count
+                await Task.yield()
+            }
+
+            guard !Task.isCancelled else { return }
+            isSidebarSearchLoading = false
+            visibleSearchKeyword = requestedKeyword
         }
     }
 
@@ -263,18 +356,20 @@ struct SidebarView: View {
                 macDraftRow
                     .tag(chatSessionsViewModel.draftSession.id)
             }
-            if groupedFilteredSessions.isEmpty {
+            if sidebarGroups.isEmpty {
                 Section(header: Text("Chats")) {
-                    if searchKeyword.isEmpty {
+                    if visibleSearchKeyword.isEmpty {
                         Text("No chats yet")
                             .foregroundStyle(.secondary)
+                    } else if shouldShowSidebarSearchLoading {
+                        sidebarSearchLoadingRow
                     } else {
-                        Text(String(format: NSLocalizedString("No chats match \"%@\"", comment: ""), searchKeyword))
+                        Text(String(format: NSLocalizedString("No chats match \"%@\"", comment: ""), visibleSearchKeyword))
                             .foregroundStyle(.secondary)
                     }
                 }
             } else {
-                ForEach(groupedFilteredSessions) { group in
+                ForEach(sidebarGroups) { group in
                     Section(header: Text(group.section.title)) {
                         ForEach(group.sessions) { session in
                             macSessionRow(session)
@@ -291,6 +386,7 @@ struct SidebarView: View {
                         }
                     }
                 }
+                sidebarSearchLoadingSection
             }
         }
         .listStyle(.sidebar)
@@ -309,15 +405,18 @@ struct SidebarView: View {
                     iosDraftRow
                         .tag(chatSessionsViewModel.draftSession.id)
                 }
-                if groupedFilteredSessions.isEmpty {
+                if sidebarGroups.isEmpty {
                     Section(LocalizedStringKey("Chats")) {
-                        if searchKeyword.isEmpty {
+                        if visibleSearchKeyword.isEmpty {
                             ContentUnavailableView(
                                 LocalizedStringKey("No chats yet"),
                                 systemImage: "text.bubble",
                                 description: Text("Start a new conversation to begin talking.")
                             )
                             .listRowBackground(Color.clear)
+                        } else if shouldShowSidebarSearchLoading {
+                            sidebarSearchLoadingRow
+                                .listRowBackground(Color.clear)
                         } else {
                             ContentUnavailableView(
                                 LocalizedStringKey("No Results"),
@@ -328,7 +427,7 @@ struct SidebarView: View {
                         }
                     }
                 } else {
-                    ForEach(groupedFilteredSessions) { group in
+                    ForEach(sidebarGroups) { group in
                         Section(group.section.title) {
                             ForEach(group.sessions) { session in
                                 iosSessionRow(session)
@@ -350,6 +449,7 @@ struct SidebarView: View {
                             }
                         }
                     }
+                    sidebarSearchLoadingSection
                 }
             }
             #if os(iOS) || os(tvOS)
@@ -376,14 +476,16 @@ struct SidebarView: View {
                     .tag(chatSessionsViewModel.draftSession.id)
             }
 
-            if groupedFilteredSessions.isEmpty {
+            if sidebarGroups.isEmpty {
                 Section(LocalizedStringKey("Chats")) {
-                    if searchKeyword.isEmpty {
+                    if visibleSearchKeyword.isEmpty {
                         ContentUnavailableView(
                             LocalizedStringKey("No chats yet"),
                             systemImage: "text.bubble",
                             description: Text("Start a new conversation to begin talking.")
                         )
+                    } else if shouldShowSidebarSearchLoading {
+                        sidebarSearchLoadingRow
                     } else {
                         ContentUnavailableView(
                             LocalizedStringKey("No Results"),
@@ -393,7 +495,7 @@ struct SidebarView: View {
                     }
                 }
             } else {
-                ForEach(groupedFilteredSessions) { group in
+                ForEach(sidebarGroups) { group in
                     Section(group.section.title) {
                         ForEach(group.sessions) { session in
                             iosSessionRow(session)
@@ -415,6 +517,7 @@ struct SidebarView: View {
                         }
                     }
                 }
+                sidebarSearchLoadingSection
             }
         }
         .listStyle(.sidebar)

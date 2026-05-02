@@ -19,6 +19,7 @@ final class ChatSessionsViewModel: ObservableObject {
     private struct SidebarPresentationCacheEntry {
         let title: String
         let messageCount: Int
+        let lastMessageAt: Date?
         let lastMessageID: UUID?
         let lastMessageContent: String?
         let subtitle: String
@@ -117,6 +118,23 @@ final class ChatSessionsViewModel: ObservableObject {
         guard !normalizedQuery.isEmpty else { return chatSessions }
 
         return chatSessions.filter { session in
+            sidebarSearchCorpus(for: session).contains(normalizedQuery)
+        }
+    }
+
+    func normalizedSidebarSearchQuery(_ rawQuery: String) -> String {
+        rawQuery
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .folding(options: [.diacriticInsensitive, .caseInsensitive], locale: .current)
+            .lowercased()
+    }
+
+    func sessions(
+        in candidateSessions: [ChatSession],
+        matchingNormalizedSidebarQuery normalizedQuery: String
+    ) -> [ChatSession] {
+        guard !normalizedQuery.isEmpty else { return candidateSessions }
+        return candidateSessions.filter { session in
             sidebarSearchCorpus(for: session).contains(normalizedQuery)
         }
     }
@@ -234,6 +252,7 @@ final class ChatSessionsViewModel: ObservableObject {
     @discardableResult
     func persist(session: ChatSession, reason: SessionPersistReason = .throttled) -> Bool {
         guard shouldPersist(session) else { return false }
+        invalidateSidebarPresentationCache(for: session.id)
         let didPersist = repository.persist(session: session, reason: reason)
 
         if didPersist {
@@ -343,24 +362,28 @@ final class ChatSessionsViewModel: ObservableObject {
         }
     }
 
-    private func normalizedSidebarSearchQuery(_ rawQuery: String) -> String {
-        rawQuery
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .folding(options: [.diacriticInsensitive, .caseInsensitive], locale: .current)
-            .lowercased()
+    private func invalidateSidebarPresentationCache(for sessionID: UUID) {
+        sidebarPresentationCache.removeValue(forKey: sessionID)
+    }
+
+    private func latestSidebarMessage(in session: ChatSession) -> ChatMessage? {
+        if let lastMessageAt = session.lastMessageAt,
+           let message = session.messages.first(where: { $0.createdAt == lastMessageAt }) {
+            return message
+        }
+        return session.messages.max(by: { $0.createdAt < $1.createdAt })
     }
 
     private func sidebarPresentation(for session: ChatSession) -> SidebarPresentationCacheEntry {
-        let lastMessage = session.messages.max(by: { $0.createdAt < $1.createdAt })
-        let lastMessageContent = lastMessage?.content
-
         if let cached = sidebarPresentationCache[session.id],
            cached.title == session.title,
            cached.messageCount == session.messages.count,
-           cached.lastMessageID == lastMessage?.id,
-           cached.lastMessageContent == lastMessageContent {
+           cached.lastMessageAt == session.lastMessageAt {
             return cached
         }
+
+        let lastMessage = latestSidebarMessage(in: session)
+        let lastMessageContent = lastMessage?.content
 
         let bodyText = lastMessageContent?
             .extractThinkParts()
@@ -380,6 +403,7 @@ final class ChatSessionsViewModel: ObservableObject {
         let entry = SidebarPresentationCacheEntry(
             title: session.title,
             messageCount: session.messages.count,
+            lastMessageAt: session.lastMessageAt,
             lastMessageID: lastMessage?.id,
             lastMessageContent: lastMessageContent,
             subtitle: subtitle,
@@ -403,6 +427,7 @@ final class ChatSessionsViewModel: ObservableObject {
         let updatedEntry = SidebarPresentationCacheEntry(
             title: presentation.title,
             messageCount: presentation.messageCount,
+            lastMessageAt: presentation.lastMessageAt,
             lastMessageID: presentation.lastMessageID,
             lastMessageContent: presentation.lastMessageContent,
             subtitle: presentation.subtitle,
