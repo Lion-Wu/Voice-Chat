@@ -1873,25 +1873,20 @@ final class MarkdownTableView: NSView {
 }
 
 private final class MarkdownQuoteView: NSView {
-    private struct Layout {
-        let size: CGSize
-        let borderFrame: CGRect
-        let textFrame: CGRect
-    }
+    private typealias Layout = MarkdownQuoteLayout
 
     override var isFlipped: Bool { true }
 
     private let content: NSAttributedString
     private let style: MarkdownQuoteStyle
     private let borderView = NSView()
-    private let textView: NSTextView
+    private var hostedTextView: NSTextView?
     private var cachedLayout: Layout?
     private var cachedWidth: CGFloat = 0
 
     init(content: NSAttributedString, style: MarkdownQuoteStyle) {
         self.content = content
         self.style = style
-        self.textView = MarkdownNonScrollingTextView()
         super.init(frame: .zero)
         MarkdownAttachmentViewProviderRegistry.registerIfNeeded()
         wantsLayer = true
@@ -1900,39 +1895,39 @@ private final class MarkdownQuoteView: NSView {
         borderView.wantsLayer = true
         borderView.layer?.backgroundColor = style.borderColor.cgColor
         addSubview(borderView)
-
-        textView.drawsBackground = false
-        textView.backgroundColor = .clear
-        textView.focusRingType = .none
-        textView.wantsLayer = true
-        textView.layer?.backgroundColor = NSColor.clear.cgColor
-        textView.layer?.borderWidth = 0
-        textView.layer?.cornerRadius = 0
-        textView.isEditable = false
-        textView.isSelectable = true
-        textView.importsGraphics = true
-        textView.allowsUndo = false
-        textView.textContainerInset = .zero
-        textView.textContainer?.lineFragmentPadding = 0
-        textView.textContainer?.widthTracksTextView = true
-        textView.textContainer?.heightTracksTextView = false
-        textView.textContainer?.containerSize = NSSize(width: 0, height: CGFloat.greatestFiniteMagnitude)
-        textView.isHorizontallyResizable = false
-        textView.isVerticallyResizable = false
-        textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
-        textView.isRichText = true
-        if let textLayoutManager = textView.textLayoutManager {
-            textLayoutManager.usesFontLeading = true
-        } else {
-            textView.layoutManager?.allowsNonContiguousLayout = false
-            textView.layoutManager?.usesFontLeading = true
-        }
-        textView.textStorage?.setAttributedString(content)
-        addSubview(textView)
+        reconcileRequiredHostedTextView()
     }
 
     required init?(coder: NSCoder) {
         return nil
+    }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        if let hostedTextView,
+           hostedTextView.frame.contains(point) {
+            return super.hitTest(point)
+        }
+        guard let layout = cachedLayout,
+              layout.textFrame.contains(point),
+              content.length > 0
+        else {
+            return nil
+        }
+        return self
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        let point = convert(event.locationInWindow, from: nil)
+        guard let layout = cachedLayout,
+              layout.textFrame.contains(point),
+              content.length > 0
+        else {
+            super.mouseDown(with: event)
+            return
+        }
+        let hosted = ensureHostedTextView()
+        window?.makeFirstResponder(hosted)
+        hosted.mouseDown(with: event)
     }
 
     func sizeThatFitsWidth(_ width: CGFloat) -> CGSize {
@@ -1954,30 +1949,112 @@ private final class MarkdownQuoteView: NSView {
         }
         guard let layout = cachedLayout else { return }
         borderView.frame = layout.borderFrame
-        textView.frame = layout.textFrame
-        textView.textContainer?.containerSize = CGSize(
-            width: layout.textFrame.width,
-            height: max(layout.textFrame.height, 1)
-        )
-        if let storage = textView.textStorage {
-            prepareDynamicMarkdownTextAttachments(in: storage, width: layout.textFrame.width)
+        if let hostedTextView {
+            hostedTextView.frame = layout.textFrame
+            hostedTextView.textContainer?.containerSize = CGSize(
+                width: layout.textFrame.width,
+                height: max(layout.textFrame.height, 1)
+            )
+            if let storage = hostedTextView.textStorage {
+                prepareDynamicMarkdownTextAttachments(in: storage, width: layout.textFrame.width)
+            }
+            ensureMarkdownTextLayout(in: hostedTextView, changedRange: nil, invalidatesLayout: false)
         }
+        needsDisplay = true
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
+        guard hostedTextView == nil,
+              let layout = cachedLayout,
+              layout.textFrame.intersects(dirtyRect),
+              content.length > 0
+        else {
+            return
+        }
+        content.draw(
+            with: layout.textFrame.integral,
+            options: [.usesLineFragmentOrigin, .usesFontLeading],
+            context: nil
+        )
+    }
+
+    private func reconcileRequiredHostedTextView() {
+        guard tableCellRequiresHostedTextView(content) else {
+            return
+        }
+        _ = ensureHostedTextView()
+    }
+
+    private func ensureHostedTextView() -> NSTextView {
+        if let hostedTextView {
+            return hostedTextView
+        }
+        let textView = makeHostedTextView()
+        hostedTextView = textView
+        addSubview(textView)
+        apply(content, to: textView)
+        if let layout = cachedLayout {
+            textView.frame = layout.textFrame
+            textView.textContainer?.containerSize = CGSize(
+                width: layout.textFrame.width,
+                height: max(layout.textFrame.height, 1)
+            )
+            if let storage = textView.textStorage {
+                prepareDynamicMarkdownTextAttachments(in: storage, width: layout.textFrame.width)
+            }
+        }
+        needsDisplay = true
+        return textView
+    }
+
+    private func makeHostedTextView() -> NSTextView {
+        let textView = MarkdownNonScrollingTextView()
+        textView.drawsBackground = false
+        textView.backgroundColor = .clear
+        textView.focusRingType = .none
+        textView.wantsLayer = true
+        textView.layer?.backgroundColor = NSColor.clear.cgColor
+        textView.layer?.borderWidth = 0
+        textView.layer?.cornerRadius = 0
+        textView.isEditable = false
+        textView.isSelectable = true
+        textView.importsGraphics = true
+        textView.allowsUndo = false
+        textView.textContainerInset = .zero
+        textView.textContainer?.lineFragmentPadding = 0
+        textView.textContainer?.lineBreakMode = .byWordWrapping
+        textView.textContainer?.widthTracksTextView = true
+        textView.textContainer?.heightTracksTextView = false
+        textView.textContainer?.containerSize = NSSize(width: 0, height: CGFloat.greatestFiniteMagnitude)
+        textView.isHorizontallyResizable = false
+        textView.isVerticallyResizable = false
+        textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
+        textView.minSize = .zero
+        textView.isRichText = true
+        if let textLayoutManager = textView.textLayoutManager {
+            textLayoutManager.usesFontLeading = true
+        } else {
+            textView.layoutManager?.allowsNonContiguousLayout = false
+            textView.layoutManager?.usesFontLeading = true
+        }
+        return textView
+    }
+
+    private func apply(_ text: NSAttributedString, to view: NSTextView) {
+        guard let storage = view.textStorage else { return }
+        guard !storage.isEqual(to: text) else { return }
+        storage.setAttributedString(text)
+        ensureMarkdownTextLayout(in: view, changedRange: nil)
+        view.needsDisplay = true
+        view.needsLayout = true
     }
 
     private func computeLayout(width: CGFloat) -> Layout {
-        let borderWidth = max(1, style.borderWidth)
-        let padding = style.padding
-        let textWidth = max(1, width - borderWidth - padding.width * 2)
-        let textSize = measureHostedAttributedText(content, width: textWidth)
-        let height = ceil(textSize.height + padding.height * 2)
-        let borderFrame = CGRect(x: 0, y: 0, width: borderWidth, height: height)
-        let textFrame = CGRect(
-            x: borderWidth + padding.width,
-            y: padding.height,
-            width: textWidth,
-            height: ceil(textSize.height)
-        )
-        return Layout(size: CGSize(width: width, height: height), borderFrame: borderFrame, textFrame: textFrame)
+        let targetWidth = max(1, width)
+        let textWidth = markdownQuoteTextWidth(for: targetWidth, style: style)
+        let textSize = measureAttributedText(content, width: textWidth)
+        return markdownQuoteLayout(width: targetWidth, style: style, textHeight: textSize.height)
     }
 }
 

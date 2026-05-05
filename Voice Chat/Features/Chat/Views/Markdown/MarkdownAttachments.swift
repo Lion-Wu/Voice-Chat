@@ -66,7 +66,7 @@ final class MarkdownQuoteAttachment: MarkdownAttachment, @unchecked Sendable {
     private var cachedImage: MarkdownPlatformImage?
     private var cachedSize: CGSize = .zero
     private var cachedWidth: CGFloat = 0
-    private var lastLayout: QuoteLayout?
+    private var lastLayout: MarkdownQuoteLayout?
 
     override var plainText: String { extractPlainText(from: content) }
 
@@ -138,11 +138,6 @@ final class MarkdownQuoteAttachment: MarkdownAttachment, @unchecked Sendable {
         return CGRect(x: 0, y: 0, width: size.width, height: size.height)
     }
 
-    private struct QuoteLayout {
-        let size: CGSize
-        let textRect: CGRect
-    }
-
     private func renderIfNeeded(maxWidth: CGFloat) -> CGSize {
         if abs(cachedWidth - maxWidth) > 0.5 || lastLayout == nil || (!allowsTextAttachmentView && cachedImage == nil) {
             let layout = layoutQuote(maxWidth: maxWidth)
@@ -159,24 +154,13 @@ final class MarkdownQuoteAttachment: MarkdownAttachment, @unchecked Sendable {
         return cachedSize
     }
 
-    private func layoutQuote(maxWidth: CGFloat) -> QuoteLayout {
-        let borderWidth = max(1, style.borderWidth)
-        let padding = style.padding
-        let textInsetX = borderWidth + padding.width
-        let textWidth = max(1, maxWidth - textInsetX - padding.width)
-        let textSize = measureHostedAttributedText(content, width: textWidth)
-        let textHeight = ceil(textSize.height)
-        let height = ceil(textHeight + padding.height * 2)
-        let textRect = CGRect(
-            x: textInsetX,
-            y: padding.height,
-            width: textWidth,
-            height: textHeight
-        )
-        return QuoteLayout(size: CGSize(width: maxWidth, height: height), textRect: textRect)
+    private func layoutQuote(maxWidth: CGFloat) -> MarkdownQuoteLayout {
+        let textWidth = markdownQuoteTextWidth(for: maxWidth, style: style)
+        let textSize = measureAttributedText(content, width: textWidth)
+        return markdownQuoteLayout(width: maxWidth, style: style, textHeight: textSize.height)
     }
 
-    private func drawQuote(layout: QuoteLayout) -> MarkdownPlatformImage? {
+    private func drawQuote(layout: MarkdownQuoteLayout) -> MarkdownPlatformImage? {
         let size = layout.size
         guard size.width > 0, size.height > 0 else { return nil }
         #if os(iOS) || os(tvOS) || os(watchOS) || os(visionOS)
@@ -193,14 +177,12 @@ final class MarkdownQuoteAttachment: MarkdownAttachment, @unchecked Sendable {
         #endif
     }
 
-    private func drawQuote(in context: CGContext, layout: QuoteLayout) {
-        let borderWidth = max(1, style.borderWidth)
-        let lineRect = CGRect(x: 0, y: 0, width: borderWidth, height: layout.size.height)
+    private func drawQuote(in context: CGContext, layout: MarkdownQuoteLayout) {
         context.setFillColor(style.borderColor.cgColor)
-        context.fill(lineRect)
+        context.fill(layout.borderFrame.integral)
 
         content.draw(
-            with: layout.textRect.integral,
+            with: layout.textFrame.integral,
             options: [.usesLineFragmentOrigin, .usesFontLeading],
             context: nil
         )
