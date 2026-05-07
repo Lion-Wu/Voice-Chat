@@ -146,6 +146,7 @@ private func ensureMarkdownTextLayout(
     invalidatesLayout: Bool = true
 ) {
     guard let storage = textView.textStorage else { return }
+    installTransparentFallbackCellsForViewBackedAttachments(in: storage)
     let range = markdownNormalizedInvalidationRange(changedRange: changedRange, storageLength: storage.length)
     if let textLayoutManager = textView.textLayoutManager,
        let documentRange = textLayoutManager.textContentManager?.documentRange {
@@ -166,6 +167,18 @@ private func ensureMarkdownTextLayout(
     layoutManager.invalidateLayout(forCharacterRange: range, actualCharacterRange: nil)
     layoutManager.ensureLayout(forCharacterRange: range)
     layoutManager.invalidateDisplay(forCharacterRange: range)
+}
+
+@MainActor
+private func installTransparentFallbackCellsForViewBackedAttachments(in storage: NSTextStorage) {
+    guard storage.length > 0 else { return }
+    storage.enumerateAttribute(
+        .attachment,
+        in: NSRange(location: 0, length: storage.length),
+        options: []
+    ) { value, _, _ in
+        (value as? MarkdownAttachment)?.installTransparentFallbackCellForViewBackedAttachmentIfNeeded()
+    }
 }
 
 final class MarkdownCodeBlockView: NSView {
@@ -912,15 +925,7 @@ private final class MarkdownTableRowView: NSView {
             )
             cellFrames[column] = textRect
             if let hosted = hostedCellViews[column] {
-                hosted.frame = textRect
-                hosted.textContainer?.containerSize = CGSize(
-                    width: textRect.width,
-                    height: max(textRect.height, 1)
-                )
-                if let storage = hosted.textStorage {
-                    prepareDynamicMarkdownTextAttachments(in: storage, width: textRect.width)
-                }
-                ensureMarkdownTextLayout(in: hosted, changedRange: nil, invalidatesLayout: false)
+                layoutHostedCellView(hosted, frame: textRect, invalidatesLayout: false)
             }
             x += cellWidth + columnGap
         }
@@ -997,7 +1002,7 @@ private final class MarkdownTableRowView: NSView {
         }
         apply(text: text, to: hosted)
         if cellFrames.indices.contains(column) {
-            hosted.frame = cellFrames[column]
+            layoutHostedCellView(hosted, frame: cellFrames[column])
         }
     }
 
@@ -1009,12 +1014,7 @@ private final class MarkdownTableRowView: NSView {
         }
         apply(text: cells[column], to: hosted)
         if cellFrames.indices.contains(column) {
-            let frame = cellFrames[column]
-            hosted.frame = frame
-            hosted.textContainer?.containerSize = CGSize(width: frame.width, height: max(frame.height, 1))
-            if let storage = hosted.textStorage {
-                prepareDynamicMarkdownTextAttachments(in: storage, width: frame.width)
-            }
+            layoutHostedCellView(hosted, frame: cellFrames[column])
         }
         needsDisplay = true
         return hosted
@@ -1028,7 +1028,7 @@ private final class MarkdownTableRowView: NSView {
     }
 
     private func makeHostedCellView() -> NSTextView {
-        let cellView = MarkdownNonScrollingTextView()
+        let cellView = MarkdownNonScrollingTextView(usingTextLayoutManager: true)
         cellView.drawsBackground = false
         cellView.backgroundColor = .clear
         cellView.isEditable = false
@@ -1064,9 +1064,62 @@ private final class MarkdownTableRowView: NSView {
         guard let storage = view.textStorage else { return }
         guard !storage.isEqual(to: text) else { return }
         storage.setAttributedString(text)
+        if view.bounds.width > 0 {
+            prepareTableCellMathAttachmentsForHostedTextView(in: storage, width: view.bounds.width)
+            prepareDynamicMarkdownTextAttachments(in: storage, width: view.bounds.width)
+        }
         ensureMarkdownTextLayout(in: view, changedRange: nil)
         view.needsDisplay = true
         view.needsLayout = true
+    }
+
+    private func layoutHostedCellView(
+        _ view: NSTextView,
+        frame: CGRect,
+        invalidatesLayout: Bool = true
+    ) {
+        view.frame = frame
+        view.textContainer?.containerSize = CGSize(width: frame.width, height: max(frame.height, 1))
+        var didReplaceMathAttachments = false
+        if let storage = view.textStorage {
+            didReplaceMathAttachments = prepareTableCellMathAttachmentsForHostedTextView(in: storage, width: frame.width)
+            prepareDynamicMarkdownTextAttachments(in: storage, width: frame.width)
+        }
+        ensureMarkdownTextLayout(
+            in: view,
+            changedRange: nil,
+            invalidatesLayout: invalidatesLayout || didReplaceMathAttachments
+        )
+        view.needsDisplay = true
+        view.needsLayout = true
+    }
+
+    @discardableResult
+    private func prepareTableCellMathAttachmentsForHostedTextView(in storage: NSTextStorage, width: CGFloat) -> Bool {
+        guard storage.length > 0 else { return false }
+        let targetWidth = width.isFinite ? max(1, width) : 10_000
+        var replacements: [(range: NSRange, attachment: MarkdownMathAttachment)] = []
+        storage.enumerateAttribute(
+            .attachment,
+            in: NSRange(location: 0, length: storage.length),
+            options: []
+        ) { value, range, _ in
+            guard let attachment = value as? MarkdownMathAttachment else { return }
+            if attachment.prefersViewBackedTextAttachmentRendering {
+                let replacement = attachment.copiedForImageBackedTableCellRendering(availableWidth: targetWidth)
+                replacements.append((range: range, attachment: replacement))
+            } else {
+                attachment.prepareImageBackedRendering(availableWidth: targetWidth)
+            }
+        }
+        guard !replacements.isEmpty else { return false }
+        storage.beginEditing()
+        for replacement in replacements {
+            storage.removeAttribute(.attachment, range: replacement.range)
+            storage.addAttribute(.attachment, value: replacement.attachment, range: replacement.range)
+        }
+        storage.endEditing()
+        return true
     }
 
 }
@@ -2009,7 +2062,7 @@ private final class MarkdownQuoteView: NSView {
     }
 
     private func makeHostedTextView() -> NSTextView {
-        let textView = MarkdownNonScrollingTextView()
+        let textView = MarkdownNonScrollingTextView(usingTextLayoutManager: true)
         textView.drawsBackground = false
         textView.backgroundColor = .clear
         textView.focusRingType = .none

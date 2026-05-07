@@ -1,0 +1,21 @@
+KaTeX Font Software Notice
+==========================
+
+Files:
+  Sources/VoiceChatRaTeX/Resources/fonts/KaTeX_*.ttf
+
+Upstream:
+  https://github.com/KaTeX/KaTeX
+
+Copyright and license notice from the RaTeX upstream notice and KaTeX font
+metadata:
+
+  Copyright (c) 2009-2010, Design Science, Inc. (<www.mathjax.org>)
+  Copyright (c) 2014-2018 Khan Academy (<www.khanacademy.org>),
+  with Reserved Font Name KaTeX_Main.
+
+  This Font Software is licensed under the SIL Open Font License, Version 1.1.
+  This license is available with a FAQ at:
+  http://scripts.sil.org/OFL
+
+Full license text: SIL-OFL-1.1.txt

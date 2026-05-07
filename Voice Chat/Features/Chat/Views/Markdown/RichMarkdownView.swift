@@ -134,7 +134,8 @@ private enum RichMarkdownPreviewSamples {
     $\lvert x\rvert \le \lVert A\rVert$,
     $\lceil \frac{n}{2} \rceil$,
     $\lfloor \frac{n-1}{2} \rfloor$,
-    $\lbrace a,b,c \rbrace$.
+    $\lbrace a,b,c \rbrace$,
+    $\sqrt{x^2+y^2}$.
 
     \[
     \left\langle \frac{x+y}{2}, z \right\rangle
@@ -178,6 +179,7 @@ private enum RichMarkdownPreviewSamples {
 
     Here is an inline formula: when $\sum_{k=1}^{n} k = \frac{n(n+1)}{2}$, write
     $\overbrace{x_1+\cdots+x_n}^{n\text{ terms}}$,
+    $\underbrace{a_1+\cdots+a_m}_{m\text{ terms}}$,
     and also allow a wider annotated arrow like $\xrightarrow[\ n\to\infty\ ]{\text{dominated}}$.
 
     - Block formulas inside lists should keep reasonable scaling and centering:
@@ -240,21 +242,21 @@ private enum RichMarkdownPreviewSamples {
         .frame(width: 520, alignment: .leading)
 }
 
-#Preview("Math Alignment Gallery", traits: .sizeThatFitsLayout) {
+#Preview("Math Alignment Gallery", traits: .fixedLayout(width: 560, height: 780)) {
     RichMarkdownView(markdown: RichMarkdownPreviewSamples.alignmentGallery)
         .padding(20)
         .background(AppBackgroundView())
         .frame(width: 560, alignment: .leading)
 }
 
-#Preview("Delimiters And Matrices", traits: .sizeThatFitsLayout) {
+#Preview("Delimiters And Matrices", traits: .fixedLayout(width: 560, height: 880)) {
     RichMarkdownView(markdown: RichMarkdownPreviewSamples.delimiterAndMatrixGallery)
         .padding(20)
         .background(AppBackgroundView())
         .frame(width: 560, alignment: .leading)
 }
 
-#Preview("Markdown Math Layout Narrow", traits: .sizeThatFitsLayout) {
+#Preview("Markdown Math Layout Narrow", traits: .fixedLayout(width: 420, height: 820)) {
     RichMarkdownView(markdown: RichMarkdownPreviewSamples.markdownLayoutGallery)
         .padding(20)
         .background(AppBackgroundView())

@@ -73,21 +73,7 @@ final class MarkdownQuoteAttachment: MarkdownAttachment, @unchecked Sendable {
     private static let viewProviderFileType = MarkdownAttachmentFileTypes.viewBacked
 
     private func configureTextAttachmentViewIfAvailable() {
-        #if os(iOS) || os(tvOS) || os(visionOS)
-        if #available(iOS 15.0, tvOS 15.0, *) {
-            MarkdownAttachmentViewProviderRegistry.registerIfNeeded()
-            allowsTextAttachmentView = true
-            fileType = Self.viewProviderFileType
-            if contents == nil { contents = Data() }
-        }
-        #elseif os(macOS)
-        if #available(macOS 12.0, *) {
-            MarkdownAttachmentViewProviderRegistry.registerIfNeeded()
-            allowsTextAttachmentView = true
-            fileType = Self.viewProviderFileType
-            if contents == nil { contents = Data() }
-        }
-        #endif
+        configureViewBackedTextAttachment(fileType: Self.viewProviderFileType)
     }
 
     #if os(macOS)
@@ -252,21 +238,7 @@ final class MarkdownCodeBlockAttachment: MarkdownAttachment, @unchecked Sendable
     private static let copyFeedbackDuration = Duration.seconds(1.2)
 
     private func configureTextAttachmentViewIfAvailable() {
-        #if os(iOS) || os(tvOS) || os(visionOS)
-        if #available(iOS 15.0, tvOS 15.0, *) {
-            MarkdownAttachmentViewProviderRegistry.registerIfNeeded()
-            allowsTextAttachmentView = true
-            fileType = Self.viewProviderFileType
-            if contents == nil { contents = Data() }
-        }
-        #elseif os(macOS)
-        if #available(macOS 12.0, *) {
-            MarkdownAttachmentViewProviderRegistry.registerIfNeeded()
-            allowsTextAttachmentView = true
-            fileType = Self.viewProviderFileType
-            if contents == nil { contents = Data() }
-        }
-        #endif
+        configureViewBackedTextAttachment(fileType: Self.viewProviderFileType)
     }
 
     #if os(macOS)
@@ -887,21 +859,7 @@ final class MarkdownTableAttachment: MarkdownAttachment, @unchecked Sendable {
     private static let viewProviderFileType = MarkdownAttachmentFileTypes.viewBacked
 
     private func configureTextAttachmentViewIfAvailable() {
-        #if os(iOS) || os(tvOS) || os(visionOS)
-        if #available(iOS 15.0, tvOS 15.0, *) {
-            MarkdownAttachmentViewProviderRegistry.registerIfNeeded()
-            allowsTextAttachmentView = true
-            fileType = Self.viewProviderFileType
-            if contents == nil { contents = Data() }
-        }
-        #elseif os(macOS)
-        if #available(macOS 12.0, *) {
-            MarkdownAttachmentViewProviderRegistry.registerIfNeeded()
-            allowsTextAttachmentView = true
-            fileType = Self.viewProviderFileType
-            if contents == nil { contents = Data() }
-        }
-        #endif
+        configureViewBackedTextAttachment(fileType: Self.viewProviderFileType)
     }
 
     #if os(macOS)
@@ -1381,21 +1339,7 @@ final class MarkdownRuleAttachment: MarkdownAttachment, @unchecked Sendable {
     private static let viewProviderFileType = MarkdownAttachmentFileTypes.viewBacked
 
     private func configureTextAttachmentViewIfAvailable() {
-        #if os(iOS) || os(tvOS) || os(visionOS)
-        if #available(iOS 15.0, tvOS 15.0, *) {
-            MarkdownAttachmentViewProviderRegistry.registerIfNeeded()
-            allowsTextAttachmentView = true
-            fileType = Self.viewProviderFileType
-            if contents == nil { contents = Data() }
-        }
-        #elseif os(macOS)
-        if #available(macOS 12.0, *) {
-            MarkdownAttachmentViewProviderRegistry.registerIfNeeded()
-            allowsTextAttachmentView = true
-            fileType = Self.viewProviderFileType
-            if contents == nil { contents = Data() }
-        }
-        #endif
+        configureViewBackedTextAttachment(fileType: Self.viewProviderFileType)
     }
 
     #if os(macOS)

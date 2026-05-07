@@ -774,6 +774,7 @@ final class MarkdownAppKitTextView: NSTextView {
     func markLayoutChanged(changedRange: NSRange?) {
         let targetWidth = bounds.width > 1 ? bounds.width : (lastWidth > 1 ? lastWidth : 320)
         updateContainerSize(for: targetWidth)
+        installTransparentFallbackCellsForViewBackedAttachments()
         if abs(targetWidth - cachedIntrinsicWidth) > 0.5 {
             cachedIntrinsicWidth = targetWidth
             needsIntrinsicRecalc = true
@@ -915,6 +916,7 @@ final class MarkdownAppKitTextView: NSTextView {
 
     private func computeFullHeight(forWidth width: CGFloat) -> CGFloat {
         updateContainerSize(for: width)
+        installTransparentFallbackCellsForViewBackedAttachments()
         let insets = verticalInsets
 
         if #available(macOS 12.0, *),
@@ -928,6 +930,17 @@ final class MarkdownAppKitTextView: NSTextView {
         layoutManager.ensureLayout(for: textContainer)
         let used = layoutManager.usedRect(for: textContainer)
         return used.height + insets
+    }
+
+    private func installTransparentFallbackCellsForViewBackedAttachments() {
+        guard let storage = textStorage, storage.length > 0 else { return }
+        storage.enumerateAttribute(
+            .attachment,
+            in: NSRange(location: 0, length: storage.length),
+            options: []
+        ) { value, _, _ in
+            (value as? MarkdownAttachment)?.installTransparentFallbackCellForViewBackedAttachmentIfNeeded()
+        }
     }
 
     @available(macOS 12.0, *)
