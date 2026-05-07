@@ -14,7 +14,12 @@ final class SideMenuContainerViewController: UIViewController {
 
     private let sideMenuWidth: CGFloat = 325
     private let minimumMainContentWidthForPersistentSidebar: CGFloat = 420
-    private let menuAnimationDuration: TimeInterval = 0.22
+    private let menuOpeningAnimationDuration: TimeInterval = 0.42
+    private let menuClosingAnimationDuration: TimeInterval = 0.36
+    private let reducedMotionMenuAnimationDuration: TimeInterval = 0.16
+    private let minimumMenuCompletionDuration: TimeInterval = 0.18
+    private let menuSpringDampingRatio: CGFloat = 1.0
+    private let menuSpringInitialVelocity: CGFloat = 0
     private let maxMainDimmingAlpha: CGFloat = 0.2
 
     private var sidebarHostingController: UIHostingController<SidebarRootView>!
@@ -203,7 +208,7 @@ final class SideMenuContainerViewController: UIViewController {
         NSLayoutConstraint.activate(managedLayoutConstraints)
 
         isMenuOpen = preservedMenuOpen
-        updateMainDimming(forMenuOffset: sideMenuHorizontalConstraint.constant)
+        updateMenuPresentation(forMenuOffset: sideMenuHorizontalConstraint.constant)
     }
 
     private func configureGestures() {
@@ -274,22 +279,43 @@ final class SideMenuContainerViewController: UIViewController {
         toggleMenu(open: false, animated: true)
     }
 
-    private func updateMainDimming(forMenuOffset offset: CGFloat) {
+    private func menuProgress(forMenuOffset offset: CGFloat) -> CGFloat {
+        if currentLayoutDirection == .rightToLeft {
+            max(0, min(1, 1 - (offset / sideMenuWidth)))
+        } else {
+            max(0, min(1, 1 + (offset / sideMenuWidth)))
+        }
+    }
+
+    private func easedMenuProgress(_ progress: CGFloat) -> CGFloat {
+        let clampedProgress = max(0, min(1, progress))
+        return clampedProgress * clampedProgress * (3 - 2 * clampedProgress)
+    }
+
+    private func updateMenuPresentation(forMenuOffset offset: CGFloat) {
         guard !usesPersistentSidebar else {
+            sidebarHostingController?.view.alpha = 1
             mainDimmingView.alpha = 0
             mainDimmingView.isUserInteractionEnabled = false
             return
         }
 
-        let progress: CGFloat
-        if currentLayoutDirection == .rightToLeft {
-            progress = max(0, min(1, 1 - (offset / sideMenuWidth)))
-        } else {
-            progress = max(0, min(1, 1 + (offset / sideMenuWidth)))
-        }
-        let alpha = progress * maxMainDimmingAlpha
+        let progress = menuProgress(forMenuOffset: offset)
+        let easedProgress = easedMenuProgress(progress)
+        let alpha = easedProgress * maxMainDimmingAlpha
+        sidebarHostingController?.view.alpha = easedProgress
         mainDimmingView.alpha = alpha
         mainDimmingView.isUserInteractionEnabled = alpha > 0.001
+    }
+
+    private func menuAnimationDuration(opening: Bool, from currentOffset: CGFloat, to finalOffset: CGFloat) -> TimeInterval {
+        if UIAccessibility.isReduceMotionEnabled {
+            return reducedMotionMenuAnimationDuration
+        }
+
+        let baseDuration = opening ? menuOpeningAnimationDuration : menuClosingAnimationDuration
+        let remainingTravel = min(1, abs(finalOffset - currentOffset) / sideMenuWidth)
+        return max(minimumMenuCompletionDuration, baseDuration * TimeInterval(remainingTravel))
     }
 
     private func dismissKeyboardIfNeeded() {
@@ -307,14 +333,37 @@ final class SideMenuContainerViewController: UIViewController {
         let finalOffset = open ? 0 : closedMenuOffset
 
         if animated {
-            UIView.animate(withDuration: menuAnimationDuration, delay: 0, options: [.curveEaseInOut, .beginFromCurrentState], animations: {
+            let duration = menuAnimationDuration(
+                opening: open,
+                from: sideMenuHorizontalConstraint.constant,
+                to: finalOffset
+            )
+            let animations = {
                 self.sideMenuHorizontalConstraint.constant = finalOffset
-                self.updateMainDimming(forMenuOffset: finalOffset)
+                self.updateMenuPresentation(forMenuOffset: finalOffset)
                 self.view.layoutIfNeeded()
-            })
+            }
+
+            if UIAccessibility.isReduceMotionEnabled {
+                UIView.animate(
+                    withDuration: duration,
+                    delay: 0,
+                    options: [.curveEaseInOut, .beginFromCurrentState, .allowUserInteraction],
+                    animations: animations
+                )
+            } else {
+                UIView.animate(
+                    withDuration: duration,
+                    delay: 0,
+                    usingSpringWithDamping: menuSpringDampingRatio,
+                    initialSpringVelocity: menuSpringInitialVelocity,
+                    options: [.beginFromCurrentState, .allowUserInteraction],
+                    animations: animations
+                )
+            }
         } else {
             sideMenuHorizontalConstraint.constant = finalOffset
-            updateMainDimming(forMenuOffset: finalOffset)
+            updateMenuPresentation(forMenuOffset: finalOffset)
             view.layoutIfNeeded()
         }
 
@@ -337,7 +386,7 @@ final class SideMenuContainerViewController: UIViewController {
             let minOffset = min(closedMenuOffset, 0)
             let maxOffset = max(closedMenuOffset, 0)
             sideMenuHorizontalConstraint.constant = max(minOffset, min(maxOffset, newOffset))
-            updateMainDimming(forMenuOffset: sideMenuHorizontalConstraint.constant)
+            updateMenuPresentation(forMenuOffset: sideMenuHorizontalConstraint.constant)
         case .ended, .cancelled:
             let velocityX = gesture.velocity(in: view).x
             let signedVelocity = currentLayoutDirection == .rightToLeft ? -velocityX : velocityX
