@@ -18,6 +18,7 @@ final class MarkdownMathAttachment: MarkdownAttachment, @unchecked Sendable {
     let style: MarkdownMathStyle
     let renderOutput: MarkdownMathRenderOutput
 
+    private let prefersViewBackedRendering: Bool
     private var cachedAvailableWidth: CGFloat = 0
     private var cachedBounds: CGRect = .zero
     private var cachedImage: MarkdownPlatformImage?
@@ -37,26 +38,15 @@ final class MarkdownMathAttachment: MarkdownAttachment, @unchecked Sendable {
     }
 
     private func configureTextAttachmentViewIfAvailable() {
-        #if os(iOS) || os(tvOS) || os(visionOS)
-        if #available(iOS 15.0, tvOS 15.0, *) {
-            MarkdownAttachmentViewProviderRegistry.registerIfNeeded()
-            allowsTextAttachmentView = true
-            fileType = Self.viewProviderFileType
-            if contents == nil { contents = Data() }
+        guard prefersViewBackedRendering else {
+            allowsTextAttachmentView = false
+            fileType = nil
+            contents = nil
             return
         }
-        #elseif os(macOS)
-        if #available(macOS 12.0, *) {
-            MarkdownAttachmentViewProviderRegistry.registerIfNeeded()
-            allowsTextAttachmentView = true
-            fileType = Self.viewProviderFileType
-            if contents == nil { contents = Data() }
+        if configureViewBackedTextAttachment(fileType: Self.viewProviderFileType) {
             return
         }
-        #endif
-        allowsTextAttachmentView = false
-        fileType = nil
-        if contents != nil { contents = nil }
     }
 
     init(segment: MarkdownMathSegment, style: MarkdownMathStyle, displayMode: Bool, maxWidth: CGFloat) {
@@ -64,6 +54,7 @@ final class MarkdownMathAttachment: MarkdownAttachment, @unchecked Sendable {
         self.latex = segment.latex
         self.displayMode = displayMode
         self.style = style
+        self.prefersViewBackedRendering = true
         self.renderOutput = MarkdownMathTypesetter.render(
             latex: segment.latex,
             displayMode: displayMode,
@@ -84,13 +75,15 @@ final class MarkdownMathAttachment: MarkdownAttachment, @unchecked Sendable {
         cachedAvailableWidth: CGFloat,
         cachedBounds: CGRect,
         cachedImage: MarkdownPlatformImage?,
-        hasAppliedAttachmentImage: Bool
+        hasAppliedAttachmentImage: Bool,
+        prefersViewBackedRendering: Bool = true
     ) {
         self.source = source
         self.latex = latex
         self.displayMode = displayMode
         self.style = style
         self.renderOutput = renderOutput
+        self.prefersViewBackedRendering = prefersViewBackedRendering
         self.cachedAvailableWidth = cachedAvailableWidth
         self.cachedBounds = cachedBounds
         self.cachedImage = cachedImage
@@ -114,6 +107,7 @@ final class MarkdownMathAttachment: MarkdownAttachment, @unchecked Sendable {
             baseFont: MarkdownPlatformFont.systemFont(ofSize: MarkdownPlatformFont.systemFontSize),
             textColor: defaultColor
         )
+        self.prefersViewBackedRendering = true
         self.renderOutput = MarkdownMathTypesetter.render(
             latex: "",
             displayMode: false,
@@ -134,11 +128,45 @@ final class MarkdownMathAttachment: MarkdownAttachment, @unchecked Sendable {
             cachedAvailableWidth: cachedAvailableWidth,
             cachedBounds: cachedBounds,
             cachedImage: cachedImage,
-            hasAppliedAttachmentImage: hasAppliedAttachmentImage
+            hasAppliedAttachmentImage: hasAppliedAttachmentImage,
+            prefersViewBackedRendering: prefersViewBackedRendering
         )
         copy.contentVersion = contentVersion
         return copy
     }
+
+    #if os(macOS)
+    var prefersViewBackedTextAttachmentRendering: Bool {
+        prefersViewBackedRendering
+    }
+
+    func copiedForImageBackedTableCellRendering(availableWidth: CGFloat) -> MarkdownMathAttachment {
+        let copy = MarkdownMathAttachment(
+            source: source,
+            latex: latex,
+            displayMode: displayMode,
+            style: style,
+            renderOutput: renderOutput,
+            maxWidth: maxWidth,
+            cachedAvailableWidth: 0,
+            cachedBounds: .zero,
+            cachedImage: nil,
+            hasAppliedAttachmentImage: false,
+            prefersViewBackedRendering: false
+        )
+        copy.contentVersion = contentVersion
+        copy.prepareImageBackedRendering(availableWidth: availableWidth)
+        return copy
+    }
+
+    func prepareImageBackedRendering(availableWidth: CGFloat) {
+        let available = resolvedAvailableWidth(
+            containerWidth: availableWidth,
+            proposedLineFragmentWidth: availableWidth
+        )
+        _ = resolvedBounds(availableWidth: available)
+    }
+    #endif
 
     override func widthDidChange() {
         cachedAvailableWidth = 0
@@ -254,9 +282,10 @@ final class MarkdownMathAttachment: MarkdownAttachment, @unchecked Sendable {
     }
 
     #if os(macOS)
+    @MainActor
     @objc
     private func applyAttachmentImageOnMainThread(_ image: MarkdownPlatformImage?) {
-        setValue(image, forKey: "image")
+        setAttachmentImage(image)
     }
     #endif
 }

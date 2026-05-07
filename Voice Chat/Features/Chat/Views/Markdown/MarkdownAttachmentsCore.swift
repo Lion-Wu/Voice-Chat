@@ -27,10 +27,44 @@ class MarkdownAttachment: NSTextAttachment, @unchecked Sendable {
         // override in subclasses when width affects rendering
     }
 
+    @discardableResult
+    func configureViewBackedTextAttachment(fileType: String) -> Bool {
+        #if os(iOS) || os(tvOS) || os(visionOS)
+        if #available(iOS 15.0, tvOS 15.0, *) {
+            MarkdownAttachmentViewProviderRegistry.registerIfNeeded()
+            allowsTextAttachmentView = true
+            self.fileType = fileType
+            if contents == nil { contents = Data() }
+            return true
+        }
+        #elseif os(macOS)
+        if #available(macOS 12.0, *) {
+            MarkdownAttachmentViewProviderRegistry.registerIfNeeded()
+            allowsTextAttachmentView = true
+            self.fileType = fileType
+            contents = nil
+            return true
+        }
+        #endif
+
+        allowsTextAttachmentView = false
+        self.fileType = nil
+        contents = nil
+        return false
+    }
+
     func scrollHorizontally(by delta: CGFloat) -> Bool {
         _ = delta
         return false
     }
+
+    #if os(macOS)
+    @MainActor
+    func installTransparentFallbackCellForViewBackedAttachmentIfNeeded() {
+        guard allowsTextAttachmentView, attachmentCell == nil else { return }
+        attachmentCell = MarkdownAttachmentCell()
+    }
+    #endif
 
     #if os(macOS)
     @MainActor
@@ -126,6 +160,7 @@ func renderMarkdownImage(
     else {
         return nil
     }
+    context.clear(CGRect(x: 0, y: 0, width: pixelWidth, height: pixelHeight))
     context.saveGState()
     context.scaleBy(x: scale, y: scale)
     context.translateBy(x: 0, y: size.height)
@@ -198,4 +233,47 @@ struct MarkdownQuoteStyle {
     let borderColor: MarkdownPlatformColor
     let borderWidth: CGFloat
     let padding: CGSize
+}
+
+struct MarkdownQuoteLayout {
+    let size: CGSize
+    let borderFrame: CGRect
+    let textFrame: CGRect
+}
+
+func markdownQuoteTextWidth(for width: CGFloat, style: MarkdownQuoteStyle) -> CGFloat {
+    let resolvedWidth = max(1, width)
+    let borderWidth = max(1, style.borderWidth)
+    let horizontalPadding = max(0, style.padding.width)
+    return max(1, resolvedWidth - borderWidth - horizontalPadding * 2)
+}
+
+func markdownQuoteLayout(
+    width: CGFloat,
+    style: MarkdownQuoteStyle,
+    textHeight: CGFloat
+) -> MarkdownQuoteLayout {
+    let resolvedWidth = max(1, width)
+    let borderWidth = max(1, style.borderWidth)
+    let horizontalPadding = max(0, style.padding.width)
+    let verticalPadding = max(0, style.padding.height)
+    let resolvedTextHeight = ceil(max(0, textHeight))
+    let height = ceil(resolvedTextHeight + verticalPadding * 2)
+    let textFrame = CGRect(
+        x: borderWidth + horizontalPadding,
+        y: verticalPadding,
+        width: markdownQuoteTextWidth(for: resolvedWidth, style: style),
+        height: resolvedTextHeight
+    )
+    let borderFrame = CGRect(
+        x: 0,
+        y: 0,
+        width: borderWidth,
+        height: height
+    )
+    return MarkdownQuoteLayout(
+        size: CGSize(width: resolvedWidth, height: height),
+        borderFrame: borderFrame,
+        textFrame: textFrame
+    )
 }

@@ -1,0 +1,7 @@
+RaTeX — third-party notices
+===========================
+
+KaTeX fonts (KaTeX_*.ttf)
+License: SIL Open Font License, Version 1.1
+Notice: licenses/KaTeX-fonts-NOTICE.txt
+Full license text: licenses/SIL-OFL-1.1.txt

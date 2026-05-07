@@ -34,9 +34,9 @@ In the app’s Settings:
 
 ## Acknowledgments
 - [GPT-SoVITS](https://github.com/RVC-Boss/GPT-SoVITS)
+- [RaTeX](https://github.com/erweixin/RaTeX)
 - [swift-markdown](https://github.com/swiftlang/swift-markdown)
 - [swift-cmark](https://github.com/swiftlang/swift-cmark)
-- Open-source LLM tooling and communities that make this app possible.
 
 ## License
-MIT — see `LICENSE`.
+MIT — see `LICENSE`. Third-party notices are listed in `THIRD_PARTY_NOTICES.md`.

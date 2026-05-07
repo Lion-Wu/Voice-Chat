@@ -2610,18 +2610,20 @@ final class MarkdownTableView: UIView, UIScrollViewDelegate {
 }
 
 private final class MarkdownQuoteView: UIView {
-    private struct Layout {
-        let size: CGSize
-        let borderFrame: CGRect
-        let textFrame: CGRect
-    }
+    private typealias Layout = MarkdownQuoteLayout
 
     private let content: NSAttributedString
     private let style: MarkdownQuoteStyle
     private let borderView = UIView()
-    private let textLabel = MarkdownStaticAttributedLabel(usingTextLayoutManager: false)
+    private let textLayout = MarkdownAttachmentTextLayout()
+    private var hostedTextView: MarkdownStaticAttributedLabel?
+    private var selectionOverlay: MarkdownStaticAttributedLabel?
     private var cachedLayout: Layout?
     private var cachedWidth: CGFloat = 0
+    private lazy var selectionLongPressRecognizer = MarkdownAttachmentSelectionGestureRecognizer(
+        target: self,
+        action: #selector(handleSelectionLongPress(_:))
+    )
 
     init(content: NSAttributedString, style: MarkdownQuoteStyle) {
         self.content = content
@@ -2630,20 +2632,16 @@ private final class MarkdownQuoteView: UIView {
 
         isOpaque = false
         backgroundColor = .clear
-        clipsToBounds = false
         isUserInteractionEnabled = true
 
         borderView.backgroundColor = style.borderColor
         borderView.isUserInteractionEnabled = false
         addSubview(borderView)
 
-        textLabel.backgroundColor = .clear
-        textLabel.layer.borderWidth = 0
-        textLabel.layer.borderColor = UIColor.clear.cgColor
-        textLabel.layer.cornerRadius = 0
-        textLabel.allowsTapSelection = false
-        textLabel.setMarkdownAttributedText(content)
-        addSubview(textLabel)
+        selectionLongPressRecognizer.minimumPressDuration = 0.45
+        selectionLongPressRecognizer.cancelsTouchesInView = false
+        addGestureRecognizer(selectionLongPressRecognizer)
+        reconcileRequiredHostedTextView()
     }
 
     required init?(coder: NSCoder) {
@@ -2676,34 +2674,187 @@ private final class MarkdownQuoteView: UIView {
         }
         guard let layout = cachedLayout else { return }
         borderView.frame = layout.borderFrame
-        textLabel.frame = layout.textFrame
-        textLabel.applyLayoutSize(layout.textFrame.size, usesUnboundedTextHeight: true)
-        if abs(textLabel.contentOffset.x) > 0.5 || abs(textLabel.contentOffset.y) > 0.5 {
-            textLabel.contentOffset = .zero
+        if let hostedTextView {
+            applyHostedTextViewGeometry(to: hostedTextView, layout: layout)
+        } else {
+            textLayout.apply(text: content, size: layout.textFrame.size)
+            applySelectionOverlayGeometry()
         }
+        setNeedsDisplay()
+    }
+
+    override func draw(_ rect: CGRect) {
+        super.draw(rect)
+        guard hostedTextView == nil,
+              let layout = cachedLayout,
+              layout.textFrame.intersects(rect),
+              content.length > 0
+        else {
+            return
+        }
+        textLayout.apply(text: content, size: layout.textFrame.size)
+        textLayout.draw(in: layout.textFrame)
     }
 
     private func computeLayout(width: CGFloat) -> Layout {
-        let borderWidth = max(1, style.borderWidth)
-        let padding = style.padding
-        let textWidth = max(1, width - borderWidth - padding.width * 2)
-        let measuredTextSize = measureHostedAttributedText(content, width: textWidth)
-        let fittingTextSize = textLabel.measuredSizeFittingWidth(textWidth)
-        let textHeight = ceil(max(measuredTextSize.height, fittingTextSize.height))
-        let height = ceil(textHeight + padding.height * 2)
-        let borderFrame = CGRect(x: 0, y: 0, width: borderWidth, height: height)
-        let textFrame = CGRect(
-            x: borderWidth + padding.width,
-            y: padding.height,
-            width: textWidth,
-            height: textHeight
-        )
-        return Layout(
-            size: CGSize(width: width, height: height),
-            borderFrame: borderFrame,
-            textFrame: textFrame
+        let targetWidth = max(1, width)
+        let textWidth = markdownQuoteTextWidth(for: targetWidth, style: style)
+        let textSize = measureAttributedText(content, width: textWidth)
+        return markdownQuoteLayout(width: targetWidth, style: style, textHeight: textSize.height)
+    }
+
+    private func reconcileRequiredHostedTextView() {
+        guard tableCellRequiresHostedTextView(content) else {
+            return
+        }
+        _ = ensureHostedTextView()
+    }
+
+    private func ensureHostedTextView() -> MarkdownStaticAttributedLabel {
+        if let hostedTextView {
+            return hostedTextView
+        }
+        let view = makeHostedTextView()
+        hostedTextView = view
+        if let selectionOverlay {
+            selectionOverlay.removeFromSuperview()
+            self.selectionOverlay = nil
+        }
+        addSubview(view)
+        applyHostedText(to: view)
+        if let layout = cachedLayout {
+            applyHostedTextViewGeometry(to: view, layout: layout)
+        }
+        setNeedsDisplay()
+        return view
+    }
+
+    private func makeHostedTextView() -> MarkdownStaticAttributedLabel {
+        let view = MarkdownStaticAttributedLabel(usingTextLayoutManager: false)
+        view.isOpaque = false
+        view.backgroundColor = .clear
+        view.isEditable = false
+        view.isSelectable = true
+        view.isUserInteractionEnabled = true
+        view.allowsTapSelection = false
+        return view
+    }
+
+    private func applyHostedText(to view: MarkdownStaticAttributedLabel) {
+        guard view.setMarkdownAttributedText(content) else { return }
+        if view.bounds.width > 0, view.bounds.height > 0 {
+            view.applyLayoutSize(view.bounds.size)
+        }
+        ensureMarkdownTextLayout(in: view, changedRange: nil)
+        view.setNeedsDisplay()
+        view.setNeedsLayout()
+    }
+
+    private func applyHostedTextViewGeometry(to view: MarkdownStaticAttributedLabel, layout: Layout) {
+        view.frame = layout.textFrame
+        view.applyLayoutSize(layout.textFrame.size)
+        view.selectionRectOffset = .zero
+        view.selectionRectsProvider = nil
+        if abs(view.contentOffset.x) > 0.5 || abs(view.contentOffset.y) > 0.5 {
+            view.contentOffset = .zero
+        }
+    }
+
+    private func ensureSelectionOverlay() -> MarkdownStaticAttributedLabel {
+        if let selectionOverlay {
+            return selectionOverlay
+        }
+        let view = MarkdownStaticAttributedLabel(usingTextLayoutManager: false)
+        view.isOpaque = false
+        view.backgroundColor = .clear
+        view.isEditable = false
+        view.isSelectable = true
+        view.isUserInteractionEnabled = true
+        view.allowsTapSelection = false
+        selectionOverlay = view
+        addSubview(view)
+        applySelectionOverlayText(to: view)
+        applySelectionOverlayGeometry()
+        return view
+    }
+
+    private func applySelectionOverlayText(to view: MarkdownStaticAttributedLabel) {
+        let selectionText = NSMutableAttributedString(attributedString: content)
+        if selectionText.length > 0 {
+            let fullRange = NSRange(location: 0, length: selectionText.length)
+            for key in Self.selectionOverlayHiddenAttributes {
+                selectionText.removeAttribute(key, range: fullRange)
+            }
+            selectionText.addAttribute(.foregroundColor, value: UIColor.clear, range: fullRange)
+        }
+        guard view.setMarkdownAttributedText(selectionText) else { return }
+        ensureMarkdownTextLayout(in: view, changedRange: nil)
+        view.setNeedsDisplay()
+        view.setNeedsLayout()
+    }
+
+    private func applySelectionOverlayGeometry() {
+        guard let overlay = selectionOverlay,
+              let layout = cachedLayout
+        else {
+            return
+        }
+        textLayout.apply(text: content, size: layout.textFrame.size)
+        overlay.frame = textLayout.selectionFrame(in: layout.textFrame)
+        overlay.applyLayoutSize(overlay.bounds.size, usesUnboundedTextHeight: true)
+        alignSelectionRects(of: overlay)
+        if abs(overlay.contentOffset.x) > 0.5 || abs(overlay.contentOffset.y) > 0.5 {
+            overlay.contentOffset = .zero
+        }
+    }
+
+    private func alignSelectionRects(of view: MarkdownStaticAttributedLabel) {
+        guard let expected = textLayout.firstSelectionLineRect(),
+              let actual = view.firstSystemSelectionRectForFirstCharacter()
+        else {
+            view.selectionRectOffset = .zero
+            view.selectionRectsProvider = nil
+            return
+        }
+        view.selectionRectsProvider = { [textLayout] range in
+            textLayout.selectionRects(for: range)
+        }
+        view.selectionRectOffset = CGPoint(
+            x: expected.minX - actual.minX,
+            y: expected.minY - actual.minY
         )
     }
+
+    @objc private func handleSelectionLongPress(_ recognizer: UILongPressGestureRecognizer) {
+        guard recognizer.state == .began,
+              let layout = cachedLayout,
+              content.length > 0,
+              layout.textFrame.contains(recognizer.location(in: self))
+        else {
+            return
+        }
+        let view: MarkdownStaticAttributedLabel
+        if let hostedTextView {
+            view = hostedTextView
+        } else {
+            view = ensureSelectionOverlay()
+            applySelectionOverlayGeometry()
+        }
+        view.becomeFirstResponder()
+        view.selectedRange = NSRange(location: 0, length: view.textStorage.length)
+    }
+
+    private static let selectionOverlayHiddenAttributes: [NSAttributedString.Key] = [
+        .backgroundColor,
+        .underlineStyle,
+        .underlineColor,
+        .strikethroughStyle,
+        .strikethroughColor,
+        .strokeColor,
+        .strokeWidth,
+        .foregroundColor,
+        .link
+    ]
 }
 
 private final class MarkdownRuleView: UIView {
