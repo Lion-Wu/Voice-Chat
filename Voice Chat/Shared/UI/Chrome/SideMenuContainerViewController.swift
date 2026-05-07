@@ -13,12 +13,14 @@ import UIKit
 final class SideMenuContainerViewController: UIViewController {
 
     private let sideMenuWidth: CGFloat = 325
+    private let minimumMainContentWidthForPersistentSidebar: CGFloat = 420
     private let menuAnimationDuration: TimeInterval = 0.22
     private let maxMainDimmingAlpha: CGFloat = 0.2
 
     private var sidebarHostingController: UIHostingController<SidebarRootView>!
     private var mainHostingController: UIHostingController<MainRootView>!
     private let mainDimmingView = UIView()
+    private weak var panGestureRecognizer: UIPanGestureRecognizer?
 
     private var sideMenuHorizontalConstraint: NSLayoutConstraint!
     private var mainHorizontalConstraint: NSLayoutConstraint!
@@ -26,6 +28,7 @@ final class SideMenuContainerViewController: UIViewController {
     private var managedLayoutConstraints: [NSLayoutConstraint] = []
 
     private var isMenuOpen = false
+    private var usesPersistentSidebar = false
     private var startMenuOffset: CGFloat = 0
     private var currentLayoutDirection: UIUserInterfaceLayoutDirection = .leftToRight
 
@@ -44,6 +47,18 @@ final class SideMenuContainerViewController: UIViewController {
         configureConstraints()
         configureGestures()
         configureKeyboardHandling()
+    }
+
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        updatePersistentSidebarModeIfNeeded()
+    }
+
+    override func viewWillTransition(to size: CGSize, with coordinator: UIViewControllerTransitionCoordinator) {
+        super.viewWillTransition(to: size, with: coordinator)
+        coordinator.animate(alongsideTransition: { _ in
+            self.updatePersistentSidebarModeIfNeeded(for: size.width)
+        })
     }
 
     private var closedMenuOffset: CGFloat {
@@ -80,8 +95,11 @@ final class SideMenuContainerViewController: UIViewController {
             voiceOverlayViewModel: voiceOverlayViewModel,
             errorCenter: errorCenter,
             onConversationTap: { [weak self] session in
-                self?.chatSessionsViewModel.selectedSession = session
-                self?.toggleMenu(open: false, animated: true)
+                guard let self = self else { return }
+                self.chatSessionsViewModel.selectedSession = session
+                if !self.usesPersistentSidebar {
+                    self.toggleMenu(open: false, animated: true)
+                }
             },
             onOpenSettings: { [weak self] in
                 self?.presentSettings()
@@ -103,6 +121,29 @@ final class SideMenuContainerViewController: UIViewController {
                 self.toggleMenu(open: !self.isMenuOpen, animated: true)
             }
         )
+    }
+
+    private func shouldUsePersistentSidebar(for width: CGFloat) -> Bool {
+#if os(iOS)
+        traitCollection.userInterfaceIdiom == .pad
+            && width >= sideMenuWidth + minimumMainContentWidthForPersistentSidebar
+#else
+        false
+#endif
+    }
+
+    private func updatePersistentSidebarModeIfNeeded(for width: CGFloat? = nil) {
+        let targetWidth = width ?? view.bounds.width
+        let shouldPersistSidebar = shouldUsePersistentSidebar(for: targetWidth)
+        guard usesPersistentSidebar != shouldPersistSidebar else { return }
+
+        usesPersistentSidebar = shouldPersistSidebar
+        // Entering wide iPad layout should reveal the flat sidebar by default;
+        // leaving it should return to the compact closed side-menu state.
+        isMenuOpen = shouldPersistSidebar
+        sidebarHostingController.rootView = makeSidebarRootView()
+        mainHostingController.rootView = makeMainRootView()
+        configureConstraints()
     }
 
     private func configureConstraints() {
@@ -133,21 +174,31 @@ final class SideMenuContainerViewController: UIViewController {
             )
         }
 
-        managedLayoutConstraints = [
+        var constraints: [NSLayoutConstraint] = [
             sideMenuHorizontalConstraint,
             sidebarView.topAnchor.constraint(equalTo: view.topAnchor),
             sidebarView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
             sidebarView.widthAnchor.constraint(equalToConstant: sideMenuWidth),
             mainHorizontalConstraint,
-            mainView.topAnchor.constraint(equalTo: view.topAnchor),
-            mainView.widthAnchor.constraint(equalTo: view.widthAnchor)
+            mainView.topAnchor.constraint(equalTo: view.topAnchor)
         ]
+
+        if usesPersistentSidebar {
+            if currentLayoutDirection == .rightToLeft {
+                constraints.append(mainView.leftAnchor.constraint(equalTo: view.leftAnchor))
+            } else {
+                constraints.append(mainView.rightAnchor.constraint(equalTo: view.rightAnchor))
+            }
+        } else {
+            constraints.append(mainView.widthAnchor.constraint(equalTo: view.widthAnchor))
+        }
 
         mainBottomConstraint = mainView.bottomAnchor.constraint(
             equalTo: view.bottomAnchor,
             constant: preservedBottomConstant
         )
-        managedLayoutConstraints.append(mainBottomConstraint)
+        constraints.append(mainBottomConstraint)
+        managedLayoutConstraints = constraints
 
         NSLayoutConstraint.activate(managedLayoutConstraints)
 
@@ -158,6 +209,7 @@ final class SideMenuContainerViewController: UIViewController {
     private func configureGestures() {
         let panGesture = UIPanGestureRecognizer(target: self, action: #selector(handlePanGesture(_:)))
         panGesture.delegate = self
+        panGestureRecognizer = panGesture
         view.addGestureRecognizer(panGesture)
     }
 
@@ -223,6 +275,12 @@ final class SideMenuContainerViewController: UIViewController {
     }
 
     private func updateMainDimming(forMenuOffset offset: CGFloat) {
+        guard !usesPersistentSidebar else {
+            mainDimmingView.alpha = 0
+            mainDimmingView.isUserInteractionEnabled = false
+            return
+        }
+
         let progress: CGFloat
         if currentLayoutDirection == .rightToLeft {
             progress = max(0, min(1, 1 - (offset / sideMenuWidth)))
@@ -241,7 +299,7 @@ final class SideMenuContainerViewController: UIViewController {
     func toggleMenu(open: Bool, animated: Bool) {
         let wasMenuOpen = isMenuOpen
         let shouldTriggerHaptic = (wasMenuOpen != open)
-        if open || wasMenuOpen {
+        if !usesPersistentSidebar && (open || wasMenuOpen) {
             dismissKeyboardIfNeeded()
         }
 
@@ -267,6 +325,8 @@ final class SideMenuContainerViewController: UIViewController {
 
     @objc
     private func handlePanGesture(_ gesture: UIPanGestureRecognizer) {
+        guard !usesPersistentSidebar else { return }
+
         let translation = gesture.translation(in: view).x
 
         switch gesture.state {
@@ -364,6 +424,11 @@ private struct MainRootView: View {
 }
 
 extension SideMenuContainerViewController: UIGestureRecognizerDelegate {
+    func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+        guard gestureRecognizer === panGestureRecognizer else { return true }
+        return !usesPersistentSidebar
+    }
+
     func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer,
                            shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer) -> Bool {
         return false
