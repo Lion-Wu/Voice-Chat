@@ -117,6 +117,12 @@ final class ComposerContainerView: UIView {
         static let buttonSpacing: CGFloat = 6
         static let cornerRadius: CGFloat = 26
         static let buttonSymbolPointSize: CGFloat = 24
+        static let buttonContentInsets = NSDirectionalEdgeInsets(
+            top: 2,
+            leading: 4,
+            bottom: 2,
+            trailing: 4
+        )
     }
 
     let containerView = UIView()
@@ -202,16 +208,22 @@ final class ComposerContainerView: UIView {
         buttonStack.setContentHuggingPriority(.required, for: .horizontal)
 
         let symbolConfig = UIImage.SymbolConfiguration(pointSize: Layout.buttonSymbolPointSize, weight: .semibold)
-        primaryButton.setPreferredSymbolConfiguration(symbolConfig, forImageIn: .normal)
-        primaryButton.tintColor = UIColor(ChatTheme.accent)
+        configureButton(
+            primaryButton,
+            imageName: nil,
+            tintColor: UIColor(ChatTheme.accent),
+            symbolConfiguration: symbolConfig
+        )
         primaryButton.accessibilityLabel = "Send"
-        primaryButton.contentEdgeInsets = UIEdgeInsets(top: 2, left: 4, bottom: 2, right: 4)
 
-        expandButton.setImage(UIImage(systemName: "arrow.up.left.and.arrow.down.right", withConfiguration: symbolConfig), for: .normal)
-        expandButton.tintColor = .secondaryLabel
+        configureButton(
+            expandButton,
+            imageName: "arrow.up.left.and.arrow.down.right",
+            tintColor: .secondaryLabel,
+            symbolConfiguration: symbolConfig
+        )
         expandButton.accessibilityLabel = "Open full screen editor"
         expandButton.isHidden = true
-        expandButton.contentEdgeInsets = UIEdgeInsets(top: 2, left: 4, bottom: 2, right: 4)
 
         buttonStack.addArrangedSubview(expandButton)
         buttonStack.addArrangedSubview(primaryButton)
@@ -224,6 +236,21 @@ final class ComposerContainerView: UIView {
         textHeightConstraint.isActive = true
 
         applyLayoutDirection(.leftToRight)
+    }
+
+    private func configureButton(
+        _ button: UIButton,
+        imageName: String?,
+        tintColor: UIColor,
+        symbolConfiguration: UIImage.SymbolConfiguration
+    ) {
+        var configuration = button.configuration ?? .plain()
+        configuration.image = imageName.flatMap { UIImage(systemName: $0) }
+        configuration.preferredSymbolConfigurationForImage = symbolConfiguration
+        configuration.contentInsets = Layout.buttonContentInsets
+        configuration.baseForegroundColor = tintColor
+        button.configuration = configuration
+        button.tintColor = tintColor
     }
 
     func applyLayoutDirection(_ layoutDirection: LayoutDirection) {
@@ -244,16 +271,28 @@ final class ComposerContainerView: UIView {
     func configureButtons(isLoading: Bool, trimmedEmpty: Bool) {
         let config = UIImage.SymbolConfiguration(pointSize: Layout.buttonSymbolPointSize, weight: .semibold)
         if isLoading {
-            primaryButton.setImage(UIImage(systemName: "stop.circle.fill", withConfiguration: config), for: .normal)
-            primaryButton.tintColor = .systemRed
+            configureButton(
+                primaryButton,
+                imageName: "stop.circle.fill",
+                tintColor: .systemRed,
+                symbolConfiguration: config
+            )
             primaryButton.accessibilityLabel = "Stop Generation"
         } else if trimmedEmpty {
-            primaryButton.setImage(UIImage(systemName: "waveform.circle.fill", withConfiguration: config), for: .normal)
-            primaryButton.tintColor = UIColor(ChatTheme.accent)
+            configureButton(
+                primaryButton,
+                imageName: "waveform.circle.fill",
+                tintColor: UIColor(ChatTheme.accent),
+                symbolConfiguration: config
+            )
             primaryButton.accessibilityLabel = "Start Realtime Voice Conversation"
         } else {
-            primaryButton.setImage(UIImage(systemName: "arrow.up.circle.fill", withConfiguration: config), for: .normal)
-            primaryButton.tintColor = UIColor(ChatTheme.accent)
+            configureButton(
+                primaryButton,
+                imageName: "arrow.up.circle.fill",
+                tintColor: UIColor(ChatTheme.accent),
+                symbolConfiguration: config
+            )
             primaryButton.accessibilityLabel = "Send Message"
         }
     }
