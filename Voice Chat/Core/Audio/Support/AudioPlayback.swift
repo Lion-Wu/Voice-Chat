@@ -37,11 +37,20 @@ extension GlobalAudioManager {
     }
 
     func allChunksLoaded() -> Bool {
-        !audioChunks.contains(where: { $0 == nil })
+        audioChunks.indices.allSatisfy { index in
+            audioChunks[index] != nil || skippedAudioChunkIndexes.contains(index)
+        }
     }
 
     func playbackFinished() -> Bool {
-        totalDuration > 0 && allChunksLoaded() && currentTime >= max(0, totalDuration - endEpsilon)
+        if !isRealtimeMode,
+           !audioChunks.isEmpty,
+           allChunksLoaded(),
+           totalDuration <= endEpsilon,
+           currentChunkIndex >= textSegments.count {
+            return true
+        }
+        return totalDuration > 0 && allChunksLoaded() && currentTime >= max(0, totalDuration - endEpsilon)
     }
 
     func recalcTotalDuration() {
@@ -69,7 +78,11 @@ extension GlobalAudioManager {
 
     // MARK: - Prepare/Play
     func prepareNextAudioChunk(at index: Int) {
-        guard let chunkOpt = audioChunks[safe: index], let data = chunkOpt else { return }
+        var target = index
+        while skippedAudioChunkIndexes.contains(target) {
+            target += 1
+        }
+        guard let chunkOpt = audioChunks[safe: target], let data = chunkOpt else { return }
         if let p = try? AVAudioPlayer(data: data) {
             p.delegate = self
             p.prepareToPlay()
@@ -83,6 +96,13 @@ extension GlobalAudioManager {
             if !shouldPlay { isPlaybackRequested = false }
             isBuffering = false
             return false
+        }
+        if skippedAudioChunkIndexes.contains(index) {
+            return advancePlaybackPastSkippedChunk(
+                from: index,
+                requestedGlobalTime: t,
+                shouldPlay: shouldPlay
+            )
         }
         guard let chunkOpt = audioChunks[safe: index], let data = chunkOpt else {
             isBuffering = shouldPlay
@@ -162,5 +182,68 @@ extension GlobalAudioManager {
             }
             return false
         }
+    }
+
+    private func advancePlaybackPastSkippedChunk(
+        from index: Int,
+        requestedGlobalTime: TimeInterval?,
+        shouldPlay: Bool
+    ) -> Bool {
+        var nextIndex = index + 1
+        while nextIndex < audioChunks.count, skippedAudioChunkIndexes.contains(nextIndex) {
+            nextIndex += 1
+        }
+
+        audioPlayer?.stop()
+        audioPlayer = nil
+        nextAudioPlayer?.stop()
+        nextAudioPlayer = nil
+        stopAudioTimer()
+
+        guard nextIndex < audioChunks.count else {
+            currentPlayingIndex = min(audioChunks.count, max(0, index + 1))
+            isAudioPlaying = false
+            isPlaybackRequested = shouldPlay
+
+            if isRealtimeMode {
+                isBuffering = shouldPlay
+                isLoading = shouldPlay
+                startStallWatchdog()
+                return false
+            }
+
+            if allChunksLoaded() {
+                currentTime = totalDuration
+                finishPlayback()
+                return false
+            }
+
+            isBuffering = shouldPlay
+            if shouldPlay {
+                startStallWatchdog()
+            } else {
+                stopStallWatchdog()
+            }
+            return false
+        }
+
+        currentPlayingIndex = nextIndex
+        let nextStart = startTime(forSegment: nextIndex)
+
+        if let chunkOpt = audioChunks[safe: nextIndex], chunkOpt != nil {
+            return playAudioChunk(
+                at: nextIndex,
+                fromTime: max(requestedGlobalTime ?? nextStart, nextStart),
+                shouldPlay: shouldPlay
+            )
+        }
+
+        currentTime = max(currentTime, nextStart)
+        isBuffering = shouldPlay
+        isPlaybackRequested = shouldPlay
+        isAudioPlaying = false
+        if isRealtimeMode { isLoading = shouldPlay }
+        startStallWatchdog()
+        return false
     }
 }

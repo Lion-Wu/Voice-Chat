@@ -14,6 +14,8 @@ private struct ActiveStreamTelemetry {
     let modelIdentifier: String
     let apiBaseURL: String
     let thinkingOption: ModelThinkingOption?
+    let developerPrompt: String?
+    let includeImagesInUserContent: Bool
     let promptMessageCount: Int
     let promptCharacterCount: Int
     var firstTokenAt: Date?
@@ -68,6 +70,7 @@ final class ChatViewModel: ObservableObject {
     private weak var sessionPersistence: (any ChatSessionPersisting & ChatSessionActivityPublishing)?
 
     private var sending = false
+    private var hasActiveTextRequest: Bool { sending || isLoading || isPriming }
 
     private var currentAssistantMessageID: UUID?
     private var interruptedAssistantMessageID: UUID?
@@ -539,25 +542,22 @@ final class ChatViewModel: ObservableObject {
         scheduleQueuedDraftAutostartIfNeeded()
     }
 
-    /// Rebuilds the chat streaming service when the API base URL or model changes.
+    /// Updates the configuration used by future requests.
+    /// Active streams keep the snapshot they started with; settings edits are applied after they finish.
     func updateChatConfiguration(_ configuration: ChatServiceConfiguration) {
         guard configuration != chatConfiguration else {
             // If hints reverted to the currently active service config, drop any stale deferred update.
             deferredChatConfiguration = nil
             return
         }
-        if requiresHardChatServiceReset(from: chatConfiguration, to: configuration) {
-            applyChatConfiguration(configuration, interruptActiveRequest: true)
-            return
-        }
 
-        if sending || isLoading || isPriming {
-            // Provider/style hints can refresh asynchronously; avoid interrupting an active stream.
+        if hasActiveTextRequest {
             deferredChatConfiguration = configuration
             return
         }
 
-        applyChatConfiguration(configuration, interruptActiveRequest: false)
+        applyChatConfiguration(configuration)
+        scheduleQueuedDraftAutostartIfNeeded()
     }
 
     private func syncChatConfigurationFromSettingsIfNeeded() {
@@ -575,67 +575,22 @@ final class ChatViewModel: ObservableObject {
         updateChatConfiguration(latest)
     }
 
-    private func requiresHardChatServiceReset(from current: ChatServiceConfiguration, to next: ChatServiceConfiguration) -> Bool {
-        current.apiBaseURL != next.apiBaseURL
-        || current.modelIdentifier != next.modelIdentifier
-        || current.apiKey != next.apiKey
-    }
-
-    private func applyChatConfiguration(_ configuration: ChatServiceConfiguration, interruptActiveRequest: Bool) {
-        if interruptActiveRequest {
-            cancelAutoRetryTask()
-            chatService.cancelStreaming()
-            finalizeActiveAssistantMessage(reason: "config-changed", finishedAt: Date())
-            currentAssistantMessageID = nil
-            resetRetryState()
-
-            if realtimeTTSActive {
-                audioManager.finishRealtimeStream()
-                realtimeTTSActive = false
-            }
-
-            if isPriming { isPriming = false }
-            if isLoading { isLoading = false }
-            if sending { sending = false }
-            interruptedAssistantMessageID = nil
-            pendingAssistantParentMessageID = nil
-            pendingBranchRestore = nil
-            incSegmenter.reset()
-        }
-
+    private func applyChatConfiguration(_ configuration: ChatServiceConfiguration) {
         deferredChatConfiguration = nil
         chatConfiguration = configuration
         let newService = chatServiceFactory(configuration)
         bindChatService(newService)
         objectWillChange.send()
-        if interruptActiveRequest {
-            resetStreamingPersistenceState()
-            persistSession(reason: .immediate)
-        }
-        if interruptActiveRequest {
-            scheduleQueuedDraftAutostartIfNeeded()
-        }
     }
 
     private func applyDeferredChatConfigurationIfNeeded() {
-        guard !sending, !isLoading, !isPriming else { return }
+        guard !hasActiveTextRequest else { return }
         guard let deferred = deferredChatConfiguration else { return }
         guard deferred != chatConfiguration else {
             deferredChatConfiguration = nil
             return
         }
-        applyChatConfiguration(deferred, interruptActiveRequest: false)
-    }
-
-    /// Applies hint-only deferred configuration during retry windows where no stream is active.
-    private func applyDeferredChatConfigurationForRetryIfNeeded() {
-        guard let deferred = deferredChatConfiguration else { return }
-        guard deferred != chatConfiguration else {
-            deferredChatConfiguration = nil
-            return
-        }
-        guard !requiresHardChatServiceReset(from: chatConfiguration, to: deferred) else { return }
-        applyChatConfiguration(deferred, interruptActiveRequest: false)
+        applyChatConfiguration(deferred)
     }
 
     // MARK: - Helpers (stable ordering & safe trimming)
@@ -670,7 +625,11 @@ final class ChatViewModel: ObservableObject {
 
     // MARK: - Telemetry
 
-    private func recordStreamStart(using messages: [ChatMessage]) {
+    private func recordStreamStart(
+        using messages: [ChatMessage],
+        developerPrompt: String?,
+        includeImagesInUserContent: Bool
+    ) {
         let eligibleMessages = messages.filter { !$0.content.hasPrefix("!error:") }
         let promptCharacterCount = eligibleMessages.reduce(into: 0) { partial, msg in
             partial += msg.content.count
@@ -684,6 +643,8 @@ final class ChatViewModel: ObservableObject {
             modelIdentifier: chatConfiguration.modelIdentifier,
             apiBaseURL: chatConfiguration.apiBaseURL,
             thinkingOption: chatConfiguration.thinkingOption,
+            developerPrompt: developerPrompt,
+            includeImagesInUserContent: includeImagesInUserContent,
             promptMessageCount: eligibleMessages.count,
             promptCharacterCount: promptCharacterCount,
             firstTokenAt: nil
@@ -1226,7 +1187,7 @@ final class ChatViewModel: ObservableObject {
 
     private func scheduleQueuedDraftAutostartIfNeeded() {
         cancelQueuedDraftAutostart()
-        guard !sending, !isLoading, !isPriming else { return }
+        guard !hasActiveTextRequest else { return }
         guard let draft = queuedDrafts.first else { return }
         if shouldWarnAboutUnsupportedImageInput(for: draft) {
             pendingUnsupportedImageQueuedDraftID = draft.id
@@ -1239,7 +1200,7 @@ final class ChatViewModel: ObservableObject {
         queuedDraftAutostartTask = Task { @MainActor [weak self] in
             await Task.yield()
             guard let self, !Task.isCancelled else { return }
-            guard !self.sending, !self.isLoading, !self.isPriming else { return }
+            guard !self.hasActiveTextRequest else { return }
             guard self.queuedDrafts.first?.id == draft.id else { return }
 
             let didSend = self.send(
@@ -1341,8 +1302,12 @@ final class ChatViewModel: ObservableObject {
         }
 
         let currentMessages = activeBranchMessages()
-        recordStreamStart(using: currentMessages)
         let developerPrompt = resolvedDeveloperPrompt(isVoiceMode: realtimeTTSActive || audioManager.isRealtimeMode)
+        recordStreamStart(
+            using: currentMessages,
+            developerPrompt: developerPrompt,
+            includeImagesInUserContent: supportsImageInputs
+        )
         chatService.fetchStreamedData(
             messages: currentMessages,
             developerPrompt: developerPrompt,
@@ -1495,12 +1460,17 @@ final class ChatViewModel: ObservableObject {
         isPriming = true
         isLoading = true
         sending = true
-        recordStreamStart(using: currentMessages)
         let developerPrompt = resolvedDeveloperPrompt(isVoiceMode: audioManager.isRealtimeMode)
+        let includeImagesInUserContent = currentModelSupportsImageInput()
+        recordStreamStart(
+            using: currentMessages,
+            developerPrompt: developerPrompt,
+            includeImagesInUserContent: includeImagesInUserContent
+        )
         chatService.fetchStreamedData(
             messages: currentMessages,
             developerPrompt: developerPrompt,
-            includeImagesInUserContent: currentModelSupportsImageInput()
+            includeImagesInUserContent: includeImagesInUserContent
         )
     }
 
@@ -1533,12 +1503,17 @@ final class ChatViewModel: ObservableObject {
         isLoading = true
         sending = true
 
-        recordStreamStart(using: currentMessages)
         let developerPrompt = resolvedDeveloperPrompt(isVoiceMode: audioManager.isRealtimeMode)
+        let includeImagesInUserContent = currentModelSupportsImageInput()
+        recordStreamStart(
+            using: currentMessages,
+            developerPrompt: developerPrompt,
+            includeImagesInUserContent: includeImagesInUserContent
+        )
         chatService.fetchStreamedData(
             messages: currentMessages,
             developerPrompt: developerPrompt,
-            includeImagesInUserContent: currentModelSupportsImageInput()
+            includeImagesInUserContent: includeImagesInUserContent
         )
     }
 
@@ -1627,6 +1602,10 @@ final class ChatViewModel: ObservableObject {
         let retryCount = retryAttempt
         let delay = streamRetryPolicy.delay(forRetryCount: retryCount)
         let shouldUseVoicePrompt = realtimeTTSActive || audioManager.isRealtimeMode
+        let requestDeveloperPrompt = activeStreamTelemetry?.developerPrompt
+            ?? resolvedDeveloperPrompt(isVoiceMode: shouldUseVoicePrompt)
+        let includeImagesInUserContent = activeStreamTelemetry?.includeImagesInUserContent
+            ?? currentModelSupportsImageInput()
 
         autoRetryTask = Task { [weak self] in
             await NetworkRetry.sleep(seconds: delay)
@@ -1644,13 +1623,11 @@ final class ChatViewModel: ObservableObject {
                     return
                 }
 
-                self.applyDeferredChatConfigurationForRetryIfNeeded()
                 let currentMessages = self.activeBranchMessages()
-                let developerPrompt = self.resolvedDeveloperPrompt(isVoiceMode: shouldUseVoicePrompt)
                 self.chatService.fetchStreamedData(
                     messages: currentMessages,
-                    developerPrompt: developerPrompt,
-                    includeImagesInUserContent: self.currentModelSupportsImageInput()
+                    developerPrompt: requestDeveloperPrompt,
+                    includeImagesInUserContent: includeImagesInUserContent
                 )
             }
         }

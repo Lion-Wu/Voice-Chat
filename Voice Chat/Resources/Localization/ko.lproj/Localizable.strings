@@ -87,6 +87,7 @@
 "Set SoVITS weights failed (HTTP %d)" = "SoVITS 가중치 설정 실패(HTTP %d)";
 "Set SoVITS weights failed: %@" = "SoVITS 가중치 설정 실패: %@";
 "Show Full Message" = "전체 메시지 보기";
+"The following text failed to generate and was ignored: %@" = "다음 텍스트 생성에 실패하여 무시되었습니다: %@";
 "Simplified Chinese" = "중국어 간체";
 "Speech Error" = "음성 오류";
 "Speech input is not supported on this platform." = "이 플랫폼에서는 음성 입력을 지원하지 않습니다.";

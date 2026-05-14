@@ -10,6 +10,18 @@ import AVFoundation
 import Combine
 import SwiftUI
 
+struct TTSSynthesisConfiguration: Equatable {
+    let serverAddress: String
+    let url: URL
+    let textLanguage: String
+    let referenceAudioPath: String
+    let promptText: String
+    let promptLanguage: String
+    let textSplitMethod: String
+    let mediaType: String
+    let usesStreamingSegments: Bool
+}
+
 @MainActor
 final class GlobalAudioManager: NSObject, ObservableObject, AVAudioPlayerDelegate {
     static let shared = GlobalAudioManager()
@@ -32,6 +44,7 @@ final class GlobalAudioManager: NSObject, ObservableObject, AVAudioPlayerDelegat
         }
     }
     @Published var errorMessage: String?
+    @Published var playbackNoticeMessage: String?
     var isRetrying: Bool = false {
         didSet {
             guard isRetrying != oldValue else { return }
@@ -125,6 +138,7 @@ final class GlobalAudioManager: NSObject, ObservableObject, AVAudioPlayerDelegat
     var textSegments: [String] = []
     var audioChunks: [Data?] = []
     var chunkDurations: [TimeInterval] = []
+    var skippedAudioChunkIndexes: Set<Int> = []
 
     var currentChunkIndex: Int = 0
     var currentPlayingIndex: Int = 0
@@ -135,7 +149,7 @@ final class GlobalAudioManager: NSObject, ObservableObject, AVAudioPlayerDelegat
     var ttsRetryCounts: [Int: Int] = [:]
     var ttsRetryingIndexes: Set<Int> = []
     let ttsRetryPolicy = NetworkRetryPolicy(
-        maxAttempts: nil,
+        maxAttempts: 4,
         baseDelay: 0.6,
         maxDelay: 12.0,
         backoffFactor: 1.6,
@@ -149,7 +163,9 @@ final class GlobalAudioManager: NSObject, ObservableObject, AVAudioPlayerDelegat
     // MARK: - Config
     let settingsManager = SettingsManager.shared
     private let errorCenter = AppErrorCenter.shared
+    private var playbackNoticeDismissTask: Task<Void, Never>?
     var mediaType: String = "wav"
+    var currentTTSConfiguration: TTSSynthesisConfiguration?
 
     // MARK: - Constants
     let endEpsilon: TimeInterval = 0.03
@@ -192,8 +208,10 @@ final class GlobalAudioManager: NSObject, ObservableObject, AVAudioPlayerDelegat
             return
         }
 
-        let hasMissingAudio = audioChunks.contains { $0 == nil }
-        let hasOutstandingRequests = !inFlightIndexes.isEmpty
+        let hasMissingAudio = audioChunks.indices.contains { index in
+            audioChunks[index] == nil && !skippedAudioChunkIndexes.contains(index)
+        }
+        let hasOutstandingRequests = !inFlightIndexes.isEmpty || !ttsRetryTasks.isEmpty
 
         if isRealtimeMode {
             isPlaybackFullyLoaded =
@@ -220,11 +238,13 @@ final class GlobalAudioManager: NSObject, ObservableObject, AVAudioPlayerDelegat
     func startProcessing(text: String) {
         currentGenerationID = UUID()
         let generationID = currentGenerationID
+        let configuration = makeTTSConfiguration(isRealtime: false)
         isRealtimeMode = false
         realtimeFinalized = false
         pendingRealtimeIndexes.removeAll()
 
         resetPlayer()
+        currentTTSConfiguration = configuration
         withAnimation(.audioPlayerVisibility) {
             isShowingAudioPlayer = true
         }
@@ -241,7 +261,16 @@ final class GlobalAudioManager: NSObject, ObservableObject, AVAudioPlayerDelegat
         currentPlayingIndex = 0
         refreshPlaybackLoadState()
 
-        let streamingEnabled = settingsManager.voiceSettings.enableStreaming
+        guard let configuration else {
+            isLoading = false
+            isPlaybackRequested = false
+            isAudioPlaying = false
+            refreshPlaybackLoadState()
+            surfaceTTSIssue(invalidTTSConfigurationMessage())
+            return
+        }
+
+        let streamingEnabled = configuration.usesStreamingSegments
         let worker = segmentationWorker
 
         Task.detached(priority: .userInitiated) { [weak self] in
@@ -264,11 +293,13 @@ final class GlobalAudioManager: NSObject, ObservableObject, AVAudioPlayerDelegat
     /// Starts a realtime voice stream. Segments are appended later via `appendRealtimeSegment`.
     func startRealtimeStream() {
         currentGenerationID = UUID()
+        let configuration = makeTTSConfiguration(isRealtime: true)
         isRealtimeMode = true
         realtimeFinalized = false
         pendingRealtimeIndexes.removeAll()
 
         resetPlayer()
+        currentTTSConfiguration = configuration
         withAnimation(.audioPlayerVisibility) {
             isShowingAudioPlayer = true
         }
@@ -285,12 +316,25 @@ final class GlobalAudioManager: NSObject, ObservableObject, AVAudioPlayerDelegat
         currentChunkIndex = 0
         currentPlayingIndex = 0
         refreshPlaybackLoadState()
+
+        guard configuration != nil else {
+            isLoading = false
+            isPlaybackRequested = false
+            isAudioPlaying = false
+            refreshPlaybackLoadState()
+            surfaceTTSIssue(invalidTTSConfigurationMessage())
+            return
+        }
     }
 
     /// Appends a segment to be converted to speech. Realtime mode enqueues the work, while
     /// regular mode sends it immediately.
     func appendRealtimeSegment(_ text: String) {
         guard isRealtimeMode else { return }
+        guard currentTTSConfiguration != nil else {
+            surfaceTTSIssue(invalidTTSConfigurationMessage())
+            return
+        }
         let idx = textSegments.count
         textSegments.append(text)
         audioChunks.append(nil)
@@ -326,7 +370,7 @@ final class GlobalAudioManager: NSObject, ObservableObject, AVAudioPlayerDelegat
                 isAudioPlaying = false
                 return
             }
-            if let chunkOpt = audioChunks[safe: currentPlayingIndex], let _ = chunkOpt {
+            if currentPlayingIndex < audioChunks.count {
                 let didStart = playAudioChunk(at: currentPlayingIndex, fromTime: currentTime, shouldPlay: true)
                 if isRealtimeMode {
                     // Consider playback active only after audio actually starts.
@@ -384,7 +428,9 @@ final class GlobalAudioManager: NSObject, ObservableObject, AVAudioPlayerDelegat
             currentPlayingIndex = target
         }
 
-        if let chunkOpt = audioChunks[safe: target], let _ = chunkOpt {
+        if skippedAudioChunkIndexes.contains(target) {
+            _ = playAudioChunk(at: target, fromTime: newT, shouldPlay: shouldPlay)
+        } else if let chunkOpt = audioChunks[safe: target], let _ = chunkOpt {
             _ = playAudioChunk(at: target, fromTime: newT, shouldPlay: shouldPlay)
         } else {
             isBuffering = shouldPlay
@@ -395,8 +441,13 @@ final class GlobalAudioManager: NSObject, ObservableObject, AVAudioPlayerDelegat
             isPlaybackRequested = shouldPlay
             if shouldPlay { isAudioPlaying = false }
             if isRealtimeMode { isLoading = shouldPlay }
-            if !inFlightIndexes.contains(target) {
-                sendTTSRequest(for: textSegments[target], index: target)
+            if target < textSegments.count {
+                if isRealtimeMode {
+                    enqueueRealtimeIndex(target)
+                } else if !inFlightIndexes.contains(target),
+                          ttsRetryTasks[target] == nil {
+                    sendTTSRequest(for: textSegments[target], index: target)
+                }
             }
         }
     }
@@ -425,9 +476,14 @@ final class GlobalAudioManager: NSObject, ObservableObject, AVAudioPlayerDelegat
         ttsRetryTasks.removeAll()
         ttsRetryCounts.removeAll()
         ttsRetryingIndexes.removeAll()
+        skippedAudioChunkIndexes.removeAll()
         isRetrying = false
         retryAttempt = 0
         retryLastError = nil
+        playbackNoticeDismissTask?.cancel()
+        playbackNoticeDismissTask = nil
+        playbackNoticeMessage = nil
+        currentTTSConfiguration = nil
 
         audioPlayer?.stop()
         audioPlayer = nil
@@ -440,6 +496,7 @@ final class GlobalAudioManager: NSObject, ObservableObject, AVAudioPlayerDelegat
         textSegments.removeAll()
         audioChunks.removeAll()
         chunkDurations.removeAll()
+        skippedAudioChunkIndexes.removeAll()
         totalDuration = 0
 
         currentChunkIndex = 0
@@ -466,6 +523,7 @@ final class GlobalAudioManager: NSObject, ObservableObject, AVAudioPlayerDelegat
         let count = segments.count
         audioChunks = Array(repeating: nil, count: count)
         chunkDurations = Array(repeating: 0, count: count)
+        skippedAudioChunkIndexes.removeAll()
         totalDuration = 0
         currentChunkIndex = 0
         currentPlayingIndex = 0
@@ -482,32 +540,70 @@ final class GlobalAudioManager: NSObject, ObservableObject, AVAudioPlayerDelegat
     }
 
     // MARK: - Realtime queue helpers (NEW)
+    func queueRealtimeIndex(_ index: Int, atFront: Bool = false) {
+        guard index >= 0, index < textSegments.count else { return }
+        guard index >= audioChunks.count || audioChunks[index] == nil else {
+            refreshPlaybackLoadState()
+            return
+        }
+        guard !skippedAudioChunkIndexes.contains(index) else {
+            refreshPlaybackLoadState()
+            return
+        }
+
+        if let existing = pendingRealtimeIndexes.firstIndex(of: index) {
+            if atFront && existing != pendingRealtimeIndexes.startIndex {
+                pendingRealtimeIndexes.remove(at: existing)
+                pendingRealtimeIndexes.insert(index, at: pendingRealtimeIndexes.startIndex)
+            }
+        } else if atFront {
+            pendingRealtimeIndexes.insert(index, at: pendingRealtimeIndexes.startIndex)
+        } else {
+            pendingRealtimeIndexes.append(index)
+        }
+        refreshPlaybackLoadState()
+    }
+
+    func hasActiveRealtimeSynthesisWork() -> Bool {
+        !inFlightIndexes.isEmpty || !ttsRetryTasks.isEmpty
+    }
+
     func enqueueRealtimeIndex(_ index: Int) {
+        guard index >= 0, index < textSegments.count else { return }
         if !isRealtimeMode {
             // Non-realtime mode sends the request immediately.
             sendTTSRequest(for: textSegments[index], index: index)
             return
         }
-        if inFlightIndexes.isEmpty {
+        let hasActiveWork = hasActiveRealtimeSynthesisWork()
+        if !hasActiveWork && pendingRealtimeIndexes.isEmpty {
             sendTTSRequest(for: textSegments[index], index: index)
         } else {
-            pendingRealtimeIndexes.append(index)
-            refreshPlaybackLoadState()
+            queueRealtimeIndex(index)
+            if !hasActiveWork {
+                processRealtimeQueueIfNeeded()
+            }
         }
     }
 
     func processRealtimeQueueIfNeeded() {
         guard isRealtimeMode else { return }
         guard inFlightIndexes.isEmpty else { return }
+        guard ttsRetryTasks.isEmpty else { return }
         guard !pendingRealtimeIndexes.isEmpty else { return }
         let next = pendingRealtimeIndexes.removeFirst()
+        guard next < textSegments.count else {
+            refreshPlaybackLoadState()
+            processRealtimeQueueIfNeeded()
+            return
+        }
         sendTTSRequest(for: textSegments[next], index: next)
     }
 
     /// Ends realtime mode cleanly when no audio was produced or all work finished.
     func concludeRealtimeIfIdle() {
         guard isRealtimeMode, realtimeFinalized else { return }
-        let noPending = inFlightIndexes.isEmpty && pendingRealtimeIndexes.isEmpty
+        let noPending = inFlightIndexes.isEmpty && ttsRetryTasks.isEmpty && pendingRealtimeIndexes.isEmpty
         let hasAnyAudio = audioChunks.contains { $0 != nil }
         guard noPending else { return }
 
@@ -545,9 +641,31 @@ final class GlobalAudioManager: NSObject, ObservableObject, AVAudioPlayerDelegat
         )
     }
 
-    func formatTTSNetworkError(_ error: NSError) -> String {
+    func surfaceTTSNotice(_ message: String, autoDismiss: TimeInterval = 8) {
+        let trimmed = message.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        playbackNoticeMessage = trimmed
+        errorCenter.publish(
+            title: NSLocalizedString("Voice Playback Issue", comment: "Fallback title when TTS or audio playback fails"),
+            message: trimmed,
+            category: isRealtimeMode ? .realtimeVoice : .tts,
+            autoDismiss: autoDismiss
+        )
+
+        playbackNoticeDismissTask?.cancel()
+        playbackNoticeDismissTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(autoDismiss))
+            await MainActor.run {
+                guard self?.playbackNoticeMessage == trimmed else { return }
+                self?.playbackNoticeMessage = nil
+                self?.playbackNoticeDismissTask = nil
+            }
+        }
+    }
+
+    func formatTTSNetworkError(_ error: NSError, serverAddress: String? = nil) -> String {
         guard error.domain == NSURLErrorDomain else { return error.localizedDescription }
-        let address = settingsManager.serverSettings.serverAddress
+        let address = serverAddress ?? currentTTSConfiguration?.serverAddress ?? settingsManager.serverSettings.serverAddress
         let code = URLError.Code(rawValue: error.code)
         switch code {
         case .cannotConnectToHost, .cannotFindHost:

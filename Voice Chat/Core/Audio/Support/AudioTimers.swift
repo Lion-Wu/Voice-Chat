@@ -162,8 +162,20 @@ extension GlobalAudioManager {
                     let elapsed = Date().timeIntervalSince(self.lastProgressTimestamp)
                     if elapsed > 8 {
                         let idx = self.currentPlayingIndex
-                        if self.audioChunks[safe: idx] == nil && !self.inFlightIndexes.contains(idx) {
-                            self.sendTTSRequest(for: self.textSegments[idx], index: idx)
+                        if self.skippedAudioChunkIndexes.contains(idx) {
+                            _ = self.playAudioChunk(
+                                at: idx,
+                                fromTime: self.currentTime,
+                                shouldPlay: self.isPlaybackRequested
+                            )
+                        } else if idx < self.textSegments.count,
+                                  (idx >= self.audioChunks.count || self.audioChunks[idx] == nil) {
+                            if self.isRealtimeMode {
+                                self.enqueueRealtimeIndex(idx)
+                            } else if !self.inFlightIndexes.contains(idx),
+                                      self.ttsRetryTasks[idx] == nil {
+                                self.sendTTSRequest(for: self.textSegments[idx], index: idx)
+                            }
                         }
                         self.lastProgressTimestamp = Date()
                     }
