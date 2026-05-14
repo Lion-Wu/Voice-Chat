@@ -587,6 +587,8 @@ struct ChatView: View {
     @State private var activeSearchHighlightTargetID: UUID?
     @State private var searchScrollLock: SearchScrollLock?
     @State private var searchScrollReanchorTask: Task<Void, Never>?
+    @State private var shouldScrollToBottomAfterSend: Bool = false
+    @State private var scrollToBottomAfterSendBaselineVisibleCount: Int?
     @State private var activeAlert: ChatAlert?
     @State private var expectAssistantResponseHaptics: Bool = false
     @State private var didTriggerResponseStartHaptic: Bool = false
@@ -1113,6 +1115,8 @@ struct ChatView: View {
         contentHeight = 0
         bottomAnchorMaxY = 0
         showScrollToBottomButton = false
+        shouldScrollToBottomAfterSend = false
+        scrollToBottomAfterSendBaselineVisibleCount = nil
     }
 
     private func scrollToBottomAfterOverflowTransitionIfNeeded(wasScrollable: Bool) {
@@ -1124,6 +1128,33 @@ struct ChatView: View {
         }
 
         scrollToBottom(animated: false)
+    }
+
+    private func requestScrollToBottomAfterSend() {
+        shouldScrollToBottomAfterSend = true
+        scrollToBottomAfterSendBaselineVisibleCount = visibleMessages.count
+        pendingSearchScrollTarget = nil
+        clearSearchScrollLock()
+    }
+
+    private func cancelScrollToBottomAfterSend() {
+        shouldScrollToBottomAfterSend = false
+        scrollToBottomAfterSendBaselineVisibleCount = nil
+    }
+
+    @discardableResult
+    private func consumeScrollToBottomAfterSendIfNeeded(animated: Bool = true) -> Bool {
+        guard shouldScrollToBottomAfterSend else { return false }
+        if let baseline = scrollToBottomAfterSendBaselineVisibleCount,
+           visibleMessages.count <= baseline {
+            return false
+        }
+        guard scrollProxy != nil else { return false }
+
+        shouldScrollToBottomAfterSend = false
+        scrollToBottomAfterSendBaselineVisibleCount = nil
+        scrollToBottom(animated: animated)
+        return true
     }
 
     @discardableResult
@@ -1327,6 +1358,7 @@ struct ChatView: View {
             if didUpdateScrollableGeometry {
                 extendSearchScrollLockForLayoutChange()
                 scrollToBottomAfterOverflowTransitionIfNeeded(wasScrollable: wasScrollable)
+                _ = consumeScrollToBottomAfterSendIfNeeded(animated: false)
             }
         }
     }
@@ -1618,6 +1650,9 @@ struct ChatView: View {
                 scheduleSearchNavigationIfNeeded(newTarget)
             }
             .onChange(of: visibleMessages.count) { _, _ in
+                if consumeScrollToBottomAfterSendIfNeeded() {
+                    return
+                }
                 if attemptSearchTargetScroll() {
                     return
                 }
@@ -1778,6 +1813,9 @@ struct ChatView: View {
                                     scrollProxy = proxy
                                     DispatchQueue.main.async {
                                         if !attemptSearchTargetScroll(), pendingSearchScrollTarget == nil {
+                                            if consumeScrollToBottomAfterSendIfNeeded(animated: false) {
+                                                return
+                                            }
                                             if shouldAnchorBottom {
                                                 scrollToBottom(animated: false)
                                             }
@@ -1888,9 +1926,11 @@ struct ChatView: View {
     private func performSend(ignoringUnsupportedImageInputs: Bool) -> Bool {
         expectAssistantResponseHaptics = true
         didTriggerResponseStartHaptic = false
+        requestScrollToBottomAfterSend()
         guard viewModel.sendMessage(ignoringUnsupportedImageInputs: ignoringUnsupportedImageInputs) else {
             expectAssistantResponseHaptics = false
             didTriggerResponseStartHaptic = false
+            cancelScrollToBottomAfterSend()
             return false
         }
         triggerTextHaptic(.lightTap)
@@ -1907,12 +1947,14 @@ struct ChatView: View {
         }
         expectAssistantResponseHaptics = true
         didTriggerResponseStartHaptic = false
+        requestScrollToBottomAfterSend()
         guard viewModel.sendQueuedDraftNow(
             id: draftID,
             ignoringUnsupportedImageInputs: ignoringUnsupportedImageInputs
         ) else {
             expectAssistantResponseHaptics = false
             didTriggerResponseStartHaptic = false
+            cancelScrollToBottomAfterSend()
             return false
         }
         triggerTextHaptic(.lightTap)
