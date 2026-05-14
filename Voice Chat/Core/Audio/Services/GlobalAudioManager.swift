@@ -441,10 +441,13 @@ final class GlobalAudioManager: NSObject, ObservableObject, AVAudioPlayerDelegat
             isPlaybackRequested = shouldPlay
             if shouldPlay { isAudioPlaying = false }
             if isRealtimeMode { isLoading = shouldPlay }
-            if target < textSegments.count,
-               !inFlightIndexes.contains(target),
-               ttsRetryTasks[target] == nil {
-                sendTTSRequest(for: textSegments[target], index: target)
+            if target < textSegments.count {
+                if isRealtimeMode {
+                    enqueueRealtimeIndex(target)
+                } else if !inFlightIndexes.contains(target),
+                          ttsRetryTasks[target] == nil {
+                    sendTTSRequest(for: textSegments[target], index: target)
+                }
             }
         }
     }
@@ -537,6 +540,34 @@ final class GlobalAudioManager: NSObject, ObservableObject, AVAudioPlayerDelegat
     }
 
     // MARK: - Realtime queue helpers (NEW)
+    func queueRealtimeIndex(_ index: Int, atFront: Bool = false) {
+        guard index >= 0, index < textSegments.count else { return }
+        guard index >= audioChunks.count || audioChunks[index] == nil else {
+            refreshPlaybackLoadState()
+            return
+        }
+        guard !skippedAudioChunkIndexes.contains(index) else {
+            refreshPlaybackLoadState()
+            return
+        }
+
+        if let existing = pendingRealtimeIndexes.firstIndex(of: index) {
+            if atFront && existing != pendingRealtimeIndexes.startIndex {
+                pendingRealtimeIndexes.remove(at: existing)
+                pendingRealtimeIndexes.insert(index, at: pendingRealtimeIndexes.startIndex)
+            }
+        } else if atFront {
+            pendingRealtimeIndexes.insert(index, at: pendingRealtimeIndexes.startIndex)
+        } else {
+            pendingRealtimeIndexes.append(index)
+        }
+        refreshPlaybackLoadState()
+    }
+
+    func hasActiveRealtimeSynthesisWork() -> Bool {
+        !inFlightIndexes.isEmpty || !ttsRetryTasks.isEmpty
+    }
+
     func enqueueRealtimeIndex(_ index: Int) {
         guard index >= 0, index < textSegments.count else { return }
         if !isRealtimeMode {
@@ -544,11 +575,14 @@ final class GlobalAudioManager: NSObject, ObservableObject, AVAudioPlayerDelegat
             sendTTSRequest(for: textSegments[index], index: index)
             return
         }
-        if inFlightIndexes.isEmpty {
+        let hasActiveWork = hasActiveRealtimeSynthesisWork()
+        if !hasActiveWork && pendingRealtimeIndexes.isEmpty {
             sendTTSRequest(for: textSegments[index], index: index)
         } else {
-            pendingRealtimeIndexes.append(index)
-            refreshPlaybackLoadState()
+            queueRealtimeIndex(index)
+            if !hasActiveWork {
+                processRealtimeQueueIfNeeded()
+            }
         }
     }
 

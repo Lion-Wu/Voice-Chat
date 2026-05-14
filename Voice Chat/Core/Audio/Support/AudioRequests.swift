@@ -83,7 +83,12 @@ extension GlobalAudioManager {
         sendTTSRequest(for: textSegments[idx], index: idx, advanceSequenceOnSuccess: true)
     }
 
-    func sendTTSRequest(for segmentText: String, index: Int, advanceSequenceOnSuccess: Bool = false) {
+    func sendTTSRequest(
+        for segmentText: String,
+        index: Int,
+        advanceSequenceOnSuccess: Bool = false,
+        prioritizeIfDeferred: Bool = false
+    ) {
         guard !inFlightIndexes.contains(index) else { return }
         guard !skippedAudioChunkIndexes.contains(index) else {
             if !isRealtimeMode,
@@ -94,10 +99,10 @@ extension GlobalAudioManager {
                 sendNextSegment()
             } else {
                 refreshPlaybackLoadState()
+                if isRealtimeMode { processRealtimeQueueIfNeeded() }
             }
             return
         }
-        cancelScheduledTTSAutoRetry(for: index)
         if index < audioChunks.count, audioChunks[index] != nil {
             clearTTSAutoRetry(for: index)
             if !isRealtimeMode,
@@ -108,9 +113,19 @@ extension GlobalAudioManager {
                 sendNextSegment()
             } else {
                 refreshPlaybackLoadState()
+                if isRealtimeMode { processRealtimeQueueIfNeeded() }
             }
             return
         }
+        if isRealtimeMode, hasActiveRealtimeSynthesisWork() {
+            if ttsRetryTasks[index] == nil {
+                queueRealtimeIndex(index, atFront: prioritizeIfDeferred)
+            } else {
+                refreshPlaybackLoadState()
+            }
+            return
+        }
+        cancelScheduledTTSAutoRetry(for: index)
         guard let configuration = currentTTSConfiguration else {
             self.surfaceTTSIssue(invalidTTSConfigurationMessage())
             return
@@ -398,7 +413,12 @@ extension GlobalAudioManager {
                     return
                 }
                 self.ttsRetryTasks[index] = nil
-                self.sendTTSRequest(for: segmentText, index: index, advanceSequenceOnSuccess: advanceSequenceOnSuccess)
+                self.sendTTSRequest(
+                    for: segmentText,
+                    index: index,
+                    advanceSequenceOnSuccess: advanceSequenceOnSuccess,
+                    prioritizeIfDeferred: true
+                )
             }
         }
         return true

@@ -169,10 +169,13 @@ extension GlobalAudioManager {
                                 shouldPlay: self.isPlaybackRequested
                             )
                         } else if idx < self.textSegments.count,
-                                  self.audioChunks[safe: idx] == nil,
-                                  !self.inFlightIndexes.contains(idx),
-                                  self.ttsRetryTasks[idx] == nil {
-                            self.sendTTSRequest(for: self.textSegments[idx], index: idx)
+                                  (idx >= self.audioChunks.count || self.audioChunks[idx] == nil) {
+                            if self.isRealtimeMode {
+                                self.enqueueRealtimeIndex(idx)
+                            } else if !self.inFlightIndexes.contains(idx),
+                                      self.ttsRetryTasks[idx] == nil {
+                                self.sendTTSRequest(for: self.textSegments[idx], index: idx)
+                            }
                         }
                         self.lastProgressTimestamp = Date()
                     }
