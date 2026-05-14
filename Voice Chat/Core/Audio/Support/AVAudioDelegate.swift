@@ -21,11 +21,25 @@ extension GlobalAudioManager {
             if self.currentPlayingIndex >= self.audioChunks.count {
                 self.recalcTotalDuration()
                 self.currentTime = self.totalDuration
-                self.finishPlayback()
+                if self.isRealtimeMode {
+                    self.isBuffering = self.isPlaybackRequested
+                    self.isAudioPlaying = false
+                    self.stopAudioTimer()
+                    self.startStallWatchdog()
+                    self.isLoading = self.isPlaybackRequested
+                    self.concludeRealtimeIfIdle()
+                } else {
+                    self.currentTime = self.totalDuration
+                    self.finishPlayback()
+                }
                 return
             }
 
-            if let next = self.nextAudioPlayer {
+            if self.skippedAudioChunkIndexes.contains(self.currentPlayingIndex) {
+                _ = self.playAudioChunk(at: self.currentPlayingIndex,
+                                        fromTime: self.startTime(forSegment: self.currentPlayingIndex),
+                                        shouldPlay: self.isPlaybackRequested)
+            } else if let next = self.nextAudioPlayer {
                 self.audioPlayer = next
                 self.nextAudioPlayer = nil
                 self.audioPlayer?.delegate = self

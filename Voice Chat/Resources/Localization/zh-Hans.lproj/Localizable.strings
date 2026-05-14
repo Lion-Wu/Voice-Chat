@@ -81,6 +81,7 @@
 "Set SoVITS weights failed (HTTP %d)" = "设置 SoVITS 权重失败（HTTP %d）";
 "Set SoVITS weights failed: %@" = "设置 SoVITS 权重失败：%@";
 "Show Full Message" = "显示完整信息";
+"The following text failed to generate and was ignored: %@" = "以下文本生成失败，已忽略：%@";
 "Simplified Chinese" = "简体中文";
 "Speech Error" = "语音错误";
 "Speech input is not supported on this platform." = "此平台不支持语音输入。";

@@ -9,13 +9,18 @@ import Foundation
 import AVFoundation
 import SwiftUI
 
+private enum TTSFailureDisposition: Equatable {
+    case transient
+    case content
+    case fatal
+}
+
 @MainActor
 extension GlobalAudioManager {
 
     // MARK: - URL Builder
-    func constructTTSURL() -> URL? {
-        let raw = settingsManager.serverSettings.serverAddress
-            .trimmingCharacters(in: .whitespacesAndNewlines)
+    func constructTTSURL(from rawAddress: String) -> URL? {
+        let raw = rawAddress.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !raw.isEmpty else { return nil }
 
         let normalized: String
@@ -32,6 +37,44 @@ extension GlobalAudioManager {
         return comps.url
     }
 
+    func constructTTSURL() -> URL? {
+        constructTTSURL(from: settingsManager.serverSettings.serverAddress)
+    }
+
+    func makeTTSConfiguration(isRealtime: Bool) -> TTSSynthesisConfiguration? {
+        let serverAddress = settingsManager.serverSettings.serverAddress
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let url = constructTTSURL(from: serverAddress) else { return nil }
+
+        let streamingEnabled = settingsManager.voiceSettings.enableStreaming
+        let splitMethod: String
+        if isRealtime {
+            splitMethod = "cut0"
+        } else {
+            splitMethod = streamingEnabled ? "cut0" : settingsManager.modelSettings.autoSplit
+        }
+
+        return TTSSynthesisConfiguration(
+            serverAddress: serverAddress,
+            url: url,
+            textLanguage: settingsManager.serverSettings.textLang,
+            referenceAudioPath: settingsManager.selectedPreset?.refAudioPath ?? "",
+            promptText: settingsManager.selectedPreset?.promptText ?? "",
+            promptLanguage: settingsManager.selectedPreset?.promptLang ?? "auto",
+            textSplitMethod: splitMethod,
+            mediaType: mediaType,
+            usesStreamingSegments: streamingEnabled
+        )
+    }
+
+    func invalidTTSConfigurationMessage() -> String {
+        let address = settingsManager.serverSettings.serverAddress
+        return String(
+            format: NSLocalizedString("Unable to construct TTS URL from %@", comment: "Shown when the TTS endpoint URL cannot be built"),
+            address
+        )
+    }
+
     // MARK: - Request Queue (used only in full-text mode)
     func sendNextSegment() {
         guard currentChunkIndex < textSegments.count else { return }
@@ -42,6 +85,18 @@ extension GlobalAudioManager {
 
     func sendTTSRequest(for segmentText: String, index: Int, advanceSequenceOnSuccess: Bool = false) {
         guard !inFlightIndexes.contains(index) else { return }
+        guard !skippedAudioChunkIndexes.contains(index) else {
+            if !isRealtimeMode,
+               advanceSequenceOnSuccess,
+               index == currentChunkIndex {
+                currentChunkIndex = index + 1
+                refreshPlaybackLoadState()
+                sendNextSegment()
+            } else {
+                refreshPlaybackLoadState()
+            }
+            return
+        }
         cancelScheduledTTSAutoRetry(for: index)
         if index < audioChunks.count, audioChunks[index] != nil {
             clearTTSAutoRetry(for: index)
@@ -56,34 +111,23 @@ extension GlobalAudioManager {
             }
             return
         }
-        guard let url = constructTTSURL() else {
-            let address = settingsManager.serverSettings.serverAddress
-            let message = String(format: NSLocalizedString("Unable to construct TTS URL from %@", comment: "Shown when the TTS endpoint URL cannot be built"), address)
-            self.surfaceTTSIssue(message)
+        guard let configuration = currentTTSConfiguration else {
+            self.surfaceTTSIssue(invalidTTSConfigurationMessage())
             return
         }
         inFlightIndexes.insert(index)
         refreshPlaybackLoadState()
 
-        let s = settingsManager
-        let refAudioPath = s.selectedPreset?.refAudioPath ?? ""
-        let promptText   = s.selectedPreset?.promptText ?? ""
-        let promptLang   = s.selectedPreset?.promptLang ?? "auto"
-
-        var params: [String: Any] = [
+        let params: [String: Any] = [
             "text": segmentText,
-            "text_lang": s.serverSettings.textLang,
-            "ref_audio_path": refAudioPath,
-            "prompt_text": promptText,
-            "prompt_lang": promptLang,
+            "text_lang": configuration.textLanguage,
+            "ref_audio_path": configuration.referenceAudioPath,
+            "prompt_text": configuration.promptText,
+            "prompt_lang": configuration.promptLanguage,
             "batch_size": 1,
-            "media_type": mediaType
+            "media_type": configuration.mediaType,
+            "text_split_method": configuration.textSplitMethod
         ]
-        if isRealtimeMode {
-            params["text_split_method"] = "cut0"
-        } else {
-            params["text_split_method"] = s.voiceSettings.enableStreaming ? "cut0" : s.modelSettings.autoSplit
-        }
 
         guard let body = try? JSONSerialization.data(withJSONObject: params) else {
             self.surfaceTTSIssue(NSLocalizedString("Unable to serialize JSON", comment: "Shown when encoding the TTS request body fails"))
@@ -94,7 +138,7 @@ extension GlobalAudioManager {
             return
         }
 
-        var req = URLRequest(url: url)
+        var req = URLRequest(url: configuration.url)
         req.httpMethod = "POST"
         req.timeoutInterval = 60
         req.cachePolicy = .reloadIgnoringLocalCacheData
@@ -125,19 +169,15 @@ extension GlobalAudioManager {
                     if err.domain == NSURLErrorDomain && err.code == NSURLErrorCancelled {
                         return
                     }
-                    let message = self.formatTTSNetworkError(err)
-                    if self.shouldAutoRetryTTS(error: err, statusCode: nil, isNoData: false) {
-                        self.scheduleTTSAutoRetry(
-                            segmentText: segmentText,
-                            index: index,
-                            generationID: genAtRequest,
-                            advanceSequenceOnSuccess: advanceSequenceOnSuccess,
-                            lastErrorMessage: message
-                        )
-                        return
-                    }
-                    self.clearTTSAutoRetry(for: index)
-                    self.surfaceTTSIssue(message)
+                    let message = self.formatTTSNetworkError(err, serverAddress: configuration.serverAddress)
+                    self.handleTTSFailure(
+                        .transient,
+                        segmentText: segmentText,
+                        index: index,
+                        generationID: genAtRequest,
+                        advanceSequenceOnSuccess: advanceSequenceOnSuccess,
+                        lastErrorMessage: message
+                    )
                     return
                 }
 
@@ -152,18 +192,14 @@ extension GlobalAudioManager {
                             let snippet = preview.prefix(180)
                             message = String(format: NSLocalizedString("TTS server error: %d (%@)", comment: "Shown when the TTS server returns a non-success status plus body"), http.statusCode, String(snippet))
                         }
-                        if self.shouldAutoRetryTTS(error: nil, statusCode: http.statusCode, isNoData: false) {
-                            self.scheduleTTSAutoRetry(
-                                segmentText: segmentText,
-                                index: index,
-                                generationID: genAtRequest,
-                                advanceSequenceOnSuccess: advanceSequenceOnSuccess,
-                                lastErrorMessage: message
-                            )
-                            return
-                        }
-                        self.clearTTSAutoRetry(for: index)
-                        self.surfaceTTSIssue(message)
+                        self.handleTTSFailure(
+                            self.failureDisposition(forHTTPStatusCode: http.statusCode),
+                            segmentText: segmentText,
+                            index: index,
+                            generationID: genAtRequest,
+                            advanceSequenceOnSuccess: advanceSequenceOnSuccess,
+                            lastErrorMessage: message
+                        )
                         return
                     }
 
@@ -178,16 +214,8 @@ extension GlobalAudioManager {
                             let snippet = preview.prefix(180)
                             message = String(format: NSLocalizedString("TTS response was not audio: %@", comment: "Shown when TTS returns non-audio body"), String(snippet))
                         }
-                        self.clearTTSAutoRetry(for: index)
-                        self.surfaceTTSIssue(message)
-                        return
-                    }
-                }
-
-                guard let data = data, !data.isEmpty else {
-                    let message = NSLocalizedString("No data received", comment: "Shown when the TTS server returns an empty body")
-                    if self.shouldAutoRetryTTS(error: nil, statusCode: nil, isNoData: true) {
-                        self.scheduleTTSAutoRetry(
+                        self.handleTTSFailure(
+                            .content,
                             segmentText: segmentText,
                             index: index,
                             generationID: genAtRequest,
@@ -196,12 +224,20 @@ extension GlobalAudioManager {
                         )
                         return
                     }
-                    self.clearTTSAutoRetry(for: index)
-                    self.surfaceTTSIssue(message)
-                    return
                 }
 
-                self.clearTTSAutoRetry(for: index)
+                guard let data = data, !data.isEmpty else {
+                    let message = NSLocalizedString("No data received", comment: "Shown when the TTS server returns an empty body")
+                    self.handleTTSFailure(
+                        .transient,
+                        segmentText: segmentText,
+                        index: index,
+                        generationID: genAtRequest,
+                        advanceSequenceOnSuccess: advanceSequenceOnSuccess,
+                        lastErrorMessage: message
+                    )
+                    return
+                }
 
                 // Ensure the arrays grow safely when realtime mode extends them dynamically.
                 if index >= self.audioChunks.count {
@@ -213,13 +249,22 @@ extension GlobalAudioManager {
                 }
 
                 if index < self.audioChunks.count {
-                    self.audioChunks[index] = data
                     do {
                         let p = try AVAudioPlayer(data: data)
+                        self.clearTTSAutoRetry(for: index)
+                        self.skippedAudioChunkIndexes.remove(index)
+                        self.audioChunks[index] = data
                         self.chunkDurations[index] = max(0, p.duration)
                     } catch {
-                        self.chunkDurations[index] = 0
-                        self.surfaceTTSIssue(NSLocalizedString("Received audio data could not be played.", comment: "Shown when AVAudioPlayer fails to read TTS audio data"))
+                        self.handleTTSFailure(
+                            .content,
+                            segmentText: segmentText,
+                            index: index,
+                            generationID: genAtRequest,
+                            advanceSequenceOnSuccess: advanceSequenceOnSuccess,
+                            lastErrorMessage: NSLocalizedString("Received audio data could not be played.", comment: "Shown when AVAudioPlayer fails to read TTS audio data")
+                        )
+                        return
                     }
                     self.recalcTotalDuration()
                     self.refreshPlaybackLoadState()
@@ -272,31 +317,68 @@ extension GlobalAudioManager {
         }
     }
 
-    private func shouldAutoRetryTTS(error: Error?, statusCode: Int?, isNoData: Bool) -> Bool {
-        // Realtime voice mode deliberately avoids auto-retry for now.
-        if isRealtimeMode { return false }
-        if let error {
-            return NetworkRetryability.shouldRetry(error)
+    private func failureDisposition(forHTTPStatusCode statusCode: Int) -> TTSFailureDisposition {
+        if NetworkRetryability.shouldRetry(statusCode: statusCode) {
+            return .transient
         }
-        if let statusCode {
-            return NetworkRetryability.shouldRetry(statusCode: statusCode)
+        switch statusCode {
+        case 400, 413, 422:
+            return .content
+        default:
+            return .fatal
         }
-        if isNoData {
-            return true
-        }
-        return false
     }
 
-    private func scheduleTTSAutoRetry(
+    private func handleTTSFailure(
+        _ disposition: TTSFailureDisposition,
         segmentText: String,
         index: Int,
         generationID: UUID,
         advanceSequenceOnSuccess: Bool,
         lastErrorMessage: String
     ) {
-        guard !isRealtimeMode else { return }
+        switch disposition {
+        case .fatal:
+            clearTTSAutoRetry(for: index)
+            surfaceTTSIssue(lastErrorMessage)
+            stopPlaybackAfterTerminalTTSFailure()
+        case .transient, .content:
+            if scheduleTTSAutoRetry(
+                segmentText: segmentText,
+                index: index,
+                generationID: generationID,
+                advanceSequenceOnSuccess: advanceSequenceOnSuccess,
+                lastErrorMessage: lastErrorMessage
+            ) {
+                return
+            }
 
+            clearTTSAutoRetry(for: index)
+            if disposition == .content {
+                markTTSChunkSkipped(
+                    index: index,
+                    advanceSequenceOnSuccess: advanceSequenceOnSuccess
+                )
+            } else {
+                surfaceTTSIssue(lastErrorMessage)
+                stopPlaybackAfterTerminalTTSFailure()
+            }
+        }
+    }
+
+    @discardableResult
+    private func scheduleTTSAutoRetry(
+        segmentText: String,
+        index: Int,
+        generationID: UUID,
+        advanceSequenceOnSuccess: Bool,
+        lastErrorMessage: String
+    ) -> Bool {
         let retryCount = (ttsRetryCounts[index] ?? 0) + 1
+        guard ttsRetryPolicy.shouldContinue(afterAttempt: retryCount) else {
+            return false
+        }
+
         ttsRetryCounts[index] = retryCount
         ttsRetryingIndexes.insert(index)
         updateTTSAutoRetryPublishedState(lastErrorMessage: lastErrorMessage)
@@ -310,11 +392,8 @@ extension GlobalAudioManager {
             await MainActor.run { [weak self] in
                 guard let self else { return }
                 guard self.currentGenerationID == generationID else { return }
-                guard !self.isRealtimeMode else {
-                    self.clearTTSAutoRetry(for: index)
-                    return
-                }
-                if index < self.audioChunks.count, self.audioChunks[index] != nil {
+                if self.skippedAudioChunkIndexes.contains(index)
+                    || (index < self.audioChunks.count && self.audioChunks[index] != nil) {
                     self.clearTTSAutoRetry(for: index)
                     return
                 }
@@ -322,6 +401,103 @@ extension GlobalAudioManager {
                 self.sendTTSRequest(for: segmentText, index: index, advanceSequenceOnSuccess: advanceSequenceOnSuccess)
             }
         }
+        return true
+    }
+
+    private func markTTSChunkSkipped(
+        index: Int,
+        advanceSequenceOnSuccess: Bool
+    ) {
+        guard index >= 0 else { return }
+
+        if index >= audioChunks.count {
+            let delta = index - audioChunks.count + 1
+            for _ in 0..<delta {
+                audioChunks.append(nil)
+                chunkDurations.append(0)
+            }
+        }
+
+        audioChunks[index] = nil
+        chunkDurations[index] = 0
+        skippedAudioChunkIndexes.insert(index)
+        recalcTotalDuration()
+        refreshPlaybackLoadState()
+
+        surfaceTTSNotice(skippedTTSChunkNotice(for: index))
+
+        if !isRealtimeMode,
+           advanceSequenceOnSuccess,
+           index == currentChunkIndex {
+            currentChunkIndex = index + 1
+            refreshPlaybackLoadState()
+            sendNextSegment()
+        }
+
+        if index == currentPlayingIndex {
+            _ = playAudioChunk(
+                at: index,
+                shouldPlay: isPlaybackRequested || isAudioPlaying || isBuffering || isLoading
+            )
+        }
+
+        concludeFullTextPlaybackIfResolved()
+    }
+
+    private func concludeFullTextPlaybackIfResolved() {
+        guard !isRealtimeMode else { return }
+        guard currentChunkIndex >= textSegments.count else { return }
+        guard allChunksLoaded() else { return }
+
+        if totalDuration <= endEpsilon {
+            stopAudioTimer()
+            stopStallWatchdog()
+            isLoading = false
+            isPlaybackRequested = false
+            isAudioPlaying = false
+            isBuffering = false
+            isSeeking = false
+            seekTime = nil
+            refreshPlaybackLoadState()
+        } else if playbackFinished() {
+            finishPlayback()
+        }
+    }
+
+    private func stopPlaybackAfterTerminalTTSFailure() {
+        if isRealtimeMode {
+            pendingRealtimeIndexes.removeAll()
+        }
+        isPlaybackRequested = false
+        if isBuffering {
+            isBuffering = false
+            stopStallWatchdog()
+        }
+        if !isAudioPlaying {
+            isLoading = false
+            stopAudioTimer()
+            stopStallWatchdog()
+        }
+        refreshPlaybackLoadState()
+    }
+
+    private func skippedTTSChunkNotice(for index: Int) -> String {
+        let rawText = textSegments[safe: index] ?? ""
+        let normalized = rawText
+            .split(whereSeparator: { $0.isWhitespace })
+            .joined(separator: " ")
+        let previewSource = normalized.isEmpty ? rawText.trimmingCharacters(in: .whitespacesAndNewlines) : normalized
+        let preview: String
+        if previewSource.count > 120 {
+            preview = "\(previewSource.prefix(120))..."
+        } else {
+            preview = previewSource
+        }
+
+        return String(
+            format: NSLocalizedString("The following text failed to generate and was ignored: %@", comment: "Shown when a TTS chunk failed repeatedly and was ignored with the source text"),
+            preview.isEmpty ? "-" : preview
+        )
     }
 
     private func cancelScheduledTTSAutoRetry(for index: Int) {

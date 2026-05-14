@@ -81,6 +81,7 @@
 "Set SoVITS weights failed (HTTP %d)" = "SoVITS ウェイトの設定に失敗しました (HTTP %d)";
 "Set SoVITS weights failed: %@" = "SoVITS ウェイトの設定に失敗しました: %@";
 "Show Full Message" = "全文を表示";
+"The following text failed to generate and was ignored: %@" = "次のテキストの生成に失敗したため、無視されました: %@";
 "Simplified Chinese" = "簡体字中国語";
 "Speech Error" = "音声エラー";
 "Speech input is not supported on this platform." = "このプラットフォームでは音声入力を利用できません。";

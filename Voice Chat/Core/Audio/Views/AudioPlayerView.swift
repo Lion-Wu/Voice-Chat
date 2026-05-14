@@ -110,6 +110,21 @@ struct AudioPlayerView: View {
                     .transition(.opacity)
             }
 
+            if let noticeMessage = audioManager.playbackNoticeMessage {
+                Text(noticeMessage)
+                    .font(.system(size: 12, weight: .medium, design: .rounded))
+                    .foregroundStyle(.orange)
+                    .lineLimit(3)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 9)
+                    .padding(.vertical, 7)
+                    .background(
+                        RoundedRectangle(cornerRadius: 13, style: .continuous)
+                            .fill(Color.orange.opacity(0.12))
+                    )
+                    .transition(.opacity)
+            }
+
             if let errorMessage = audioManager.errorMessage {
                 Text(errorMessage)
                     .font(.system(size: 12, weight: .medium, design: .rounded))
@@ -133,6 +148,7 @@ struct AudioPlayerView: View {
         .animation(.easeInOut(duration: 0.16), value: displayedIsPlaybackFullyLoaded)
         .animation(.easeInOut(duration: 0.16), value: displayedIsBuffering)
         .animation(.easeInOut(duration: 0.16), value: displayedIsRetrying)
+        .animation(.easeInOut(duration: 0.16), value: audioManager.playbackNoticeMessage)
         .onAppear {
             displayedCurrentTime = audioManager.currentTime
             displayedTotalDuration = audioManager.totalDuration

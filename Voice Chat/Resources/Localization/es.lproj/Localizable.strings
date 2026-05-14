@@ -87,6 +87,7 @@
 "Set SoVITS weights failed (HTTP %d)" = "No se pudieron establecer los pesos de SoVITS (HTTP %d)";
 "Set SoVITS weights failed: %@" = "No se pudieron establecer los pesos de SoVITS: %@";
 "Show Full Message" = "Mostrar mensaje completo";
+"The following text failed to generate and was ignored: %@" = "El siguiente texto no se pudo generar y se ignoró: %@";
 "Simplified Chinese" = "Chino simplificado";
 "Speech Error" = "Error de voz";
 "Speech input is not supported on this platform." = "La entrada de voz no es compatible con esta plataforma.";

@@ -87,6 +87,7 @@
 "Set SoVITS weights failed (HTTP %d)" = "فشل تعيين أوزان SoVITS ‏(HTTP %d)";
 "Set SoVITS weights failed: %@" = "فشل تعيين أوزان SoVITS: %@";
 "Show Full Message" = "عرض الرسالة كاملة";
+"The following text failed to generate and was ignored: %@" = "فشل إنشاء النص التالي وتم تجاهله: %@";
 "Simplified Chinese" = "الصينية المبسطة";
 "Speech Error" = "خطأ في الكلام";
 "Speech input is not supported on this platform." = "إدخال الكلام غير مدعوم على هذه المنصة.";
