@@ -1107,6 +1107,25 @@ struct ChatView: View {
         _ = attemptSearchTargetScroll()
     }
 
+    private func resetScrollMetricsForSessionTransition() {
+        pendingContentHeight = nil
+        pendingBottomAnchorMaxY = nil
+        contentHeight = 0
+        bottomAnchorMaxY = 0
+        showScrollToBottomButton = false
+    }
+
+    private func scrollToBottomAfterOverflowTransitionIfNeeded(wasScrollable: Bool) {
+        guard !wasScrollable, shouldAnchorBottom else { return }
+        guard currentSearchNavigationTarget() == nil,
+              pendingSearchScrollTarget == nil,
+              searchScrollLock == nil else {
+            return
+        }
+
+        scrollToBottom(animated: false)
+    }
+
     @discardableResult
     private func attemptSearchTargetScroll() -> Bool {
         guard let target = pendingSearchScrollTarget,
@@ -1273,6 +1292,7 @@ struct ChatView: View {
 
     private func applyPendingScrollMetricUpdate() {
         scrollMetricUpdateScheduled = false
+        let wasScrollable = shouldAnchorBottom
         var didUpdate = false
         var didUpdateScrollableGeometry = false
 
@@ -1306,6 +1326,7 @@ struct ChatView: View {
             updateScrollToBottomVisibility()
             if didUpdateScrollableGeometry {
                 extendSearchScrollLockForLayoutChange()
+                scrollToBottomAfterOverflowTransitionIfNeeded(wasScrollable: wasScrollable)
             }
         }
     }
@@ -1405,6 +1426,7 @@ struct ChatView: View {
                 }
             }
             .onAppear {
+                resetScrollMetricsForSessionTransition()
                 refreshVisibleMessages(hydrating: true)
                 scheduleSearchNavigationIfNeeded(chatSessionsViewModel.searchNavigationTarget)
 #if os(macOS)
@@ -1578,6 +1600,7 @@ struct ChatView: View {
                 didTriggerResponseStartHaptic = false
                 textFieldHeight = InputMetrics.defaultHeight
                 inputOverflow = false
+                resetScrollMetricsForSessionTransition()
                 refreshVisibleMessages(hydrating: true)
                 scheduleSearchNavigationIfNeeded(chatSessionsViewModel.searchNavigationTarget)
             }
@@ -1755,7 +1778,9 @@ struct ChatView: View {
                                     scrollProxy = proxy
                                     DispatchQueue.main.async {
                                         if !attemptSearchTargetScroll(), pendingSearchScrollTarget == nil {
-                                            scrollToBottom(animated: false)
+                                            if shouldAnchorBottom {
+                                                scrollToBottom(animated: false)
+                                            }
                                         }
                                     }
                                 }
