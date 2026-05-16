@@ -642,6 +642,10 @@ struct ChatView: View {
         24
     }
 
+    private var effectiveContentHeight: CGFloat {
+        max(0, contentHeight - messageListBottomInset)
+    }
+
     private var contentDistanceBelowViewport: CGFloat {
         guard viewportHeight > 0 else { return 0 }
         return max(0, contentHeight - viewportHeight)
@@ -656,8 +660,13 @@ struct ChatView: View {
         bottomAnchorDistanceBelowViewport > scrollToBottomButtonVisibilityThreshold
     }
 
-    private var shouldAnchorBottom: Bool {
+    private var shouldTriggerComposerOverflowScroll: Bool {
         contentDistanceBelowViewport > scrollToBottomButtonVisibilityThreshold
+    }
+
+    private var shouldAnchorBottom: Bool {
+        guard viewportHeight > 0 else { return false }
+        return effectiveContentHeight > (viewportHeight + 1)
     }
 
     private var messageListHorizontalPadding: CGFloat {
@@ -1134,8 +1143,8 @@ struct ChatView: View {
         scrollToBottomAfterSendBaselineVisibleCount = nil
     }
 
-    private func scrollToBottomAfterOverflowTransitionIfNeeded(wasPastBottomThreshold: Bool) {
-        guard !wasPastBottomThreshold, shouldAnchorBottom else { return }
+    private func scrollToBottomAfterOverflowTransitionIfNeeded(wasPastComposerOverflowThreshold: Bool) {
+        guard !wasPastComposerOverflowThreshold, shouldTriggerComposerOverflowScroll else { return }
         guard currentSearchNavigationTarget() == nil,
               pendingSearchScrollTarget == nil,
               searchScrollLock == nil else {
@@ -1367,7 +1376,7 @@ struct ChatView: View {
 
     private func applyPendingScrollMetricUpdate() {
         scrollMetricUpdateScheduled = false
-        let wasPastBottomThreshold = shouldAnchorBottom
+        let wasPastComposerOverflowThreshold = shouldTriggerComposerOverflowScroll
         var didUpdate = false
         var didUpdateScrollableGeometry = false
 
@@ -1400,7 +1409,9 @@ struct ChatView: View {
         if didUpdate {
             if didUpdateScrollableGeometry {
                 extendSearchScrollLockForLayoutChange()
-                scrollToBottomAfterOverflowTransitionIfNeeded(wasPastBottomThreshold: wasPastBottomThreshold)
+                scrollToBottomAfterOverflowTransitionIfNeeded(
+                    wasPastComposerOverflowThreshold: wasPastComposerOverflowThreshold
+                )
             }
             let didAutoScroll =
                 consumeOverflowTransitionScrollToBottomIfNeeded()
