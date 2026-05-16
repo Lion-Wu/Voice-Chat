@@ -587,7 +587,8 @@ struct ChatView: View {
     @State private var activeSearchHighlightTargetID: UUID?
     @State private var searchScrollLock: SearchScrollLock?
     @State private var searchScrollReanchorTask: Task<Void, Never>?
-    @State private var shouldScrollToBottomAfterOverflowTransition: Bool = false
+    @State private var hasActivatedComposerOverflowBottomAnchor: Bool = false
+    @State private var pendingComposerOverflowScrollToBottom: Bool = false
     @State private var shouldScrollToBottomAfterSend: Bool = false
     @State private var scrollToBottomAfterSendBaselineVisibleCount: Int?
     @State private var activeAlert: ChatAlert?
@@ -664,9 +665,17 @@ struct ChatView: View {
         contentDistanceBelowViewport > scrollToBottomButtonVisibilityThreshold
     }
 
+    private var canActivateComposerOverflowBottomAnchor: Bool {
+        viewModel.isLoading || viewModel.isPriming
+    }
+
     private var shouldAnchorBottom: Bool {
         guard viewportHeight > 0 else { return false }
         return effectiveContentHeight > (viewportHeight + 1)
+    }
+
+    private var shouldUseBottomScrollAnchor: Bool {
+        shouldAnchorBottom || hasActivatedComposerOverflowBottomAnchor
     }
 
     private var messageListHorizontalPadding: CGFloat {
@@ -1144,6 +1153,7 @@ struct ChatView: View {
     }
 
     private func scrollToBottomAfterOverflowTransitionIfNeeded(wasPastComposerOverflowThreshold: Bool) {
+        guard canActivateComposerOverflowBottomAnchor else { return }
         guard !wasPastComposerOverflowThreshold, shouldTriggerComposerOverflowScroll else { return }
         guard currentSearchNavigationTarget() == nil,
               pendingSearchScrollTarget == nil,
@@ -1155,11 +1165,13 @@ struct ChatView: View {
     }
 
     private func requestOverflowTransitionScrollToBottom() {
-        shouldScrollToBottomAfterOverflowTransition = true
+        hasActivatedComposerOverflowBottomAnchor = true
+        pendingComposerOverflowScrollToBottom = true
     }
 
     private func cancelOverflowTransitionScroll() {
-        shouldScrollToBottomAfterOverflowTransition = false
+        hasActivatedComposerOverflowBottomAnchor = false
+        pendingComposerOverflowScrollToBottom = false
     }
 
     @discardableResult
@@ -1169,7 +1181,11 @@ struct ChatView: View {
 
     @discardableResult
     private func scrollToBottomForOverflowTransitionIfReady() -> Bool {
-        guard shouldScrollToBottomAfterOverflowTransition else { return false }
+        guard pendingComposerOverflowScrollToBottom else { return false }
+        guard shouldTriggerComposerOverflowScroll else {
+            cancelOverflowTransitionScroll()
+            return false
+        }
         guard shouldShowScrollToBottomButtonForCurrentGeometry, scrollProxy != nil else { return false }
         guard currentSearchNavigationTarget() == nil,
               pendingSearchScrollTarget == nil,
@@ -1178,7 +1194,7 @@ struct ChatView: View {
             return false
         }
 
-        cancelOverflowTransitionScroll()
+        pendingComposerOverflowScrollToBottom = false
         scrollToBottom(animated: false)
         return true
     }
@@ -1408,6 +1424,9 @@ struct ChatView: View {
 
         if didUpdate {
             if didUpdateScrollableGeometry {
+                if hasActivatedComposerOverflowBottomAnchor, !shouldTriggerComposerOverflowScroll {
+                    cancelOverflowTransitionScroll()
+                }
                 extendSearchScrollLockForLayoutChange()
                 scrollToBottomAfterOverflowTransitionIfNeeded(
                     wasPastComposerOverflowThreshold: wasPastComposerOverflowThreshold
@@ -1862,7 +1881,7 @@ struct ChatView: View {
                                 .onPreferenceChange(ContentHeightKey.self, perform: updateContentHeightIfNeeded)
                                 .onPreferenceChange(ViewportHeightKey.self, perform: updateViewportHeightIfNeeded)
                                 .onPreferenceChange(BottomAnchorKey.self, perform: updateBottomAnchorIfNeeded)
-                                .defaultScrollAnchor(shouldAnchorBottom ? .bottom : .top)
+                                .defaultScrollAnchor(shouldUseBottomScrollAnchor ? .bottom : .top)
                                 #if os(iOS) || os(tvOS)
                                 .scrollDismissesKeyboard(.interactively)
                                 #endif
@@ -1878,7 +1897,7 @@ struct ChatView: View {
                                             if consumeScrollToBottomAfterSendIfNeeded(animated: false) {
                                                 return
                                             }
-                                            if shouldAnchorBottom {
+                                            if shouldUseBottomScrollAnchor {
                                                 scrollToBottom(animated: false)
                                             }
                                         }
