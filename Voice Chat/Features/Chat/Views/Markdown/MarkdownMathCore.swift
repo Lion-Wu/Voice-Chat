@@ -12,6 +12,16 @@
 @preconcurrency import AppKit
 #endif
 
+enum MarkdownMathRenderLimits {
+    static let maxNodeDimension: CGFloat = 4_096
+    static let maxAttachmentDimension: CGFloat = 4_096
+}
+
+private func clampedFiniteMathDimension(_ value: CGFloat, limit: CGFloat) -> CGFloat {
+    guard value.isFinite, value > 0 else { return 0 }
+    return min(ceil(value), limit)
+}
+
 struct MarkdownMathStyle: @unchecked Sendable, Equatable {
     let baseFont: MarkdownPlatformFont
     let textColor: MarkdownPlatformColor
@@ -51,9 +61,13 @@ final class MarkdownMathRenderNode: @unchecked Sendable {
         alignmentAxis: CGFloat? = nil,
         drawer: @escaping (CGContext, CGPoint) -> Void
     ) {
-        self.size = CGSize(width: ceil(max(0, size.width)), height: ceil(max(0, size.height)))
-        self.baseline = max(0, baseline)
-        self.alignmentAxis = min(self.size.height, max(0, alignmentAxis ?? baseline))
+        self.size = CGSize(
+            width: clampedFiniteMathDimension(size.width, limit: MarkdownMathRenderLimits.maxNodeDimension),
+            height: clampedFiniteMathDimension(size.height, limit: MarkdownMathRenderLimits.maxNodeDimension)
+        )
+        self.baseline = baseline.isFinite ? min(self.size.height, max(0, baseline)) : 0
+        let resolvedAxis = alignmentAxis.flatMap { $0.isFinite ? $0 : nil } ?? self.baseline
+        self.alignmentAxis = min(self.size.height, max(0, resolvedAxis))
         self.drawer = drawer
     }
 
@@ -94,7 +108,10 @@ struct MarkdownMathRenderOutput: @unchecked Sendable {
             max(1, availableWidth),
             ceil(node.size.width * scale + padding.width * 2)
         )
-        let height = ceil(node.size.height * scale + padding.height * 2)
+        let height = min(
+            MarkdownMathRenderLimits.maxAttachmentDimension,
+            ceil(node.size.height * scale + padding.height * 2)
+        )
         return CGSize(width: width, height: height)
     }
 

@@ -81,6 +81,7 @@ public final class VoiceChatRaTeXEngine: @unchecked Sendable {
         color: VoiceChatRaTeXColor
     ) -> VoiceChatRaTeXFormula? {
         guard fontSize.isFinite, fontSize > 0 else { return nil }
+        guard latex.count <= VoiceChatRaTeXRenderLimits.maxLatexLength else { return nil }
         guard let displayList = parseDisplayList(
             latex: latex,
             displayMode: displayMode,
@@ -88,11 +89,13 @@ public final class VoiceChatRaTeXEngine: @unchecked Sendable {
         ) else {
             return nil
         }
+        guard Self.isSafeDisplayList(displayList, fontSize: fontSize) else { return nil }
         let normalizedDisplayList = Self.normalizedDefaultFrameColorIfNeeded(
             in: displayList,
             latex: latex,
             color: color
         )
+        guard Self.isSafeDisplayList(normalizedDisplayList, fontSize: fontSize) else { return nil }
         RaTeXFontLoader.ensureLoaded()
         return VoiceChatRaTeXFormula(displayList: normalizedDisplayList, fontSize: fontSize)
     }
@@ -199,8 +202,48 @@ public final class VoiceChatRaTeXEngine: @unchecked Sendable {
     #endif
 
     fileprivate static func decodeDisplayList(from json: String) throws -> RaTeXDisplayList {
-        try JSONDecoder().decode(RaTeXDisplayList.self, from: Data(json.utf8))
+        guard json.utf8.count <= VoiceChatRaTeXRenderLimits.maxDisplayListJSONBytes else {
+            throw VoiceChatRaTeXError.parse("RaTeX display list exceeded the maximum allowed size")
+        }
+        return try JSONDecoder().decode(RaTeXDisplayList.self, from: Data(json.utf8))
     }
+
+    private static func isSafeDisplayList(_ displayList: RaTeXDisplayList, fontSize: CGFloat) -> Bool {
+        guard displayList.items.count <= VoiceChatRaTeXRenderLimits.maxDisplayListItems else {
+            return false
+        }
+        guard displayList.pathCommandCount <= VoiceChatRaTeXRenderLimits.maxPathCommands else {
+            return false
+        }
+        guard displayList.width.isFinite,
+              displayList.height.isFinite,
+              displayList.depth.isFinite,
+              displayList.width >= 0,
+              displayList.height >= 0,
+              displayList.depth >= 0 else {
+            return false
+        }
+
+        let width = CGFloat(displayList.width) * fontSize
+        let height = CGFloat(displayList.height) * fontSize
+        let depth = CGFloat(displayList.depth) * fontSize
+        let totalHeight = height + depth
+        return width.isFinite &&
+            height.isFinite &&
+            depth.isFinite &&
+            totalHeight.isFinite &&
+            width <= VoiceChatRaTeXRenderLimits.maxRenderedWidth &&
+            totalHeight <= VoiceChatRaTeXRenderLimits.maxRenderedHeight
+    }
+}
+
+private enum VoiceChatRaTeXRenderLimits {
+    static let maxLatexLength = 4_096
+    static let maxDisplayListJSONBytes = 1_048_576
+    static let maxDisplayListItems = 4_096
+    static let maxPathCommands = 65_536
+    static let maxRenderedWidth: CGFloat = 8_192
+    static let maxRenderedHeight: CGFloat = 4_096
 }
 
 private extension RaTeXRect {
