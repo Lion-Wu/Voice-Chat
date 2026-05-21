@@ -587,6 +587,11 @@ struct ChatView: View {
     @State private var activeSearchHighlightTargetID: UUID?
     @State private var searchScrollLock: SearchScrollLock?
     @State private var searchScrollReanchorTask: Task<Void, Never>?
+    @State private var hasActivatedComposerOverflowBottomAnchor: Bool = false
+    @State private var pendingComposerOverflowScrollToBottom: Bool = false
+    @State private var shouldScrollToBottomAfterSend: Bool = false
+    @State private var scrollToBottomAfterSendBaselineVisibleCount: Int?
+    @State private var scrollToBottomAfterSendBaselineBottomMessageID: UUID?
     @State private var activeAlert: ChatAlert?
     @State private var expectAssistantResponseHaptics: Bool = false
     @State private var didTriggerResponseStartHaptic: Bool = false
@@ -635,14 +640,43 @@ struct ChatView: View {
         self.onMessagesCountChange = onMessagesCountChange
     }
 
-    /// Height of the scrollable content excluding the spacer that keeps it clear of the floating input.
+    private var scrollToBottomButtonVisibilityThreshold: CGFloat {
+        24
+    }
+
     private var effectiveContentHeight: CGFloat {
         max(0, contentHeight - messageListBottomInset)
+    }
+
+    private var contentDistanceBelowViewport: CGFloat {
+        guard viewportHeight > 0 else { return 0 }
+        return max(0, contentHeight - viewportHeight)
+    }
+
+    private var bottomAnchorDistanceBelowViewport: CGFloat {
+        guard viewportHeight > 0 else { return 0 }
+        return max(0, bottomAnchorMaxY - viewportHeight)
+    }
+
+    private var shouldShowScrollToBottomButtonForCurrentGeometry: Bool {
+        bottomAnchorDistanceBelowViewport > scrollToBottomButtonVisibilityThreshold
+    }
+
+    private var shouldTriggerComposerOverflowScroll: Bool {
+        contentDistanceBelowViewport > scrollToBottomButtonVisibilityThreshold
+    }
+
+    private var canActivateComposerOverflowBottomAnchor: Bool {
+        viewModel.isLoading || viewModel.isPriming
     }
 
     private var shouldAnchorBottom: Bool {
         guard viewportHeight > 0 else { return false }
         return effectiveContentHeight > (viewportHeight + 1)
+    }
+
+    private var shouldUseBottomScrollAnchor: Bool {
+        shouldAnchorBottom || hasActivatedComposerOverflowBottomAnchor
     }
 
     private var messageListHorizontalPadding: CGFloat {
@@ -1104,7 +1138,98 @@ struct ChatView: View {
         pendingSearchScrollTarget = target
         activeSearchHighlightMessageID = target.messageID
         activeSearchHighlightTargetID = target.id
+        cancelOverflowTransitionScroll()
         _ = attemptSearchTargetScroll()
+    }
+
+    private func resetScrollMetricsForSessionTransition() {
+        pendingContentHeight = nil
+        pendingBottomAnchorMaxY = nil
+        contentHeight = 0
+        bottomAnchorMaxY = 0
+        showScrollToBottomButton = false
+        cancelOverflowTransitionScroll()
+        shouldScrollToBottomAfterSend = false
+        scrollToBottomAfterSendBaselineVisibleCount = nil
+        scrollToBottomAfterSendBaselineBottomMessageID = nil
+    }
+
+    private func scrollToBottomAfterOverflowTransitionIfNeeded(wasPastComposerOverflowThreshold: Bool) {
+        guard canActivateComposerOverflowBottomAnchor else { return }
+        guard !wasPastComposerOverflowThreshold, shouldTriggerComposerOverflowScroll else { return }
+        guard currentSearchNavigationTarget() == nil,
+              pendingSearchScrollTarget == nil,
+              searchScrollLock == nil else {
+            return
+        }
+
+        requestOverflowTransitionScrollToBottom()
+    }
+
+    private func requestOverflowTransitionScrollToBottom() {
+        hasActivatedComposerOverflowBottomAnchor = true
+        pendingComposerOverflowScrollToBottom = true
+    }
+
+    private func cancelOverflowTransitionScroll() {
+        hasActivatedComposerOverflowBottomAnchor = false
+        pendingComposerOverflowScrollToBottom = false
+    }
+
+    @discardableResult
+    private func consumeOverflowTransitionScrollToBottomIfNeeded() -> Bool {
+        scrollToBottomForOverflowTransitionIfReady()
+    }
+
+    @discardableResult
+    private func scrollToBottomForOverflowTransitionIfReady() -> Bool {
+        guard pendingComposerOverflowScrollToBottom else { return false }
+        guard shouldTriggerComposerOverflowScroll else {
+            cancelOverflowTransitionScroll()
+            return false
+        }
+        guard shouldShowScrollToBottomButtonForCurrentGeometry, scrollProxy != nil else { return false }
+        guard currentSearchNavigationTarget() == nil,
+              pendingSearchScrollTarget == nil,
+              searchScrollLock == nil else {
+            cancelOverflowTransitionScroll()
+            return false
+        }
+
+        pendingComposerOverflowScrollToBottom = false
+        scrollToBottom(animated: false)
+        return true
+    }
+
+    private func requestScrollToBottomAfterSend() {
+        shouldScrollToBottomAfterSend = true
+        scrollToBottomAfterSendBaselineVisibleCount = visibleMessages.count
+        scrollToBottomAfterSendBaselineBottomMessageID = visibleMessages.last?.id
+        pendingSearchScrollTarget = nil
+        clearSearchScrollLock()
+    }
+
+    private func cancelScrollToBottomAfterSend() {
+        shouldScrollToBottomAfterSend = false
+        scrollToBottomAfterSendBaselineVisibleCount = nil
+        scrollToBottomAfterSendBaselineBottomMessageID = nil
+    }
+
+    @discardableResult
+    private func consumeScrollToBottomAfterSendIfNeeded(animated: Bool = true) -> Bool {
+        guard shouldScrollToBottomAfterSend else { return false }
+        if let baseline = scrollToBottomAfterSendBaselineVisibleCount,
+           visibleMessages.count <= baseline,
+           visibleMessages.last?.id == scrollToBottomAfterSendBaselineBottomMessageID {
+            return false
+        }
+        guard scrollProxy != nil else { return false }
+
+        shouldScrollToBottomAfterSend = false
+        scrollToBottomAfterSendBaselineVisibleCount = nil
+        scrollToBottomAfterSendBaselineBottomMessageID = nil
+        scrollToBottom(animated: animated)
+        return true
     }
 
     @discardableResult
@@ -1273,6 +1398,7 @@ struct ChatView: View {
 
     private func applyPendingScrollMetricUpdate() {
         scrollMetricUpdateScheduled = false
+        let wasPastComposerOverflowThreshold = shouldTriggerComposerOverflowScroll
         var didUpdate = false
         var didUpdateScrollableGeometry = false
 
@@ -1303,9 +1429,22 @@ struct ChatView: View {
         }
 
         if didUpdate {
-            updateScrollToBottomVisibility()
             if didUpdateScrollableGeometry {
+                if hasActivatedComposerOverflowBottomAnchor, !shouldTriggerComposerOverflowScroll {
+                    cancelOverflowTransitionScroll()
+                }
                 extendSearchScrollLockForLayoutChange()
+                scrollToBottomAfterOverflowTransitionIfNeeded(
+                    wasPastComposerOverflowThreshold: wasPastComposerOverflowThreshold
+                )
+            }
+            let didAutoScroll =
+                consumeOverflowTransitionScrollToBottomIfNeeded()
+                || (didUpdateScrollableGeometry && consumeScrollToBottomAfterSendIfNeeded(animated: false))
+            if didAutoScroll {
+                hideScrollToBottomButton()
+            } else {
+                updateScrollToBottomVisibility()
             }
         }
     }
@@ -1405,6 +1544,7 @@ struct ChatView: View {
                 }
             }
             .onAppear {
+                resetScrollMetricsForSessionTransition()
                 refreshVisibleMessages(hydrating: true)
                 scheduleSearchNavigationIfNeeded(chatSessionsViewModel.searchNavigationTarget)
 #if os(macOS)
@@ -1423,6 +1563,7 @@ struct ChatView: View {
                 activeSearchHighlightMessageID = nil
                 activeSearchHighlightTargetID = nil
                 clearSearchScrollLock()
+                cancelOverflowTransitionScroll()
                 expectAssistantResponseHaptics = false
                 didTriggerResponseStartHaptic = false
 #if os(iOS) || os(macOS) || os(visionOS)
@@ -1578,6 +1719,7 @@ struct ChatView: View {
                 didTriggerResponseStartHaptic = false
                 textFieldHeight = InputMetrics.defaultHeight
                 inputOverflow = false
+                resetScrollMetricsForSessionTransition()
                 refreshVisibleMessages(hydrating: true)
                 scheduleSearchNavigationIfNeeded(chatSessionsViewModel.searchNavigationTarget)
             }
@@ -1595,6 +1737,9 @@ struct ChatView: View {
                 scheduleSearchNavigationIfNeeded(newTarget)
             }
             .onChange(of: visibleMessages.count) { _, _ in
+                if consumeScrollToBottomAfterSendIfNeeded() {
+                    return
+                }
                 if attemptSearchTargetScroll() {
                     return
                 }
@@ -1742,7 +1887,7 @@ struct ChatView: View {
                                 .onPreferenceChange(ContentHeightKey.self, perform: updateContentHeightIfNeeded)
                                 .onPreferenceChange(ViewportHeightKey.self, perform: updateViewportHeightIfNeeded)
                                 .onPreferenceChange(BottomAnchorKey.self, perform: updateBottomAnchorIfNeeded)
-                                .defaultScrollAnchor(shouldAnchorBottom ? .bottom : .top)
+                                .defaultScrollAnchor(shouldUseBottomScrollAnchor ? .bottom : .top)
                                 #if os(iOS) || os(tvOS)
                                 .scrollDismissesKeyboard(.interactively)
                                 #endif
@@ -1755,7 +1900,12 @@ struct ChatView: View {
                                     scrollProxy = proxy
                                     DispatchQueue.main.async {
                                         if !attemptSearchTargetScroll(), pendingSearchScrollTarget == nil {
-                                            scrollToBottom(animated: false)
+                                            if consumeScrollToBottomAfterSendIfNeeded(animated: false) {
+                                                return
+                                            }
+                                            if shouldUseBottomScrollAnchor {
+                                                scrollToBottom(animated: false)
+                                            }
                                         }
                                     }
                                 }
@@ -1863,9 +2013,11 @@ struct ChatView: View {
     private func performSend(ignoringUnsupportedImageInputs: Bool) -> Bool {
         expectAssistantResponseHaptics = true
         didTriggerResponseStartHaptic = false
+        requestScrollToBottomAfterSend()
         guard viewModel.sendMessage(ignoringUnsupportedImageInputs: ignoringUnsupportedImageInputs) else {
             expectAssistantResponseHaptics = false
             didTriggerResponseStartHaptic = false
+            cancelScrollToBottomAfterSend()
             return false
         }
         triggerTextHaptic(.lightTap)
@@ -1882,12 +2034,14 @@ struct ChatView: View {
         }
         expectAssistantResponseHaptics = true
         didTriggerResponseStartHaptic = false
+        requestScrollToBottomAfterSend()
         guard viewModel.sendQueuedDraftNow(
             id: draftID,
             ignoringUnsupportedImageInputs: ignoringUnsupportedImageInputs
         ) else {
             expectAssistantResponseHaptics = false
             didTriggerResponseStartHaptic = false
+            cancelScrollToBottomAfterSend()
             return false
         }
         triggerTextHaptic(.lightTap)
@@ -2693,18 +2847,21 @@ struct ChatView: View {
 
     private func updateScrollToBottomVisibility() {
         guard viewportHeight > 0 else {
-            if showScrollToBottomButton {
-                showScrollToBottomButton = false
-            }
+            hideScrollToBottomButton()
             return
         }
 
-        let bottomDistance = max(0, bottomAnchorMaxY - viewportHeight)
-        let shouldShow = bottomDistance > 24
+        let shouldShow = shouldShowScrollToBottomButtonForCurrentGeometry
         if shouldShow != showScrollToBottomButton {
             withAnimation(.easeInOut(duration: 0.2)) {
                 showScrollToBottomButton = shouldShow
             }
+        }
+    }
+
+    private func hideScrollToBottomButton() {
+        if showScrollToBottomButton {
+            showScrollToBottomButton = false
         }
     }
 
