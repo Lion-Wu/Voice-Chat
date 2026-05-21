@@ -11,6 +11,10 @@
 @preconcurrency import AppKit
 #endif
 
+enum MarkdownAttachmentImageLimits {
+    static let maxPixelCount: CGFloat = 16_777_216
+}
+
 class MarkdownAttachment: NSTextAttachment, @unchecked Sendable {
     var plainText: String { "" }
     var supportsHorizontalScroll: Bool { false }
@@ -146,15 +150,13 @@ func renderMarkdownImage(
     guard size.width.isFinite,
           size.height.isFinite,
           size.width > 0,
-          size.height > 0,
-          size.width <= MarkdownMathRenderLimits.maxAttachmentDimension,
-          size.height <= MarkdownMathRenderLimits.maxAttachmentDimension else { return nil }
+          size.height > 0 else { return nil }
     let scale = markdownImageBackingScale()
     let pixelWidthValue = ceil(size.width * scale)
     let pixelHeightValue = ceil(size.height * scale)
     guard pixelWidthValue.isFinite,
           pixelHeightValue.isFinite,
-          pixelWidthValue * pixelHeightValue <= 16_777_216 else { return nil }
+          pixelWidthValue * pixelHeightValue <= MarkdownAttachmentImageLimits.maxPixelCount else { return nil }
     let pixelWidth = max(1, Int(pixelWidthValue))
     let pixelHeight = max(1, Int(pixelHeightValue))
     guard let colorSpace = CGColorSpace(name: CGColorSpace.sRGB),

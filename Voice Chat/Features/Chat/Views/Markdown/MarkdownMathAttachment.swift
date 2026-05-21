@@ -281,7 +281,7 @@ final class MarkdownMathAttachment: MarkdownAttachment, @unchecked Sendable {
         return pixelWidth.isFinite &&
             pixelHeight.isFinite &&
             pixelCount.isFinite &&
-            pixelCount <= 16_777_216
+            pixelCount <= MarkdownAttachmentImageLimits.maxPixelCount
     }
 
     private func updateAttachmentImage(_ image: MarkdownPlatformImage?) {

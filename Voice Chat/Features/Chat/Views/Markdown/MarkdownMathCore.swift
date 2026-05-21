@@ -13,7 +13,8 @@
 #endif
 
 enum MarkdownMathRenderLimits {
-    static let maxNodeDimension: CGFloat = 4_096
+    static let maxNodeWidth: CGFloat = VoiceChatRaTeXRenderLimits.maxRenderedWidth
+    static let maxNodeHeight: CGFloat = VoiceChatRaTeXRenderLimits.maxRenderedHeight
     static let maxAttachmentDimension: CGFloat = 4_096
 }
 
@@ -62,8 +63,8 @@ final class MarkdownMathRenderNode: @unchecked Sendable {
         drawer: @escaping (CGContext, CGPoint) -> Void
     ) {
         self.size = CGSize(
-            width: clampedFiniteMathDimension(size.width, limit: MarkdownMathRenderLimits.maxNodeDimension),
-            height: clampedFiniteMathDimension(size.height, limit: MarkdownMathRenderLimits.maxNodeDimension)
+            width: clampedFiniteMathDimension(size.width, limit: MarkdownMathRenderLimits.maxNodeWidth),
+            height: clampedFiniteMathDimension(size.height, limit: MarkdownMathRenderLimits.maxNodeHeight)
         )
         self.baseline = baseline.isFinite ? min(self.size.height, max(0, baseline)) : 0
         let resolvedAxis = alignmentAxis.flatMap { $0.isFinite ? $0 : nil } ?? self.baseline
