@@ -591,6 +591,7 @@ struct ChatView: View {
     @State private var pendingComposerOverflowScrollToBottom: Bool = false
     @State private var shouldScrollToBottomAfterSend: Bool = false
     @State private var scrollToBottomAfterSendBaselineVisibleCount: Int?
+    @State private var scrollToBottomAfterSendBaselineBottomMessageID: UUID?
     @State private var activeAlert: ChatAlert?
     @State private var expectAssistantResponseHaptics: Bool = false
     @State private var didTriggerResponseStartHaptic: Bool = false
@@ -1150,6 +1151,7 @@ struct ChatView: View {
         cancelOverflowTransitionScroll()
         shouldScrollToBottomAfterSend = false
         scrollToBottomAfterSendBaselineVisibleCount = nil
+        scrollToBottomAfterSendBaselineBottomMessageID = nil
     }
 
     private func scrollToBottomAfterOverflowTransitionIfNeeded(wasPastComposerOverflowThreshold: Bool) {
@@ -1202,6 +1204,7 @@ struct ChatView: View {
     private func requestScrollToBottomAfterSend() {
         shouldScrollToBottomAfterSend = true
         scrollToBottomAfterSendBaselineVisibleCount = visibleMessages.count
+        scrollToBottomAfterSendBaselineBottomMessageID = visibleMessages.last?.id
         pendingSearchScrollTarget = nil
         clearSearchScrollLock()
     }
@@ -1209,19 +1212,22 @@ struct ChatView: View {
     private func cancelScrollToBottomAfterSend() {
         shouldScrollToBottomAfterSend = false
         scrollToBottomAfterSendBaselineVisibleCount = nil
+        scrollToBottomAfterSendBaselineBottomMessageID = nil
     }
 
     @discardableResult
     private func consumeScrollToBottomAfterSendIfNeeded(animated: Bool = true) -> Bool {
         guard shouldScrollToBottomAfterSend else { return false }
         if let baseline = scrollToBottomAfterSendBaselineVisibleCount,
-           visibleMessages.count <= baseline {
+           visibleMessages.count <= baseline,
+           visibleMessages.last?.id == scrollToBottomAfterSendBaselineBottomMessageID {
             return false
         }
         guard scrollProxy != nil else { return false }
 
         shouldScrollToBottomAfterSend = false
         scrollToBottomAfterSendBaselineVisibleCount = nil
+        scrollToBottomAfterSendBaselineBottomMessageID = nil
         scrollToBottom(animated: animated)
         return true
     }
