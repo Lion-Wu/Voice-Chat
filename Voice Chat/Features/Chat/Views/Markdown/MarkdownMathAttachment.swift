@@ -248,10 +248,11 @@ final class MarkdownMathAttachment: MarkdownAttachment, @unchecked Sendable {
     }
 
     private func renderImage(size: CGSize) -> MarkdownPlatformImage? {
-        guard size.width > 0, size.height > 0 else { return nil }
+        guard Self.isSafeImageSize(size) else { return nil }
         #if os(iOS) || os(tvOS) || os(watchOS) || os(visionOS)
         let format = UIGraphicsImageRendererFormat.default()
         format.opaque = false
+        guard Self.isSafeImageSize(size, scale: format.scale) else { return nil }
         let renderer = UIGraphicsImageRenderer(size: size, format: format)
         return renderer.image { context in
             renderOutput.draw(in: context.cgContext, bounds: CGRect(origin: .zero, size: size))
@@ -261,6 +262,26 @@ final class MarkdownMathAttachment: MarkdownAttachment, @unchecked Sendable {
             renderOutput.draw(in: context, bounds: CGRect(origin: .zero, size: size))
         }
         #endif
+    }
+
+    private static func isSafeImageSize(_ size: CGSize, scale: CGFloat = 1) -> Bool {
+        guard size.width.isFinite,
+              size.height.isFinite,
+              scale.isFinite,
+              size.width > 0,
+              size.height > 0,
+              scale > 0,
+              size.width <= MarkdownMathRenderLimits.maxAttachmentWidth,
+              size.height <= MarkdownMathRenderLimits.maxAttachmentHeight else {
+            return false
+        }
+        let pixelWidth = ceil(size.width * scale)
+        let pixelHeight = ceil(size.height * scale)
+        let pixelCount = pixelWidth * pixelHeight
+        return pixelWidth.isFinite &&
+            pixelHeight.isFinite &&
+            pixelCount.isFinite &&
+            pixelCount <= MarkdownAttachmentImageLimits.maxPixelCount
     }
 
     private func updateAttachmentImage(_ image: MarkdownPlatformImage?) {

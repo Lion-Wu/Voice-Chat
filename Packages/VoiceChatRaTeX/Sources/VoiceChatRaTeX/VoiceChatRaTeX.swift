@@ -81,6 +81,7 @@ public final class VoiceChatRaTeXEngine: @unchecked Sendable {
         color: VoiceChatRaTeXColor
     ) -> VoiceChatRaTeXFormula? {
         guard fontSize.isFinite, fontSize > 0 else { return nil }
+        guard latex.utf8.count <= VoiceChatRaTeXRenderLimits.maxLatexUTF8Bytes else { return nil }
         guard let displayList = parseDisplayList(
             latex: latex,
             displayMode: displayMode,
@@ -88,11 +89,13 @@ public final class VoiceChatRaTeXEngine: @unchecked Sendable {
         ) else {
             return nil
         }
+        guard Self.isSafeDisplayList(displayList, fontSize: fontSize) else { return nil }
         let normalizedDisplayList = Self.normalizedDefaultFrameColorIfNeeded(
             in: displayList,
             latex: latex,
             color: color
         )
+        guard Self.isSafeDisplayList(normalizedDisplayList, fontSize: fontSize) else { return nil }
         RaTeXFontLoader.ensureLoaded()
         return VoiceChatRaTeXFormula(displayList: normalizedDisplayList, fontSize: fontSize)
     }
@@ -194,13 +197,79 @@ public final class VoiceChatRaTeXEngine: @unchecked Sendable {
         }
         defer { ratex_free_display_list(pointer) }
 
-        return try Self.decodeDisplayList(from: String(cString: pointer))
+        return try Self.decodeDisplayList(fromCString: pointer)
     }
     #endif
 
     fileprivate static func decodeDisplayList(from json: String) throws -> RaTeXDisplayList {
-        try JSONDecoder().decode(RaTeXDisplayList.self, from: Data(json.utf8))
+        try decodeDisplayList(from: Data(json.utf8))
     }
+
+    private static func decodeDisplayList(fromCString pointer: UnsafePointer<CChar>) throws -> RaTeXDisplayList {
+        guard let byteCount = boundedCStringUTF8ByteCount(
+            pointer,
+            maxBytes: VoiceChatRaTeXRenderLimits.maxDisplayListJSONBytes
+        ) else {
+            throw VoiceChatRaTeXError.parse("RaTeX display list exceeded the maximum allowed size")
+        }
+        return try decodeDisplayList(from: Data(bytes: pointer, count: byteCount))
+    }
+
+    private static func decodeDisplayList(from data: Data) throws -> RaTeXDisplayList {
+        guard data.count <= VoiceChatRaTeXRenderLimits.maxDisplayListJSONBytes else {
+            throw VoiceChatRaTeXError.parse("RaTeX display list exceeded the maximum allowed size")
+        }
+        return try JSONDecoder().decode(RaTeXDisplayList.self, from: data)
+    }
+
+    private static func boundedCStringUTF8ByteCount(_ pointer: UnsafePointer<CChar>, maxBytes: Int) -> Int? {
+        var count = 0
+        while count <= maxBytes {
+            if pointer[count] == 0 {
+                return count
+            }
+            count += 1
+        }
+        return nil
+    }
+
+    private static func isSafeDisplayList(_ displayList: RaTeXDisplayList, fontSize: CGFloat) -> Bool {
+        guard displayList.items.count <= VoiceChatRaTeXRenderLimits.maxDisplayListItems else {
+            return false
+        }
+        guard displayList.pathCommandCount <= VoiceChatRaTeXRenderLimits.maxPathCommands else {
+            return false
+        }
+        guard displayList.width.isFinite,
+              displayList.height.isFinite,
+              displayList.depth.isFinite,
+              displayList.width >= 0,
+              displayList.height >= 0,
+              displayList.depth >= 0 else {
+            return false
+        }
+
+        let width = CGFloat(displayList.width) * fontSize
+        let height = CGFloat(displayList.height) * fontSize
+        let depth = CGFloat(displayList.depth) * fontSize
+        let totalHeight = height + depth
+        return width.isFinite &&
+            height.isFinite &&
+            depth.isFinite &&
+            totalHeight.isFinite &&
+            width <= VoiceChatRaTeXRenderLimits.maxRenderedWidth &&
+            totalHeight <= VoiceChatRaTeXRenderLimits.maxRenderedHeight
+    }
+}
+
+public enum VoiceChatRaTeXRenderLimits {
+    public static let maxLatexUTF8Bytes = 4_096
+    public static let maxLatexLength = maxLatexUTF8Bytes
+    public static let maxDisplayListJSONBytes = 1_048_576
+    public static let maxDisplayListItems = 4_096
+    public static let maxPathCommands = 65_536
+    public static let maxRenderedWidth: CGFloat = 8_192
+    public static let maxRenderedHeight: CGFloat = 4_096
 }
 
 private extension RaTeXRect {
@@ -348,6 +417,19 @@ private final class RaTeXWasmRuntime: @unchecked Sendable {
         source = source.replacingOccurrences(
             of: "export { initSync, __wbg_init as default };",
             with: "globalThis.__ratexInitSync = initSync; globalThis.__ratexRenderLatex = renderLatex;"
+        )
+        let jsonReturn = "return getStringFromWasm0(ptr3, len3);"
+        guard source.contains(jsonReturn) else {
+            throw VoiceChatRaTeXError.javascript("RaTeX WASM glue did not expose the expected display-list return boundary")
+        }
+        source = source.replacingOccurrences(
+            of: jsonReturn,
+            with: """
+            if (len3 > \(VoiceChatRaTeXRenderLimits.maxDisplayListJSONBytes)) {
+                throw new Error('RaTeX display list exceeded the maximum allowed size');
+            }
+            return getStringFromWasm0(ptr3, len3);
+            """
         )
         if source.contains("import.meta") {
             throw VoiceChatRaTeXError.javascript("RaTeX WASM glue still contains module-only import.meta syntax")

@@ -12,6 +12,18 @@
 @preconcurrency import AppKit
 #endif
 
+enum MarkdownMathRenderLimits {
+    static let maxNodeWidth: CGFloat = VoiceChatRaTeXRenderLimits.maxRenderedWidth
+    static let maxNodeHeight: CGFloat = VoiceChatRaTeXRenderLimits.maxRenderedHeight
+    static let maxAttachmentWidth: CGFloat = VoiceChatRaTeXRenderLimits.maxRenderedWidth
+    static let maxAttachmentHeight: CGFloat = VoiceChatRaTeXRenderLimits.maxRenderedHeight
+}
+
+private func clampedFiniteMathDimension(_ value: CGFloat, limit: CGFloat) -> CGFloat {
+    guard value.isFinite, value > 0 else { return 0 }
+    return min(ceil(value), limit)
+}
+
 struct MarkdownMathStyle: @unchecked Sendable, Equatable {
     let baseFont: MarkdownPlatformFont
     let textColor: MarkdownPlatformColor
@@ -51,9 +63,13 @@ final class MarkdownMathRenderNode: @unchecked Sendable {
         alignmentAxis: CGFloat? = nil,
         drawer: @escaping (CGContext, CGPoint) -> Void
     ) {
-        self.size = CGSize(width: ceil(max(0, size.width)), height: ceil(max(0, size.height)))
-        self.baseline = max(0, baseline)
-        self.alignmentAxis = min(self.size.height, max(0, alignmentAxis ?? baseline))
+        self.size = CGSize(
+            width: clampedFiniteMathDimension(size.width, limit: MarkdownMathRenderLimits.maxNodeWidth),
+            height: clampedFiniteMathDimension(size.height, limit: MarkdownMathRenderLimits.maxNodeHeight)
+        )
+        self.baseline = baseline.isFinite ? min(self.size.height, max(0, baseline)) : 0
+        let resolvedAxis = alignmentAxis.flatMap { $0.isFinite ? $0 : nil } ?? self.baseline
+        self.alignmentAxis = min(self.size.height, max(0, resolvedAxis))
         self.drawer = drawer
     }
 
@@ -84,17 +100,24 @@ struct MarkdownMathRenderOutput: @unchecked Sendable {
 
     func scaleToFit(availableWidth: CGFloat) -> CGFloat {
         let contentWidth = max(1, node.size.width)
-        let usableWidth = max(1, availableWidth - padding.width * 2)
-        return min(1, usableWidth / contentWidth)
+        let contentHeight = max(1, node.size.height)
+        let attachmentWidth = min(max(1, availableWidth), MarkdownMathRenderLimits.maxAttachmentWidth)
+        let usableWidth = max(1, attachmentWidth - padding.width * 2)
+        let usableHeight = max(1, MarkdownMathRenderLimits.maxAttachmentHeight - padding.height * 2)
+        return min(1, usableWidth / contentWidth, usableHeight / contentHeight)
     }
 
     func measuredSize(availableWidth: CGFloat) -> CGSize {
         let scale = scaleToFit(availableWidth: availableWidth)
+        let attachmentWidth = min(max(1, availableWidth), MarkdownMathRenderLimits.maxAttachmentWidth)
         let width = min(
-            max(1, availableWidth),
+            attachmentWidth,
             ceil(node.size.width * scale + padding.width * 2)
         )
-        let height = ceil(node.size.height * scale + padding.height * 2)
+        let height = min(
+            MarkdownMathRenderLimits.maxAttachmentHeight,
+            ceil(node.size.height * scale + padding.height * 2)
+        )
         return CGSize(width: width, height: height)
     }
 

@@ -167,6 +167,27 @@ public enum RaTeXPathCommand: Decodable, Sendable {
     }
 }
 
+public extension RaTeXDisplayList {
+    var pathCommandCount: Int {
+        items.reduce(0) { total, item in
+            total + item.pathCommandCount
+        }
+    }
+}
+
+public extension RaTeXDisplayItem {
+    var pathCommandCount: Int {
+        switch self {
+        case let .glyphPath(glyph):
+            return glyph.commands.count
+        case let .path(path):
+            return path.commands.count
+        case .line, .rect, .unknown:
+            return 0
+        }
+    }
+}
+
 public struct RaTeXDisplayColor: Decodable, Equatable, Sendable {
     public let r: Float
     public let g: Float
