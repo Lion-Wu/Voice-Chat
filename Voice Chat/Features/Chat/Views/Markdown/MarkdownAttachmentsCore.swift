@@ -138,9 +138,14 @@ final class MarkdownAttachmentCell: NSTextAttachmentCell {
 #endif
 
 #if os(macOS)
-private func markdownImageBackingScale() -> CGFloat {
+private func markdownImageBackingScale(for size: CGSize) -> CGFloat {
     let screens = NSScreen.screens.map(\.backingScaleFactor)
-    return max(1, screens.max() ?? 2)
+    let requestedScale = max(1, screens.max() ?? 2)
+    let pointArea = size.width * size.height
+    guard pointArea.isFinite, pointArea > 0 else { return requestedScale }
+    let cappedScale = sqrt(MarkdownAttachmentImageLimits.maxPixelCount / pointArea)
+    guard cappedScale.isFinite, cappedScale > 0 else { return requestedScale }
+    return min(requestedScale, cappedScale)
 }
 
 func renderMarkdownImage(
@@ -151,14 +156,27 @@ func renderMarkdownImage(
           size.height.isFinite,
           size.width > 0,
           size.height > 0 else { return nil }
-    let scale = markdownImageBackingScale()
-    let pixelWidthValue = ceil(size.width * scale)
-    let pixelHeightValue = ceil(size.height * scale)
+    let requestedScale = markdownImageBackingScale(for: size)
+    let scaledWidth = size.width * requestedScale
+    let scaledHeight = size.height * requestedScale
+    guard scaledWidth.isFinite,
+          scaledHeight.isFinite else { return nil }
+    var pixelWidthValue = max(1, ceil(scaledWidth))
+    var pixelHeightValue = max(1, ceil(scaledHeight))
+    if pixelWidthValue * pixelHeightValue > MarkdownAttachmentImageLimits.maxPixelCount {
+        pixelWidthValue = max(1, floor(scaledWidth))
+        pixelHeightValue = max(1, floor(scaledHeight))
+    }
     guard pixelWidthValue.isFinite,
           pixelHeightValue.isFinite,
           pixelWidthValue * pixelHeightValue <= MarkdownAttachmentImageLimits.maxPixelCount else { return nil }
     let pixelWidth = max(1, Int(pixelWidthValue))
     let pixelHeight = max(1, Int(pixelHeightValue))
+    let renderScale = min(
+        CGFloat(pixelWidth) / size.width,
+        CGFloat(pixelHeight) / size.height
+    )
+    guard renderScale.isFinite, renderScale > 0 else { return nil }
     guard let colorSpace = CGColorSpace(name: CGColorSpace.sRGB),
           let context = CGContext(
               data: nil,
@@ -174,7 +192,7 @@ func renderMarkdownImage(
     }
     context.clear(CGRect(x: 0, y: 0, width: pixelWidth, height: pixelHeight))
     context.saveGState()
-    context.scaleBy(x: scale, y: scale)
+    context.scaleBy(x: renderScale, y: renderScale)
     context.translateBy(x: 0, y: size.height)
     context.scaleBy(x: 1, y: -1)
     NSGraphicsContext.saveGraphicsState()

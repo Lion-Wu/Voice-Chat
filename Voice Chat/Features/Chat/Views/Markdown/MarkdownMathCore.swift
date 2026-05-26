@@ -15,7 +15,8 @@
 enum MarkdownMathRenderLimits {
     static let maxNodeWidth: CGFloat = VoiceChatRaTeXRenderLimits.maxRenderedWidth
     static let maxNodeHeight: CGFloat = VoiceChatRaTeXRenderLimits.maxRenderedHeight
-    static let maxAttachmentDimension: CGFloat = 4_096
+    static let maxAttachmentWidth: CGFloat = VoiceChatRaTeXRenderLimits.maxRenderedWidth
+    static let maxAttachmentHeight: CGFloat = VoiceChatRaTeXRenderLimits.maxRenderedHeight
 }
 
 private func clampedFiniteMathDimension(_ value: CGFloat, limit: CGFloat) -> CGFloat {
@@ -99,18 +100,22 @@ struct MarkdownMathRenderOutput: @unchecked Sendable {
 
     func scaleToFit(availableWidth: CGFloat) -> CGFloat {
         let contentWidth = max(1, node.size.width)
-        let usableWidth = max(1, availableWidth - padding.width * 2)
-        return min(1, usableWidth / contentWidth)
+        let contentHeight = max(1, node.size.height)
+        let attachmentWidth = min(max(1, availableWidth), MarkdownMathRenderLimits.maxAttachmentWidth)
+        let usableWidth = max(1, attachmentWidth - padding.width * 2)
+        let usableHeight = max(1, MarkdownMathRenderLimits.maxAttachmentHeight - padding.height * 2)
+        return min(1, usableWidth / contentWidth, usableHeight / contentHeight)
     }
 
     func measuredSize(availableWidth: CGFloat) -> CGSize {
         let scale = scaleToFit(availableWidth: availableWidth)
+        let attachmentWidth = min(max(1, availableWidth), MarkdownMathRenderLimits.maxAttachmentWidth)
         let width = min(
-            max(1, availableWidth),
+            attachmentWidth,
             ceil(node.size.width * scale + padding.width * 2)
         )
         let height = min(
-            MarkdownMathRenderLimits.maxAttachmentDimension,
+            MarkdownMathRenderLimits.maxAttachmentHeight,
             ceil(node.size.height * scale + padding.height * 2)
         )
         return CGSize(width: width, height: height)

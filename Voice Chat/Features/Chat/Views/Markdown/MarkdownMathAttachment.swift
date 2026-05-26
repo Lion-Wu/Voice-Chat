@@ -271,8 +271,8 @@ final class MarkdownMathAttachment: MarkdownAttachment, @unchecked Sendable {
               size.width > 0,
               size.height > 0,
               scale > 0,
-              size.width <= MarkdownMathRenderLimits.maxAttachmentDimension,
-              size.height <= MarkdownMathRenderLimits.maxAttachmentDimension else {
+              size.width <= MarkdownMathRenderLimits.maxAttachmentWidth,
+              size.height <= MarkdownMathRenderLimits.maxAttachmentHeight else {
             return false
         }
         let pixelWidth = ceil(size.width * scale)

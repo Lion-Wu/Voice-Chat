@@ -81,7 +81,7 @@ public final class VoiceChatRaTeXEngine: @unchecked Sendable {
         color: VoiceChatRaTeXColor
     ) -> VoiceChatRaTeXFormula? {
         guard fontSize.isFinite, fontSize > 0 else { return nil }
-        guard latex.count <= VoiceChatRaTeXRenderLimits.maxLatexLength else { return nil }
+        guard latex.utf8.count <= VoiceChatRaTeXRenderLimits.maxLatexUTF8Bytes else { return nil }
         guard let displayList = parseDisplayList(
             latex: latex,
             displayMode: displayMode,
@@ -263,7 +263,8 @@ public final class VoiceChatRaTeXEngine: @unchecked Sendable {
 }
 
 public enum VoiceChatRaTeXRenderLimits {
-    public static let maxLatexLength = 4_096
+    public static let maxLatexUTF8Bytes = 4_096
+    public static let maxLatexLength = maxLatexUTF8Bytes
     public static let maxDisplayListJSONBytes = 1_048_576
     public static let maxDisplayListItems = 4_096
     public static let maxPathCommands = 65_536
