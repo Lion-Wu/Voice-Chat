@@ -89,6 +89,7 @@
 		FDF714C12E7FC54100B62D71 /* IncrementalTextSegmenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = FDF714C02E7FC54100B62D71 /* IncrementalTextSegmenter.swift */; };
 		FDF714C32E7FC55300B62D71 /* VoiceChatOverlayViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = FDF714C22E7FC55300B62D71 /* VoiceChatOverlayViewModel.swift */; };
 		FDF714C52E7FC59000B62D71 /* RealtimeVoiceOverlayView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FDF714C42E7FC59000B62D71 /* RealtimeVoiceOverlayView.swift */; };
+		FDF714C72F91000000B62D71 /* VoiceVisionCameraView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FDF714C62F91000000B62D71 /* VoiceVisionCameraView.swift */; };
 		FDFE0A012F12340000000001 /* AppErrorCenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = FDFE0A002F12340000000001 /* AppErrorCenter.swift */; };
 		FDFE0A032F12340000000001 /* ErrorNoticeStack.swift in Sources */ = {isa = PBXBuildFile; fileRef = FDFE0A022F12340000000001 /* ErrorNoticeStack.swift */; };
 		FDFE0A052F123C0000000001 /* ServerReachabilityMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = FDFE0A042F123C0000000001 /* ServerReachabilityMonitor.swift */; };
@@ -194,6 +195,7 @@
 		FDF714C02E7FC54100B62D71 /* IncrementalTextSegmenter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = IncrementalTextSegmenter.swift; path = "Voice Chat/Core/Audio/Support/IncrementalTextSegmenter.swift"; sourceTree = SOURCE_ROOT; };
 		FDF714C22E7FC55300B62D71 /* VoiceChatOverlayViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = VoiceChatOverlayViewModel.swift; path = "Voice Chat/Features/VoiceOverlay/ViewModels/VoiceChatOverlayViewModel.swift"; sourceTree = SOURCE_ROOT; };
 		FDF714C42E7FC59000B62D71 /* RealtimeVoiceOverlayView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = RealtimeVoiceOverlayView.swift; path = "Voice Chat/Features/VoiceOverlay/Views/RealtimeVoiceOverlayView.swift"; sourceTree = SOURCE_ROOT; };
+		FDF714C62F91000000B62D71 /* VoiceVisionCameraView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = VoiceVisionCameraView.swift; path = "Voice Chat/Features/VoiceOverlay/Views/VoiceVisionCameraView.swift"; sourceTree = SOURCE_ROOT; };
 		FDFE0A002F12340000000001 /* AppErrorCenter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = AppErrorCenter.swift; path = "Voice Chat/Core/Errors/AppErrorCenter.swift"; sourceTree = SOURCE_ROOT; };
 		FDFE0A022F12340000000001 /* ErrorNoticeStack.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ErrorNoticeStack.swift; path = "Voice Chat/Shared/UI/Feedback/ErrorNoticeStack.swift"; sourceTree = SOURCE_ROOT; };
 		FDFE0A042F123C0000000001 /* ServerReachabilityMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ServerReachabilityMonitor.swift; path = "Voice Chat/Core/Networking/ServerReachabilityMonitor.swift"; sourceTree = SOURCE_ROOT; };
@@ -590,6 +592,7 @@
 			isa = PBXGroup;
 			children = (
 				FDF714C42E7FC59000B62D71 /* RealtimeVoiceOverlayView.swift */,
+				FDF714C62F91000000B62D71 /* VoiceVisionCameraView.swift */,
 			);
 			path = Views;
 			sourceTree = "<group>";
@@ -776,6 +779,7 @@
 				FDA8D9262E7F0E320012B42F /* BubbleBackground.swift in Sources */,
 				FDA8D9272E7F0E320012B42F /* ChatTheme.swift in Sources */,
 				FDA8D9282E7F0E320012B42F /* ChatView.swift in Sources */,
+				FDF714C72F91000000B62D71 /* VoiceVisionCameraView.swift in Sources */,
 				FDA8D9472E7F13050012B42F /* SafeArray.swift in Sources */,
 				FDA8D9382E7F0F520012B42F /* FullScreenComposer.swift in Sources */,
 				F514BD68F40741539A1872CA /* TextSelectionSheet.swift in Sources */,

@@ -2025,6 +2025,34 @@ struct ChatView: View {
     }
 
     @discardableResult
+    private func performRealtimeVoiceSend(_ text: String, imageAttachments: [ChatImageAttachment]) -> Bool {
+        expectAssistantResponseHaptics = true
+        didTriggerResponseStartHaptic = false
+        requestScrollToBottomAfterSend()
+        guard viewModel.sendRealtimeVoiceMessage(text, imageAttachments: imageAttachments) else {
+            restoreRealtimeVoiceDraft(text, imageAttachments: imageAttachments)
+            expectAssistantResponseHaptics = false
+            didTriggerResponseStartHaptic = false
+            cancelScrollToBottomAfterSend()
+            if viewModel.isLoading || viewModel.isPriming {
+                _ = queueCurrentDraftIfPossible()
+            } else if viewModel.shouldWarnAboutUnsupportedImageInputBeforeSending() {
+                activeAlert = .unsupportedImageSend
+            }
+            return false
+        }
+        triggerTextHaptic(.lightTap)
+        return true
+    }
+
+    private func restoreRealtimeVoiceDraft(_ text: String, imageAttachments: [ChatImageAttachment]) {
+        if !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            viewModel.userMessage = text
+        }
+        appendPendingImageAttachments(imageAttachments)
+    }
+
+    @discardableResult
     private func sendQueuedDraftImmediately(_ draftID: UUID, ignoringUnsupportedImageInputs: Bool = false) -> Bool {
         if !ignoringUnsupportedImageInputs,
            let draft = viewModel.queuedDraft(id: draftID),
@@ -3520,12 +3548,8 @@ struct ChatView: View {
         AppHaptics.trigger(.selection)
         expectAssistantResponseHaptics = false
         didTriggerResponseStartHaptic = false
-        voiceOverlayVM.presentSession(chatViewModel: viewModel) { text in
-            viewModel.prepareRealtimeTTSForNextAssistant()
-            viewModel.userMessage = text
-            expectAssistantResponseHaptics = false
-            didTriggerResponseStartHaptic = false
-            _ = sendIfPossible()
+        voiceOverlayVM.presentSession(chatViewModel: viewModel) { text, imageAttachments in
+            _ = performRealtimeVoiceSend(text, imageAttachments: imageAttachments)
         }
     }
 

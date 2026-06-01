@@ -1328,6 +1328,34 @@ final class ChatViewModel: ObservableObject {
         )
     }
 
+    @discardableResult
+    func sendRealtimeVoiceMessage(_ text: String, imageAttachments: [ChatImageAttachment] = []) -> Bool {
+        let supportsImageInputs = currentModelSupportsImageInput()
+        let capturedAttachments = Array(imageAttachments.prefix(9))
+        let hasExistingImageContext = activeBranchContainsImageInputs(includePending: false)
+        if !supportsImageInputs && (!capturedAttachments.isEmpty || hasExistingImageContext) {
+            requestDidFail.send(NSLocalizedString(
+                "This conversation contains images, but the selected model only accepts text.",
+                comment: "Shown when realtime voice mode cannot send because the selected model does not support image input"
+            ))
+            return false
+        }
+
+        let attachments = supportsImageInputs ? capturedAttachments : []
+        let draft = QueuedChatDraft(text: text, imageAttachments: attachments)
+        guard !draft.isEmpty else { return false }
+        prepareRealtimeTTSForNextAssistant()
+        let didSend = send(
+            draft: draft,
+            ignoringUnsupportedImageInputs: false,
+            clearComposerAfterSend: false
+        )
+        if !didSend {
+            enableRealtimeTTSNext = false
+        }
+        return didSend
+    }
+
     func cancelCurrentRequest(autostartQueuedDraft: Bool = true) {
         guard sending || isLoading || isPriming else { return }
         let finishedAt = Date()
