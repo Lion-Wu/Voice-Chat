@@ -24,10 +24,18 @@ final class VoiceChatOverlayViewModel: ObservableObject {
     @Published var selectedLanguage: SpeechInputManager.DictationLanguage
     @Published private(set) var showErrorBanner: Bool = false
     @Published private(set) var errorMessage: String?
+    @Published private(set) var isVisionCapturePresented: Bool = false
+    @Published private(set) var isVisionCaptureRecording: Bool = false
+    @Published private(set) var visionCaptureSampleCount: Int = 0
+    @Published private(set) var visionCaptureResetID = UUID()
     private var isSendSuppressed: Bool = false
 
     var availableLanguages: [SpeechInputManager.DictationLanguage] {
         SpeechInputManager.DictationLanguage.allCases
+    }
+
+    var isVisionCaptureAvailable: Bool {
+        activeChatViewModel?.currentModelSupportsImageInput() == true
     }
 
     private let speechInputManager: SpeechInputManager
@@ -39,8 +47,15 @@ final class VoiceChatOverlayViewModel: ObservableObject {
     private let outputLevelSubject = CurrentValueSubject<Double, Never>(0)
     private var cancellables: Set<AnyCancellable> = []
     private var sessionCancellables: Set<AnyCancellable> = []
-    private var onRecognizedFinal: ((String) -> Void)?
+    private var onRecognizedFinal: ((String, [ChatImageAttachment]) -> Void)?
     private weak var activeChatViewModel: ChatViewModel?
+    private struct VisionCaptureSample {
+        let capturedAt: Date
+        let attachment: ChatImageAttachment
+    }
+    private static let maxVisionCaptureStoredSamples = 72
+    private var visionCaptureMessageStartedAt: Date?
+    private var visionCaptureSamples: [VisionCaptureSample] = []
     private var autoResumeEnabled = false
     private var isStartingRecording = false
     private var pendingRestartAfterStart: Bool = false
@@ -79,12 +94,13 @@ final class VoiceChatOverlayViewModel: ObservableObject {
         bindState()
     }
 
-    func presentSession(chatViewModel: ChatViewModel? = nil, onFinal: @escaping (String) -> Void) {
+    func presentSession(chatViewModel: ChatViewModel? = nil, onFinal: @escaping (String, [ChatImageAttachment]) -> Void) {
         activeChatViewModel = chatViewModel
         bindSession(chatViewModel: chatViewModel)
         onRecognizedFinal = onFinal
         autoResumeEnabled = false
         isSendSuppressed = false
+        resetVisionCaptureSamples()
         inputLevelSubject.send(0)
         outputLevelSubject.send(0)
         showErrorBanner = false
@@ -110,6 +126,7 @@ final class VoiceChatOverlayViewModel: ObservableObject {
         showErrorBanner = false
         errorMessage = nil
         isSendSuppressed = false
+        dismissVisionCapture()
         inputLevelSubject.send(0)
         outputLevelSubject.send(0)
         cleanupSession()
@@ -178,6 +195,49 @@ final class VoiceChatOverlayViewModel: ObservableObject {
 
     func dismissErrorMessage() {
         showErrorBanner = false
+    }
+
+    func presentVisionCapture() {
+        guard isPresented else { return }
+        guard isVisionCaptureAvailable else {
+            pushRealtimeVoiceError(NSLocalizedString(
+                "The selected model does not support image input.",
+                comment: "Shown when voice vision is requested with a text-only model"
+            ))
+            return
+        }
+        isVisionCapturePresented = true
+        if speechInputManager.isRecording {
+            beginVisionCaptureUtteranceIfNeeded()
+        } else {
+            updateVisionCaptureRecordingState(isRecording: false)
+        }
+    }
+
+    func dismissVisionCapture() {
+        isVisionCapturePresented = false
+        isVisionCaptureRecording = false
+        resetVisionCaptureSamples()
+    }
+
+    func handleVisionCaptureSample(data: Data, mimeType: String?) {
+        guard isVisionCapturePresented else { return }
+        guard isVisionCaptureRecording else { return }
+        guard isVisionCaptureAvailable else { return }
+        guard !data.isEmpty else { return }
+
+        let attachment = ChatImageAttachment(
+            mimeType: normalizedVisionCaptureMIMEType(mimeType),
+            data: data
+        )
+        visionCaptureSamples.append(.init(capturedAt: Date(), attachment: attachment))
+        if visionCaptureSamples.count > Self.maxVisionCaptureStoredSamples {
+            visionCaptureSamples = evenlyDownsampledVisionCaptureSamples(
+                visionCaptureSamples,
+                limit: Self.maxVisionCaptureStoredSamples
+            )
+        }
+        visionCaptureSampleCount = estimatedVisionAttachmentCountForCurrentUtterance()
     }
 
     func updateLanguage(_ language: SpeechInputManager.DictationLanguage) {
@@ -519,11 +579,13 @@ final class VoiceChatOverlayViewModel: ObservableObject {
     private func sendRecognizedText(_ text: String) {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
+        let visionAttachments = selectedVisionAttachmentsForCurrentUtterance()
+        resetVisionCaptureSamples()
         showErrorBanner = false
         errorMessage = nil
         state = .loading
         startLoadingWatchdog()
-        onRecognizedFinal?(trimmed)
+        onRecognizedFinal?(trimmed, visionAttachments)
     }
 
     private func cleanupRecordingOnly() {
@@ -536,6 +598,7 @@ final class VoiceChatOverlayViewModel: ObservableObject {
         cancelStartTasks()
         stopLoadingWatchdog()
         cancelConnectivityTask()
+        dismissVisionCapture()
         cleanupRecordingOnly()
         sessionCancellables.removeAll()
     }
@@ -627,9 +690,11 @@ final class VoiceChatOverlayViewModel: ObservableObject {
     private func handleRecordingChange(_ isRecording: Bool) {
         if case .error = state { return }
         if isRecording {
+            beginVisionCaptureUtteranceIfNeeded()
             stopLoadingWatchdog()
             state = .listening
         } else {
+            updateVisionCaptureRecordingState(isRecording: false)
             resumeListeningIfIdle()
         }
     }
@@ -675,6 +740,7 @@ final class VoiceChatOverlayViewModel: ObservableObject {
         showErrorBanner = true
         state = .error(trimmed)
         autoResumeEnabled = false
+        dismissVisionCapture()
         cancelStartTasks()
         stopLoadingWatchdog()
         cancelConnectivityTask()
@@ -700,5 +766,104 @@ final class VoiceChatOverlayViewModel: ObservableObject {
             category: .realtimeVoice,
             autoDismiss: 12
         )
+    }
+
+    private func beginVisionCaptureUtteranceIfNeeded() {
+        updateVisionCaptureRecordingState(isRecording: true)
+        guard isVisionCaptureRecording else { return }
+        // A held voice message can restart recording after a speech pause; keep its samples together.
+        guard !isSendSuppressed || visionCaptureMessageStartedAt == nil else { return }
+        visionCaptureMessageStartedAt = Date()
+        visionCaptureSamples.removeAll()
+        visionCaptureSampleCount = 0
+        visionCaptureResetID = UUID()
+    }
+
+    private func updateVisionCaptureRecordingState(isRecording: Bool) {
+        let shouldRecord = isVisionCapturePresented && isVisionCaptureAvailable && isRecording
+        isVisionCaptureRecording = shouldRecord
+        if !shouldRecord && !isRecording && !isSendSuppressed {
+            visionCaptureMessageStartedAt = nil
+        }
+    }
+
+    private func selectedVisionAttachmentsForCurrentUtterance() -> [ChatImageAttachment] {
+        guard isVisionCaptureAvailable else { return [] }
+        guard !visionCaptureSamples.isEmpty else { return [] }
+
+        let startedAt = visionCaptureMessageStartedAt ?? visionCaptureSamples.first?.capturedAt ?? Date()
+        let duration = max(1, Date().timeIntervalSince(startedAt))
+        let desiredCount = desiredVisionAttachmentCount(forDuration: duration)
+        let snapshots = visionCaptureSamples
+
+        guard snapshots.count > desiredCount else {
+            return snapshots.map(\.attachment)
+        }
+        guard desiredCount > 1 else {
+            return [snapshots[snapshots.count / 2].attachment]
+        }
+
+        var selectedIndexes = Set<Int>()
+        for index in 0..<desiredCount {
+            let fraction = Double(index) / Double(desiredCount - 1)
+            let snapshotIndex = Int(round(fraction * Double(snapshots.count - 1)))
+            selectedIndexes.insert(min(max(0, snapshotIndex), snapshots.count - 1))
+        }
+
+        return selectedIndexes
+            .sorted()
+            .map { snapshots[$0].attachment }
+    }
+
+    private func evenlyDownsampledVisionCaptureSamples(
+        _ samples: [VisionCaptureSample],
+        limit: Int
+    ) -> [VisionCaptureSample] {
+        guard samples.count > limit else { return samples }
+        guard limit > 1 else { return [samples[samples.count / 2]] }
+
+        var result: [VisionCaptureSample] = []
+        result.reserveCapacity(limit)
+        for index in 0..<limit {
+            let fraction = Double(index) / Double(limit - 1)
+            let sampleIndex = Int(round(fraction * Double(samples.count - 1)))
+            result.append(samples[min(max(0, sampleIndex), samples.count - 1)])
+        }
+        return result
+    }
+
+    private func estimatedVisionAttachmentCountForCurrentUtterance() -> Int {
+        guard isVisionCaptureAvailable else { return 0 }
+        guard !visionCaptureSamples.isEmpty else { return 0 }
+        let startedAt = visionCaptureMessageStartedAt ?? visionCaptureSamples.first?.capturedAt ?? Date()
+        let duration = max(1, Date().timeIntervalSince(startedAt))
+        return min(visionCaptureSamples.count, desiredVisionAttachmentCount(forDuration: duration))
+    }
+
+    private func desiredVisionAttachmentCount(forDuration duration: TimeInterval) -> Int {
+        max(1, min(9, Int(ceil(duration / 2.0))))
+    }
+
+    private func resetVisionCaptureSamples() {
+        visionCaptureMessageStartedAt = nil
+        visionCaptureSamples.removeAll()
+        visionCaptureSampleCount = 0
+        isVisionCaptureRecording = false
+        visionCaptureResetID = UUID()
+    }
+
+    private func normalizedVisionCaptureMIMEType(_ mimeType: String?) -> String {
+        let normalized = mimeType?
+            .split(separator: ";", maxSplits: 1, omittingEmptySubsequences: true)
+            .first?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        if normalized == "image/jpg" {
+            return "image/jpeg"
+        }
+        if let normalized, !normalized.isEmpty {
+            return normalized
+        }
+        return "image/jpeg"
     }
 }

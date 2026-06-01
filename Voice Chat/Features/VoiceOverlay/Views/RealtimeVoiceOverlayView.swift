@@ -16,6 +16,10 @@ struct RealtimeVoiceOverlayView: View {
     @ObservedObject var viewModel: VoiceChatOverlayViewModel
     @EnvironmentObject var errorCenter: AppErrorCenter
     @Environment(\.colorScheme) private var colorScheme
+#if os(iOS)
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @Environment(\.verticalSizeClass) private var verticalSizeClass
+#endif
 
     /// Optional callback so the parent can react when the overlay is dismissed.
     var onClose: () -> Void = {}
@@ -102,11 +106,21 @@ struct RealtimeVoiceOverlayView: View {
     }
 
     private var defaultBaseSize: CGFloat {
-        isVisionSceneStyle ? 264 : 224
+        #if os(iOS) || os(macOS)
+        if viewModel.isVisionCapturePresented {
+            return 86
+        }
+        #endif
+        return isVisionSceneStyle ? 264 : 224
     }
 
     private var listeningBaseSize: CGFloat {
-        isVisionSceneStyle ? 328 : 280
+        #if os(iOS) || os(macOS)
+        if viewModel.isVisionCapturePresented {
+            return 108
+        }
+        #endif
+        return isVisionSceneStyle ? 328 : 280
     }
 
     private var isVisionSceneStyle: Bool {
@@ -137,6 +151,56 @@ struct RealtimeVoiceOverlayView: View {
         isVisionSceneStyle ? 104 : 0
     }
 
+    private var activeCircleErrorRingWidth: CGFloat {
+        #if os(iOS) || os(macOS)
+        if viewModel.isVisionCapturePresented {
+            return 6
+        }
+        #endif
+        return circleErrorRingWidth
+    }
+
+#if os(iOS)
+    private var usesCompactVisionCaptureControls: Bool {
+        viewModel.isVisionCapturePresented && (horizontalSizeClass == .compact || verticalSizeClass == .compact)
+    }
+#else
+    private var usesCompactVisionCaptureControls: Bool {
+        false
+    }
+#endif
+
+    private var overlayControlPickerMaxWidth: CGFloat {
+        if isVisionSceneStyle { return 360 }
+        return usesCompactVisionCaptureControls ? 252 : 320
+    }
+
+    private var overlayControlHorizontalPadding: CGFloat {
+        if isVisionSceneStyle { return 20 }
+        return usesCompactVisionCaptureControls ? 10 : 16
+    }
+
+    private var overlayControlVerticalPadding: CGFloat {
+        if isVisionSceneStyle { return 14 }
+        return usesCompactVisionCaptureControls ? 7 : 12
+    }
+
+    private var overlayCameraButtonSize: CGFloat {
+        usesCompactVisionCaptureControls ? 34 : 38
+    }
+
+    private var overlayControlCornerRadius: CGFloat {
+        usesCompactVisionCaptureControls ? 18 : 22
+    }
+
+    private var compactVisionControlOverlayHeight: CGFloat {
+        58
+    }
+
+    private var compactVisionTopTrailingReservedWidth: CGFloat {
+        52
+    }
+
     var body: some View {
         ZStack {
             AppBackgroundView()
@@ -155,9 +219,8 @@ struct RealtimeVoiceOverlayView: View {
         }
 #else
         .safeAreaInset(edge: .bottom) {
-            AppLiquidGlassContainer(spacing: 20) {
-                overlayControlStrip
-                    .padding(.bottom, 8)
+            if !usesCompactVisionCaptureControls {
+                bottomControlContainer
             }
         }
 #endif
@@ -175,9 +238,24 @@ struct RealtimeVoiceOverlayView: View {
                 .zIndex(0)
             }
         }
+#if !os(visionOS)
+        .overlay(alignment: .bottom) {
+            if usesCompactVisionCaptureControls {
+                bottomControlContainer
+                    .padding(.horizontal, 6)
+                    .padding(.bottom, 6)
+                    .zIndex(2)
+            }
+        }
+#endif
         .onChange(of: viewModel.state) { oldState, newState in
             handleStateChange(from: oldState, to: newState)
         }
+#if os(iOS) || os(macOS)
+        .onChange(of: viewModel.isVisionCapturePresented) { _, _ in
+            handleVisionCapturePresentationChange()
+        }
+#endif
         .onReceive(viewModel.inputLevelPublisher) { newLevel in
             handleInputLevelChange(newLevel)
         }
@@ -207,19 +285,88 @@ struct RealtimeVoiceOverlayView: View {
                 .padding(.horizontal, closeButtonHorizontalPadding)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+            .zIndex(3)
             #endif
 
-            VStack(spacing: 18) {
-                voiceControl
-
-                if let message = overlayErrorText {
-                    reconnectMessage(message)
-                }
+            #if os(iOS) || os(macOS)
+            if viewModel.isVisionCapturePresented {
+                inlineVisionLayout
+            } else {
+                centeredVoiceLayout
             }
-            .animation(stateAnimation, value: viewModel.state)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+            #else
+            centeredVoiceLayout
+            #endif
         }
     }
+
+    private var centeredVoiceLayout: some View {
+        VStack(spacing: 18) {
+            voiceControl
+
+            if let message = overlayErrorText {
+                reconnectMessage(message)
+            }
+        }
+        .animation(stateAnimation, value: viewModel.state)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+    }
+
+#if os(iOS) || os(macOS)
+    private var inlineVisionLayout: some View {
+        GeometryReader { proxy in
+            let isStacked = proxy.size.width < 720 || proxy.size.height < 560
+            let isCompactControls = usesCompactVisionCaptureControls
+            let topPadding: CGFloat = isCompactControls ? 6 : (isStacked ? 42 : 70)
+            let horizontalPadding: CGFloat = isCompactControls ? 6 : (isStacked ? 18 : 28)
+            let bottomPadding: CGFloat = isCompactControls ? 6 : 116
+            let voiceBottomPadding: CGFloat = isCompactControls ? (compactVisionControlOverlayHeight + 10) : 10
+            let topTrailingReservedWidth: CGFloat = isCompactControls ? compactVisionTopTrailingReservedWidth : 0
+            Group {
+                if isStacked {
+                    ZStack(alignment: .bottom) {
+                        VoiceVisionCameraView(
+                            viewModel: viewModel,
+                            isCompactLayout: isCompactControls,
+                            topTrailingReservedWidth: topTrailingReservedWidth
+                        )
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+                        inlineVisionVoiceCluster
+                            .frame(maxWidth: .infinity)
+                            .padding(.horizontal, isCompactControls ? 6 : 10)
+                            .padding(.bottom, voiceBottomPadding)
+                    }
+                } else {
+                    HStack(spacing: 18) {
+                        inlineVisionVoiceCluster
+                            .frame(width: 154)
+
+                        VoiceVisionCameraView(viewModel: viewModel, isCompactLayout: false)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    }
+                }
+            }
+            .padding(.top, topPadding)
+            .padding(.horizontal, horizontalPadding)
+            .padding(.bottom, bottomPadding)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .animation(stateAnimation, value: viewModel.state)
+        }
+    }
+
+    private var inlineVisionVoiceCluster: some View {
+        VStack(spacing: 8) {
+            voiceControl
+
+            if let message = overlayErrorText {
+                reconnectMessage(message)
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 8)
+    }
+#endif
 
     @ViewBuilder
     private var visionSceneLayout: some View {
@@ -259,7 +406,7 @@ struct RealtimeVoiceOverlayView: View {
             let cutoutProgress = circleCutoutProgress
             VoiceControlCircleShape(
                 cutoutProgress: cutoutProgress,
-                ringThickness: circleErrorRingWidth
+                ringThickness: activeCircleErrorRingWidth
             )
             .fill(circleVisualColor, style: FillStyle(eoFill: true))
             .frame(width: diameter, height: diameter)
@@ -306,24 +453,56 @@ struct RealtimeVoiceOverlayView: View {
         .contentShape(Rectangle())
     }
 
+    private var bottomControlContainer: some View {
+        AppLiquidGlassContainer(spacing: 20) {
+            overlayControlStrip
+                .padding(.bottom, usesCompactVisionCaptureControls ? 0 : 8)
+        }
+    }
+
     private var overlayControlStrip: some View {
         VStack(spacing: 16) {
-            Picker("", selection: Binding(
-                get: { viewModel.selectedLanguage },
-                set: { viewModel.updateLanguage($0) }
-            )) {
-                ForEach(viewModel.availableLanguages) { language in
-                    Text(language.defaultDisplayName).tag(language)
+            HStack(spacing: usesCompactVisionCaptureControls ? 8 : 10) {
+                Picker("", selection: Binding(
+                    get: { viewModel.selectedLanguage },
+                    set: { viewModel.updateLanguage($0) }
+                )) {
+                    ForEach(viewModel.availableLanguages) { language in
+                        Text(language.defaultDisplayName).tag(language)
+                    }
                 }
+                .pickerStyle(.segmented)
+                .frame(maxWidth: overlayControlPickerMaxWidth)
+
+#if os(iOS) || os(macOS)
+                if viewModel.isVisionCaptureAvailable {
+                    Button {
+#if os(iOS)
+                        AppHaptics.trigger(.selection)
+#endif
+                        if viewModel.isVisionCapturePresented {
+                            viewModel.dismissVisionCapture()
+                        } else {
+                            viewModel.presentVisionCapture()
+                        }
+                    } label: {
+                        Image(systemName: viewModel.isVisionCapturePresented ? "camera.viewfinder" : "camera.fill")
+                            .font(.system(size: 17, weight: .semibold))
+                            .frame(width: overlayCameraButtonSize, height: overlayCameraButtonSize)
+                            .contentShape(Circle())
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(ChatTheme.accent)
+                    .accessibilityLabel(viewModel.isVisionCapturePresented ? "Close voice vision camera" : "Open voice vision camera")
+                }
+#endif
             }
-            .pickerStyle(.segmented)
-            .frame(maxWidth: isVisionSceneStyle ? 360 : 320)
-            .padding(.horizontal, isVisionSceneStyle ? 20 : 16)
-            .padding(.vertical, isVisionSceneStyle ? 14 : 12)
+            .padding(.horizontal, overlayControlHorizontalPadding)
+            .padding(.vertical, overlayControlVerticalPadding)
 #if os(visionOS)
             .glassBackgroundEffect(in: Capsule(style: .continuous), displayMode: .always)
 #else
-            .appChromedContainer(cornerRadius: 22, shadowOpacity: 0.32)
+            .appChromedContainer(cornerRadius: overlayControlCornerRadius, shadowOpacity: 0.32)
 #endif
         }
         .frame(maxWidth: .infinity)
@@ -637,6 +816,16 @@ struct RealtimeVoiceOverlayView: View {
             errorCutoutProgress = circleTargetCutoutProgress(for: newState)
         }
     }
+
+#if os(iOS) || os(macOS)
+    private func handleVisionCapturePresentationChange() {
+        endCirclePressVisualState()
+        withAnimation(stateAnimation) {
+            displayedCircleDiameter = circleTargetDiameter(for: viewModel.state)
+            displayedCircleLevelScale = circleTargetLevelScale(for: viewModel.state)
+        }
+    }
+#endif
 
     private func handleInputLevelChange(_ newLevel: Double) {
         guard viewModel.state == .listening else { return }
