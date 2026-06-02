@@ -1,7 +1,14 @@
 RaTeX — third-party notices
 ===========================
 
-KaTeX fonts (KaTeX_*.ttf)
+KaTeX font files (KaTeX_*.ttf)
 License: SIL Open Font License, Version 1.1
 Notice: licenses/KaTeX-fonts-NOTICE.txt
 Full license text: licenses/SIL-OFL-1.1.txt
+
+These TrueType fonts are taken from the KaTeX project:
+  https://github.com/KaTeX/KaTeX
+
+KaTeX's own MIT license applies to its software, not to the font binaries;
+font licensing follows OFL as described in KaTeX's documentation and upstream
+repository.
