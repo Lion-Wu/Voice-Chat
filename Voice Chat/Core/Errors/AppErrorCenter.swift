@@ -6,7 +6,7 @@
 //
 
 import Foundation
-import SwiftUI
+import Combine
 
 /// Lightweight value used by the UI to render error notices without blocking the user.
 struct AppErrorNotice: Identifiable, Equatable {
@@ -28,25 +28,69 @@ struct AppErrorNotice: Identifiable, Equatable {
     let timestamp: Date
     let severity: Severity
 
-    var iconName: String {
-        switch category {
-        case .textModel: return "network.slash"
-        case .tts: return "waveform.badge.exclamationmark"
-        case .realtimeVoice: return "mic.slash"
-        }
-    }
+}
 
-    var tint: Color {
-        switch category {
-        case .textModel: return .orange
-        case .tts: return .red
-        case .realtimeVoice: return .pink
-        }
+@MainActor
+protocol AppNoticePublishing: AnyObject {
+    var notices: [AppErrorNotice] { get }
+
+    func publish(
+        title: String,
+        message: String,
+        category: AppErrorNotice.Category,
+        severity: AppErrorNotice.Severity,
+        autoDismiss: TimeInterval
+    )
+
+    func publishCritical(title: String, message: String, category: AppErrorNotice.Category)
+    func clear(category: AppErrorNotice.Category?)
+    func isDismissed(for category: AppErrorNotice.Category) -> Bool
+}
+
+extension AppNoticePublishing {
+    func publish(
+        title: String,
+        message: String,
+        category: AppErrorNotice.Category,
+        autoDismiss: TimeInterval
+    ) {
+        publish(
+            title: title,
+            message: message,
+            category: category,
+            severity: .banner,
+            autoDismiss: autoDismiss
+        )
     }
 }
 
 @MainActor
-final class AppErrorCenter: ObservableObject {
+final class NoopAppNoticePublisher: AppNoticePublishing {
+    static let shared = NoopAppNoticePublisher()
+
+    var notices: [AppErrorNotice] { [] }
+
+    private init() {}
+
+    func publish(
+        title: String,
+        message: String,
+        category: AppErrorNotice.Category,
+        severity: AppErrorNotice.Severity,
+        autoDismiss: TimeInterval
+    ) {}
+
+    func publishCritical(title: String, message: String, category: AppErrorNotice.Category) {}
+
+    func clear(category: AppErrorNotice.Category?) {}
+
+    func isDismissed(for category: AppErrorNotice.Category) -> Bool {
+        false
+    }
+}
+
+@MainActor
+final class AppErrorCenter: ObservableObject, AppNoticePublishing {
     static let shared = AppErrorCenter()
 
     @Published private(set) var notices: [AppErrorNotice] = []
@@ -54,7 +98,6 @@ final class AppErrorCenter: ObservableObject {
 
     private var dismissTasks: [UUID: Task<Void, Never>] = [:]
     private let maxItems: Int = 4
-    private let noticeAnimation = Animation.spring(response: 0.35, dampingFraction: 0.9)
 
     private init() {}
 
@@ -82,9 +125,7 @@ final class AppErrorCenter: ObservableObject {
                 timestamp: Date(),
                 severity: severity
             )
-            withAnimation(noticeAnimation) {
-                notices[idx] = notice
-            }
+            notices[idx] = notice
         } else {
             notice = AppErrorNotice(
                 id: UUID(),
@@ -94,9 +135,7 @@ final class AppErrorCenter: ObservableObject {
                 timestamp: Date(),
                 severity: severity
             )
-            withAnimation(noticeAnimation) {
-                notices.insert(notice, at: 0)
-            }
+            notices.insert(notice, at: 0)
             pruneIfNeeded()
         }
 
@@ -114,15 +153,11 @@ final class AppErrorCenter: ObservableObject {
             removedIDs = notices
                 .filter { $0.category == category }
                 .map(\.id)
-            withAnimation(noticeAnimation) {
-                notices.removeAll { $0.category == category }
-            }
+            notices.removeAll { $0.category == category }
             dismissedCategories.remove(category)
         } else {
             removedIDs = notices.map(\.id)
-            withAnimation(noticeAnimation) {
-                notices.removeAll()
-            }
+            notices.removeAll()
             dismissedCategories.removeAll()
         }
         for id in removedIDs {
@@ -143,9 +178,7 @@ final class AppErrorCenter: ObservableObject {
     }
 
     private func dismiss(byID id: UUID) {
-        withAnimation(noticeAnimation) {
-            notices.removeAll { $0.id == id }
-        }
+        notices.removeAll { $0.id == id }
         dismissTasks[id]?.cancel()
         dismissTasks[id] = nil
     }
@@ -156,9 +189,7 @@ final class AppErrorCenter: ObservableObject {
             for item in overflow {
                 dismissTasks[item.id]?.cancel()
             }
-            withAnimation(noticeAnimation) {
-                notices = Array(notices.prefix(maxItems))
-            }
+            notices = Array(notices.prefix(maxItems))
         }
     }
 

@@ -142,14 +142,16 @@ final class RealtimeVoiceWindowController: NSObject, NSWindowDelegate {
                 object: window,
                 queue: .main
             ) { _ in
-                Task { @MainActor [weak self] in
-                    guard let self else { return }
-                    self.isWaitingForMainWindowExitFullScreen = false
-                    if let observer = self.mainWindowExitFullScreenObserver {
-                        NotificationCenter.default.removeObserver(observer)
-                        self.mainWindowExitFullScreenObserver = nil
+                Task {
+                    await MainActor.run { [weak self] in
+                        guard let self else { return }
+                        self.isWaitingForMainWindowExitFullScreen = false
+                        if let observer = self.mainWindowExitFullScreenObserver {
+                            NotificationCenter.default.removeObserver(observer)
+                            self.mainWindowExitFullScreenObserver = nil
+                        }
+                        self.handleMainWindowExitedFullScreen()
                     }
-                    self.handleMainWindowExitedFullScreen()
                 }
             }
             // Exit full screen before hiding to avoid leaving an empty Space.

@@ -11,27 +11,27 @@ import Network
 /// Performs lightweight reachability checks for the text-generation and TTS servers.
 @MainActor
 final class ServerReachabilityMonitor: ObservableObject {
-    static let shared = ServerReachabilityMonitor()
-
-    private let errorCenter = AppErrorCenter.shared
+    private let noticePublisher: any AppNoticePublishing
     @Published private(set) var isChatReachable: Bool?
     @Published private(set) var isTTSReachable: Bool?
 
     private var monitorTask: Task<Void, Never>?
     private let pollInterval: TimeInterval = 5
 
-    private init() {}
+    init(noticePublisher: any AppNoticePublishing = NoopAppNoticePublisher.shared) {
+        self.noticePublisher = noticePublisher
+    }
 
     /// Starts periodic reachability checks (immediately, then on an interval).
-    func startMonitoring(settings: SettingsManager) {
+    func startMonitoring(snapshotProvider: @escaping @MainActor () -> ServerReachabilitySnapshot) {
         monitorTask?.cancel()
         monitorTask = Task { [weak self] in
             guard let self else { return }
             // Immediate check without waiting.
-            await self.checkAll(settings: settings)
+            await self.checkAll(snapshot: snapshotProvider())
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(pollInterval))
-                await self.checkAll(settings: settings)
+                await self.checkAll(snapshot: snapshotProvider())
             }
         }
     }
@@ -42,18 +42,15 @@ final class ServerReachabilityMonitor: ObservableObject {
     }
 
     /// Checks both chat and TTS endpoints and surfaces banners when unreachable.
-    func checkAll(settings: SettingsManager) async {
-        let chatBase = settings.chatSettings.apiURL
-        let ttsBase  = settings.serverSettings.serverAddress
-
-        await check(chatBase: chatBase)
-        await checkTTS(ttsBase: ttsBase)
+    func checkAll(snapshot: ServerReachabilitySnapshot) async {
+        await check(chatBase: snapshot.chatBaseURL)
+        await checkTTS(ttsBase: snapshot.ttsBaseURL)
     }
 
     /// Clears existing notices for the given category when connectivity is restored.
     private func clear(_ category: AppErrorNotice.Category) async {
         await MainActor.run {
-            self.errorCenter.clear(category: category)
+            self.noticePublisher.clear(category: category)
         }
     }
 
@@ -70,7 +67,7 @@ final class ServerReachabilityMonitor: ObservableObject {
             await MainActor.run {
                 self.isChatReachable = false
                 if self.shouldPublishNotice(for: .textModel) {
-                    self.errorCenter.publishCritical(
+                    self.noticePublisher.publishCritical(
                         title: NSLocalizedString("Text server unreachable", comment: "Shown when the LLM endpoint cannot be reached"),
                         message: friendlyMessage(for: error, base: chatBase),
                         category: .textModel
@@ -93,7 +90,7 @@ final class ServerReachabilityMonitor: ObservableObject {
             await MainActor.run {
                 self.isTTSReachable = false
                 if self.shouldPublishNotice(for: .tts) {
-                    self.errorCenter.publishCritical(
+                    self.noticePublisher.publishCritical(
                         title: NSLocalizedString("TTS server unreachable", comment: "Shown when the TTS endpoint cannot be reached"),
                         message: friendlyMessage(for: error, base: ttsBase),
                         category: .tts
@@ -203,7 +200,7 @@ final class ServerReachabilityMonitor: ObservableObject {
 
     private func shouldPublishNotice(for category: AppErrorNotice.Category) -> Bool {
         // Avoid re-publishing if the same category is already displayed or was dismissed and not yet resolved.
-        guard !errorCenter.isDismissed(for: category) else { return false }
-        return !errorCenter.notices.contains(where: { $0.category == category })
+        guard !noticePublisher.isDismissed(for: category) else { return false }
+        return !noticePublisher.notices.contains(where: { $0.category == category })
     }
 }

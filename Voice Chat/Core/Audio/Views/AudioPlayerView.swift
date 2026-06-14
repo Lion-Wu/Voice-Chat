@@ -44,11 +44,11 @@ struct AudioPlayerView: View {
     }
 
     private var hasLoadedAudioChunk: Bool {
-        audioManager.audioChunks.contains { $0 != nil }
+        audioManager.audioPlaybackSnapshot.hasLoadedAudioChunk
     }
 
     private var hasSeekableAudio: Bool {
-        visibleTotalDuration > 0.0005 || audioManager.chunkDurations.contains { $0 > 0.0005 }
+        visibleTotalDuration > 0.0005 || audioManager.audioPlaybackSnapshot.hasSeekableAudio
     }
 
     private var shouldDisableSeekControls: Bool {

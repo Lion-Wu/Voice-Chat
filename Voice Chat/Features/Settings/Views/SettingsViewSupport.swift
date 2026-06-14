@@ -40,3 +40,21 @@ extension View {
         #endif
     }
 }
+
+struct SettingsSectionHeader: View {
+    let title: LocalizedStringKey
+
+    init(_ title: LocalizedStringKey) {
+        self.title = title
+    }
+
+    var body: some View {
+        #if os(macOS)
+        Text(title)
+            .font(.headline)
+            .textCase(.none)
+        #else
+        Text(title)
+        #endif
+    }
+}

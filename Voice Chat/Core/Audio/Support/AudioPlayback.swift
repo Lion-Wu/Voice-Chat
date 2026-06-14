@@ -10,51 +10,39 @@ import AVFoundation
 
 @MainActor
 extension GlobalAudioManager {
+    private func playbackStateSnapshot() -> TTSPlaybackState {
+        TTSPlaybackState(
+            textSegmentCount: textSegments.count,
+            audioChunkIsLoaded: audioChunks.map { $0 != nil },
+            chunkDurations: chunkDurations,
+            skippedAudioChunkIndexes: skippedAudioChunkIndexes,
+            currentChunkIndex: currentChunkIndex,
+            currentTime: currentTime,
+            totalDuration: totalDuration,
+            endEpsilon: endEpsilon,
+            isRealtimeMode: isRealtimeMode
+        )
+    }
 
     // MARK: - Segment Time Helpers
     func findSegmentIndex(for time: TimeInterval) -> Int {
-        if chunkDurations.isEmpty { return 0 }
-        var cum: TimeInterval = 0
-        for i in 0..<chunkDurations.count {
-            let dur = max(0, chunkDurations[i])
-            if dur == 0 {
-                if time <= cum + 0.001 { return i }
-            } else {
-                if time < cum + dur { return i }
-                cum += dur
-            }
-        }
-        return max(0, chunkDurations.count - 1)
+        playbackStateSnapshot().findSegmentIndex(for: time)
     }
 
     func startTime(forSegment idx: Int) -> TimeInterval {
-        guard idx > 0, idx <= chunkDurations.count else { return 0 }
-        var sum: TimeInterval = 0
-        for i in 0..<idx {
-            sum += max(0, chunkDurations[i])
-        }
-        return sum
+        playbackStateSnapshot().startTime(forSegment: idx)
     }
 
     func allChunksLoaded() -> Bool {
-        audioChunks.indices.allSatisfy { index in
-            audioChunks[index] != nil || skippedAudioChunkIndexes.contains(index)
-        }
+        playbackStateSnapshot().allChunksLoaded
     }
 
     func playbackFinished() -> Bool {
-        if !isRealtimeMode,
-           !audioChunks.isEmpty,
-           allChunksLoaded(),
-           totalDuration <= endEpsilon,
-           currentChunkIndex >= textSegments.count {
-            return true
-        }
-        return totalDuration > 0 && allChunksLoaded() && currentTime >= max(0, totalDuration - endEpsilon)
+        playbackStateSnapshot().playbackFinished
     }
 
     func recalcTotalDuration() {
-        totalDuration = chunkDurations.reduce(0) { $0 + max(0, $1) }
+        totalDuration = playbackStateSnapshot().calculatedTotalDuration
     }
 
     // MARK: - Finish

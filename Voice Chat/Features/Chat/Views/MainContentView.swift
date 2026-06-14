@@ -61,20 +61,26 @@ struct MainContentView: View {
 #Preview {
     let speechManager = SpeechInputManager()
     let audio = GlobalAudioManager.shared
-    let chatSessions = ChatSessionsViewModel()
+    let settingsManager = SettingsManager.shared
+    let reachabilityMonitor = ServerReachabilityMonitor.shared
+    let chatSessions = ChatSessionsViewModel(
+        settingsManager: settingsManager,
+        reachability: reachabilityMonitor,
+        audioManager: audio
+    )
     let overlayVM = VoiceChatOverlayViewModel(
         speechInputManager: speechManager,
         audioManager: audio,
         errorCenter: AppErrorCenter.shared,
-        settingsManager: SettingsManager.shared,
-        reachabilityMonitor: ServerReachabilityMonitor.shared
+        settingsManager: settingsManager,
+        reachabilityMonitor: reachabilityMonitor
     )
 
     MainContentView(onToggleSidebar: {})
         .modelContainer(for: [ChatSession.self, ChatMessage.self, AppSettings.self], inMemory: true)
         .environmentObject(chatSessions)
         .environmentObject(audio)
-        .environmentObject(SettingsManager.shared)
+        .environmentObject(settingsManager)
         .environmentObject(speechManager)
         .environmentObject(overlayVM)
         .environmentObject(AppErrorCenter.shared)

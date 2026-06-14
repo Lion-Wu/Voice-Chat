@@ -7,6 +7,24 @@
 
 import SwiftUI
 
+private extension AppErrorNotice {
+    var iconName: String {
+        switch category {
+        case .textModel: return "network.slash"
+        case .tts: return "waveform.badge.exclamationmark"
+        case .realtimeVoice: return "mic.slash"
+        }
+    }
+
+    var tint: Color {
+        switch category {
+        case .textModel: return .orange
+        case .tts: return .red
+        case .realtimeVoice: return .pink
+        }
+    }
+}
+
 /// Non-modal stack of floating error banners shared between chat and realtime voice surfaces.
 struct ErrorNoticeStack: View {
     let notices: [AppErrorNotice]

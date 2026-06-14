@@ -140,13 +140,21 @@ private extension ContentView {
 
 #Preview {
     let speechManager = SpeechInputManager()
-    let chatSessions = ChatSessionsViewModel()
+    let audioManager = GlobalAudioManager.shared
+    let settingsManager = SettingsManager.shared
+    let reachabilityMonitor = ServerReachabilityMonitor.shared
+    let chatSessions = ChatSessionsViewModel(
+        settingsManager: settingsManager,
+        reachability: reachabilityMonitor,
+        audioManager: audioManager
+    )
     let appEnvironment = AppEnvironment(
-        audioManager: GlobalAudioManager.shared,
-        settingsManager: SettingsManager.shared,
+        audioManager: audioManager,
+        settingsManager: settingsManager,
         chatSessionsViewModel: chatSessions,
         speechInputManager: speechManager,
-        errorCenter: AppErrorCenter.shared
+        errorCenter: AppErrorCenter.shared,
+        reachabilityMonitor: reachabilityMonitor
     )
 
     ContentView()
@@ -163,13 +171,21 @@ private extension ContentView {
 #if os(visionOS)
 #Preview("Vision Voice Session") {
     let speechManager = SpeechInputManager()
-    let chatSessions = ChatSessionsViewModel()
+    let audioManager = GlobalAudioManager.shared
+    let settingsManager = SettingsManager.shared
+    let reachabilityMonitor = ServerReachabilityMonitor.shared
+    let chatSessions = ChatSessionsViewModel(
+        settingsManager: settingsManager,
+        reachability: reachabilityMonitor,
+        audioManager: audioManager
+    )
     let appEnvironment = AppEnvironment(
-        audioManager: GlobalAudioManager.shared,
-        settingsManager: SettingsManager.shared,
+        audioManager: audioManager,
+        settingsManager: settingsManager,
         chatSessionsViewModel: chatSessions,
         speechInputManager: speechManager,
-        errorCenter: AppErrorCenter.shared
+        errorCenter: AppErrorCenter.shared,
+        reachabilityMonitor: reachabilityMonitor
     )
 
     appEnvironment.voiceOverlayViewModel.isPresented = true
