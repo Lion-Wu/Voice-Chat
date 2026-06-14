@@ -7,65 +7,6 @@
 
 import SwiftUI
 
-private enum SidebarTimeSection: Int, CaseIterable, Identifiable {
-    case today
-    case yesterday
-    case last7Days
-    case last30Days
-    case pastYear
-    case older
-
-    var id: Int { rawValue }
-
-    var title: LocalizedStringKey {
-        switch self {
-        case .today:
-            return "Today"
-        case .yesterday:
-            return "Yesterday"
-        case .last7Days:
-            return "Last 7 Days"
-        case .last30Days:
-            return "Last 30 Days"
-        case .pastYear:
-            return "Past Year"
-        case .older:
-            return "Older"
-        }
-    }
-
-    static func from(_ date: Date, calendar: Calendar = .autoupdatingCurrent) -> SidebarTimeSection {
-        if calendar.isDateInToday(date) {
-            return .today
-        }
-        if calendar.isDateInYesterday(date) {
-            return .yesterday
-        }
-
-        let startOfToday = calendar.startOfDay(for: Date())
-        if let sevenDaysAgo = calendar.date(byAdding: .day, value: -7, to: startOfToday),
-           date >= sevenDaysAgo {
-            return .last7Days
-        }
-        if let thirtyDaysAgo = calendar.date(byAdding: .day, value: -30, to: startOfToday),
-           date >= thirtyDaysAgo {
-            return .last30Days
-        }
-        if let oneYearAgo = calendar.date(byAdding: .year, value: -1, to: startOfToday),
-           date >= oneYearAgo {
-            return .pastYear
-        }
-        return .older
-    }
-}
-
-private struct SidebarSessionGroup: Identifiable {
-    let section: SidebarTimeSection
-    let sessions: [ChatSession]
-
-    var id: SidebarTimeSection { section }
-}
-
 struct SidebarView: View {
     @EnvironmentObject var chatSessionsViewModel: ChatSessionsViewModel
 
@@ -99,21 +40,6 @@ struct SidebarView: View {
 
     private var shouldShowSidebarSearchLoading: Bool {
         isSidebarSearchLoading && !visibleSearchKeyword.isEmpty
-    }
-
-    private func groupedSessions(_ sessions: [ChatSession]) -> [SidebarSessionGroup] {
-        let calendar = Calendar.autoupdatingCurrent
-        var grouped: [SidebarTimeSection: [ChatSession]] = [:]
-
-        for session in sessions {
-            let section = SidebarTimeSection.from(session.lastActivityAt, calendar: calendar)
-            grouped[section, default: []].append(session)
-        }
-
-        return SidebarTimeSection.allCases.compactMap { section in
-            guard let sessions = grouped[section], !sessions.isEmpty else { return nil }
-            return SidebarSessionGroup(section: section, sessions: sessions)
-        }
     }
 
     @ViewBuilder
@@ -207,7 +133,7 @@ struct SidebarView: View {
             let normalizedQuery = chatSessionsViewModel.normalizedSidebarSearchQuery(requestedKeyword)
             if normalizedQuery.isEmpty {
                 isSidebarSearchLoading = false
-                sidebarGroups = groupedSessions(chatSessionsViewModel.chatSessions)
+                sidebarGroups = SidebarSessionGrouping.groupedSessions(chatSessionsViewModel.chatSessions)
                 visibleSearchKeyword = requestedKeyword
                 return
             }
@@ -231,7 +157,7 @@ struct SidebarView: View {
 
                 if !newMatches.isEmpty {
                     matchedSessions.append(contentsOf: newMatches)
-                    sidebarGroups = groupedSessions(matchedSessions)
+                    sidebarGroups = SidebarSessionGrouping.groupedSessions(matchedSessions)
                 }
 
                 startIndex = endIndex
@@ -426,7 +352,9 @@ struct SidebarView: View {
         .listStyle(.sidebar)
         .searchable(text: $searchText, placement: .sidebar, prompt: Text("Search Chats"))
         #if os(macOS)
-        .safeAreaInset(edge: .bottom) { macSettingsFooter }
+        .safeAreaInset(edge: .bottom) {
+            SidebarSettingsFooter(style: .mac, onOpenSettings: onOpenSettings)
+        }
         #endif
     }
 
@@ -495,9 +423,13 @@ struct SidebarView: View {
             .listStyle(.plain)
             #endif
         }
-        .safeAreaInset(edge: .top, spacing: 0) { iosSearchHeaderContainer }
+        .safeAreaInset(edge: .top, spacing: 0) {
+            SidebarSearchHeader(style: .touch, searchText: $searchText)
+        }
         #if os(iOS) || os(tvOS)
-        .safeAreaInset(edge: .bottom) { iosSettingsFooter }
+        .safeAreaInset(edge: .bottom) {
+            SidebarSettingsFooter(style: .touch, onOpenSettings: onOpenSettings)
+        }
         #endif
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
@@ -554,96 +486,11 @@ struct SidebarView: View {
         }
         .listStyle(.sidebar)
         .safeAreaInset(edge: .top, spacing: 10) {
-            visionSearchHeaderContainer
+            SidebarSearchHeader(style: .vision, searchText: $searchText)
         }
         .safeAreaInset(edge: .bottom) {
-            visionSettingsFooter
+            SidebarSettingsFooter(style: .vision, onOpenSettings: onOpenSettings)
         }
-    }
-
-    private var iosSearchHeaderContainer: some View {
-        VStack(spacing: 0) {
-            iosSearchHeader
-        }
-        .frame(maxWidth: .infinity)
-        .background(.ultraThinMaterial)
-        .overlay(alignment: .bottom) {
-            Divider()
-                .overlay(ChatTheme.separator)
-        }
-    }
-
-    private var visionSearchHeaderContainer: some View {
-        VStack(spacing: 0) {
-            visionSearchHeader
-        }
-        .frame(maxWidth: .infinity)
-        .background(.bar)
-        .overlay(alignment: .bottom) {
-            Divider()
-                .overlay(ChatTheme.separator)
-        }
-    }
-
-    private var iosSearchHeader: some View {
-        HStack(spacing: 8) {
-            Image(systemName: "magnifyingglass")
-                .foregroundStyle(.secondary)
-            TextField("Search Chats", text: $searchText)
-                .textFieldStyle(.plain)
-#if os(iOS) || os(tvOS)
-                .textInputAutocapitalization(.never)
-                .disableAutocorrection(true)
-#endif
-
-            if !searchText.isEmpty {
-                Button {
-                    searchText = ""
-                } label: {
-                    Image(systemName: "xmark.circle.fill")
-                        .foregroundStyle(.secondary)
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel(Text("Clear Search"))
-            }
-        }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 10)
-        .appChromedContainer(cornerRadius: 18, interactive: true, shadowOpacity: 0.42)
-        .padding(.horizontal, 16)
-        .padding(.top, 6)
-        .padding(.bottom, 8)
-    }
-
-    @ViewBuilder
-    private var visionSearchHeader: some View {
-        #if os(visionOS)
-        HStack(spacing: 8) {
-            Image(systemName: "magnifyingglass")
-                .foregroundStyle(.secondary)
-            TextField("Search Chats", text: $searchText)
-                .textFieldStyle(.plain)
-
-            if !searchText.isEmpty {
-                Button {
-                    searchText = ""
-                } label: {
-                    Image(systemName: "xmark.circle.fill")
-                        .foregroundStyle(.secondary)
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel(Text("Clear Search"))
-            }
-        }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 10)
-        .glassBackgroundEffect(in: RoundedRectangle(cornerRadius: 18, style: .continuous), displayMode: .always)
-        .padding(.horizontal, 20)
-        .padding(.top, 14)
-        .padding(.bottom, 12)
-        #else
-        iosSearchHeader
-        #endif
     }
 
     private func sessionInitials(_ session: ChatSession) -> String {
@@ -733,162 +580,18 @@ struct SidebarView: View {
         #endif
     }
 
-    private var sidebarSettingsCornerRadius: CGFloat {
-        #if os(macOS)
-        return 22
-        #else
-        return 18
-        #endif
-    }
-
-    private var sidebarSettingsOuterHorizontalPadding: CGFloat {
-        #if os(macOS)
-        return 12
-        #elseif os(visionOS)
-        return 20
-        #else
-        return 16
-        #endif
-    }
-
-    private var sidebarSettingsOuterVerticalPadding: CGFloat {
-        #if os(macOS)
-        return 6
-        #elseif os(visionOS)
-        return 12
-        #else
-        return 8
-        #endif
-    }
-
-    private var sidebarSettingsInnerHorizontalPadding: CGFloat {
-        #if os(macOS)
-        return 14
-        #elseif os(visionOS)
-        return 16
-        #else
-        return 12
-        #endif
-    }
-
-    private var sidebarSettingsInnerVerticalPadding: CGFloat {
-        #if os(macOS)
-        return 7
-        #elseif os(visionOS)
-        return 12
-        #else
-        return 10
-        #endif
-    }
-
-    @ViewBuilder
-    private var sidebarSettingsLabel: some View {
-        HStack(spacing: 10) {
-            Spacer(minLength: 0)
-
-            Image(systemName: "gear")
-                .font(.system(size: 15, weight: .semibold))
-                .foregroundStyle(.primary)
-
-            Text("Settings")
-                .font(.body.weight(.semibold))
-                .foregroundStyle(.primary)
-
-            Spacer(minLength: 0)
-        }
-        .padding(.horizontal, sidebarSettingsInnerHorizontalPadding)
-        .padding(.vertical, sidebarSettingsInnerVerticalPadding)
-        .frame(maxWidth: .infinity)
-        .contentShape(RoundedRectangle(cornerRadius: sidebarSettingsCornerRadius, style: .continuous))
-    }
-
-    #if os(macOS)
-    private var macSettingsFooter: some View {
-        VStack(spacing: 0) {
-            Divider()
-            if #available(macOS 26.0, *) {
-                SettingsLink {
-                    sidebarSettingsLabel
-                }
-                .buttonStyle(.glass)
-                .buttonBorderShape(.roundedRectangle(radius: sidebarSettingsCornerRadius))
-                .controlSize(.mini)
-                .padding(.horizontal, sidebarSettingsOuterHorizontalPadding)
-                .padding(.vertical, sidebarSettingsOuterVerticalPadding)
-            } else {
-                SettingsLink {
-                    sidebarSettingsLabel
-                        .appChromedContainer(
-                            cornerRadius: sidebarSettingsCornerRadius,
-                            interactive: true,
-                            shadowOpacity: 0.24
-                        )
-                        .contentShape(RoundedRectangle(cornerRadius: sidebarSettingsCornerRadius, style: .continuous))
-                        .padding(.horizontal, sidebarSettingsOuterHorizontalPadding)
-                        .padding(.vertical, sidebarSettingsOuterVerticalPadding)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .controlSize(.mini)
-            }
-        }
-        .background(.bar)
-    }
-    #else
-    private var iosSettingsFooter: some View {
-        VStack(spacing: 10) {
-            if #available(iOS 26.0, *) {
-                Button(action: onOpenSettings) {
-                    sidebarSettingsLabel
-                }
-                .appGlassButtonStyle()
-                .buttonBorderShape(.roundedRectangle(radius: sidebarSettingsCornerRadius))
-                .padding(.horizontal, sidebarSettingsOuterHorizontalPadding)
-            } else {
-                Button(action: onOpenSettings) {
-                    sidebarSettingsLabel
-                        .appChromedContainer(
-                            cornerRadius: sidebarSettingsCornerRadius,
-                            interactive: true,
-                            shadowOpacity: 0.44
-                        )
-                        .contentShape(RoundedRectangle(cornerRadius: sidebarSettingsCornerRadius, style: .continuous))
-                }
-                .buttonStyle(.plain)
-                .padding(.horizontal, sidebarSettingsOuterHorizontalPadding)
-            }
-        }
-        .padding(.vertical, 8)
-        .background(.thinMaterial)
-    }
-    #endif
-
-    private var visionSettingsFooter: some View {
-        VStack(spacing: 0) {
-            Divider()
-
-            Button(action: onOpenSettings) {
-                sidebarSettingsLabel
-                    .appChromedContainer(
-                        cornerRadius: sidebarSettingsCornerRadius,
-                        interactive: true,
-                        shadowOpacity: 0.24
-                    )
-                    .contentShape(RoundedRectangle(cornerRadius: sidebarSettingsCornerRadius, style: .continuous))
-            }
-            .buttonStyle(.plain)
-            .padding(.horizontal, sidebarSettingsOuterHorizontalPadding)
-            .padding(.vertical, sidebarSettingsOuterVerticalPadding)
-        }
-        .background(.bar)
-    }
 }
 
 #Preview {
+    let settingsManager = SettingsManager.shared
     SidebarView(
         onConversationTap: { _ in },
         onOpenSettings: {}
     )
     .modelContainer(for: [ChatSession.self, ChatMessage.self, AppSettings.self], inMemory: true)
-    .environmentObject(ChatSessionsViewModel())
+    .environmentObject(ChatSessionsViewModel(
+        settingsManager: settingsManager,
+        reachability: ServerReachabilityMonitor.shared,
+        audioManager: GlobalAudioManager.shared
+    ))
 }

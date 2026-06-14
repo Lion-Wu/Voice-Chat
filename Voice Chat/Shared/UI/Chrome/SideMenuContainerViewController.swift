@@ -512,20 +512,26 @@ struct SideMenuContainerRepresentable: UIViewControllerRepresentable {
 #Preview {
     let audio = GlobalAudioManager()
     let speech = SpeechInputManager()
-    let chatSessions = ChatSessionsViewModel(audioManager: audio)
+    let settingsManager = SettingsManager.shared
+    let reachabilityMonitor = ServerReachabilityMonitor.shared
+    let chatSessions = ChatSessionsViewModel(
+        settingsManager: settingsManager,
+        reachability: reachabilityMonitor,
+        audioManager: audio
+    )
     let overlayVM = VoiceChatOverlayViewModel(
         speechInputManager: speech,
         audioManager: audio,
         errorCenter: AppErrorCenter.shared,
-        settingsManager: SettingsManager.shared,
-        reachabilityMonitor: ServerReachabilityMonitor.shared
+        settingsManager: settingsManager,
+        reachabilityMonitor: reachabilityMonitor
     )
 
     SideMenuContainerRepresentable(speechInputManager: speech)
         .modelContainer(for: [ChatSession.self, ChatMessage.self, AppSettings.self], inMemory: true)
         .environmentObject(chatSessions)
         .environmentObject(audio)
-        .environmentObject(SettingsManager.shared)
+        .environmentObject(settingsManager)
         .environmentObject(overlayVM)
         .environmentObject(AppErrorCenter.shared)
 }

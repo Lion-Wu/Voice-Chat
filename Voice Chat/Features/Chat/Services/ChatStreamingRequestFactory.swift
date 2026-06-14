@@ -1,0 +1,63 @@
+//
+//  ChatStreamingRequestFactory.swift
+//  Voice Chat
+//
+//  Created by Codex on 2026/6/13.
+//
+
+import Foundation
+
+protocol ChatStreamingRequestBuilding: Sendable {
+    func makeStreamingRequest(
+        endpoint: ChatAPIEndpointCandidate,
+        requestBodyData: Data,
+        apiKey: String
+    ) -> URLRequest
+}
+
+struct ChatStreamingRequestFactory: ChatStreamingRequestBuilding, Sendable {
+    func makeStreamingRequest(
+        endpoint: ChatAPIEndpointCandidate,
+        requestBodyData: Data,
+        apiKey: String
+    ) -> URLRequest {
+        var request = URLRequest(url: endpoint.chatURL)
+        request.httpMethod = "POST"
+        request.cachePolicy = .reloadIgnoringLocalCacheData
+        request.timeoutInterval = 3900
+        request.addValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.addValue("text/event-stream", forHTTPHeaderField: "Accept")
+        request.addValue("keep-alive", forHTTPHeaderField: "Connection")
+        request.addValue("no-cache", forHTTPHeaderField: "Cache-Control")
+        applyAuthHeaders(to: &request, endpoint: endpoint, rawAPIKey: apiKey)
+        request.httpBody = requestBodyData
+        return request
+    }
+
+    private func normalizedAPIKeyForXAPIKeyHeader(_ raw: String) -> String {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return "" }
+        if trimmed.lowercased().hasPrefix("bearer ") {
+            return String(trimmed.dropFirst("bearer ".count)).trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        return trimmed
+    }
+
+    private func applyAuthHeaders(to request: inout URLRequest, endpoint: ChatAPIEndpointCandidate, rawAPIKey: String) {
+        let rawKey = rawAPIKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        switch endpoint.style {
+        case .anthropicMessages:
+            let keyForHeader = normalizedAPIKeyForXAPIKeyHeader(rawKey)
+            if !keyForHeader.isEmpty {
+                request.setValue(keyForHeader, forHTTPHeaderField: "x-api-key")
+            }
+            request.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
+
+        case .openAIChatCompletions, .lmStudioRESTV1, .lmStudioRESTV1LegacyMessage:
+            if !rawKey.isEmpty {
+                let headerValue = rawKey.lowercased().hasPrefix("bearer ") ? rawKey : "Bearer \(rawKey)"
+                request.setValue(headerValue, forHTTPHeaderField: "Authorization")
+            }
+        }
+    }
+}
