@@ -20,6 +20,7 @@ struct VoiceMessageView: View {
     @EnvironmentObject var audioManager: GlobalAudioManager
     @State private var messagePreviewFileURL: URL?
 
+    let isStreamingAssistant: Bool
     let showActionButtons: Bool
     let branchControlsEnabled: Bool
     let developerModeEnabled: Bool
@@ -37,6 +38,7 @@ struct VoiceMessageView: View {
 
     init(
         message: ChatMessage,
+        isStreamingAssistant: Bool = false,
         showActionButtons: Bool,
         branchControlsEnabled: Bool,
         developerModeEnabled: Bool,
@@ -50,6 +52,7 @@ struct VoiceMessageView: View {
         onRetry: @escaping (ChatMessage) -> Void
     ) {
         self.message = message
+        self.isStreamingAssistant = isStreamingAssistant
         self.showActionButtons = showActionButtons
         self.branchControlsEnabled = branchControlsEnabled
         self.developerModeEnabled = developerModeEnabled
@@ -90,6 +93,7 @@ struct VoiceMessageView: View {
                 maxBubbleWidth: maxBubbleWidth,
                 contentFingerprint: contentFingerprint,
                 searchHighlightQuery: searchHighlightQuery,
+                isStreamingResponse: isStreamingAssistant,
                 onCopy: { copyToClipboard(message.content.extractThinkParts().body) },
                 onRegenerate: { onRegenerate(message) },
                 onReadAloud: {

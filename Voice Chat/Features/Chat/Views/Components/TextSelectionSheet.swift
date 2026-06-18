@@ -80,6 +80,13 @@ private struct SelectableTextView: UIViewRepresentable {
         uiView.disableTextDragAndDrop()
     }
 }
+
+private extension UITextView {
+    func disableTextDragAndDrop() {
+        textDragInteraction?.isEnabled = false
+        textDropDelegate = nil
+    }
+}
 #endif
 
 #Preview {

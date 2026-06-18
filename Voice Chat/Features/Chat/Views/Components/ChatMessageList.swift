@@ -108,6 +108,7 @@ struct ChatMessageList: View {
         return EquatableRender(value: key) {
             VoiceMessageView(
                 message: message,
+                isStreamingAssistant: isStreamingAssistant,
                 showActionButtons: showButtons,
                 branchControlsEnabled: branchControlsEnabled,
                 developerModeEnabled: developerModeEnabled,

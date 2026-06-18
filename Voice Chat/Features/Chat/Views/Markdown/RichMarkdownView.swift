@@ -5,24 +5,97 @@
 //  Created by Lion Wu on 2025/9/21.
 //
 
-@preconcurrency import Foundation
 import SwiftUI
-import Markdown
+import SwiftStreamingMarkdown
 
 struct RichMarkdownView: View {
     let markdown: String
     var searchHighlightQuery: String? = nil
-    @Environment(\.colorScheme) private var colorScheme
+    var animateNewText: Bool = false
+    @StateObject private var source = RichMarkdownSnapshotSource()
     @Environment(\.sizeCategory) private var sizeCategory
 
+    private func renderConfig(sizeCategory: ContentSizeCategory) -> MarkdownRenderConfig {
+        MarkdownRenderConfig.defaultConfig(sizeCategory: sizeCategory)
+            .withShouldAnimateText(value: animateNewText)
+            .withSpeculativeRewrite(value: animateNewText)
+            .withSearchHighlightQuery(value: searchHighlightQuery)
+    }
+
     var body: some View {
-        MarkdownTextView(
-            markdown: markdown,
-            colorScheme: colorScheme,
-            sizeCategory: sizeCategory,
-            searchHighlightQuery: searchHighlightQuery
-        )
+        let renderConfig = renderConfig(sizeCategory: sizeCategory)
+        StreamedMarkdownView(source: source, config: renderConfig)
             .fixedSize(horizontal: false, vertical: true)
+            .task(id: RenderKey(markdown: markdown, searchHighlightQuery: searchHighlightQuery, animateNewText: animateNewText, sizeCategory: sizeCategory)) {
+                source.send(markdown)
+            }
+    }
+}
+
+private struct RenderKey: Hashable {
+    let markdown: String
+    let searchHighlightQuery: String?
+    let animateNewText: Bool
+    let sizeCategory: ContentSizeCategory
+}
+
+@MainActor
+private final class RichMarkdownSnapshotSource: ObservableObject, @preconcurrency StreamedMarkdownSource {
+    private static let coalescingDelayNanoseconds: UInt64 = 16_000_000
+    private var latestMarkdown: String?
+    private var pendingMarkdown: String?
+    private var flushTask: Task<Void, Never>?
+    private var continuations: [UUID: AsyncStream<String>.Continuation] = [:]
+
+    var text: AsyncStream<String> {
+        AsyncStream(bufferingPolicy: .bufferingNewest(1)) { continuation in
+            let id = UUID()
+            continuations[id] = continuation
+            if let latestMarkdown {
+                continuation.yield(latestMarkdown)
+            }
+            continuation.onTermination = { [weak self] _ in
+                Task { @MainActor in
+                    self?.continuations.removeValue(forKey: id)
+                }
+            }
+        }
+    }
+
+    deinit {
+        flushTask?.cancel()
+        continuations.values.forEach { $0.finish() }
+    }
+
+    func send(_ markdown: String) {
+        guard markdown != latestMarkdown else {
+            return
+        }
+        let shouldYieldImmediately = latestMarkdown == nil
+        latestMarkdown = markdown
+        if shouldYieldImmediately {
+            yield(markdown)
+            return
+        }
+
+        pendingMarkdown = markdown
+        guard flushTask == nil else {
+            return
+        }
+        flushTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: Self.coalescingDelayNanoseconds)
+            guard !Task.isCancelled else { return }
+            let markdown = pendingMarkdown
+            pendingMarkdown = nil
+            flushTask = nil
+            if let markdown {
+                yield(markdown)
+            }
+        }
+    }
+
+    private func yield(_ markdown: String) {
+        continuations.values.forEach { $0.yield(markdown) }
     }
 }
 
