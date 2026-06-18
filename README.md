@@ -34,6 +34,8 @@ In the app’s Settings:
 
 ## Acknowledgments
 - [GPT-SoVITS](https://github.com/RVC-Boss/GPT-SoVITS)
+- [SwiftStreamingMarkdown](https://github.com/microsoft/SwiftStreamingMarkdown)
+- [HighlightSwift](https://github.com/appstefan/highlightswift)
 - [RaTeX](https://github.com/erweixin/RaTeX)
 - [swift-markdown](https://github.com/swiftlang/swift-markdown)
 - [swift-cmark](https://github.com/swiftlang/swift-cmark)

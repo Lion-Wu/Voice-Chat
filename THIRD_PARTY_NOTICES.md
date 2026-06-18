@@ -4,6 +4,8 @@ This project is licensed under the MIT License in `LICENSE`.
 
 | Component | License | Notice |
 | --- | --- | --- |
+| SwiftStreamingMarkdown | MIT License | `Packages/SwiftStreamingMarkdown/LICENSE` |
+| HighlightSwift | MIT License | [LICENSE.md](https://github.com/appstefan/highlightswift/blob/main/LICENSE.md) |
 | RaTeX, including `ratex-wasm` assets | MIT License | `Packages/VoiceChatRaTeX/RaTeX-LICENSE` |
 | KaTeX fonts (`KaTeX_*.ttf`) | SIL Open Font License 1.1 | `Packages/VoiceChatRaTeX/RaTeX-THIRD_PARTY_NOTICES.txt`; `Packages/VoiceChatRaTeX/licenses/` |
 | swift-markdown | Apache License 2.0 with Runtime Library Exception | [LICENSE.txt](https://github.com/swiftlang/swift-markdown/blob/main/LICENSE.txt), [NOTICE.txt](https://github.com/swiftlang/swift-markdown/blob/main/NOTICE.txt) |

@@ -20,6 +20,7 @@ struct SystemTextBubble: View {
     let maxBubbleWidth: CGFloat?
     let contentFingerprint: ContentFingerprint
     let searchHighlightQuery: String?
+    let isStreamingResponse: Bool
 
     let onCopy: () -> Void
     let onRegenerate: () -> Void
@@ -43,7 +44,11 @@ struct SystemTextBubble: View {
 
         let bodyView = Group {
             if !parts.body.isEmpty {
-                RichMarkdownView(markdown: parts.body, searchHighlightQuery: searchHighlightQuery)
+                RichMarkdownView(
+                    markdown: parts.body,
+                    searchHighlightQuery: searchHighlightQuery,
+                    animateNewText: isStreamingResponse
+                )
                     .frame(maxWidth: contentMaxWidthForAssistant(availableWidth: maxBubbleWidth), alignment: .leading)
                     .frame(maxWidth: .infinity, alignment: .center)
             }
