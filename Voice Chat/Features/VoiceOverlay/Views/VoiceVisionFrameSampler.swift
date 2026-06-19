@@ -13,15 +13,36 @@ struct VoiceVisionEncodedSample: Sendable {
 
 final class VoiceVisionFrameSampler {
     private let ciContext = CIContext(options: [.cacheIntermediates: false])
+    private var recentEncodedFingerprints: [VoiceVisionVisualFingerprint] = []
 
     func resetVisualHistory() {
-        // Kept for lifecycle callers; final utterance selection now handles visual diversity.
+        recentEncodedFingerprints.removeAll()
     }
 
     func encodedAcceptedSample(from pixelBuffer: CVPixelBuffer) -> VoiceVisionEncodedSample? {
         let fingerprint = visualFingerprint(from: pixelBuffer)
+        guard shouldEncode(fingerprint) else { return nil }
         guard let data = encodedJPEGData(from: pixelBuffer), !data.isEmpty else { return nil }
+        recordEncodedFingerprint(fingerprint)
         return VoiceVisionEncodedSample(data: data, visualFingerprint: fingerprint)
+    }
+
+    private func shouldEncode(_ fingerprint: VoiceVisionVisualFingerprint?) -> Bool {
+        guard let fingerprint else { return true }
+        guard !recentEncodedFingerprints.isEmpty else { return true }
+        let nearestDistance = recentEncodedFingerprints
+            .map { visualDistance(fingerprint, $0) }
+            .min() ?? .greatestFiniteMagnitude
+        return nearestDistance >= VoiceVisionCaptureTuning.encodingDuplicateThreshold
+    }
+
+    private func recordEncodedFingerprint(_ fingerprint: VoiceVisionVisualFingerprint?) {
+        guard let fingerprint else { return }
+        recentEncodedFingerprints.append(fingerprint)
+        let limit = VoiceVisionCaptureTuning.maxRecentEncodedFingerprints
+        if recentEncodedFingerprints.count > limit {
+            recentEncodedFingerprints.removeFirst(recentEncodedFingerprints.count - limit)
+        }
     }
 
     private func encodedJPEGData(from pixelBuffer: CVPixelBuffer) -> Data? {
@@ -119,6 +140,20 @@ final class VoiceVisionFrameSampler {
         let cellLength = max(1, cellEnd - cellStart)
         let offset = (cellLength * ((sampleIndex * 2) + 1)) / (sampleCount * 2)
         return min(length - 1, cellStart + offset)
+    }
+
+    private func visualDistance(
+        _ lhs: VoiceVisionVisualFingerprint,
+        _ rhs: VoiceVisionVisualFingerprint
+    ) -> Double {
+        guard lhs.luminance.count == rhs.luminance.count, !lhs.luminance.isEmpty else {
+            return .greatestFiniteMagnitude
+        }
+
+        let totalDifference = zip(lhs.luminance, rhs.luminance).reduce(0) { result, pair in
+            result + abs(Int(pair.0) - Int(pair.1))
+        }
+        return Double(totalDifference) / Double(lhs.luminance.count)
     }
 }
 

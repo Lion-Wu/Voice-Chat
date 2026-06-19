@@ -39,6 +39,9 @@ actor SpeechRecognizerWorker {
 
     // Energy threshold (linear amplitude, roughly -44 dB). Lower values make voice detection more sensitive.
     private let vadLevelThreshold: Float = 0.006
+    private let speechActivityStartMinimumDuration: TimeInterval = 0.25
+    private let speechActivityStartMinimumSamples = 4
+    private let speechActivityResetLevelThreshold: Float = 0.003
     private var didEndAudioForSilence = false
 
     /// Grace period after non-empty text is recognized; silence will not end the session during this window.
@@ -53,6 +56,8 @@ actor SpeechRecognizerWorker {
     /// Silence-based termination is allowed only after producing non-empty text.
     private var hasRecognizedText = false
     private var didNotifySpeechActivityStarted = false
+    private var sustainedSpeechActivityStartedAt: Date?
+    private var sustainedSpeechActivitySampleCount = 0
 
     // MARK: - Misc state
     private var lastNonEmptyText = ""
@@ -114,6 +119,7 @@ actor SpeechRecognizerWorker {
         lastSpeechAt = nil
         hasRecognizedText = false
         didNotifySpeechActivityStarted = false
+        resetSustainedSpeechActivity()
         didEndAudioForSilence = false
         graceUntil = nil
         firstTextAt = nil
@@ -207,6 +213,7 @@ actor SpeechRecognizerWorker {
         didEndAudioForSilence = false
         hasRecognizedText = false
         didNotifySpeechActivityStarted = false
+        resetSustainedSpeechActivity()
         lastSpeechAt = nil
         graceUntil = nil
         firstTextAt = nil
@@ -317,6 +324,7 @@ actor SpeechRecognizerWorker {
         lastSpeechAt = nil
         hasRecognizedText = false
         didNotifySpeechActivityStarted = false
+        resetSustainedSpeechActivity()
         didEndAudioForSilence = false
         didEmitFinal = false
         graceUntil = nil
@@ -402,14 +410,38 @@ actor SpeechRecognizerWorker {
 
     private func registerVoiceActivity(_ level: Float) {
         // Track only the timestamps to avoid ending the session early due to background noise.
+        let now = Date()
         if level >= vadLevelThreshold {
-            lastSpeechAt = .now
+            lastSpeechAt = now
+            registerSustainedSpeechActivity(now: now)
+        } else if level < speechActivityResetLevelThreshold {
+            resetSustainedSpeechActivity()
         }
+    }
+
+    private func registerSustainedSpeechActivity(now: Date) {
+        guard !didNotifySpeechActivityStarted else { return }
+        if sustainedSpeechActivityStartedAt == nil {
+            sustainedSpeechActivityStartedAt = now
+            sustainedSpeechActivitySampleCount = 0
+        }
+        sustainedSpeechActivitySampleCount += 1
+
+        guard let startedAt = sustainedSpeechActivityStartedAt else { return }
+        guard sustainedSpeechActivitySampleCount >= speechActivityStartMinimumSamples else { return }
+        guard now.timeIntervalSince(startedAt) >= speechActivityStartMinimumDuration else { return }
+        notifySpeechActivityStartedIfNeeded()
+    }
+
+    private func resetSustainedSpeechActivity() {
+        sustainedSpeechActivityStartedAt = nil
+        sustainedSpeechActivitySampleCount = 0
     }
 
     private func notifySpeechActivityStartedIfNeeded() {
         guard !didNotifySpeechActivityStarted else { return }
         didNotifySpeechActivityStarted = true
+        resetSustainedSpeechActivity()
         onSpeechActivityStartedHandler?()
     }
 
