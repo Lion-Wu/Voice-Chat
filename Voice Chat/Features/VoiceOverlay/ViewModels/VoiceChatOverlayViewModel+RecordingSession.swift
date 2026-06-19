@@ -72,10 +72,17 @@ extension VoiceChatOverlayViewModel {
     func startRecordingSession() async {
         await speechInputManager.startRecording(
             language: selectedLanguage,
-            onPartial: { _ in },
+            onPartial: { [weak self] text in
+                guard let self else { return }
+                self.handleRecognizedPartial(text)
+            },
             onFinal: { [weak self] text in
                 guard let self else { return }
                 self.handleRecognizedFinal(text)
+            },
+            onSpeechActivityStarted: { [weak self] in
+                guard let self else { return }
+                self.markVisionCaptureSpeechDetected()
             }
         )
         if let error = speechInputManager.lastError, !error.isEmpty {
@@ -83,9 +90,16 @@ extension VoiceChatOverlayViewModel {
         }
     }
 
+    func handleRecognizedPartial(_ text: String) {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        markVisionCaptureSpeechDetected()
+    }
+
     func handleRecognizedFinal(_ text: String) {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
+        markVisionCaptureSpeechDetected()
 
         if isSendSuppressed {
             // User is holding the long press, so suppress automatic sending.
@@ -194,11 +208,13 @@ extension VoiceChatOverlayViewModel {
     func handleRecordingChange(_ isRecording: Bool) {
         if case .error = state { return }
         if isRecording {
+            resetVisionCaptureSpeechActivity()
             beginVisionCaptureUtteranceIfNeeded()
             stopLoadingWatchdog()
             state = .listening
         } else {
             updateVisionCaptureRecordingState(isRecording: false)
+            resetVisionCaptureSpeechActivity()
             resumeListeningIfIdle()
         }
     }

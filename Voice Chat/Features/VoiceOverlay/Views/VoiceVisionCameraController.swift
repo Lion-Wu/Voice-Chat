@@ -20,7 +20,7 @@ final class VoiceVisionCameraController: NSObject, ObservableObject, @unchecked 
     @Published private(set) var cameraOptions: [CameraOption] = []
     @Published private(set) var selectedCameraID: String?
 
-    var onSampleCapture: ((Data, String?) -> Void)?
+    var onSampleCapture: ((Data, String?, VoiceVisionVisualFingerprint?) -> Void)?
 
     private let sessionQueue = DispatchQueue(label: "com.lionwu.voicechat.voice-vision-camera", qos: .userInitiated)
     private let sampleQueue = DispatchQueue(label: "com.lionwu.voicechat.voice-vision-sampling", qos: .utility)
@@ -35,13 +35,11 @@ final class VoiceVisionCameraController: NSObject, ObservableObject, @unchecked 
     private var isConfigured = false
     private var isSamplingActive = false
     private var isFrameEncodingInFlight = false
+    private var samplingGeneration: UInt64 = 0
     private var lastSampleCaptureAt = DispatchTime(uptimeNanoseconds: 0)
     private let lifecycleLock = NSLock()
     private var isStartRequested = false
     private var startupTask: Task<Void, Never>?
-
-    private static let sampleInterval: TimeInterval = 1.0
-    private static let sampleIntervalNanoseconds = UInt64(sampleInterval * 1_000_000_000)
 
     func start() {
         startupTask?.cancel()
@@ -120,12 +118,11 @@ final class VoiceVisionCameraController: NSObject, ObservableObject, @unchecked 
             guard let self else { return }
             guard self.isSamplingActive != active else { return }
             self.isSamplingActive = active
+            self.samplingGeneration &+= 1
             if active {
                 self.lastSampleCaptureAt = DispatchTime(uptimeNanoseconds: 0)
-                self.isFrameEncodingInFlight = false
-            } else {
-                self.isFrameEncodingInFlight = false
             }
+            self.isFrameEncodingInFlight = false
         }
     }
 
@@ -288,25 +285,26 @@ final class VoiceVisionCameraController: NSObject, ObservableObject, @unchecked 
 #endif
     }
 
-    private func shouldCaptureSample(now: DispatchTime) -> Bool {
-        guard isSamplingActive else { return false }
-        guard !isFrameEncodingInFlight else { return false }
+    private func sampleCaptureGeneration(now: DispatchTime) -> UInt64? {
+        guard isSamplingActive else { return nil }
+        guard !isFrameEncodingInFlight else { return nil }
         let elapsed = now.uptimeNanoseconds - lastSampleCaptureAt.uptimeNanoseconds
-        guard elapsed >= Self.sampleIntervalNanoseconds else { return false }
+        guard elapsed >= VoiceVisionCaptureTuning.sampleIntervalNanoseconds else { return nil }
         lastSampleCaptureAt = now
         isFrameEncodingInFlight = true
-        return true
+        return samplingGeneration
     }
 
-    private func finishSampleEncoding(data: Data?) {
+    private func finishSampleEncoding(sample: VoiceVisionEncodedSample?, generation: UInt64) {
         sampleQueue.async { [weak self] in
             guard let self else { return }
+            guard self.samplingGeneration == generation else { return }
             self.isFrameEncodingInFlight = false
-        }
 
-        guard let data, !data.isEmpty else { return }
-        DispatchQueue.main.async { [weak self] in
-            self?.onSampleCapture?(data, "image/jpeg")
+            guard self.isSamplingActive, let sample else { return }
+            DispatchQueue.main.async { [weak self] in
+                self?.onSampleCapture?(sample.data, "image/jpeg", sample.visualFingerprint)
+            }
         }
     }
 
@@ -452,13 +450,13 @@ extension VoiceVisionCameraController: AVCaptureVideoDataOutputSampleBufferDeleg
         didOutput sampleBuffer: CMSampleBuffer,
         from connection: AVCaptureConnection
     ) {
-        guard shouldCaptureSample(now: .now()) else { return }
+        guard let generation = sampleCaptureGeneration(now: .now()) else { return }
         guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else {
-            finishSampleEncoding(data: nil)
+            finishSampleEncoding(sample: nil, generation: generation)
             return
         }
 
-        finishSampleEncoding(data: frameSampler.encodedAcceptedJPEGData(from: pixelBuffer))
+        finishSampleEncoding(sample: frameSampler.encodedAcceptedSample(from: pixelBuffer), generation: generation)
     }
 }
 

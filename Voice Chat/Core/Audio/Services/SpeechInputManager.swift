@@ -78,7 +78,8 @@ final class SpeechInputManager: NSObject, ObservableObject {
     /// Starts realtime dictation.
     func startRecording(language: DictationLanguage? = nil,
                         onPartial: @escaping @MainActor (String) -> Void,
-                        onFinal:   @escaping @MainActor (String) -> Void) async {
+                        onFinal:   @escaping @MainActor (String) -> Void,
+                        onSpeechActivityStarted: @escaping @MainActor () -> Void = {}) async {
         lastError = nil
 
         // Stop any active recording before starting a new session.
@@ -142,6 +143,14 @@ final class SpeechInputManager: NSObject, ObservableObject {
             }
         }
 
+        let speechActivityStartedWrapper: @Sendable () -> Void = { [weak self] in
+            Task { @MainActor in
+                guard let self else { return }
+                guard self.currentSessionID == newID else { return }
+                onSpeechActivityStarted()
+            }
+        }
+
         let errorWrapper: @Sendable (String) -> Void = { [weak self] message in
             Task { @MainActor in
                 guard let self else { return }
@@ -187,6 +196,7 @@ final class SpeechInputManager: NSObject, ObservableObject {
                 locale: pickLang.locale,
                 onPartial: partialWrapper,
                 onFinal:   finalWrapper,
+                onSpeechActivityStarted: speechActivityStartedWrapper,
                 onLevel:   levelWrapper,
                 onError:   errorWrapper
             )
@@ -349,7 +359,8 @@ final class SpeechInputManager: ObservableObject {
 
     func startRecording(language: DictationLanguage? = nil,
                         onPartial: @escaping @MainActor (String) -> Void,
-                        onFinal:   @escaping @MainActor (String) -> Void) async {
+                        onFinal:   @escaping @MainActor (String) -> Void,
+                        onSpeechActivityStarted: @escaping @MainActor () -> Void = {}) async {
         lastError = NSLocalizedString("Speech input is not supported on this platform.", comment: "Shown when speech input is unavailable")
     }
 

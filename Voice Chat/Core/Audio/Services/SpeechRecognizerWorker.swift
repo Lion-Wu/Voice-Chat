@@ -27,6 +27,7 @@ actor SpeechRecognizerWorker {
     // MARK: - Callbacks
     private var onPartialHandler: (@Sendable (String) -> Void)?
     private var onFinalHandler: (@Sendable (String) -> Void)?
+    private var onSpeechActivityStartedHandler: (@Sendable () -> Void)?
     private var onLevelHandler: (@Sendable (Float) -> Void)?
     private var onErrorHandler: (@Sendable (String) -> Void)?
 
@@ -51,6 +52,7 @@ actor SpeechRecognizerWorker {
 
     /// Silence-based termination is allowed only after producing non-empty text.
     private var hasRecognizedText = false
+    private var didNotifySpeechActivityStarted = false
 
     // MARK: - Misc state
     private var lastNonEmptyText = ""
@@ -89,6 +91,7 @@ actor SpeechRecognizerWorker {
     func start(locale: Locale,
                onPartial: @Sendable @escaping (String) -> Void,
                onFinal: @Sendable @escaping (String) -> Void,
+               onSpeechActivityStarted: @Sendable @escaping () -> Void,
                onLevel: @Sendable @escaping (Float) -> Void,
                onError: @Sendable @escaping (String) -> Void) async throws {
         // Stop any existing session before starting a new one.
@@ -98,6 +101,7 @@ actor SpeechRecognizerWorker {
 
         onPartialHandler = onPartial
         onFinalHandler = onFinal
+        onSpeechActivityStartedHandler = onSpeechActivityStarted
         onLevelHandler = onLevel
         onErrorHandler = onError
         lastNonEmptyText = ""
@@ -109,6 +113,7 @@ actor SpeechRecognizerWorker {
         // Important: silence cannot end the session until real speech has been heard.
         lastSpeechAt = nil
         hasRecognizedText = false
+        didNotifySpeechActivityStarted = false
         didEndAudioForSilence = false
         graceUntil = nil
         firstTextAt = nil
@@ -192,6 +197,7 @@ actor SpeechRecognizerWorker {
         recognizer = nil
         onPartialHandler = nil
         onFinalHandler = nil
+        onSpeechActivityStartedHandler = nil
         onLevelHandler = nil
         onErrorHandler = nil
 
@@ -200,6 +206,7 @@ actor SpeechRecognizerWorker {
 
         didEndAudioForSilence = false
         hasRecognizedText = false
+        didNotifySpeechActivityStarted = false
         lastSpeechAt = nil
         graceUntil = nil
         firstTextAt = nil
@@ -309,6 +316,7 @@ actor SpeechRecognizerWorker {
 
         lastSpeechAt = nil
         hasRecognizedText = false
+        didNotifySpeechActivityStarted = false
         didEndAudioForSilence = false
         didEmitFinal = false
         graceUntil = nil
@@ -387,6 +395,7 @@ actor SpeechRecognizerWorker {
         lastNonEmptyText = text
         hasRecognizedText = true
         lastSpeechAt = .now
+        notifySpeechActivityStartedIfNeeded()
         graceUntil = Date().addingTimeInterval(postPartialGrace)
         if firstTextAt == nil { firstTextAt = .now }
     }
@@ -395,7 +404,14 @@ actor SpeechRecognizerWorker {
         // Track only the timestamps to avoid ending the session early due to background noise.
         if level >= vadLevelThreshold {
             lastSpeechAt = .now
+            notifySpeechActivityStartedIfNeeded()
         }
+    }
+
+    private func notifySpeechActivityStartedIfNeeded() {
+        guard !didNotifySpeechActivityStarted else { return }
+        didNotifySpeechActivityStarted = true
+        onSpeechActivityStartedHandler?()
     }
 
     /// When an empty final result arrives, restart recognition instead of ending the session.
