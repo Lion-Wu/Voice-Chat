@@ -213,33 +213,7 @@ final class ParagraphNSTextView: NSTextView, NSTextViewDelegate {
   }
 
   private func sanitizedForTextStorage(_ attributedString: NSMutableAttributedString) -> NSAttributedString {
-    let result = NSMutableAttributedString(attributedString: attributedString)
-    let fullRange = NSRange(location: 0, length: result.length)
-    let drawableKeys: Set<NSAttributedString.Key> = [
-      .attachment,
-      .backgroundColor,
-      .baselineOffset,
-      .font,
-      .foregroundColor,
-      .kern,
-      .link,
-      .paragraphStyle,
-      .strikethroughColor,
-      .strikethroughStyle,
-      .underlineColor,
-      .underlineStyle
-    ]
-
-    attributedString.enumerateAttributes(in: fullRange, options: []) { attributes, range, _ in
-      for key in attributes.keys where !drawableKeys.contains(key) {
-        result.removeAttribute(key, range: range)
-      }
-      for key in [NSAttributedString.Key.foregroundColor, .backgroundColor, .underlineColor, .strikethroughColor] {
-        guard let color = attributes[key] as? NSColor else { continue }
-        result.addAttribute(key, value: color.usingColorSpace(.deviceRGB) ?? color, range: range)
-      }
-    }
-    return result
+    attributedString.sanitizedForMarkdownDrawing()
   }
 }
 #endif

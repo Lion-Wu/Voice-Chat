@@ -125,7 +125,7 @@ extension Markdown.Link: InlineConvertible {
       container[.link] = url
       container[.font] = config.inlineStyle.linkTextFont
       container[.foregroundColor] = config.inlineStyle.linkTextColor
-      container[.underlineStyle] = []
+      container[.underlineStyle] = NSUnderlineStyle(rawValue: 0).rawValue
       return buildAttributedString()
     }
   }
@@ -156,7 +156,7 @@ extension Markdown.Image: InlineConvertible {
       container[.link] = url
       container[.font] = config.inlineStyle.linkTextFont
       container[.foregroundColor] = config.inlineStyle.linkTextColor
-      container[.underlineStyle] = []
+      container[.underlineStyle] = NSUnderlineStyle(rawValue: 0).rawValue
       attributedText.addAttributes(container, range: NSRange(location: 0, length: attributedText.length))
     }
 
