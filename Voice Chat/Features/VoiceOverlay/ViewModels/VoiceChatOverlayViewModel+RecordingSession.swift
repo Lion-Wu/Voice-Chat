@@ -70,6 +70,7 @@ extension VoiceChatOverlayViewModel {
     }
 
     func startRecordingSession() async {
+        resetVisionCaptureSpeechActivity()
         await speechInputManager.startRecording(
             language: selectedLanguage,
             onPartial: { [weak self] text in
@@ -208,7 +209,6 @@ extension VoiceChatOverlayViewModel {
     func handleRecordingChange(_ isRecording: Bool) {
         if case .error = state { return }
         if isRecording {
-            resetVisionCaptureSpeechActivity()
             beginVisionCaptureUtteranceIfNeeded()
             stopLoadingWatchdog()
             state = .listening

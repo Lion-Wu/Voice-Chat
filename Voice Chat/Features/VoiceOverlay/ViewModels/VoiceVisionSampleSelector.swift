@@ -119,7 +119,7 @@ enum VoiceVisionSampleSelector {
             guard let fingerprint = sample.visualFingerprint else { return nil }
             return FingerprintedSample(index: index, sample: sample, fingerprint: fingerprint)
         }
-        guard !fingerprintedSamples.isEmpty else {
+        guard fingerprintedSamples.count == samples.count else {
             return evenlyDownsampled(samples, limit: limit)
         }
 

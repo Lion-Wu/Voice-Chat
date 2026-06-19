@@ -104,6 +104,34 @@ final class VoiceVisionSampleSelectorTests: XCTestCase {
         ).isEmpty)
     }
 
+    func testSelectedAttachmentsFallsBackWhenFingerprintsAreIncomplete() {
+        let start = Date(timeIntervalSince1970: 100)
+        let samples = [
+            sample(index: 0, capturedAt: start, visualFingerprint: nil),
+            sample(
+                index: 1,
+                capturedAt: start.addingTimeInterval(2),
+                visualFingerprint: VoiceVisionVisualFingerprint(luminance: [0])
+            ),
+            sample(index: 2, capturedAt: start.addingTimeInterval(4), visualFingerprint: nil)
+        ]
+
+        let selected = VoiceVisionSampleSelector.selectedAttachments(
+            from: samples,
+            startedAt: start,
+            now: start.addingTimeInterval(30),
+            isAvailable: true
+        )
+
+        XCTAssertEqual(selected.map(\.data), [Data([0]), Data([1]), Data([2])])
+        XCTAssertEqual(VoiceVisionSampleSelector.estimatedAttachmentCount(
+            from: samples,
+            startedAt: start,
+            now: start.addingTimeInterval(30),
+            isAvailable: true
+        ), 3)
+    }
+
     func testEstimatedCountAndMIMETypeNormalization() {
         let start = Date(timeIntervalSince1970: 100)
         let samples = sampleRange(0..<10, start: start)
@@ -129,11 +157,20 @@ final class VoiceVisionSampleSelectorTests: XCTestCase {
         start: Date = Date(timeIntervalSince1970: 0)
     ) -> [VoiceVisionCaptureSample] {
         range.map { index in
-            VoiceVisionCaptureSample(
-                capturedAt: start.addingTimeInterval(Double(index)),
-                attachment: ChatImageAttachment(mimeType: "image/jpeg", data: Data([UInt8(index)]))
-            )
+            sample(index: index, capturedAt: start.addingTimeInterval(Double(index)))
         }
+    }
+
+    private func sample(
+        index: Int,
+        capturedAt: Date,
+        visualFingerprint: VoiceVisionVisualFingerprint? = nil
+    ) -> VoiceVisionCaptureSample {
+        VoiceVisionCaptureSample(
+            capturedAt: capturedAt,
+            attachment: ChatImageAttachment(mimeType: "image/jpeg", data: Data([UInt8(index)])),
+            visualFingerprint: visualFingerprint
+        )
     }
 
     #if os(iOS) || os(macOS)

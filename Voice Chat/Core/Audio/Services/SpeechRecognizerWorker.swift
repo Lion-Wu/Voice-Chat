@@ -404,7 +404,6 @@ actor SpeechRecognizerWorker {
         // Track only the timestamps to avoid ending the session early due to background noise.
         if level >= vadLevelThreshold {
             lastSpeechAt = .now
-            notifySpeechActivityStartedIfNeeded()
         }
     }
 
