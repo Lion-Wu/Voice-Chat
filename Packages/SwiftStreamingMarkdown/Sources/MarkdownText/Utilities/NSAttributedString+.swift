@@ -67,6 +67,63 @@ extension NSAttributedString {
 
     return words
   }
+
+  #if os(macOS)
+  func sanitizedForMarkdownDrawing() -> NSAttributedString {
+    let result = NSMutableAttributedString(attributedString: self)
+    let fullRange = NSRange(location: 0, length: result.length)
+
+    enumerateAttributes(in: fullRange, options: []) { attributes, range, _ in
+      for (key, value) in attributes {
+        guard let sanitizedValue = sanitizedMarkdownDrawingValue(value, for: key) else {
+          result.removeAttribute(key, range: range)
+          continue
+        }
+        result.addAttribute(key, value: sanitizedValue, range: range)
+      }
+    }
+    return result
+  }
+
+  private func sanitizedMarkdownDrawingValue(_ value: Any, for key: NSAttributedString.Key) -> Any? {
+    switch key {
+    case .attachment:
+      return value is NSTextAttachment ? value : nil
+    case .backgroundColor, .foregroundColor, .strikethroughColor, .underlineColor:
+      guard let color = value as? NSColor else { return nil }
+      return color.usingColorSpace(.deviceRGB) ?? color
+    case .baselineOffset, .kern, .strikethroughStyle, .underlineStyle:
+      return normalizedMarkdownDrawingNumber(value)
+    case .font:
+      return value is NSFont ? value : nil
+    case .link:
+      return (value is URL || value is NSString || value is String) ? value : nil
+    case .paragraphStyle:
+      return value is NSParagraphStyle ? value : nil
+    default:
+      return nil
+    }
+  }
+
+  private func normalizedMarkdownDrawingNumber(_ value: Any) -> NSNumber? {
+    if let number = value as? NSNumber {
+      return number
+    }
+    if let value = value as? CGFloat {
+      return NSNumber(value: Double(value))
+    }
+    if let value = value as? Double {
+      return NSNumber(value: value)
+    }
+    if let value = value as? Float {
+      return NSNumber(value: value)
+    }
+    if let value = value as? Int {
+      return NSNumber(value: value)
+    }
+    return nil
+  }
+  #endif
 }
 
 extension NSMutableAttributedString {
@@ -100,6 +157,17 @@ extension NSMutableAttributedString {
 }
 
 extension AttributedString {
+  #if os(macOS)
+  func sanitizedForMarkdownDrawing() -> AttributedString {
+    let attributed = NSAttributedString(self).sanitizedForMarkdownDrawing()
+    return (try? AttributedString(attributed, including: \.appKit)) ?? AttributedString(String(characters))
+  }
+  #else
+  func sanitizedForMarkdownDrawing() -> AttributedString {
+    self
+  }
+  #endif
+
   func applyingSearchHighlight(query: String?) -> AttributedString {
     let cleanedQuery = query?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
     guard !cleanedQuery.isEmpty, !characters.isEmpty else {

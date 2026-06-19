@@ -208,6 +208,72 @@ Set OPENAI_API_KEY
     XCTAssertNotEqual(normal.paragraphStyle.textFonts.normal.pointSize, accessibility.paragraphStyle.textFonts.normal.pointSize)
     XCTAssertNotEqual(normal.inlineStyle.codeTextFont.pointSize, accessibility.inlineStyle.codeTextFont.pointSize)
   }
+
+  func testMacMarkdownDrawingSanitizerRemovesNonDrawableAttributes() {
+    let unsupportedKey = NSAttributedString.Key("UnsupportedHTMLReaderAttribute")
+    let source = NSMutableAttributedString(
+      string: "let token = 1",
+      attributes: [
+        unsupportedKey: true,
+        .foregroundColor: NSColor.labelColor
+      ]
+    )
+
+    let sanitized = source.sanitizedForMarkdownDrawing()
+
+    XCTAssertEqual(sanitized.string, source.string)
+    XCTAssertNil(sanitized.attribute(unsupportedKey, at: 0, effectiveRange: nil))
+    XCTAssertNotNil(sanitized.attribute(.foregroundColor, at: 0, effectiveRange: nil))
+  }
+
+  func testMacMarkdownDrawingSanitizerRemovesInvalidNumericAttributeValues() {
+    let source = NSMutableAttributedString(
+      string: "link",
+      attributes: [
+        .baselineOffset: [],
+        .kern: [],
+        .underlineStyle: [],
+        .strikethroughStyle: []
+      ]
+    )
+
+    let sanitized = source.sanitizedForMarkdownDrawing()
+
+    XCTAssertEqual(sanitized.string, source.string)
+    XCTAssertNil(sanitized.attribute(.baselineOffset, at: 0, effectiveRange: nil))
+    XCTAssertNil(sanitized.attribute(.kern, at: 0, effectiveRange: nil))
+    XCTAssertNil(sanitized.attribute(.underlineStyle, at: 0, effectiveRange: nil))
+    XCTAssertNil(sanitized.attribute(.strikethroughStyle, at: 0, effectiveRange: nil))
+  }
+
+  func testMacLinksUseNumericUnderlineStyle() async {
+    let parser = MarkdownParserImpl()
+    let renderable = await parser.parse(
+      text: "[Docs](https://example.com) and ![Chart](https://example.com/chart.png)",
+      config: .default
+    )
+    let renderedText = renderable.attributedStrings
+      .first { $0.string.contains("Docs") || $0.string.contains("Chart") }
+
+    guard let renderedText else {
+      return XCTFail("Expected link text to render")
+    }
+
+    let fullRange = NSRange(location: 0, length: renderedText.length)
+    renderedText.enumerateAttribute(.underlineStyle, in: fullRange) { value, _, _ in
+      if let value {
+        XCTAssertTrue(value is NSNumber, "underlineStyle must be numeric for AppKit drawing")
+      }
+    }
+  }
+
+  func testMacAttributedStringSanitizerPreservesCodeText() {
+    let source = AttributedString("let token = 1")
+
+    let sanitized = source.sanitizedForMarkdownDrawing()
+
+    XCTAssertEqual(String(sanitized.characters), "let token = 1")
+  }
   #endif
 
   @MainActor

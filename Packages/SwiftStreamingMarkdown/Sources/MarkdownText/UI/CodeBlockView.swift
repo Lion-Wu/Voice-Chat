@@ -43,7 +43,7 @@ private actor HighlightTaskManager {
       latestRequest = nil
 
       let highlighted = await SharedHighlightRenderer.shared.highlight(request)
-      let result = (highlighted ?? AttributedString(request.code))
+      let result = (highlighted?.sanitizedForMarkdownDrawing() ?? AttributedString(request.code))
         .applyingSearchHighlight(query: request.searchHighlightQuery)
 
       await MainActor.run {
