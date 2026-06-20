@@ -31,7 +31,7 @@ final class VoiceVisionFrameSampler {
         guard let fingerprint else { return true }
         guard !recentEncodedFingerprints.isEmpty else { return true }
         let nearestDistance = recentEncodedFingerprints
-            .map { visualDistance(fingerprint, $0) }
+            .map { VoiceVisionVisualFingerprint.visualDistance(fingerprint, $0) }
             .min() ?? .greatestFiniteMagnitude
         return nearestDistance >= VoiceVisionCaptureTuning.encodingDuplicateThreshold
     }
@@ -142,19 +142,6 @@ final class VoiceVisionFrameSampler {
         return min(length - 1, cellStart + offset)
     }
 
-    private func visualDistance(
-        _ lhs: VoiceVisionVisualFingerprint,
-        _ rhs: VoiceVisionVisualFingerprint
-    ) -> Double {
-        guard lhs.luminance.count == rhs.luminance.count, !lhs.luminance.isEmpty else {
-            return .greatestFiniteMagnitude
-        }
-
-        let totalDifference = zip(lhs.luminance, rhs.luminance).reduce(0) { result, pair in
-            result + abs(Int(pair.0) - Int(pair.1))
-        }
-        return Double(totalDifference) / Double(lhs.luminance.count)
-    }
 }
 
 #endif

@@ -9,29 +9,31 @@ final class VoiceVisionSampleSelectorTests: XCTestCase {
     func testCaptureTuningSamplesEveryTwoSeconds() {
         #if os(iOS) || os(macOS)
         XCTAssertEqual(VoiceVisionCaptureTuning.sampleInterval, 2.0)
+        XCTAssertEqual(VoiceVisionCaptureTuning.attachmentCountSaturationDuration, 120.0)
         #endif
     }
 
     func testDesiredAttachmentCountScalesAndCaps() {
         XCTAssertEqual(VoiceVisionSampleSelector.desiredAttachmentCount(forDuration: 0.2), 1)
-        XCTAssertEqual(VoiceVisionSampleSelector.desiredAttachmentCount(forDuration: 3.1), 3)
-        XCTAssertEqual(VoiceVisionSampleSelector.desiredAttachmentCount(forDuration: 10), 4)
-        XCTAssertEqual(VoiceVisionSampleSelector.desiredAttachmentCount(forDuration: 17), 6)
-        XCTAssertEqual(VoiceVisionSampleSelector.desiredAttachmentCount(forDuration: 30), 7)
-        XCTAssertEqual(VoiceVisionSampleSelector.desiredAttachmentCount(forDuration: 59), 9)
-        XCTAssertEqual(VoiceVisionSampleSelector.desiredAttachmentCount(forDuration: 60), 9)
+        XCTAssertEqual(VoiceVisionSampleSelector.desiredAttachmentCount(forDuration: 3.1), 2)
+        XCTAssertEqual(VoiceVisionSampleSelector.desiredAttachmentCount(forDuration: 10), 3)
+        XCTAssertEqual(VoiceVisionSampleSelector.desiredAttachmentCount(forDuration: 17), 4)
+        XCTAssertEqual(VoiceVisionSampleSelector.desiredAttachmentCount(forDuration: 30), 5)
+        XCTAssertEqual(VoiceVisionSampleSelector.desiredAttachmentCount(forDuration: 60), 7)
+        XCTAssertEqual(VoiceVisionSampleSelector.desiredAttachmentCount(forDuration: 90), 8)
+        XCTAssertEqual(VoiceVisionSampleSelector.desiredAttachmentCount(forDuration: 120), 9)
     }
 
     func testDesiredAttachmentCountAdaptsToMaximumAttachmentCount() {
-        XCTAssertEqual(VoiceVisionSampleSelector.desiredAttachmentCount(forDuration: 60, maximumCount: 4), 4)
-        XCTAssertEqual(VoiceVisionSampleSelector.desiredAttachmentCount(forDuration: 60, maximumCount: 12), 12)
+        XCTAssertEqual(VoiceVisionSampleSelector.desiredAttachmentCount(forDuration: 120, maximumCount: 4), 4)
+        XCTAssertEqual(VoiceVisionSampleSelector.desiredAttachmentCount(forDuration: 120, maximumCount: 12), 12)
         XCTAssertLessThanOrEqual(
-            VoiceVisionSampleSelector.desiredAttachmentCount(forDuration: 30, maximumCount: 12),
+            VoiceVisionSampleSelector.desiredAttachmentCount(forDuration: 60, maximumCount: 12),
             12
         )
         XCTAssertLessThan(
             VoiceVisionSampleSelector.desiredAttachmentCount(forDuration: 3.1, maximumCount: 12),
-            VoiceVisionSampleSelector.desiredAttachmentCount(forDuration: 30, maximumCount: 12)
+            VoiceVisionSampleSelector.desiredAttachmentCount(forDuration: 60, maximumCount: 12)
         )
     }
 
@@ -77,6 +79,25 @@ final class VoiceVisionSampleSelectorTests: XCTestCase {
         #endif
     }
 
+    func testSelectedAttachmentsTreatsLargeCameraShiftAsSimilar() throws {
+        #if os(iOS) || os(macOS)
+        let start = Date(timeIntervalSince1970: 100)
+        let samples = [
+            imageSample(splitAt: 16, capturedAt: start),
+            imageSample(splitAt: 40, capturedAt: start.addingTimeInterval(2))
+        ]
+
+        let selected = VoiceVisionSampleSelector.selectedAttachments(
+            from: samples,
+            startedAt: start,
+            now: start.addingTimeInterval(90),
+            isAvailable: true
+        )
+
+        XCTAssertEqual(selected.map(\.data), [samples[1].attachment.data])
+        #endif
+    }
+
     func testEvenlyDownsampledKeepsSpreadAcrossUtterance() {
         let samples = sampleRange(0..<10)
         let selected = VoiceVisionSampleSelector.evenlyDownsampled(samples, limit: 3)
@@ -94,7 +115,7 @@ final class VoiceVisionSampleSelectorTests: XCTestCase {
             now: start.addingTimeInterval(10),
             isAvailable: true
         )
-        XCTAssertEqual(selected.map(\.data), [Data([0]), Data([3]), Data([6]), Data([9])])
+        XCTAssertEqual(selected.map(\.data), [Data([0]), Data([5]), Data([9])])
 
         XCTAssertTrue(VoiceVisionSampleSelector.selectedAttachments(
             from: samples,
@@ -141,13 +162,13 @@ final class VoiceVisionSampleSelectorTests: XCTestCase {
             startedAt: start,
             now: start.addingTimeInterval(5),
             isAvailable: true
-        ), 3)
+        ), 2)
         XCTAssertEqual(VoiceVisionSampleSelector.estimatedAttachmentCount(
             from: samples,
             startedAt: start,
             now: start.addingTimeInterval(17),
             isAvailable: true
-        ), 6)
+        ), 4)
         XCTAssertEqual(VoiceVisionSampleSelector.normalizedMIMEType(" image/jpg; charset=binary "), "image/jpeg")
         XCTAssertEqual(VoiceVisionSampleSelector.normalizedMIMEType(nil), "image/jpeg")
     }
