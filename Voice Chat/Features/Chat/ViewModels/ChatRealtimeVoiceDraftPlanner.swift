@@ -18,7 +18,7 @@ struct ChatRealtimeVoiceDraftPlanner {
         imageAttachments: [ChatImageAttachment],
         supportsImageInputs: Bool,
         hasExistingImageContext: Bool,
-        maxImageAttachments: Int = 9
+        maxImageAttachments: Int = ChatImageAttachmentLimits.maximumAttachmentCount
     ) -> ChatRealtimeVoiceDraftPlanningResult {
         let capturedAttachments = Array(imageAttachments.prefix(maxImageAttachments))
         if !supportsImageInputs && (!capturedAttachments.isEmpty || hasExistingImageContext) {

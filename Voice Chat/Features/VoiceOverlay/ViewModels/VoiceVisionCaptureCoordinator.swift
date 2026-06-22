@@ -52,6 +52,7 @@ struct VoiceVisionCaptureCoordinator {
     mutating func appendSample(
         data: Data,
         mimeType: String?,
+        visualFingerprint: VoiceVisionVisualFingerprint? = nil,
         isAvailable: Bool,
         now: Date = Date()
     ) {
@@ -64,7 +65,11 @@ struct VoiceVisionCaptureCoordinator {
             mimeType: VoiceVisionSampleSelector.normalizedMIMEType(mimeType),
             data: data
         )
-        samples.append(.init(capturedAt: now, attachment: attachment))
+        samples.append(.init(
+            capturedAt: now,
+            attachment: attachment,
+            visualFingerprint: visualFingerprint
+        ))
         if samples.count > VoiceVisionSampleSelector.maxStoredSamples {
             samples = VoiceVisionSampleSelector.evenlyDownsampled(
                 samples,

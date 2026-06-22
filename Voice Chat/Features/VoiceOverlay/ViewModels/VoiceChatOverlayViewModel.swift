@@ -26,6 +26,7 @@ final class VoiceChatOverlayViewModel: ObservableObject {
     @Published var errorMessage: String?
     @Published var isVisionCapturePresented: Bool = false
     @Published var isVisionCaptureRecording: Bool = false
+    @Published var isVisionCaptureSamplingActive: Bool = false
     @Published var visionCaptureSampleCount: Int = 0
     @Published var visionCaptureResetID = UUID()
     var isSendSuppressed: Bool = false
@@ -50,6 +51,7 @@ final class VoiceChatOverlayViewModel: ObservableObject {
     var onRecognizedFinal: ((String, [ChatImageAttachment]) -> Void)?
     weak var activeChatSession: (any RealtimeVoiceChatSession)?
     var visionCaptureCoordinator = VoiceVisionCaptureCoordinator()
+    var hasDetectedSpeechForCurrentVisionCapture = false
     var autoResumeEnabled = false
     var recordingStartCoordinator = VoiceRecordingStartCoordinator()
     var isStartingRecording: Bool { recordingStartCoordinator.isStartingRecording }
@@ -89,6 +91,7 @@ final class VoiceChatOverlayViewModel: ObservableObject {
         autoResumeEnabled = false
         isSendSuppressed = false
         resetVisionCaptureSamples()
+        resetVisionCaptureSpeechActivity()
         inputLevelSubject.send(0)
         outputLevelSubject.send(0)
         showErrorBanner = false
@@ -115,6 +118,7 @@ final class VoiceChatOverlayViewModel: ObservableObject {
         errorMessage = nil
         isSendSuppressed = false
         dismissVisionCapture()
+        resetVisionCaptureSpeechActivity()
         inputLevelSubject.send(0)
         outputLevelSubject.send(0)
         cleanupSession()

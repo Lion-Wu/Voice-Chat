@@ -24,7 +24,7 @@ enum ChatImageAttachmentImportCompletion: Equatable {
 }
 
 struct ChatImageAttachmentImportCoordinator {
-    static let maximumAttachmentCount = 9
+    static let maximumAttachmentCount = ChatImageAttachmentLimits.maximumAttachmentCount
 
     private(set) var tasks: [UUID: Task<Void, Never>] = [:]
     private(set) var activePhotoImportID: UUID?

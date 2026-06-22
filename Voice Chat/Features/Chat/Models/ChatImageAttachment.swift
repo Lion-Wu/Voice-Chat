@@ -1,5 +1,9 @@
 import Foundation
 
+enum ChatImageAttachmentLimits {
+    static let maximumAttachmentCount = 9
+}
+
 struct ChatImageAttachment: Codable, Equatable, Hashable, Identifiable, Sendable {
     var id: UUID
     var mimeType: String

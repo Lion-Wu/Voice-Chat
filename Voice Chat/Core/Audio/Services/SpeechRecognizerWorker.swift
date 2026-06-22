@@ -27,6 +27,7 @@ actor SpeechRecognizerWorker {
     // MARK: - Callbacks
     private var onPartialHandler: (@Sendable (String) -> Void)?
     private var onFinalHandler: (@Sendable (String) -> Void)?
+    private var onSpeechActivityStartedHandler: (@Sendable () -> Void)?
     private var onLevelHandler: (@Sendable (Float) -> Void)?
     private var onErrorHandler: (@Sendable (String) -> Void)?
 
@@ -38,6 +39,9 @@ actor SpeechRecognizerWorker {
 
     // Energy threshold (linear amplitude, roughly -44 dB). Lower values make voice detection more sensitive.
     private let vadLevelThreshold: Float = 0.006
+    private let speechActivityStartMinimumDuration: TimeInterval = 0.25
+    private let speechActivityStartMinimumSamples = 4
+    private let speechActivityResetLevelThreshold: Float = 0.003
     private var didEndAudioForSilence = false
 
     /// Grace period after non-empty text is recognized; silence will not end the session during this window.
@@ -51,6 +55,9 @@ actor SpeechRecognizerWorker {
 
     /// Silence-based termination is allowed only after producing non-empty text.
     private var hasRecognizedText = false
+    private var didNotifySpeechActivityStarted = false
+    private var sustainedSpeechActivityStartedAt: Date?
+    private var sustainedSpeechActivitySampleCount = 0
 
     // MARK: - Misc state
     private var lastNonEmptyText = ""
@@ -89,6 +96,7 @@ actor SpeechRecognizerWorker {
     func start(locale: Locale,
                onPartial: @Sendable @escaping (String) -> Void,
                onFinal: @Sendable @escaping (String) -> Void,
+               onSpeechActivityStarted: @Sendable @escaping () -> Void,
                onLevel: @Sendable @escaping (Float) -> Void,
                onError: @Sendable @escaping (String) -> Void) async throws {
         // Stop any existing session before starting a new one.
@@ -98,6 +106,7 @@ actor SpeechRecognizerWorker {
 
         onPartialHandler = onPartial
         onFinalHandler = onFinal
+        onSpeechActivityStartedHandler = onSpeechActivityStarted
         onLevelHandler = onLevel
         onErrorHandler = onError
         lastNonEmptyText = ""
@@ -109,6 +118,8 @@ actor SpeechRecognizerWorker {
         // Important: silence cannot end the session until real speech has been heard.
         lastSpeechAt = nil
         hasRecognizedText = false
+        didNotifySpeechActivityStarted = false
+        resetSustainedSpeechActivity()
         didEndAudioForSilence = false
         graceUntil = nil
         firstTextAt = nil
@@ -192,6 +203,7 @@ actor SpeechRecognizerWorker {
         recognizer = nil
         onPartialHandler = nil
         onFinalHandler = nil
+        onSpeechActivityStartedHandler = nil
         onLevelHandler = nil
         onErrorHandler = nil
 
@@ -200,6 +212,8 @@ actor SpeechRecognizerWorker {
 
         didEndAudioForSilence = false
         hasRecognizedText = false
+        didNotifySpeechActivityStarted = false
+        resetSustainedSpeechActivity()
         lastSpeechAt = nil
         graceUntil = nil
         firstTextAt = nil
@@ -309,6 +323,8 @@ actor SpeechRecognizerWorker {
 
         lastSpeechAt = nil
         hasRecognizedText = false
+        didNotifySpeechActivityStarted = false
+        resetSustainedSpeechActivity()
         didEndAudioForSilence = false
         didEmitFinal = false
         graceUntil = nil
@@ -387,15 +403,46 @@ actor SpeechRecognizerWorker {
         lastNonEmptyText = text
         hasRecognizedText = true
         lastSpeechAt = .now
+        notifySpeechActivityStartedIfNeeded()
         graceUntil = Date().addingTimeInterval(postPartialGrace)
         if firstTextAt == nil { firstTextAt = .now }
     }
 
     private func registerVoiceActivity(_ level: Float) {
         // Track only the timestamps to avoid ending the session early due to background noise.
+        let now = Date()
         if level >= vadLevelThreshold {
-            lastSpeechAt = .now
+            lastSpeechAt = now
+            registerSustainedSpeechActivity(now: now)
+        } else if level < speechActivityResetLevelThreshold {
+            resetSustainedSpeechActivity()
         }
+    }
+
+    private func registerSustainedSpeechActivity(now: Date) {
+        guard !didNotifySpeechActivityStarted else { return }
+        if sustainedSpeechActivityStartedAt == nil {
+            sustainedSpeechActivityStartedAt = now
+            sustainedSpeechActivitySampleCount = 0
+        }
+        sustainedSpeechActivitySampleCount += 1
+
+        guard let startedAt = sustainedSpeechActivityStartedAt else { return }
+        guard sustainedSpeechActivitySampleCount >= speechActivityStartMinimumSamples else { return }
+        guard now.timeIntervalSince(startedAt) >= speechActivityStartMinimumDuration else { return }
+        notifySpeechActivityStartedIfNeeded()
+    }
+
+    private func resetSustainedSpeechActivity() {
+        sustainedSpeechActivityStartedAt = nil
+        sustainedSpeechActivitySampleCount = 0
+    }
+
+    private func notifySpeechActivityStartedIfNeeded() {
+        guard !didNotifySpeechActivityStarted else { return }
+        didNotifySpeechActivityStarted = true
+        resetSustainedSpeechActivity()
+        onSpeechActivityStartedHandler?()
     }
 
     /// When an empty final result arrives, restart recognition instead of ending the session.

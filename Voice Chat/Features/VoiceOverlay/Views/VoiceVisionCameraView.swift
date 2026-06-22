@@ -53,17 +53,21 @@ struct VoiceVisionCameraView: View {
                 .strokeBorder(.white.opacity(0.12), lineWidth: 1)
         }
         .onAppear {
-            controller.onSampleCapture = { data, mimeType in
-                viewModel.handleVisionCaptureSample(data: data, mimeType: mimeType)
+            controller.onSampleCapture = { data, mimeType, visualFingerprint in
+                viewModel.handleVisionCaptureSample(
+                    data: data,
+                    mimeType: mimeType,
+                    visualFingerprint: visualFingerprint
+                )
             }
             controller.resetVisualHistory()
             controller.start()
-            controller.setSamplingActive(viewModel.isVisionCaptureRecording)
+            controller.setSamplingActive(viewModel.isVisionCaptureSamplingActive)
         }
         .onDisappear {
             controller.stop()
         }
-        .onChange(of: viewModel.isVisionCaptureRecording) { _, isActive in
+        .onChange(of: viewModel.isVisionCaptureSamplingActive) { _, isActive in
             controller.setSamplingActive(isActive)
         }
         .onChange(of: viewModel.visionCaptureResetID) { _, _ in

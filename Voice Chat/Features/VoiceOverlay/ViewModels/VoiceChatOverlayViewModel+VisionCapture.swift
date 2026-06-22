@@ -30,10 +30,15 @@ extension VoiceChatOverlayViewModel {
         publishVisionCaptureState()
     }
 
-    func handleVisionCaptureSample(data: Data, mimeType: String?) {
+    func handleVisionCaptureSample(
+        data: Data,
+        mimeType: String?,
+        visualFingerprint: VoiceVisionVisualFingerprint?
+    ) {
         visionCaptureCoordinator.appendSample(
             data: data,
             mimeType: mimeType,
+            visualFingerprint: visualFingerprint,
             isAvailable: isVisionCaptureAvailable
         )
         publishVisionCaptureState()
@@ -56,6 +61,22 @@ extension VoiceChatOverlayViewModel {
         publishVisionCaptureState()
     }
 
+    func markVisionCaptureSpeechDetected() {
+        hasDetectedSpeechForCurrentVisionCapture = true
+        refreshVisionCaptureSamplingActive()
+    }
+
+    func resetVisionCaptureSpeechActivity() {
+        hasDetectedSpeechForCurrentVisionCapture = false
+        refreshVisionCaptureSamplingActive()
+    }
+
+    private func refreshVisionCaptureSamplingActive() {
+        isVisionCaptureSamplingActive = isVisionCapturePresented
+            && isVisionCaptureRecording
+            && hasDetectedSpeechForCurrentVisionCapture
+    }
+
     func selectedVisionAttachmentsForCurrentUtterance() -> [ChatImageAttachment] {
         visionCaptureCoordinator.selectedAttachments(isAvailable: isVisionCaptureAvailable)
     }
@@ -71,5 +92,10 @@ extension VoiceChatOverlayViewModel {
         isVisionCaptureRecording = captureState.isRecording
         visionCaptureSampleCount = captureState.sampleCount
         visionCaptureResetID = captureState.resetID
+        if !captureState.isPresented || !captureState.isRecording {
+            resetVisionCaptureSpeechActivity()
+        } else {
+            refreshVisionCaptureSamplingActive()
+        }
     }
 }

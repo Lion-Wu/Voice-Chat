@@ -78,6 +78,7 @@
 		FD900000000000000000010E /* NetworkRetry.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD900000000000000000000D /* NetworkRetry.swift */; };
 		FD9000000000000000000110 /* SettingsValueTypes.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD900000000000000000000F /* SettingsValueTypes.swift */; };
 		FD9000000000000000000112 /* ChatStreamingModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD9000000000000000000011 /* ChatStreamingModels.swift */; };
+		FD90000000000000000001C1 /* VoiceVisionCaptureTuning.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD90000000000000000000C0 /* VoiceVisionCaptureTuning.swift */; };
 		FD9000000000000000000114 /* ChatServiceConfiguration.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD9000000000000000000013 /* ChatServiceConfiguration.swift */; };
 		FD9000000000000000000116 /* MessageComposerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD9000000000000000000015 /* MessageComposerView.swift */; };
 		FD9000000000000000000118 /* ChatEndpointResolving.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD9000000000000000000017 /* ChatEndpointResolving.swift */; };
@@ -507,6 +508,7 @@
 		FD90000000000000000000BB /* AnthropicStreamEventReducer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = AnthropicStreamEventReducer.swift; path = "Voice Chat/Features/Chat/Services/AnthropicStreamEventReducer.swift"; sourceTree = SOURCE_ROOT; };
 		FD90000000000000000000BD /* LMStudioStreamEventReducer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = LMStudioStreamEventReducer.swift; path = "Voice Chat/Features/Chat/Services/LMStudioStreamEventReducer.swift"; sourceTree = SOURCE_ROOT; };
 		FD90000000000000000000BF /* VoiceVisionCaptureSample.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = VoiceVisionCaptureSample.swift; path = "Voice Chat/Features/VoiceOverlay/ViewModels/VoiceVisionCaptureSample.swift"; sourceTree = SOURCE_ROOT; };
+		FD90000000000000000000C0 /* VoiceVisionCaptureTuning.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = VoiceVisionCaptureTuning.swift; path = "Voice Chat/Features/VoiceOverlay/ViewModels/VoiceVisionCaptureTuning.swift"; sourceTree = SOURCE_ROOT; };
 		FD90000000000000000000C1 /* VoiceVisionSampleSelector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = VoiceVisionSampleSelector.swift; path = "Voice Chat/Features/VoiceOverlay/ViewModels/VoiceVisionSampleSelector.swift"; sourceTree = SOURCE_ROOT; };
 		FD90000000000000000000C3 /* ChatBranchRestartCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ChatBranchRestartCoordinator.swift; path = "Voice Chat/Features/Chat/ViewModels/ChatBranchRestartCoordinator.swift"; sourceTree = SOURCE_ROOT; };
 		FD90000000000000000000C5 /* ChatStreamingSessionCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ChatStreamingSessionCoordinator.swift; path = "Voice Chat/Features/Chat/ViewModels/ChatStreamingSessionCoordinator.swift"; sourceTree = SOURCE_ROOT; };
@@ -1326,6 +1328,7 @@
 				FDFE0A782F123D0000000001 /* VoiceLoadingWatchdog.swift */,
 				FDFE0A742F123D0000000001 /* VoiceVisionCaptureCoordinator.swift */,
 				FD90000000000000000000BF /* VoiceVisionCaptureSample.swift */,
+				FD90000000000000000000C0 /* VoiceVisionCaptureTuning.swift */,
 				FD90000000000000000000C1 /* VoiceVisionSampleSelector.swift */,
 				B4E916DE2B4BF0E500E49A6B /* VoiceViewModel.swift */,
 			);
@@ -1602,6 +1605,7 @@
 				FDF714CF2F91000000B62D71 /* VoiceVisionCameraSupport.swift in Sources */,
 				FDF714D12F91000000B62D71 /* VoiceVisionFrameSampler.swift in Sources */,
 				FD90000000000000000001C0 /* VoiceVisionCaptureSample.swift in Sources */,
+				FD90000000000000000001C1 /* VoiceVisionCaptureTuning.swift in Sources */,
 				FD90000000000000000001C2 /* VoiceVisionSampleSelector.swift in Sources */,
 				FD90000000000000000001E2 /* VoiceWorkSnapshot.swift in Sources */,
 				FDFE0A092F123D0000000001 /* RealtimeVoiceChatSession.swift in Sources */,
