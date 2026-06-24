@@ -16,6 +16,7 @@ struct AppSettingsLoadedState: Equatable {
     let developerModeEnabled: Bool
     let hapticFeedbackEnabled: Bool
     let apiAdvancedSettings: APIAdvancedSettings
+    let toolUseSettings: ToolUseSettings
     let selectedVoiceServerPresetID: UUID?
     let selectedChatServerPresetID: UUID?
     let selectedPresetID: UUID?
@@ -88,6 +89,7 @@ enum AppSettingsStore {
                 from: settings.apiAdvancedSettingsJSON,
                 fallback: defaultAPIAdvancedSettings
             ),
+            toolUseSettings: ToolUseSettingsCodec.decode(from: settings.toolUseSettingsJSON),
             selectedVoiceServerPresetID: settings.selectedVoiceServerPresetID,
             selectedChatServerPresetID: settings.selectedChatServerPresetID,
             selectedPresetID: settings.selectedPresetID,
@@ -111,6 +113,10 @@ enum AppSettingsStore {
         if settings.apiAdvancedSettingsJSON == nil {
             settings.apiAdvancedSettingsJSON = APIAdvancedSettingsCodec.encode(loadedState.apiAdvancedSettings)
             save("backfill API advanced settings")
+        }
+        if settings.toolUseSettingsJSON == nil {
+            settings.toolUseSettingsJSON = ToolUseSettingsCodec.encode(loadedState.toolUseSettings)
+            save("backfill tool-use settings")
         }
     }
 }

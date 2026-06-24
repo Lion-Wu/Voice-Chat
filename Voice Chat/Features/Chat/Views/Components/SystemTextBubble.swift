@@ -19,6 +19,8 @@ struct SystemTextBubble: View {
     let developerModeEnabled: Bool
     let maxBubbleWidth: CGFloat?
     let contentFingerprint: ContentFingerprint
+    let toolActivities: [ChatToolActivity]
+    let toolActivityPlacements: [ChatToolActivityPlacement]
     let searchHighlightQuery: String?
     let isStreamingResponse: Bool
 
@@ -29,23 +31,30 @@ struct SystemTextBubble: View {
 
     var body: some View {
         let parts = renderCache.thinkParts(for: message.id, content: message.content, fingerprint: contentFingerprint)
+        let thinkingPlacements = toolActivityPlacements.filter { $0.scope == .thinking }
+        let bodyPlacements = toolActivityPlacements.filter { $0.scope == .body }
 
         let thinkView = Group {
             if let think = parts.think {
                 ThinkingPreviewBubble(
                     think: think,
-                    isComplete: parts.isClosed,
+                    isComplete: parts.isClosed && (!isStreamingResponse || thinkingPlacements.isEmpty || !parts.body.isEmpty),
                     previewLines: thinkPreviewLines,
-                    thinkFontSize: thinkFontSize
+                    thinkFontSize: thinkFontSize,
+                    toolActivityPlacements: thinkingPlacements,
+                    maxBubbleWidth: maxBubbleWidth
                 )
                     .frame(maxWidth: contentMaxWidthForAssistant(availableWidth: maxBubbleWidth), alignment: .leading)
             }
         }
 
         let bodyView = Group {
-            if !parts.body.isEmpty {
-                RichMarkdownView(
-                    markdown: parts.body,
+            if !parts.body.isEmpty || !bodyPlacements.isEmpty {
+                ChatToolInlineContentView(
+                    text: parts.body,
+                    placements: bodyPlacements,
+                    textStyle: .markdown,
+                    maxBubbleWidth: maxBubbleWidth,
                     searchHighlightQuery: searchHighlightQuery,
                     animateNewText: isStreamingResponse
                 )
@@ -135,7 +144,11 @@ struct SystemTextBubble: View {
             copyFeedbackToken = 0
         }
         .sheet(isPresented: $isShowingMessageDetails) {
-            MessageDetailsView(message: message)
+            MessageDetailsView(
+                message: message,
+                toolActivities: toolActivities,
+                toolActivityPlacements: toolActivityPlacements
+            )
         }
     }
 

@@ -67,6 +67,10 @@
 		FD700000000000000000003B /* ChatRequestActivityStateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD700000000000000000003A /* ChatRequestActivityStateTests.swift */; };
 		FD700000000000000000003D /* TTSPlaybackStateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD700000000000000000003C /* TTSPlaybackStateTests.swift */; };
 		FD700000000000000000003F /* VoiceWorkSnapshotTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD700000000000000000003E /* VoiceWorkSnapshotTests.swift */; };
+		FDAB10012F123D0000000001 /* ToolUseSettingsCodecTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FDAB10022F123D0000000001 /* ToolUseSettingsCodecTests.swift */; };
+		FDAB10032F123D0000000001 /* ChatToolSchemaEncoderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FDAB10042F123D0000000001 /* ChatToolSchemaEncoderTests.swift */; };
+		FDAB10052F123D0000000001 /* ChatToolCallParserTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FDAB10062F123D0000000001 /* ChatToolCallParserTests.swift */; };
+		FDAB10072F123D0000000001 /* ChatToolExecutorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FDAB10082F123D0000000001 /* ChatToolExecutorTests.swift */; };
 		FD7228652E7EBE22005BF261 /* SpeechInputManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD7228642E7EBE22005BF261 /* SpeechInputManager.swift */; };
 		FD7AF1B42CD896B900A5080B /* BlurView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD7AF1B32CD896B900A5080B /* BlurView.swift */; };
 		FD9000000000000000000102 /* AppLocalization.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD9000000000000000000001 /* AppLocalization.swift */; };
@@ -335,6 +339,26 @@
 		FDFE0B232F12400000000001 /* SettingsManager+Initialization.swift in Sources */ = {isa = PBXBuildFile; fileRef = FDFE0B222F12400000000001 /* SettingsManager+Initialization.swift */; };
 		FDFE0B252F12400000000001 /* ChatView+DerivedState.swift in Sources */ = {isa = PBXBuildFile; fileRef = FDFE0B242F12400000000001 /* ChatView+DerivedState.swift */; };
 		FDFE0B272F12400000000001 /* ChatView+SendCoordination.swift in Sources */ = {isa = PBXBuildFile; fileRef = FDFE0B262F12400000000001 /* ChatView+SendCoordination.swift */; };
+		FDAA10010000000000000101 /* ToolUseSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = FDAA00010000000000000101 /* ToolUseSettings.swift */; };
+		FDAA10010000000000000102 /* ChatToolTypes.swift in Sources */ = {isa = PBXBuildFile; fileRef = FDAA00010000000000000102 /* ChatToolTypes.swift */; };
+		FDAA10010000000000000103 /* ChatToolDefinitions.swift in Sources */ = {isa = PBXBuildFile; fileRef = FDAA00010000000000000103 /* ChatToolDefinitions.swift */; };
+		FDAA10010000000000000104 /* ChatToolSchemaEncoder.swift in Sources */ = {isa = PBXBuildFile; fileRef = FDAA00010000000000000104 /* ChatToolSchemaEncoder.swift */; };
+		FDAA10010000000000000105 /* ChatToolArgumentReader.swift in Sources */ = {isa = PBXBuildFile; fileRef = FDAA00010000000000000105 /* ChatToolArgumentReader.swift */; };
+		FDAA10010000000000000106 /* ChatToolExecutor.swift in Sources */ = {isa = PBXBuildFile; fileRef = FDAA00010000000000000106 /* ChatToolExecutor.swift */; };
+		FDAA10010000000000000107 /* EventKitToolAdapters.swift in Sources */ = {isa = PBXBuildFile; fileRef = FDAA00010000000000000107 /* EventKitToolAdapters.swift */; };
+		FDAA10010000000000000108 /* CoreLocationTool.swift in Sources */ = {isa = PBXBuildFile; fileRef = FDAA00010000000000000108 /* CoreLocationTool.swift */; };
+		FDAA10010000000000000109 /* CoreMotionTool.swift in Sources */ = {isa = PBXBuildFile; fileRef = FDAA00010000000000000109 /* CoreMotionTool.swift */; };
+		FDAA1001000000000000010A /* DeviceContextTool.swift in Sources */ = {isa = PBXBuildFile; fileRef = FDAA0001000000000000010A /* DeviceContextTool.swift */; };
+		FDAA1001000000000000010B /* ChatToolCallParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = FDAA0001000000000000010B /* ChatToolCallParser.swift */; };
+		FDAA1001000000000000010C /* ChatToolResultMessageEncoder.swift in Sources */ = {isa = PBXBuildFile; fileRef = FDAA0001000000000000010C /* ChatToolResultMessageEncoder.swift */; };
+		FDAA1001000000000000010D /* ChatService+ToolLoop.swift in Sources */ = {isa = PBXBuildFile; fileRef = FDAA0001000000000000010D /* ChatService+ToolLoop.swift */; };
+		FDAA1001000000000000010E /* SettingsToolUseSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = FDAA0001000000000000010E /* SettingsToolUseSection.swift */; };
+		FDAA1001000000000000010F /* ToolActivityBubble.swift in Sources */ = {isa = PBXBuildFile; fileRef = FDAA0001000000000000010F /* ToolActivityBubble.swift */; };
+		FDAA10010000000000000114 /* ChatToolInlineContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FDAA00010000000000000114 /* ChatToolInlineContentView.swift */; };
+		FDAA10010000000000000110 /* MCPClientTypes.swift in Sources */ = {isa = PBXBuildFile; fileRef = FDAA00010000000000000110 /* MCPClientTypes.swift */; };
+		FDAA10010000000000000111 /* LMStudioPromptToolProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = FDAA00010000000000000111 /* LMStudioPromptToolProtocol.swift */; };
+		FDAA10010000000000000112 /* ChatService+LMStudioPromptTools.swift in Sources */ = {isa = PBXBuildFile; fileRef = FDAA00010000000000000112 /* ChatService+LMStudioPromptTools.swift */; };
+		FDAA10010000000000000113 /* ChatService+LMStudioStatefulFallback.swift in Sources */ = {isa = PBXBuildFile; fileRef = FDAA00010000000000000113 /* ChatService+LMStudioStatefulFallback.swift */; };
 		FDFFEEE12F20000000000001 /* ChatSessionRepository.swift in Sources */ = {isa = PBXBuildFile; fileRef = FDFFEEE02F20000000000001 /* ChatSessionRepository.swift */; };
 /* End PBXBuildFile section */
 
@@ -411,6 +435,10 @@
 		FD700000000000000000003A /* ChatRequestActivityStateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ChatRequestActivityStateTests.swift; path = "Voice ChatTests/ChatRequestActivityStateTests.swift"; sourceTree = SOURCE_ROOT; };
 		FD700000000000000000003C /* TTSPlaybackStateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = TTSPlaybackStateTests.swift; path = "Voice ChatTests/TTSPlaybackStateTests.swift"; sourceTree = SOURCE_ROOT; };
 		FD700000000000000000003E /* VoiceWorkSnapshotTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = VoiceWorkSnapshotTests.swift; path = "Voice ChatTests/VoiceWorkSnapshotTests.swift"; sourceTree = SOURCE_ROOT; };
+		FDAB10022F123D0000000001 /* ToolUseSettingsCodecTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ToolUseSettingsCodecTests.swift; path = "Voice ChatTests/ToolUseSettingsCodecTests.swift"; sourceTree = SOURCE_ROOT; };
+		FDAB10042F123D0000000001 /* ChatToolSchemaEncoderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ChatToolSchemaEncoderTests.swift; path = "Voice ChatTests/ChatToolSchemaEncoderTests.swift"; sourceTree = SOURCE_ROOT; };
+		FDAB10062F123D0000000001 /* ChatToolCallParserTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ChatToolCallParserTests.swift; path = "Voice ChatTests/ChatToolCallParserTests.swift"; sourceTree = SOURCE_ROOT; };
+		FDAB10082F123D0000000001 /* ChatToolExecutorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ChatToolExecutorTests.swift; path = "Voice ChatTests/ChatToolExecutorTests.swift"; sourceTree = SOURCE_ROOT; };
 		FD7228642E7EBE22005BF261 /* SpeechInputManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = SpeechInputManager.swift; path = "Voice Chat/Core/Audio/Services/SpeechInputManager.swift"; sourceTree = SOURCE_ROOT; };
 		FD7AF1B32CD896B900A5080B /* BlurView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = BlurView.swift; path = "Voice Chat/Shared/UI/Chrome/BlurView.swift"; sourceTree = SOURCE_ROOT; };
 		FD9000000000000000000001 /* AppLocalization.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = AppLocalization.swift; path = "Voice Chat/App/Composition/AppLocalization.swift"; sourceTree = SOURCE_ROOT; };
@@ -695,6 +723,26 @@
 		FDFE0B222F12400000000001 /* SettingsManager+Initialization.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = "SettingsManager+Initialization.swift"; path = "Voice Chat/Features/Settings/Models/SettingsManager+Initialization.swift"; sourceTree = SOURCE_ROOT; };
 		FDFE0B242F12400000000001 /* ChatView+DerivedState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = "ChatView+DerivedState.swift"; path = "Voice Chat/Features/Chat/Views/ChatView+DerivedState.swift"; sourceTree = SOURCE_ROOT; };
 		FDFE0B262F12400000000001 /* ChatView+SendCoordination.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = "ChatView+SendCoordination.swift"; path = "Voice Chat/Features/Chat/Views/ChatView+SendCoordination.swift"; sourceTree = SOURCE_ROOT; };
+		FDAA00010000000000000101 /* ToolUseSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ToolUseSettings.swift; path = "Voice Chat/Features/Tools/Models/ToolUseSettings.swift"; sourceTree = SOURCE_ROOT; };
+		FDAA00010000000000000102 /* ChatToolTypes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ChatToolTypes.swift; path = "Voice Chat/Features/Tools/Models/ChatToolTypes.swift"; sourceTree = SOURCE_ROOT; };
+		FDAA00010000000000000103 /* ChatToolDefinitions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ChatToolDefinitions.swift; path = "Voice Chat/Features/Tools/Services/ChatToolDefinitions.swift"; sourceTree = SOURCE_ROOT; };
+		FDAA00010000000000000104 /* ChatToolSchemaEncoder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ChatToolSchemaEncoder.swift; path = "Voice Chat/Features/Tools/Services/ChatToolSchemaEncoder.swift"; sourceTree = SOURCE_ROOT; };
+		FDAA00010000000000000105 /* ChatToolArgumentReader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ChatToolArgumentReader.swift; path = "Voice Chat/Features/Tools/Services/ChatToolArgumentReader.swift"; sourceTree = SOURCE_ROOT; };
+		FDAA00010000000000000106 /* ChatToolExecutor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ChatToolExecutor.swift; path = "Voice Chat/Features/Tools/Services/ChatToolExecutor.swift"; sourceTree = SOURCE_ROOT; };
+		FDAA00010000000000000107 /* EventKitToolAdapters.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = EventKitToolAdapters.swift; path = "Voice Chat/Features/Tools/Services/EventKitToolAdapters.swift"; sourceTree = SOURCE_ROOT; };
+		FDAA00010000000000000108 /* CoreLocationTool.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = CoreLocationTool.swift; path = "Voice Chat/Features/Tools/Services/CoreLocationTool.swift"; sourceTree = SOURCE_ROOT; };
+		FDAA00010000000000000109 /* CoreMotionTool.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = CoreMotionTool.swift; path = "Voice Chat/Features/Tools/Services/CoreMotionTool.swift"; sourceTree = SOURCE_ROOT; };
+		FDAA0001000000000000010A /* DeviceContextTool.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = DeviceContextTool.swift; path = "Voice Chat/Features/Tools/Services/DeviceContextTool.swift"; sourceTree = SOURCE_ROOT; };
+		FDAA0001000000000000010B /* ChatToolCallParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ChatToolCallParser.swift; path = "Voice Chat/Features/Tools/Services/ChatToolCallParser.swift"; sourceTree = SOURCE_ROOT; };
+		FDAA0001000000000000010C /* ChatToolResultMessageEncoder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ChatToolResultMessageEncoder.swift; path = "Voice Chat/Features/Tools/Services/ChatToolResultMessageEncoder.swift"; sourceTree = SOURCE_ROOT; };
+		FDAA0001000000000000010D /* ChatService+ToolLoop.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = "ChatService+ToolLoop.swift"; path = "Voice Chat/Features/Chat/Services/ChatService+ToolLoop.swift"; sourceTree = SOURCE_ROOT; };
+		FDAA0001000000000000010E /* SettingsToolUseSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = SettingsToolUseSection.swift; path = "Voice Chat/Features/Settings/Views/SettingsToolUseSection.swift"; sourceTree = SOURCE_ROOT; };
+		FDAA0001000000000000010F /* ToolActivityBubble.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ToolActivityBubble.swift; path = "Voice Chat/Features/Chat/Views/Components/ToolActivityBubble.swift"; sourceTree = SOURCE_ROOT; };
+		FDAA00010000000000000114 /* ChatToolInlineContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ChatToolInlineContentView.swift; path = "Voice Chat/Features/Chat/Views/Components/ChatToolInlineContentView.swift"; sourceTree = SOURCE_ROOT; };
+		FDAA00010000000000000110 /* MCPClientTypes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = MCPClientTypes.swift; path = "Voice Chat/Features/MCP/Models/MCPClientTypes.swift"; sourceTree = SOURCE_ROOT; };
+		FDAA00010000000000000111 /* LMStudioPromptToolProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = LMStudioPromptToolProtocol.swift; path = "Voice Chat/Features/Tools/Services/LMStudioPromptToolProtocol.swift"; sourceTree = SOURCE_ROOT; };
+		FDAA00010000000000000112 /* ChatService+LMStudioPromptTools.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = "ChatService+LMStudioPromptTools.swift"; path = "Voice Chat/Features/Chat/Services/ChatService+LMStudioPromptTools.swift"; sourceTree = SOURCE_ROOT; };
+		FDAA00010000000000000113 /* ChatService+LMStudioStatefulFallback.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = "ChatService+LMStudioStatefulFallback.swift"; path = "Voice Chat/Features/Chat/Services/ChatService+LMStudioStatefulFallback.swift"; sourceTree = SOURCE_ROOT; };
 		FDFFEEE02F20000000000001 /* ChatSessionRepository.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ChatSessionRepository.swift; path = "Voice Chat/Features/Sessions/Services/ChatSessionRepository.swift"; sourceTree = SOURCE_ROOT; };
 /* End PBXFileReference section */
 
@@ -788,6 +836,10 @@
 				FD7000000000000000000036 /* SettingsPresetBindingControllerTests.swift */,
 				FD7000000000000000000038 /* SettingsModelCatalogControllerTests.swift */,
 				FD700000000000000000003A /* ChatRequestActivityStateTests.swift */,
+				FDAB10022F123D0000000001 /* ToolUseSettingsCodecTests.swift */,
+				FDAB10042F123D0000000001 /* ChatToolSchemaEncoderTests.swift */,
+				FDAB10062F123D0000000001 /* ChatToolCallParserTests.swift */,
+				FDAB10082F123D0000000001 /* ChatToolExecutorTests.swift */,
 				FDFE0A322F123D0000000001 /* ChatRequestActivityControllerTests.swift */,
 				FDFE0A422F123D0000000001 /* ChatStreamRetryStatusControllerTests.swift */,
 				FDFE0A462F123D0000000001 /* SettingsPresetApplyControllerTests.swift */,
@@ -1670,6 +1722,26 @@
 				FD900000000000000000019E /* ChatUserTurnAppender.swift in Sources */,
 				FD90000000000000000001A0 /* ChatRealtimeVoiceDraftPlanner.swift in Sources */,
 				FD90000000000000000001A2 /* JSONValue.swift in Sources */,
+				FDAA10010000000000000101 /* ToolUseSettings.swift in Sources */,
+				FDAA10010000000000000102 /* ChatToolTypes.swift in Sources */,
+				FDAA10010000000000000103 /* ChatToolDefinitions.swift in Sources */,
+				FDAA10010000000000000104 /* ChatToolSchemaEncoder.swift in Sources */,
+				FDAA10010000000000000105 /* ChatToolArgumentReader.swift in Sources */,
+				FDAA10010000000000000106 /* ChatToolExecutor.swift in Sources */,
+				FDAA10010000000000000107 /* EventKitToolAdapters.swift in Sources */,
+				FDAA10010000000000000108 /* CoreLocationTool.swift in Sources */,
+				FDAA10010000000000000109 /* CoreMotionTool.swift in Sources */,
+				FDAA1001000000000000010A /* DeviceContextTool.swift in Sources */,
+				FDAA1001000000000000010B /* ChatToolCallParser.swift in Sources */,
+				FDAA1001000000000000010C /* ChatToolResultMessageEncoder.swift in Sources */,
+				FDAA1001000000000000010D /* ChatService+ToolLoop.swift in Sources */,
+				FDAA1001000000000000010E /* SettingsToolUseSection.swift in Sources */,
+				FDAA1001000000000000010F /* ToolActivityBubble.swift in Sources */,
+				FDAA10010000000000000114 /* ChatToolInlineContentView.swift in Sources */,
+				FDAA10010000000000000110 /* MCPClientTypes.swift in Sources */,
+				FDAA10010000000000000111 /* LMStudioPromptToolProtocol.swift in Sources */,
+				FDAA10010000000000000112 /* ChatService+LMStudioPromptTools.swift in Sources */,
+				FDAA10010000000000000113 /* ChatService+LMStudioStatefulFallback.swift in Sources */,
 				FD90000000000000000001A4 /* ModelThinkingCapability.swift in Sources */,
 				FD90000000000000000001A6 /* ChatImageAttachment.swift in Sources */,
 				FD90000000000000000001A8 /* QueuedChatDraft.swift in Sources */,
@@ -1822,6 +1894,10 @@
 				FD7000000000000000000037 /* SettingsPresetBindingControllerTests.swift in Sources */,
 				FD7000000000000000000039 /* SettingsModelCatalogControllerTests.swift in Sources */,
 				FD700000000000000000003B /* ChatRequestActivityStateTests.swift in Sources */,
+				FDAB10012F123D0000000001 /* ToolUseSettingsCodecTests.swift in Sources */,
+				FDAB10032F123D0000000001 /* ChatToolSchemaEncoderTests.swift in Sources */,
+				FDAB10052F123D0000000001 /* ChatToolCallParserTests.swift in Sources */,
+				FDAB10072F123D0000000001 /* ChatToolExecutorTests.swift in Sources */,
 				FDFE0A332F123D0000000001 /* ChatRequestActivityControllerTests.swift in Sources */,
 				FDFE0A432F123D0000000001 /* ChatStreamRetryStatusControllerTests.swift in Sources */,
 				FDFE0A472F123D0000000001 /* SettingsPresetApplyControllerTests.swift in Sources */,
@@ -2044,16 +2120,23 @@
 				ENABLE_PREVIEWS = YES;
 				ENABLE_RESOURCE_ACCESS_AUDIO_INPUT = YES;
 				ENABLE_RESOURCE_ACCESS_BLUETOOTH = NO;
-				ENABLE_RESOURCE_ACCESS_CALENDARS = NO;
+				ENABLE_RESOURCE_ACCESS_CALENDARS = YES;
 				ENABLE_RESOURCE_ACCESS_CAMERA = YES;
 				ENABLE_RESOURCE_ACCESS_CONTACTS = NO;
-				ENABLE_RESOURCE_ACCESS_LOCATION = NO;
+				ENABLE_RESOURCE_ACCESS_LOCATION = YES;
 				ENABLE_RESOURCE_ACCESS_PRINTING = NO;
 				ENABLE_RESOURCE_ACCESS_USB = NO;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
 				INFOPLIST_KEY_NSCameraUsageDescription = "Take photos and add them to chat messages.";
+				INFOPLIST_KEY_NSCalendarsFullAccessUsageDescription = "Read calendar events when you ask the assistant about your schedule.";
+				INFOPLIST_KEY_NSCalendarsUsageDescription = "Read calendar events when you ask the assistant about your schedule.";
+				INFOPLIST_KEY_NSLocationUsageDescription = "Read your current location when you ask the assistant to use location context.";
+				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "Read your current location when you ask the assistant to use location context.";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Record your voice to support voice mode.";
+				INFOPLIST_KEY_NSMotionUsageDescription = "Read a short motion snapshot when you ask the assistant to use device motion context.";
+				INFOPLIST_KEY_NSRemindersFullAccessUsageDescription = "Read reminders when you ask the assistant about reminders.";
+				INFOPLIST_KEY_NSRemindersUsageDescription = "Read reminders when you ask the assistant about reminders.";
 				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "Convert your speech into text to support voice mode.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
@@ -2098,16 +2181,23 @@
 				ENABLE_PREVIEWS = YES;
 				ENABLE_RESOURCE_ACCESS_AUDIO_INPUT = YES;
 				ENABLE_RESOURCE_ACCESS_BLUETOOTH = NO;
-				ENABLE_RESOURCE_ACCESS_CALENDARS = NO;
+				ENABLE_RESOURCE_ACCESS_CALENDARS = YES;
 				ENABLE_RESOURCE_ACCESS_CAMERA = YES;
 				ENABLE_RESOURCE_ACCESS_CONTACTS = NO;
-				ENABLE_RESOURCE_ACCESS_LOCATION = NO;
+				ENABLE_RESOURCE_ACCESS_LOCATION = YES;
 				ENABLE_RESOURCE_ACCESS_PRINTING = NO;
 				ENABLE_RESOURCE_ACCESS_USB = NO;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
 				INFOPLIST_KEY_NSCameraUsageDescription = "Take photos and add them to chat messages.";
+				INFOPLIST_KEY_NSCalendarsFullAccessUsageDescription = "Read calendar events when you ask the assistant about your schedule.";
+				INFOPLIST_KEY_NSCalendarsUsageDescription = "Read calendar events when you ask the assistant about your schedule.";
+				INFOPLIST_KEY_NSLocationUsageDescription = "Read your current location when you ask the assistant to use location context.";
+				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "Read your current location when you ask the assistant to use location context.";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Record your voice to support voice mode.";
+				INFOPLIST_KEY_NSMotionUsageDescription = "Read a short motion snapshot when you ask the assistant to use device motion context.";
+				INFOPLIST_KEY_NSRemindersFullAccessUsageDescription = "Read reminders when you ask the assistant about reminders.";
+				INFOPLIST_KEY_NSRemindersUsageDescription = "Read reminders when you ask the assistant about reminders.";
 				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "Convert your speech into text to support voice mode.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;

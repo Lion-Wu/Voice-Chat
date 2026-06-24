@@ -171,6 +171,7 @@ private final class StubRuntimeChatService: ChatStreamingService {
     var onDelta: (@MainActor (String) -> Void)?
     var onError: (@MainActor (Error) -> Void)?
     var onResponseMetadata: (@MainActor (ChatResponseMetadata) -> Void)?
+    var onToolActivity: (@MainActor (ChatToolActivity) -> Void)?
     var onStreamFinished: (@MainActor () -> Void)?
 
     func fetchStreamedData(

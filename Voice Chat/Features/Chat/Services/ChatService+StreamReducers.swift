@@ -9,6 +9,7 @@ import Foundation
 
 extension ChatService {
     func handleOpenAICompatibleStreamPayload(_ jsonData: Data, fallbackType: String?) -> Bool {
+        collectOpenAIToolCalls(from: jsonData)
         var state = currentOpenAICompatibleStreamEventState()
         let reduction = openAICompatibleStreamReducer.reduce(
             jsonData: jsonData,
@@ -64,6 +65,7 @@ extension ChatService {
 
     func handleAnthropicStreamEvent(_ event: AnthropicStreamEvent) {
         guard !isCancelled else { return }
+        collectAnthropicToolCalls(from: event)
         var state = anthropicStreamState
         let actions = anthropicStreamReducer.reduce(event, state: &state)
         anthropicStreamState = state
@@ -120,12 +122,11 @@ extension ChatService {
         for action in actions {
             switch action {
             case let .delta(piece, marksPrimaryOutput):
-                emitDelta(piece, marksPrimaryOutput: marksPrimaryOutput)
+                handleLMStudioPromptToolDelta(piece, marksPrimaryOutput: marksPrimaryOutput)
             case let .metadata(metadata):
                 mergeResponseMetadata(metadata)
             case .finish:
-                emitStreamFinishedOnce()
-                stopWatchdog()
+                handleLMStudioPromptToolFinish()
             case let .fail(message):
                 failCurrentStreamWithServerError(message)
                 stopWatchdog()

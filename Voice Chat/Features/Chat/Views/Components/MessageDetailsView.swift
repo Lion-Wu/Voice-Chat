@@ -10,6 +10,18 @@ import SwiftUI
 struct MessageDetailsView: View {
     @Bindable var message: ChatMessage
     @Environment(\.dismiss) private var dismiss
+    let toolActivities: [ChatToolActivity]
+    let toolActivityPlacements: [ChatToolActivityPlacement]
+
+    init(
+        message: ChatMessage,
+        toolActivities: [ChatToolActivity] = [],
+        toolActivityPlacements: [ChatToolActivityPlacement] = []
+    ) {
+        self.message = message
+        self.toolActivities = toolActivities
+        self.toolActivityPlacements = toolActivityPlacements
+    }
 
     private enum MetricSourceBadge {
         case provider
@@ -40,6 +52,15 @@ struct MessageDetailsView: View {
             case .local:
                 return "Recorded Locally"
             }
+        }
+    }
+
+    private struct ToolTraceItem: Identifiable {
+        let activity: ChatToolActivity
+        let placement: ChatToolActivityPlacement?
+
+        var id: String {
+            activity.id
         }
     }
 
@@ -97,6 +118,8 @@ struct MessageDetailsView: View {
                         detailRow("Prompt Message Count", fieldKey: "promptMessageCount", source: .local) { valueText(formatInt(message.promptMessageCount)) }
                         detailRow("Prompt Character Count", fieldKey: "promptCharacterCount", source: .local) { valueText(formatInt(message.promptCharacterCount)) }
                     }
+
+                    toolTraceSection
 
                     sectionBox("Timing", systemImage: "clock") {
                         detailRow("Stream Started At", fieldKey: "streamStartedAt", source: .local) { valueDate(message.streamStartedAt) }
@@ -180,6 +203,83 @@ struct MessageDetailsView: View {
                 .font(.caption2)
                 .foregroundStyle(.secondary)
                 .monospaced()
+        }
+    }
+
+    private var toolTraceItems: [ToolTraceItem] {
+        var seen = Set<String>()
+        var items = toolActivityPlacements
+            .sorted {
+                if $0.offset == $1.offset {
+                    return $0.id < $1.id
+                }
+                return $0.offset < $1.offset
+            }
+            .map { placement in
+                seen.insert(placement.id)
+                return ToolTraceItem(activity: placement.activity, placement: placement)
+            }
+
+        for activity in toolActivities.sorted(by: { $0.id < $1.id }) where !seen.contains(activity.id) {
+            seen.insert(activity.id)
+            items.append(ToolTraceItem(activity: activity, placement: nil))
+        }
+        return items
+    }
+
+    @ViewBuilder
+    private var toolTraceSection: some View {
+        sectionBox("Tool Trace", systemImage: "wrench.and.screwdriver") {
+            let items = toolTraceItems
+            detailRow("Tool Calls", fieldKey: "toolTrace.count", source: .local) {
+                valueText(items.isEmpty ? String(localized: "None") : "\(items.count)")
+            }
+
+            if !items.isEmpty {
+                detailRow("Used Tools", fieldKey: "toolTrace[].toolName", source: .local) {
+                    valueCode(uniqueToolNames(from: items).joined(separator: "\n"))
+                }
+
+                ForEach(items) { item in
+                    DisclosureGroup {
+                        VStack(alignment: .leading, spacing: 10) {
+                            detailRow("Activity ID", fieldKey: "toolTrace[].id", source: .local) {
+                                valueCode(item.activity.id)
+                            }
+                            detailRow("Tool Name", fieldKey: "toolTrace[].toolName", source: .local) {
+                                valueCode(item.activity.toolName)
+                            }
+                            detailRow("Title", fieldKey: "toolTrace[].title", source: .local) {
+                                valueText(item.activity.title)
+                            }
+                            detailRow("Phase", fieldKey: "toolTrace[].phase", source: .local) {
+                                valueText(formatToolPhase(item.activity.phase))
+                            }
+                            detailRow("Summary", fieldKey: "toolTrace[].summary", source: .local) {
+                                valueWrappedText(item.activity.summary)
+                            }
+                            detailRow("Placement Scope", fieldKey: "toolTrace[].scope", source: .local) {
+                                valueText(item.placement?.scope.rawValue)
+                            }
+                            detailRow("Placement Offset", fieldKey: "toolTrace[].offset", source: .local) {
+                                valueText(item.placement.map { "\($0.offset)" })
+                            }
+                        }
+                        .padding(.top, 8)
+                    } label: {
+                        HStack(spacing: 8) {
+                            Image(systemName: iconName(forToolName: item.activity.toolName))
+                                .foregroundStyle(.secondary)
+                            Text(item.activity.toolName)
+                                .font(.subheadline.weight(.semibold))
+                            Spacer(minLength: 8)
+                            Text(formatToolPhase(item.activity.phase))
+                                .font(.caption)
+                                .foregroundStyle(color(for: item.activity.phase))
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -388,6 +488,69 @@ struct MessageDetailsView: View {
             return raw
         }
         return "\(option.displayName) (\(option.rawValue))"
+    }
+
+    private func uniqueToolNames(from items: [ToolTraceItem]) -> [String] {
+        var seen = Set<String>()
+        var names: [String] = []
+        for item in items {
+            let name = item.activity.toolName
+            guard !seen.contains(name) else { continue }
+            seen.insert(name)
+            names.append(name)
+        }
+        return names
+    }
+
+    private func formatToolPhase(_ phase: ChatToolActivityPhase) -> String {
+        switch phase {
+        case .requested:
+            return String(localized: "Requested")
+        case .authorizing:
+            return String(localized: "Authorizing")
+        case .running:
+            return String(localized: "Running")
+        case .processing:
+            return String(localized: "Processing")
+        case .succeeded:
+            return String(localized: "Succeeded")
+        case .failed:
+            return String(localized: "Failed")
+        case .denied:
+            return String(localized: "Denied")
+        case .unsupported:
+            return String(localized: "Unsupported")
+        }
+    }
+
+    private func iconName(forToolName name: String) -> String {
+        switch ChatToolID(toolName: name) {
+        case .calendarListEvents:
+            return "calendar"
+        case .remindersListReminders:
+            return "checklist"
+        case .locationCurrent:
+            return "location"
+        case .motionDevice:
+            return "gyroscope"
+        case .deviceContext:
+            return "desktopcomputer"
+        case .none:
+            return "wrench.and.screwdriver"
+        }
+    }
+
+    private func color(for phase: ChatToolActivityPhase) -> Color {
+        switch phase {
+        case .requested, .authorizing, .running, .processing:
+            return .secondary
+        case .succeeded:
+            return .green
+        case .failed, .denied:
+            return .orange
+        case .unsupported:
+            return .secondary
+        }
     }
 }
 

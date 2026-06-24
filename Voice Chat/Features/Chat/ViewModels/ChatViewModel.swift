@@ -24,6 +24,9 @@ final class ChatViewModel: ObservableObject {
     @Published private(set) var isRetrying: Bool = false
     @Published private(set) var retryAttempt: Int = 0
     @Published private(set) var retryLastError: String? = nil
+    @Published private(set) var toolActivities: [ChatToolActivity] = []
+    @Published private(set) var messageToolActivities: [UUID: [ChatToolActivity]] = [:]
+    @Published private(set) var messageToolActivityPlacements: [UUID: [ChatToolActivityPlacement]] = [:]
     @Published var chatSession: ChatSession
 
     @Published var editingBaseMessageID: UUID? = nil
@@ -170,6 +173,9 @@ final class ChatViewModel: ObservableObject {
             onError: { [weak self] error in
                 self?.handleChatServiceError(error)
             },
+            onToolActivity: { [weak self] activity in
+                self?.handleToolActivity(activity)
+            },
             onStreamFinished: { [weak self] in
                 self?.handleChatStreamFinished()
             }
@@ -205,6 +211,8 @@ final class ChatViewModel: ObservableObject {
         if !completion.errorText.isEmpty {
             requestDidFail.send(completion.errorText)
         }
+        clearProcessingToolActivitiesFromMessages()
+        clearTerminalToolActivitiesAfterDelay()
 
         let err = completion.errorMessage
         if let interrupted = completion.interruptedMessage {
@@ -231,6 +239,8 @@ final class ChatViewModel: ObservableObject {
     private func handleChatStreamFinished() {
         let finishedAt = Date()
         textRequestRuntime.completeSuccessfully(in: chatSession, finishedAt: finishedAt)
+        clearProcessingToolActivitiesFromMessages()
+        clearToolActivities()
 
         branchRestartCoordinator.clearPendingRestore()
 
@@ -240,6 +250,149 @@ final class ChatViewModel: ObservableObject {
 
         applyDeferredChatConfigurationIfNeeded()
         scheduleQueuedDraftAutostartIfNeeded()
+    }
+
+    private func handleToolActivity(_ activity: ChatToolActivity) {
+        let message = ensureAssistantMessageForToolActivity()
+        if let index = toolActivities.firstIndex(where: { $0.id == activity.id }) {
+            toolActivities[index] = activity
+        } else {
+            toolActivities.append(activity)
+        }
+        guard let message else { return }
+        var activities = messageToolActivities[message.id] ?? []
+        if let index = activities.firstIndex(where: { $0.id == activity.id }) {
+            activities[index] = activity
+        } else {
+            activities.append(activity)
+        }
+        messageToolActivities[message.id] = activities
+        var placements = messageToolActivityPlacements[message.id] ?? []
+        if let index = placements.firstIndex(where: { $0.id == activity.id }) {
+            placements[index].activity = activity
+        } else {
+            placements.append(makeToolActivityPlacement(activity, in: message))
+        }
+        messageToolActivityPlacements[message.id] = placements
+        persistToolActivityPlacementsIfNeeded(placements, to: message)
+        let fingerprint = ContentFingerprint.make(message.content)
+        messageContentDidChange.send(.init(messageID: message.id, fingerprint: fingerprint))
+    }
+
+    private func clearToolActivities() {
+        toolActivities.removeAll()
+    }
+
+    @discardableResult
+    private func clearProcessingToolActivitiesFromMessages() -> Bool {
+        var changedMessageIDs = Set<UUID>()
+
+        if toolActivities.contains(where: { $0.phase == .processing }) {
+            toolActivities.removeAll { $0.phase == .processing }
+        }
+
+        for messageID in Array(messageToolActivities.keys) {
+            let activities = messageToolActivities[messageID] ?? []
+            let filtered = activities.filter { $0.phase != .processing }
+            guard filtered.count != activities.count else { continue }
+            messageToolActivities[messageID] = filtered.isEmpty ? nil : filtered
+            changedMessageIDs.insert(messageID)
+        }
+
+        for messageID in Array(messageToolActivityPlacements.keys) {
+            let placements = messageToolActivityPlacements[messageID] ?? []
+            let filtered = placements.filter { $0.activity.phase != .processing }
+            guard filtered.count != placements.count else { continue }
+            messageToolActivityPlacements[messageID] = filtered.isEmpty ? nil : filtered
+            changedMessageIDs.insert(messageID)
+        }
+
+        guard !changedMessageIDs.isEmpty else { return false }
+        let lookup = messageLookup()
+        for messageID in changedMessageIDs {
+            guard let message = lookup[messageID] else { continue }
+            let fingerprint = ContentFingerprint.make(message.content)
+            messageContentDidChange.send(.init(messageID: message.id, fingerprint: fingerprint))
+        }
+        return true
+    }
+
+    private func makeToolActivityPlacement(
+        _ activity: ChatToolActivity,
+        in message: ChatMessage
+    ) -> ChatToolActivityPlacement {
+        let parts = message.content.extractThinkParts()
+        if let think = parts.think, parts.body.isEmpty {
+            return ChatToolActivityPlacement(
+                activity: activity,
+                scope: .thinking,
+                offset: think.count
+            )
+        }
+        return ChatToolActivityPlacement(
+            activity: activity,
+            scope: .body,
+            offset: parts.body.count
+        )
+    }
+
+    private func persistToolActivityPlacementsIfNeeded(
+        _ placements: [ChatToolActivityPlacement],
+        to message: ChatMessage
+    ) {
+        let persistentPlacements = placements.filter { $0.activity.phase.isPersistentToolTracePhase }
+        guard message.toolActivityPlacements != persistentPlacements else { return }
+        message.toolActivityPlacements = persistentPlacements
+        persistSession(reason: .throttled)
+    }
+
+    private func clearTerminalToolActivitiesAfterDelay() {
+        guard !toolActivities.isEmpty else { return }
+        let snapshot = toolActivities
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 900_000_000)
+            guard let self, self.toolActivities == snapshot else { return }
+            self.toolActivities.removeAll()
+        }
+    }
+
+    private func ensureAssistantMessageForToolActivity() -> ChatMessage? {
+        if let id = currentAssistantMessageID, let existing = messageLookup()[id] {
+            return existing
+        }
+
+        guard isPriming || isLoading || sending else {
+            return nil
+        }
+
+        let now = Date()
+        let appendResult = ChatAssistantDeltaAppender.append(
+            piece: "",
+            to: chatSession,
+            currentAssistantMessageID: currentAssistantMessageID,
+            pendingAssistantParentMessageID: pendingAssistantParentMessageID,
+            streamingAssistantMessageID: streamingAssistantMessageID,
+            streamingAssistantFingerprint: streamingAssistantFingerprint,
+            messageLookup: messageLookup(),
+            fallbackParent: { activeBranchMessages().last },
+            now: now
+        )
+        if appendResult.didResolvePendingAssistantParent {
+            pendingAssistantParentMessageID = nil
+        }
+        if appendResult.didCreateMessage {
+            markSessionMessageActivity(at: appendResult.message.createdAt)
+            invalidateCachesAfterMessageMutation()
+            branchRestartCoordinator.clearPendingRestore()
+            publishBranchChange()
+            currentAssistantMessageID = appendResult.message.id
+            streamingAssistantMessageID = appendResult.message.id
+            streamingAssistantFingerprint = appendResult.fingerprint
+            applyStreamMetadata(to: appendResult.message, firstTokenTimestamp: now)
+            resetStreamingPersistenceState()
+            persistSession(reason: .immediate)
+        }
+        return appendResult.message
     }
 
     /// Updates the configuration used by future requests.
@@ -396,6 +549,7 @@ final class ChatViewModel: ObservableObject {
         }
 
         let userMsg = turnStart.userMessage
+        clearToolActivities()
         if turnStart.shouldClearEditingBaseMessageID {
             editingBaseMessageID = nil
         }
@@ -488,6 +642,8 @@ final class ChatViewModel: ObservableObject {
 
         branchRestartCoordinator.clearPendingRestore()
         persistSession(reason: .immediate)
+        clearProcessingToolActivitiesFromMessages()
+        clearToolActivities()
 
         realtimeNarrationCoordinator.finishActiveStream(flushingBufferedText: false)
 
@@ -499,6 +655,7 @@ final class ChatViewModel: ObservableObject {
 
     private func handleAssistantDelta(_ piece: String) {
         guard isPriming || isLoading || sending else { return }
+        clearProcessingToolActivitiesFromMessages()
         markRetryProgressIfNeeded()
 
         if isPriming {

@@ -48,6 +48,9 @@ extension ChatService {
         successResponseData.removeAll(keepingCapacity: true)
         pendingLMStudioStreamErrorMessage = nil
         pendingResponseMetadata = .empty
+        toolCallAccumulator.reset()
+        pendingToolCalls.removeAll(keepingCapacity: true)
+        resetLMStudioPromptToolGate()
         stopConnectionWatchdog()
         endBackgroundExecutionForCurrentRequest()
     }
@@ -91,9 +94,19 @@ extension ChatService {
     }
 
     func emitStreamFinishedOnce() {
+        guard !isCancelled else { return }
+        if shouldRunToolLoopInsteadOfFinishing() {
+            runPendingToolCallsAndContinue()
+            return
+        }
+        guard !isCancelled else { return }
         guard !streamFinishedEmitted else { return }
         streamFinishedEmitted = true
         clearActiveEndpointCandidate()
         Task { @MainActor in self.onStreamFinished?() }
+    }
+
+    func emitToolActivity(_ activity: ChatToolActivity) {
+        Task { @MainActor in self.onToolActivity?(activity) }
     }
 }

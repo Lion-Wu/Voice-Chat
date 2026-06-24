@@ -91,6 +91,7 @@ struct SettingsView: View {
                     chatSection()
                     serverSection()
                     chatModelSection()
+                    toolUseSection()
                     systemPromptSection()
                     presetSection()
                     voiceOutputSection()
@@ -224,6 +225,7 @@ struct SettingsView: View {
     private var macChatTab: some View {
         Form {
             chatModelSection()
+            toolUseSection()
             systemPromptSection()
         }
         .formStyle(.grouped)
@@ -453,6 +455,11 @@ struct SettingsView: View {
     }
 
     @ViewBuilder
+    private func toolUseSection(hideHeader: Bool = false) -> some View {
+        SettingsToolUseSection(viewModel: viewModel, hideHeader: hideHeader)
+    }
+
+    @ViewBuilder
     private func developerSection(hideHeader: Bool = false) -> some View {
         Section {
             #if !os(macOS)
@@ -474,6 +481,10 @@ struct SettingsView: View {
         }
 
         advancedAPIEntrySection()
+
+        if settingsManager.developerModeEnabled {
+            SettingsDeveloperToolUseSection(viewModel: viewModel)
+        }
     }
 
     @ViewBuilder

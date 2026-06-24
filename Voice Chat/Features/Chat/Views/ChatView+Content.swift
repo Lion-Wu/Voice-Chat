@@ -211,6 +211,8 @@ extension ChatView {
             isRetrying: viewModel.isRetrying,
             retryAttempt: viewModel.retryAttempt,
             retryLastError: viewModel.retryLastError,
+            messageToolActivities: viewModel.messageToolActivities,
+            messageToolActivityPlacements: viewModel.messageToolActivityPlacements,
             branchControlsEnabled: !(viewModel.isLoading || viewModel.isPriming || viewModel.isEditing),
             developerModeEnabled: settingsManager.developerModeEnabled,
             activeSearchHighlightTargetID: scrollInteractionState.activeSearchHighlightTargetID,

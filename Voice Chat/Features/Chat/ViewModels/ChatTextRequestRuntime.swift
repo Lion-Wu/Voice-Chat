@@ -74,6 +74,7 @@ final class ChatTextRequestRuntime {
     func bindStreamingHandlers(
         onDelta: @escaping (String) -> Void,
         onError: @escaping (Error) -> Void,
+        onToolActivity: @escaping (ChatToolActivity) -> Void,
         onStreamFinished: @escaping () -> Void
     ) {
         streamingSession.bindHandlers(
@@ -82,6 +83,7 @@ final class ChatTextRequestRuntime {
             onResponseMetadata: { [weak self] metadata in
                 self?.streamTelemetryCoordinator.mergeServerMetadata(metadata)
             },
+            onToolActivity: onToolActivity,
             onStreamFinished: onStreamFinished
         )
     }

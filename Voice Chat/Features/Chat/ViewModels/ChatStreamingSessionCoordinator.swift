@@ -29,6 +29,7 @@ final class ChatStreamingSessionCoordinator {
     private var onDelta: ((String) -> Void)?
     private var onError: ((Error) -> Void)?
     private var onResponseMetadata: ((ChatResponseMetadata) -> Void)?
+    private var onToolActivity: ((ChatToolActivity) -> Void)?
     private var onStreamFinished: (() -> Void)?
 
     init(
@@ -45,11 +46,13 @@ final class ChatStreamingSessionCoordinator {
         onDelta: @escaping (String) -> Void,
         onError: @escaping (Error) -> Void,
         onResponseMetadata: @escaping (ChatResponseMetadata) -> Void,
+        onToolActivity: @escaping (ChatToolActivity) -> Void,
         onStreamFinished: @escaping () -> Void
     ) {
         self.onDelta = onDelta
         self.onError = onError
         self.onResponseMetadata = onResponseMetadata
+        self.onToolActivity = onToolActivity
         self.onStreamFinished = onStreamFinished
         bindCurrentService()
     }
@@ -116,6 +119,9 @@ final class ChatStreamingSessionCoordinator {
         }
         service.onResponseMetadata = { [weak self] metadata in
             self?.onResponseMetadata?(metadata)
+        }
+        service.onToolActivity = { [weak self] activity in
+            self?.onToolActivity?(activity)
         }
         service.onStreamFinished = { [weak self] in
             self?.onStreamFinished?()

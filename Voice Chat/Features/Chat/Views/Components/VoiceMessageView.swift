@@ -26,6 +26,8 @@ struct VoiceMessageView: View {
     let developerModeEnabled: Bool
     let maxBubbleWidth: CGFloat?
     let contentFingerprint: ContentFingerprint
+    let toolActivities: [ChatToolActivity]
+    let toolActivityPlacements: [ChatToolActivityPlacement]
     let searchHighlightQuery: String?
     let onSelectText: (String) -> Void
     let onRegenerate: (ChatMessage) -> Void
@@ -44,6 +46,8 @@ struct VoiceMessageView: View {
         developerModeEnabled: Bool,
         maxBubbleWidth: CGFloat? = nil,
         contentFingerprint: ContentFingerprint,
+        toolActivities: [ChatToolActivity] = [],
+        toolActivityPlacements: [ChatToolActivityPlacement] = [],
         searchHighlightQuery: String? = nil,
         onSelectText: @escaping (String) -> Void,
         onRegenerate: @escaping (ChatMessage) -> Void,
@@ -58,6 +62,8 @@ struct VoiceMessageView: View {
         self.developerModeEnabled = developerModeEnabled
         self.maxBubbleWidth = maxBubbleWidth
         self.contentFingerprint = contentFingerprint
+        self.toolActivities = toolActivities
+        self.toolActivityPlacements = toolActivityPlacements
         self.searchHighlightQuery = searchHighlightQuery
         self.onSelectText = onSelectText
         self.onRegenerate = onRegenerate
@@ -92,6 +98,8 @@ struct VoiceMessageView: View {
                 developerModeEnabled: developerModeEnabled,
                 maxBubbleWidth: maxBubbleWidth,
                 contentFingerprint: contentFingerprint,
+                toolActivities: toolActivities,
+                toolActivityPlacements: toolActivityPlacements,
                 searchHighlightQuery: searchHighlightQuery,
                 isStreamingResponse: isStreamingAssistant,
                 onCopy: { copyToClipboard(message.content.extractThinkParts().body) },

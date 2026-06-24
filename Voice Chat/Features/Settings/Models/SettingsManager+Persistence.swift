@@ -33,6 +33,7 @@ extension SettingsManager {
         developerModeEnabled = loadedState.developerModeEnabled
         hapticFeedbackEnabled = loadedState.hapticFeedbackEnabled
         apiAdvancedSettings = loadedState.apiAdvancedSettings
+        toolUseSettings = loadedState.toolUseSettings
         selectedVoiceServerPresetID = loadedState.selectedVoiceServerPresetID
         selectedChatServerPresetID = loadedState.selectedChatServerPresetID
         selectedPresetID = loadedState.selectedPresetID
@@ -95,6 +96,15 @@ extension SettingsManager {
         saveAPIAdvancedSettings()
     }
 
+    func updateToolUseSettings(_ settings: ToolUseSettings) {
+        toolUseSettings = settings
+        guard entity != nil, context != nil else {
+            pendingToolUseSettings = settings
+            return
+        }
+        saveToolUseSettings()
+    }
+
     func resetAPIAdvancedSettingsToDefaults() {
         updateAPIAdvancedSettings(SettingsDefaults.apiAdvancedSettings)
     }
@@ -153,6 +163,12 @@ extension SettingsManager {
         saveContext(label: "save API advanced settings")
     }
 
+    func saveToolUseSettings() {
+        guard let e = entity, context != nil else { return }
+        e.toolUseSettingsJSON = ToolUseSettingsCodec.encode(toolUseSettings)
+        saveContext(label: "save tool-use settings")
+    }
+
     private func applyPendingStoredPreferences() {
         if let pending = pendingDeveloperModeEnabled {
             developerModeEnabled = pending
@@ -173,6 +189,13 @@ extension SettingsManager {
             entity?.apiAdvancedSettingsJSON = APIAdvancedSettingsCodec.encode(apiAdvancedSettings)
             saveContext(label: "apply pending API advanced settings")
             pendingAPIAdvancedSettings = nil
+        }
+
+        if let pending = pendingToolUseSettings {
+            toolUseSettings = pending
+            entity?.toolUseSettingsJSON = ToolUseSettingsCodec.encode(pending)
+            saveContext(label: "apply pending tool-use settings")
+            pendingToolUseSettings = nil
         }
     }
 }

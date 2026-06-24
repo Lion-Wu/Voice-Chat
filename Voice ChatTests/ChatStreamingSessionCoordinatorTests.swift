@@ -47,6 +47,7 @@ final class ChatStreamingSessionCoordinatorTests: XCTestCase {
             onDelta: { receivedDeltas.append($0) },
             onError: { _ in },
             onResponseMetadata: { _ in },
+            onToolActivity: { _ in },
             onStreamFinished: {}
         )
 
@@ -74,6 +75,7 @@ private final class StubChatStreamingService: ChatStreamingService {
     var onDelta: (@MainActor (String) -> Void)?
     var onError: (@MainActor (Error) -> Void)?
     var onResponseMetadata: (@MainActor (ChatResponseMetadata) -> Void)?
+    var onToolActivity: (@MainActor (ChatToolActivity) -> Void)?
     var onStreamFinished: (@MainActor () -> Void)?
 
     private(set) var didCancel = false

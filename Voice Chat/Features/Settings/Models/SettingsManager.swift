@@ -23,6 +23,7 @@ final class SettingsManager: ObservableObject {
     @Published var developerModeEnabled: Bool
     @Published var hapticFeedbackEnabled: Bool
     @Published var apiAdvancedSettings: APIAdvancedSettings
+    @Published var toolUseSettings: ToolUseSettings
 
     lazy var chatModelCapabilities = makeChatModelCapabilityController()
 
@@ -49,6 +50,7 @@ final class SettingsManager: ObservableObject {
     var pendingDeveloperModeEnabled: Bool?
     var pendingHapticFeedbackEnabled: Bool?
     var pendingAPIAdvancedSettings: APIAdvancedSettings?
+    var pendingToolUseSettings: ToolUseSettings?
     let chatAPIKeyStore = ChatAPIKeyStore()
     let chatModelCatalogRefreshCoordinator = ChatModelCatalogRefreshCoordinator()
     let presetApplyController = SettingsPresetApplyController()
@@ -71,6 +73,7 @@ final class SettingsManager: ObservableObject {
         self.developerModeEnabled = SettingsDefaults.developerModeEnabled
         self.hapticFeedbackEnabled = SettingsDefaults.hapticFeedbackEnabled
         self.apiAdvancedSettings = SettingsDefaults.apiAdvancedSettings
+        self.toolUseSettings = ToolUseSettings.defaults
 
         bindPresetApplyStatusUpdates()
     }

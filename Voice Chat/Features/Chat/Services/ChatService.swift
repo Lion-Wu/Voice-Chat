@@ -11,7 +11,7 @@ final class ChatService: NSObject, @unchecked Sendable {
     let configurationProvider: ChatServiceConfiguring
     private let endpointResolver: ChatEndpointResolving
     private let requestPayloadProjector: ChatRequestPayloadProjecting
-    private let requestBodyBuilder: ChatRequestBodyBuilding
+    let requestBodyBuilder: ChatRequestBodyBuilding
     let requestFactory: ChatStreamingRequestBuilding
     private let responseTextExtractor: ChatResponseTextExtracting
     let bufferedResponseParser: ChatBufferedResponseParsing
@@ -19,6 +19,7 @@ final class ChatService: NSObject, @unchecked Sendable {
     let openAICompatibleStreamReducer: OpenAICompatibleStreamEventReducer
     let anthropicStreamReducer = AnthropicStreamEventReducer()
     let lmStudioStreamReducer: LMStudioStreamEventReducer
+    let toolExecutor: ChatToolExecuting
 
     let stateQueue: DispatchQueue
     private let sessionQueue: OperationQueue
@@ -31,6 +32,7 @@ final class ChatService: NSObject, @unchecked Sendable {
     @MainActor var onDelta: (@MainActor (String) -> Void)?
     @MainActor var onError: (@MainActor (Error) -> Void)?
     @MainActor var onResponseMetadata: (@MainActor (ChatResponseMetadata) -> Void)?
+    @MainActor var onToolActivity: (@MainActor (ChatToolActivity) -> Void)?
     @MainActor var onStreamFinished: (@MainActor () -> Void)?
 
     // Reasoning / body state tracking
@@ -73,6 +75,14 @@ final class ChatService: NSObject, @unchecked Sendable {
     var activeEndpointCandidate: ChatAPIEndpointCandidate?
     var pendingResponseMetadata = ChatResponseMetadata.empty
     var backgroundExecutionCoordinator: ChatServiceBackgroundExecutionCoordinator?
+    var toolCallAccumulator = ChatToolCallAccumulator()
+    var pendingToolCalls: [ChatToolCallEnvelope] = []
+    var activeToolLoopContext: ChatToolLoopContext?
+    var lmStudioPromptToolBufferedDeltas: [LMStudioPromptToolBufferedDelta] = []
+    var lmStudioPromptToolPrimaryText = ""
+    var lmStudioPromptToolStreamDecision = LMStudioPromptToolStreamDecision.undecided
+    var lmStudioPromptToolPendingThinkClose: String?
+    var lmStudioPromptToolKeepsThinkOpen = false
 
     init(
         configurationProvider: ChatServiceConfiguring,
@@ -83,7 +93,8 @@ final class ChatService: NSObject, @unchecked Sendable {
         responseMetadataExtractor: ChatResponseMetadataExtracting = ChatResponseMetadataExtractor(),
         responseTextExtractor: ChatResponseTextExtracting = ChatResponseTextExtractor(),
         bufferedResponseParser: ChatBufferedResponseParsing? = nil,
-        streamPayloadExtractor: ChatStreamPayloadExtracting? = nil
+        streamPayloadExtractor: ChatStreamPayloadExtracting? = nil,
+        toolExecutor: ChatToolExecuting = ChatToolExecutor()
     ) {
         self.configurationProvider = configurationProvider
         self.endpointResolver = endpointResolver
@@ -103,6 +114,7 @@ final class ChatService: NSObject, @unchecked Sendable {
             payloadExtractor: resolvedStreamPayloadExtractor
         )
         self.lmStudioStreamReducer = LMStudioStreamEventReducer(metadataExtractor: responseMetadataExtractor)
+        self.toolExecutor = toolExecutor
         self.stateQueue = DispatchQueue(label: "VoiceChat.ChatService.state", qos: .userInitiated)
         let queue = OperationQueue()
         queue.name = "VoiceChat.ChatService.session"
@@ -146,17 +158,35 @@ final class ChatService: NSObject, @unchecked Sendable {
             return
         }
 
-        let sourceMessages = messages.map {
+        let sourceMessages = Self.messagesThroughLatestUser(messages.map {
             ChatRequestSourceMessage(
                 content: $0.content,
                 isUser: $0.isUser,
-                imageAttachments: $0.imageAttachments
+                imageAttachments: $0.imageAttachments,
+                providerResponseID: $0.providerResponseID,
+                createdAt: $0.createdAt
             )
-        }
+        })
+        let previousResponseID = Self.previousLMStudioResponseID(
+            in: sourceMessages,
+            endpoint: firstEndpoint
+        )
         let payload = requestPayloadProjector.transformedMessagesForRequest(
             messages: sourceMessages,
             developerPrompt: developerPrompt,
             includeImagesInUserContent: includeImagesInUserContent
+        )
+        let toolContext = ChatToolLoopContext(
+            sourceMessages: sourceMessages,
+            originalPayload: ChatToolLoopPayload(messages: payload),
+            currentPayload: ChatToolLoopPayload(messages: payload),
+            developerPrompt: developerPrompt,
+            includeImagesInUserContent: includeImagesInUserContent,
+            model: model,
+            endpoint: firstEndpoint,
+            iteration: 0,
+            previousResponseID: previousResponseID,
+            didRetryWithoutPreviousResponseID: false
         )
 
         let requestBodyData: Data
@@ -167,6 +197,8 @@ final class ChatService: NSObject, @unchecked Sendable {
                 developerPrompt: developerPrompt,
                 endpoint: firstEndpoint,
                 apiAdvancedSettings: configurationProvider.apiAdvancedSettings,
+                toolUseSettings: configurationProvider.toolUseSettings,
+                previousResponseID: previousResponseID,
                 thinkingCapability: configurationProvider.thinkingCapability,
                 thinkingOption: configurationProvider.thinkingOption
             )
@@ -180,10 +212,51 @@ final class ChatService: NSObject, @unchecked Sendable {
             self.dataTask = nil
             self.stopWatchdog()
             self.resetStreamState()
+            self.activeToolLoopContext = toolContext
             self.isCancelled = false
             self.activeEndpointCandidate = firstEndpoint
             self.startStreaming(endpoint: firstEndpoint, requestBodyData: requestBodyData)
         }
+    }
+
+    static func previousLMStudioResponseID(
+        in sourceMessages: [ChatRequestSourceMessage],
+        endpoint: ChatAPIEndpointCandidate,
+        now: Date = Date()
+    ) -> String? {
+        switch endpoint.style {
+        case .lmStudioRESTV1, .lmStudioRESTV1LegacyMessage:
+            break
+        case .openAIChatCompletions, .anthropicMessages:
+            return nil
+        }
+
+        guard let latestUserIndex = sourceMessages.lastIndex(where: \.isUser),
+              latestUserIndex > sourceMessages.startIndex else {
+            return nil
+        }
+
+        let previousIndex = sourceMessages.index(before: latestUserIndex)
+        let previousMessage = sourceMessages[previousIndex]
+        guard !previousMessage.isUser,
+              !previousMessage.content.hasPrefix("!error:"),
+              now.timeIntervalSince(previousMessage.createdAt) <= Self.lmStudioPreviousResponseIDMaxAge,
+              let responseID = previousMessage.providerResponseID?.trimmingCharacters(in: .whitespacesAndNewlines),
+              responseID.hasPrefix("resp_") else {
+            return nil
+        }
+        return responseID
+    }
+
+    static let lmStudioPreviousResponseIDMaxAge: TimeInterval = 30 * 24 * 60 * 60
+
+    static func messagesThroughLatestUser(
+        _ sourceMessages: [ChatRequestSourceMessage]
+    ) -> [ChatRequestSourceMessage] {
+        guard let latestUserIndex = sourceMessages.lastIndex(where: \.isUser) else {
+            return sourceMessages
+        }
+        return Array(sourceMessages[...latestUserIndex])
     }
 
     /// Cancels the current streaming request.
@@ -200,6 +273,34 @@ final class ChatService: NSObject, @unchecked Sendable {
         }
     }
 
+}
+
+struct LMStudioPromptToolBufferedDelta: Equatable {
+    let piece: String
+    let marksPrimaryOutput: Bool
+}
+
+enum LMStudioPromptToolStreamDecision: Equatable {
+    case undecided
+    case normalAnswer
+    case toolCall
+}
+
+struct ChatToolLoopContext: Sendable {
+    let sourceMessages: [ChatRequestSourceMessage]
+    let originalPayload: ChatToolLoopPayload
+    var currentPayload: ChatToolLoopPayload
+    let developerPrompt: String?
+    let includeImagesInUserContent: Bool
+    let model: String
+    let endpoint: ChatAPIEndpointCandidate
+    var iteration: Int
+    var previousResponseID: String?
+    var didRetryWithoutPreviousResponseID: Bool
+}
+
+struct ChatToolLoopPayload: @unchecked Sendable {
+    let messages: [[String: Any]]
 }
 
 // MARK: - Protocol Conformance

@@ -128,11 +128,380 @@ final class ChatRequestBodyBuilderTests: XCTestCase {
 
         XCTAssertEqual(body["model"] as? String, "local-model")
         XCTAssertEqual(body["system_prompt"] as? String, "local system")
+        XCTAssertEqual(body["store"] as? Bool, true)
+        XCTAssertNil(body["previous_response_id"])
         XCTAssertEqual(body["max_output_tokens"] as? Int, 256)
         XCTAssertEqual(input.first?["type"] as? String, "text")
         XCTAssertTrue((input.first?["content"] as? String)?.contains("User: describe") == true)
         XCTAssertEqual(input.last?["type"] as? String, "image")
         XCTAssertEqual(input.last?["data_url"] as? String, dataURL)
+    }
+
+    func testRequestBodyBuilderBuildsLMStudioRESTStatefulContinuationBody() throws {
+        let builder = ChatRequestBodyBuilder()
+        let endpoint = ChatAPIEndpointCandidate(
+            provider: .lmStudio,
+            style: .lmStudioRESTV1,
+            chatURL: try XCTUnwrap(URL(string: "http://localhost:1234/api/v1/chat")),
+            modelsURL: try XCTUnwrap(URL(string: "http://localhost:1234/api/v1/models"))
+        )
+
+        let data = try builder.buildRequestBodyData(
+            model: "local-model",
+            messagePayload: [
+                ["role": "user", "content": "first question"],
+                ["role": "assistant", "content": "first answer"],
+                ["role": "user", "content": "follow up only"]
+            ],
+            developerPrompt: "local system",
+            endpoint: endpoint,
+            apiAdvancedSettings: APIAdvancedSettings(),
+            previousResponseID: "resp_stateful123",
+            thinkingCapability: nil,
+            thinkingOption: nil
+        )
+        let body = try decodedBody(from: data)
+
+        XCTAssertEqual(body["store"] as? Bool, true)
+        XCTAssertEqual(body["previous_response_id"] as? String, "resp_stateful123")
+        XCTAssertEqual(body["input"] as? String, "follow up only")
+        XCTAssertFalse((body["input"] as? String)?.contains("first question") == true)
+        XCTAssertEqual(body["system_prompt"] as? String, "local system")
+    }
+
+    func testLMStudioPreviousResponseIDUsesAssistantBeforeLatestUser() throws {
+        let endpoint = ChatAPIEndpointCandidate(
+            provider: .lmStudio,
+            style: .lmStudioRESTV1,
+            chatURL: try XCTUnwrap(URL(string: "http://localhost:1234/api/v1/chat")),
+            modelsURL: try XCTUnwrap(URL(string: "http://localhost:1234/api/v1/models"))
+        )
+
+        let responseID = ChatService.previousLMStudioResponseID(
+            in: [
+                ChatRequestSourceMessage(content: "first", isUser: true),
+                ChatRequestSourceMessage(content: "first answer", isUser: false, providerResponseID: "resp_first"),
+                ChatRequestSourceMessage(content: "retry this", isUser: true),
+                ChatRequestSourceMessage(content: "stale retry answer", isUser: false, providerResponseID: "resp_stale_retry")
+            ],
+            endpoint: endpoint
+        )
+
+        XCTAssertEqual(responseID, "resp_first")
+    }
+
+    func testLMStudioPreviousResponseIDIgnoresAssistantAfterLatestUser() throws {
+        let endpoint = ChatAPIEndpointCandidate(
+            provider: .lmStudio,
+            style: .lmStudioRESTV1,
+            chatURL: try XCTUnwrap(URL(string: "http://localhost:1234/api/v1/chat")),
+            modelsURL: try XCTUnwrap(URL(string: "http://localhost:1234/api/v1/models"))
+        )
+
+        let responseID = ChatService.previousLMStudioResponseID(
+            in: [
+                ChatRequestSourceMessage(content: "retry this", isUser: true),
+                ChatRequestSourceMessage(content: "failed answer", isUser: false, providerResponseID: "resp_failed_retry")
+            ],
+            endpoint: endpoint
+        )
+
+        XCTAssertNil(responseID)
+    }
+
+    func testLMStudioPreviousResponseIDRequiresImmediatePreviousAssistant() throws {
+        let endpoint = ChatAPIEndpointCandidate(
+            provider: .lmStudio,
+            style: .lmStudioRESTV1,
+            chatURL: try XCTUnwrap(URL(string: "http://localhost:1234/api/v1/chat")),
+            modelsURL: try XCTUnwrap(URL(string: "http://localhost:1234/api/v1/models"))
+        )
+
+        let responseID = ChatService.previousLMStudioResponseID(
+            in: [
+                ChatRequestSourceMessage(content: "first", isUser: true),
+                ChatRequestSourceMessage(content: "first answer", isUser: false, providerResponseID: "resp_first"),
+                ChatRequestSourceMessage(content: "second without answer", isUser: true),
+                ChatRequestSourceMessage(content: "third latest", isUser: true)
+            ],
+            endpoint: endpoint
+        )
+
+        XCTAssertNil(responseID)
+    }
+
+    func testLMStudioPreviousResponseIDIgnoresPreviousErrorAssistantEvenWithResponseID() throws {
+        let endpoint = ChatAPIEndpointCandidate(
+            provider: .lmStudio,
+            style: .lmStudioRESTV1,
+            chatURL: try XCTUnwrap(URL(string: "http://localhost:1234/api/v1/chat")),
+            modelsURL: try XCTUnwrap(URL(string: "http://localhost:1234/api/v1/models"))
+        )
+
+        let responseID = ChatService.previousLMStudioResponseID(
+            in: [
+                ChatRequestSourceMessage(content: "first", isUser: true),
+                ChatRequestSourceMessage(content: "!error:network failed", isUser: false, providerResponseID: "resp_failed"),
+                ChatRequestSourceMessage(content: "continue after failure", isUser: true)
+            ],
+            endpoint: endpoint
+        )
+
+        XCTAssertNil(responseID)
+    }
+
+    func testLMStudioPreviousResponseIDIgnoresAssistantOlderThanThirtyDays() throws {
+        let endpoint = ChatAPIEndpointCandidate(
+            provider: .lmStudio,
+            style: .lmStudioRESTV1,
+            chatURL: try XCTUnwrap(URL(string: "http://localhost:1234/api/v1/chat")),
+            modelsURL: try XCTUnwrap(URL(string: "http://localhost:1234/api/v1/models"))
+        )
+        let now = Date(timeIntervalSince1970: 4_000_000)
+        let oldAssistantDate = now.addingTimeInterval(-(31 * 24 * 60 * 60))
+
+        let responseID = ChatService.previousLMStudioResponseID(
+            in: [
+                ChatRequestSourceMessage(content: "first", isUser: true, createdAt: oldAssistantDate),
+                ChatRequestSourceMessage(content: "first answer", isUser: false, providerResponseID: "resp_old", createdAt: oldAssistantDate),
+                ChatRequestSourceMessage(content: "follow up", isUser: true, createdAt: now)
+            ],
+            endpoint: endpoint,
+            now: now
+        )
+
+        XCTAssertNil(responseID)
+    }
+
+    func testLMStudioMessagesThroughLatestUserDropsStaleAssistantTailBeforeRequestEncoding() {
+        let messages = [
+            ChatRequestSourceMessage(content: "first", isUser: true),
+            ChatRequestSourceMessage(content: "first answer", isUser: false, providerResponseID: "resp_first"),
+            ChatRequestSourceMessage(content: "retry this", isUser: true),
+            ChatRequestSourceMessage(content: "stale retry output", isUser: false, providerResponseID: "resp_retry_stale"),
+            ChatRequestSourceMessage(content: "!error: retry failed", isUser: false)
+        ]
+
+        let trimmed = ChatService.messagesThroughLatestUser(messages)
+
+        XCTAssertEqual(trimmed.map(\.content), ["first", "first answer", "retry this"])
+    }
+
+    func testLMStudioRetryRequestBodyUsesPreviousAssistantBeforeRetriedUserOnly() throws {
+        let endpoint = ChatAPIEndpointCandidate(
+            provider: .lmStudio,
+            style: .lmStudioRESTV1,
+            chatURL: try XCTUnwrap(URL(string: "http://localhost:1234/api/v1/chat")),
+            modelsURL: try XCTUnwrap(URL(string: "http://localhost:1234/api/v1/models"))
+        )
+        let sourceMessages = ChatService.messagesThroughLatestUser([
+            ChatRequestSourceMessage(content: "first", isUser: true),
+            ChatRequestSourceMessage(content: "first answer", isUser: false, providerResponseID: "resp_first"),
+            ChatRequestSourceMessage(content: "retry this", isUser: true),
+            ChatRequestSourceMessage(content: "stale retry output", isUser: false, providerResponseID: "resp_retry_stale")
+        ])
+        let previousID = ChatService.previousLMStudioResponseID(in: sourceMessages, endpoint: endpoint)
+        let payload = ChatRequestPayloadProjector().transformedMessagesForRequest(
+            messages: sourceMessages,
+            developerPrompt: nil,
+            includeImagesInUserContent: false
+        )
+
+        let body = try decodedBody(from: ChatRequestBodyBuilder().buildRequestBodyData(
+            model: "local-model",
+            messagePayload: payload,
+            developerPrompt: nil,
+            endpoint: endpoint,
+            apiAdvancedSettings: APIAdvancedSettings(),
+            previousResponseID: previousID,
+            thinkingCapability: nil,
+            thinkingOption: nil
+        ))
+
+        XCTAssertEqual(body["previous_response_id"] as? String, "resp_first")
+        XCTAssertEqual(body["input"] as? String, "retry this")
+        XCTAssertFalse((body["input"] as? String)?.contains("stale retry output") == true)
+        XCTAssertFalse((body["input"] as? String)?.contains("resp_retry_stale") == true)
+    }
+
+    func testLMStudioConsecutiveUserRequestBodyDoesNotUsePreviousResponseID() throws {
+        let endpoint = ChatAPIEndpointCandidate(
+            provider: .lmStudio,
+            style: .lmStudioRESTV1,
+            chatURL: try XCTUnwrap(URL(string: "http://localhost:1234/api/v1/chat")),
+            modelsURL: try XCTUnwrap(URL(string: "http://localhost:1234/api/v1/models"))
+        )
+        let sourceMessages = ChatService.messagesThroughLatestUser([
+            ChatRequestSourceMessage(content: "first", isUser: true),
+            ChatRequestSourceMessage(content: "first answer", isUser: false, providerResponseID: "resp_first"),
+            ChatRequestSourceMessage(content: "second without answer", isUser: true),
+            ChatRequestSourceMessage(content: "third latest", isUser: true)
+        ])
+        let previousID = ChatService.previousLMStudioResponseID(in: sourceMessages, endpoint: endpoint)
+        let payload = ChatRequestPayloadProjector().transformedMessagesForRequest(
+            messages: sourceMessages,
+            developerPrompt: nil,
+            includeImagesInUserContent: false
+        )
+
+        let body = try decodedBody(from: ChatRequestBodyBuilder().buildRequestBodyData(
+            model: "local-model",
+            messagePayload: payload,
+            developerPrompt: nil,
+            endpoint: endpoint,
+            apiAdvancedSettings: APIAdvancedSettings(),
+            previousResponseID: previousID,
+            thinkingCapability: nil,
+            thinkingOption: nil
+        ))
+
+        let input = try XCTUnwrap(body["input"] as? String)
+        XCTAssertNil(body["previous_response_id"])
+        XCTAssertTrue(input.contains("User: second without answer"))
+        XCTAssertTrue(input.contains("User: third latest"))
+    }
+
+    func testLMStudioConsecutiveUserRetryWithStaleAssistantTailSendsFullTranscript() throws {
+        let endpoint = ChatAPIEndpointCandidate(
+            provider: .lmStudio,
+            style: .lmStudioRESTV1,
+            chatURL: try XCTUnwrap(URL(string: "http://localhost:1234/api/v1/chat")),
+            modelsURL: try XCTUnwrap(URL(string: "http://localhost:1234/api/v1/models"))
+        )
+        let sourceMessages = ChatService.messagesThroughLatestUser([
+            ChatRequestSourceMessage(content: "first", isUser: true),
+            ChatRequestSourceMessage(content: "first answer", isUser: false, providerResponseID: "resp_first"),
+            ChatRequestSourceMessage(content: "middle user that must stay in context", isUser: true),
+            ChatRequestSourceMessage(content: "latest user to retry", isUser: true),
+            ChatRequestSourceMessage(content: "stale assistant output", isUser: false, providerResponseID: "resp_stale")
+        ])
+        let previousID = ChatService.previousLMStudioResponseID(in: sourceMessages, endpoint: endpoint)
+        let payload = ChatRequestPayloadProjector().transformedMessagesForRequest(
+            messages: sourceMessages,
+            developerPrompt: nil,
+            includeImagesInUserContent: false
+        )
+
+        let body = try decodedBody(from: ChatRequestBodyBuilder().buildRequestBodyData(
+            model: "local-model",
+            messagePayload: payload,
+            developerPrompt: nil,
+            endpoint: endpoint,
+            apiAdvancedSettings: APIAdvancedSettings(),
+            previousResponseID: previousID,
+            thinkingCapability: nil,
+            thinkingOption: nil
+        ))
+
+        let input = try XCTUnwrap(body["input"] as? String)
+        XCTAssertNil(body["previous_response_id"])
+        XCTAssertTrue(input.contains("User: middle user that must stay in context"))
+        XCTAssertTrue(input.contains("User: latest user to retry"))
+        XCTAssertFalse(input.contains("stale assistant output"))
+        XCTAssertFalse(input.contains("resp_stale"))
+    }
+
+    func testLMStudioRequestBodyAfterErrorDoesNotUseFailedResponseID() throws {
+        let endpoint = ChatAPIEndpointCandidate(
+            provider: .lmStudio,
+            style: .lmStudioRESTV1,
+            chatURL: try XCTUnwrap(URL(string: "http://localhost:1234/api/v1/chat")),
+            modelsURL: try XCTUnwrap(URL(string: "http://localhost:1234/api/v1/models"))
+        )
+        let sourceMessages = ChatService.messagesThroughLatestUser([
+            ChatRequestSourceMessage(content: "first", isUser: true),
+            ChatRequestSourceMessage(content: "!error:network failed", isUser: false, providerResponseID: "resp_failed"),
+            ChatRequestSourceMessage(content: "continue after failure", isUser: true)
+        ])
+        let previousID = ChatService.previousLMStudioResponseID(in: sourceMessages, endpoint: endpoint)
+        let payload = ChatRequestPayloadProjector().transformedMessagesForRequest(
+            messages: sourceMessages,
+            developerPrompt: nil,
+            includeImagesInUserContent: false
+        )
+
+        let body = try decodedBody(from: ChatRequestBodyBuilder().buildRequestBodyData(
+            model: "local-model",
+            messagePayload: payload,
+            developerPrompt: nil,
+            endpoint: endpoint,
+            apiAdvancedSettings: APIAdvancedSettings(),
+            previousResponseID: previousID,
+            thinkingCapability: nil,
+            thinkingOption: nil
+        ))
+
+        let input = try XCTUnwrap(body["input"] as? String)
+        XCTAssertNil(body["previous_response_id"])
+        XCTAssertTrue(input.contains("User: first"))
+        XCTAssertTrue(input.contains("User: continue after failure"))
+        XCTAssertFalse(input.contains("resp_failed"))
+        XCTAssertFalse(input.contains("!error:network failed"))
+    }
+
+    func testLMStudioRequestBodyAfterOldResponseIDSendsFullTranscript() throws {
+        let endpoint = ChatAPIEndpointCandidate(
+            provider: .lmStudio,
+            style: .lmStudioRESTV1,
+            chatURL: try XCTUnwrap(URL(string: "http://localhost:1234/api/v1/chat")),
+            modelsURL: try XCTUnwrap(URL(string: "http://localhost:1234/api/v1/models"))
+        )
+        let now = Date(timeIntervalSince1970: 4_000_000)
+        let oldAssistantDate = now.addingTimeInterval(-(31 * 24 * 60 * 60))
+        let sourceMessages = ChatService.messagesThroughLatestUser([
+            ChatRequestSourceMessage(content: "first", isUser: true, createdAt: oldAssistantDate),
+            ChatRequestSourceMessage(content: "first answer", isUser: false, providerResponseID: "resp_old", createdAt: oldAssistantDate),
+            ChatRequestSourceMessage(content: "follow up", isUser: true, createdAt: now)
+        ])
+        let previousID = ChatService.previousLMStudioResponseID(in: sourceMessages, endpoint: endpoint, now: now)
+        let payload = ChatRequestPayloadProjector().transformedMessagesForRequest(
+            messages: sourceMessages,
+            developerPrompt: nil,
+            includeImagesInUserContent: false
+        )
+
+        let body = try decodedBody(from: ChatRequestBodyBuilder().buildRequestBodyData(
+            model: "local-model",
+            messagePayload: payload,
+            developerPrompt: nil,
+            endpoint: endpoint,
+            apiAdvancedSettings: APIAdvancedSettings(),
+            previousResponseID: previousID,
+            thinkingCapability: nil,
+            thinkingOption: nil
+        ))
+
+        let input = try XCTUnwrap(body["input"] as? String)
+        XCTAssertNil(body["previous_response_id"])
+        XCTAssertTrue(input.contains("User: first"))
+        XCTAssertTrue(input.contains("Assistant: first answer"))
+        XCTAssertTrue(input.contains("User: follow up"))
+    }
+
+    func testLMStudioMissingPreviousResponseErrorMatcherAcceptsDeletionPolicy400() {
+        let message = """
+        HTTP 400: {
+          "error": {
+            "message": "Could not find stored response for previous_response_id 'resp_d8bc57208ea238426add9bb0112cef990a764971a17e229a'. Please ensure the ID is correct. Current previous response auto-deletion policy: Responses older than 30 days are automatically deleted.",
+            "type": "invalid_request",
+            "param": "previous_response_id",
+            "code": "invalid_value"
+          }
+        }
+        """
+
+        XCTAssertTrue(ChatService.isLMStudioMissingPreviousResponseError(
+            statusCode: 400,
+            message: message
+        ))
+        XCTAssertFalse(ChatService.isLMStudioMissingPreviousResponseError(
+            statusCode: 500,
+            message: message
+        ))
+        XCTAssertFalse(ChatService.isLMStudioMissingPreviousResponseError(
+            statusCode: 400,
+            message: "HTTP 400: bad request"
+        ))
     }
 
     func testRequestBodyBuilderMapsProviderSpecificAdvancedSettings() throws {

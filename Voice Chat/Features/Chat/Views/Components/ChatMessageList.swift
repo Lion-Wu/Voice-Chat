@@ -17,6 +17,8 @@ struct ChatMessageList: View {
     let isRetrying: Bool
     let retryAttempt: Int
     let retryLastError: String?
+    let messageToolActivities: [UUID: [ChatToolActivity]]
+    let messageToolActivityPlacements: [UUID: [ChatToolActivityPlacement]]
     let branchControlsEnabled: Bool
     let developerModeEnabled: Bool
     let activeSearchHighlightTargetID: UUID?
@@ -92,6 +94,12 @@ struct ChatMessageList: View {
         let fingerprint = fingerprintCache[message.id] ?? ContentFingerprint.make(message.content)
         let highlightQuery = searchHighlightQuery(message)
         let searchHighlightID = highlightQuery == nil ? nil : activeSearchHighlightTargetID
+        let messageActivityPlacements = mergedToolActivityPlacements(for: message)
+        let messageActivities = mergedToolActivities(
+            storedPlacements: message.toolActivityPlacements,
+            runtimeActivities: messageToolActivities[message.id] ?? [],
+            mergedPlacements: messageActivityPlacements
+        )
         let key = VoiceMessageEqKey(
             id: message.id,
             isUser: message.isUser,
@@ -101,6 +109,7 @@ struct ChatMessageList: View {
             showActionButtons: showButtons,
             branchControlsEnabled: branchControlsEnabled,
             contentFP: fingerprint,
+            toolActivityPlacements: messageActivityPlacements,
             developerModeEnabled: developerModeEnabled,
             searchHighlightID: searchHighlightID
         )
@@ -114,6 +123,8 @@ struct ChatMessageList: View {
                 developerModeEnabled: developerModeEnabled,
                 maxBubbleWidth: availableMessageWidth,
                 contentFingerprint: fingerprint,
+                toolActivities: messageActivities,
+                toolActivityPlacements: messageActivityPlacements,
                 searchHighlightQuery: highlightQuery,
                 onSelectText: onSelectText,
                 onRegenerate: onRegenerate,
@@ -121,6 +132,50 @@ struct ChatMessageList: View {
                 onSwitchVersion: onSwitchVersion,
                 onRetry: onRetry
             )
+        }
+    }
+
+    private func mergedToolActivityPlacements(for message: ChatMessage) -> [ChatToolActivityPlacement] {
+        var merged = message.toolActivityPlacements
+        for placement in messageToolActivityPlacements[message.id] ?? [] {
+            if let index = merged.firstIndex(where: { $0.id == placement.id }) {
+                merged[index] = placement
+            } else {
+                merged.append(placement)
+            }
+        }
+        return merged.sorted {
+            if $0.offset == $1.offset {
+                return $0.id < $1.id
+            }
+            return $0.offset < $1.offset
+        }
+    }
+
+    private func mergedToolActivities(
+        storedPlacements: [ChatToolActivityPlacement],
+        runtimeActivities: [ChatToolActivity],
+        mergedPlacements: [ChatToolActivityPlacement]
+    ) -> [ChatToolActivity] {
+        var activities = storedPlacements.map(\.activity)
+        for activity in runtimeActivities {
+            if let index = activities.firstIndex(where: { $0.id == activity.id }) {
+                activities[index] = activity
+            } else {
+                activities.append(activity)
+            }
+        }
+        var placementOrder: [String: Int] = [:]
+        for placement in mergedPlacements where placementOrder[placement.id] == nil {
+            placementOrder[placement.id] = placement.offset
+        }
+        return activities.sorted {
+            let lhs = placementOrder[$0.id] ?? Int.max
+            let rhs = placementOrder[$1.id] ?? Int.max
+            if lhs == rhs {
+                return $0.id < $1.id
+            }
+            return lhs < rhs
         }
     }
 }

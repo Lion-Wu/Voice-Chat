@@ -12,6 +12,8 @@ struct ThinkingPreviewBubble: View {
     let isComplete: Bool
     let previewLines: Int
     let thinkFontSize: CGFloat
+    let toolActivityPlacements: [ChatToolActivityPlacement]
+    let maxBubbleWidth: CGFloat?
 
     @State private var isShowingFullText = false
 
@@ -39,6 +41,7 @@ struct ThinkingPreviewBubble: View {
     }
 
     var body: some View {
+        let previewWindow = inlinePreviewWindow
         Button {
             withAnimation(.easeInOut(duration: 0.2)) {
                 isShowingFullText = true
@@ -58,12 +61,15 @@ struct ThinkingPreviewBubble: View {
                 }
 
                 if shouldShowPreview {
-                    TailLinesText(
-                        text: think,
-                        lines: previewLines,
-                        font: PlatformFontSpec(size: thinkFontSize, isMonospaced: true)
+                    ChatToolInlineContentView(
+                        text: previewWindow.text,
+                        placements: previewWindow.placements,
+                        textStyle: .thinking(fontSize: thinkFontSize),
+                        maxBubbleWidth: maxBubbleWidth
                     )
                     .frame(maxWidth: .infinity, alignment: .leading)
+                    .frame(height: previewHeight, alignment: .bottom)
+                    .clipped()
                     .transition(previewTransition)
                 }
             }
@@ -87,9 +93,36 @@ struct ThinkingPreviewBubble: View {
             think: think,
             title: statusTextKey,
             iconName: statusIconName,
-            iconColor: statusColor
+            iconColor: statusColor,
+            toolActivityPlacements: toolActivityPlacements,
+            maxBubbleWidth: maxBubbleWidth
         )
         .animation(.easeInOut(duration: 0.2), value: shouldShowPreview)
+    }
+
+    private var previewHeight: CGFloat {
+        PlatformFontSpec(size: thinkFontSize, isMonospaced: true).lineHeight * CGFloat(max(1, previewLines))
+    }
+
+    private var inlinePreviewWindow: (text: String, placements: [ChatToolActivityPlacement]) {
+        let maxCharacters = 4_000
+        let length = think.count
+        let cutoff = max(0, length - maxCharacters)
+        guard cutoff > 0 else {
+            return (think, toolActivityPlacements)
+        }
+        let start = think.index(think.startIndex, offsetBy: cutoff)
+        let visibleText = String(think[start...])
+        let visiblePlacements = toolActivityPlacements
+            .filter { $0.offset >= cutoff }
+            .map {
+                ChatToolActivityPlacement(
+                    activity: $0.activity,
+                    scope: $0.scope,
+                    offset: $0.offset - cutoff
+                )
+            }
+        return (visibleText, visiblePlacements)
     }
 }
 
@@ -102,6 +135,8 @@ private struct ThinkingDetailView: View {
     let iconName: String
     let iconColor: Color
     let text: String
+    let toolActivityPlacements: [ChatToolActivityPlacement]
+    let maxBubbleWidth: CGFloat?
 
     var body: some View {
         NavigationStack {
@@ -120,7 +155,12 @@ private struct ThinkingDetailView: View {
                 .padding(.bottom, 10)
 
                 ScrollView {
-                    RichMarkdownView(markdown: text)
+                    ChatToolInlineContentView(
+                        text: text,
+                        placements: toolActivityPlacements,
+                        textStyle: .markdown,
+                        maxBubbleWidth: maxBubbleWidth
+                    )
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.horizontal, 20)
                         .padding(.bottom, 20)
@@ -148,6 +188,8 @@ private struct ThinkDetailPresentationModifier: ViewModifier {
     let title: LocalizedStringKey
     let iconName: String
     let iconColor: Color
+    let toolActivityPlacements: [ChatToolActivityPlacement]
+    let maxBubbleWidth: CGFloat?
 
     func body(content: Content) -> some View {
         #if os(macOS)
@@ -156,7 +198,9 @@ private struct ThinkDetailPresentationModifier: ViewModifier {
                 title: title,
                 iconName: iconName,
                 iconColor: iconColor,
-                text: think
+                text: think,
+                toolActivityPlacements: toolActivityPlacements,
+                maxBubbleWidth: maxBubbleWidth
             )
         }
         #else
@@ -165,7 +209,9 @@ private struct ThinkDetailPresentationModifier: ViewModifier {
                 title: title,
                 iconName: iconName,
                 iconColor: iconColor,
-                text: think
+                text: think,
+                toolActivityPlacements: toolActivityPlacements,
+                maxBubbleWidth: maxBubbleWidth
             )
             #if os(iOS)
                 .presentationDetents([.medium, .large])
@@ -184,7 +230,9 @@ private extension View {
         think: String,
         title: LocalizedStringKey,
         iconName: String,
-        iconColor: Color
+        iconColor: Color,
+        toolActivityPlacements: [ChatToolActivityPlacement],
+        maxBubbleWidth: CGFloat?
     ) -> some View {
         modifier(
             ThinkDetailPresentationModifier(
@@ -192,7 +240,9 @@ private extension View {
                 think: think,
                 title: title,
                 iconName: iconName,
-                iconColor: iconColor
+                iconColor: iconColor,
+                toolActivityPlacements: toolActivityPlacements,
+                maxBubbleWidth: maxBubbleWidth
             )
         )
     }

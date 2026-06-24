@@ -14,6 +14,8 @@ protocol ChatRequestBodyBuilding: Sendable {
         developerPrompt: String?,
         endpoint: ChatAPIEndpointCandidate,
         apiAdvancedSettings: APIAdvancedSettings,
+        toolUseSettings: ToolUseSettings,
+        previousResponseID: String?,
         thinkingCapability: ModelThinkingCapability?,
         thinkingOption: ModelThinkingOption?
     ) throws -> Data
@@ -37,6 +39,8 @@ struct ChatRequestBodyBuilder: ChatRequestBodyBuilding, Sendable {
         developerPrompt: String?,
         endpoint: ChatAPIEndpointCandidate,
         apiAdvancedSettings: APIAdvancedSettings,
+        toolUseSettings: ToolUseSettings = .defaults,
+        previousResponseID: String? = nil,
         thinkingCapability: ModelThinkingCapability?,
         thinkingOption: ModelThinkingOption?
     ) throws -> Data {
@@ -46,7 +50,8 @@ struct ChatRequestBodyBuilder: ChatRequestBodyBuilding, Sendable {
             messagePayload: messagePayload,
             developerPrompt: developerPrompt,
             endpoint: endpoint,
-            apiAdvancedSettings: settings
+            apiAdvancedSettings: settings,
+            previousResponseID: previousResponseID
         )
         advancedConfigurationApplier.apply(to: &requestBody, model: model, endpoint: endpoint, settings: settings)
         thinkingConfigurationApplier.apply(
@@ -56,6 +61,16 @@ struct ChatRequestBodyBuilder: ChatRequestBodyBuilding, Sendable {
             settings: settings,
             thinkingCapability: thinkingCapability,
             thinkingOption: thinkingOption
+        )
+        ChatToolSchemaEncoder.applyToolSchemas(
+            to: &requestBody,
+            endpoint: endpoint,
+            settings: toolUseSettings
+        )
+        ChatToolResultMessageEncoder.applyResponsesPreviousResponseID(
+            previousResponseID,
+            to: &requestBody,
+            endpoint: endpoint
         )
         return try JSONSerialization.data(withJSONObject: requestBody, options: [])
     }

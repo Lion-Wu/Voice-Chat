@@ -13,6 +13,7 @@ struct ChatRequestBodyEncodingContext {
     let developerPrompt: String?
     let endpoint: ChatAPIEndpointCandidate
     let apiAdvancedSettings: APIAdvancedSettings
+    let previousResponseID: String?
 }
 
 protocol ChatRequestBodyProviderEncoding {
@@ -25,14 +26,16 @@ enum ChatRequestBodyProviderEncoder {
         messagePayload: [[String: Any]],
         developerPrompt: String?,
         endpoint: ChatAPIEndpointCandidate,
-        apiAdvancedSettings: APIAdvancedSettings
+        apiAdvancedSettings: APIAdvancedSettings,
+        previousResponseID: String? = nil
     ) -> [String: Any] {
         let context = ChatRequestBodyEncodingContext(
             model: model,
             messagePayload: messagePayload,
             developerPrompt: developerPrompt,
             endpoint: endpoint,
-            apiAdvancedSettings: apiAdvancedSettings.sanitized
+            apiAdvancedSettings: apiAdvancedSettings.sanitized,
+            previousResponseID: previousResponseID
         )
         return encoder(for: endpoint).makeBaseRequestBody(context)
     }
@@ -79,15 +82,29 @@ private struct OpenAICompatibleRequestBodyEncoder: ChatRequestBodyProviderEncodi
 
 private struct LMStudioRESTRequestBodyEncoder: ChatRequestBodyProviderEncoding {
     func makeBaseRequestBody(_ context: ChatRequestBodyEncodingContext) -> [String: Any] {
-        let lmStudioInput = ChatProviderMessagePayloadEncoder.lmStudioRESTInput(
-            from: context.messagePayload,
-            textDiscriminator: context.endpoint.style == .lmStudioRESTV1LegacyMessage ? "message" : "text"
-        )
+        let textDiscriminator = context.endpoint.style == .lmStudioRESTV1LegacyMessage ? "message" : "text"
+        let previousResponseID = context.previousResponseID?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let lmStudioInput: Any
+        if let previousResponseID, previousResponseID.hasPrefix("resp_") {
+            lmStudioInput = ChatProviderMessagePayloadEncoder.lmStudioRESTLatestUserInput(
+                from: context.messagePayload,
+                textDiscriminator: textDiscriminator
+            )
+        } else {
+            lmStudioInput = ChatProviderMessagePayloadEncoder.lmStudioRESTInput(
+                from: context.messagePayload,
+                textDiscriminator: textDiscriminator
+            )
+        }
         var requestBody: [String: Any] = [
             "model": context.model,
             "stream": true,
-            "input": lmStudioInput
+            "input": lmStudioInput,
+            "store": true
         ]
+        if let previousResponseID, previousResponseID.hasPrefix("resp_") {
+            requestBody["previous_response_id"] = previousResponseID
+        }
         if let prompt = context.developerPrompt?.trimmingCharacters(in: .whitespacesAndNewlines),
            !prompt.isEmpty {
             requestBody["system_prompt"] = prompt
@@ -118,6 +135,12 @@ enum ChatProviderMessagePayloadEncoder {
         input.reserveCapacity(messagePayload.count)
 
         for item in messagePayload {
+            let passthroughType = (item["type"] as? String)?.lowercased()
+            if isOpenAIResponsesPassthroughItemType(passthroughType) {
+                input.append(item)
+                continue
+            }
+
             let rawRole = ((item["role"] as? String) ?? "user").lowercased()
             let role: String
             switch rawRole {
@@ -166,6 +189,16 @@ enum ChatProviderMessagePayloadEncoder {
             ])
         }
         return input
+    }
+
+    private static func isOpenAIResponsesPassthroughItemType(_ type: String?) -> Bool {
+        guard let type else { return false }
+        return [
+            "function_call",
+            "function_call_output",
+            "reasoning",
+            "message"
+        ].contains(type)
     }
 
     static func lmStudioRESTInput(
@@ -241,6 +274,33 @@ enum ChatProviderMessagePayloadEncoder {
         return input
     }
 
+    static func lmStudioRESTLatestUserInput(
+        from messagePayload: [[String: Any]],
+        textDiscriminator: String
+    ) -> Any {
+        guard let latestUserMessage = messagePayload.last(where: {
+            (($0["role"] as? String) ?? "").lowercased() == "user"
+        }) else {
+            return ""
+        }
+
+        let extracted = textAndImages(from: latestUserMessage)
+        let trimmedText = extracted.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        if extracted.images.isEmpty {
+            return trimmedText
+        }
+
+        var input: [[String: Any]] = []
+        if !trimmedText.isEmpty {
+            input.append([
+                "type": textDiscriminator,
+                "content": trimmedText
+            ])
+        }
+        input.append(contentsOf: extracted.images)
+        return input
+    }
+
     static func anthropicMessagesInput(from messagePayload: [[String: Any]]) -> [[String: Any]] {
         var output: [[String: Any]] = []
         output.reserveCapacity(messagePayload.count)
@@ -250,6 +310,21 @@ enum ChatProviderMessagePayloadEncoder {
             guard rawRole == "user" || rawRole == "assistant" else { continue }
 
             var contentParts: [[String: Any]] = []
+            if let content = item["content"] as? [[String: Any]] {
+                let toolParts = content.filter { part in
+                    let type = ((part["type"] as? String) ?? "").lowercased()
+                    return type == "tool_use" || type == "tool_result"
+                }
+                if !toolParts.isEmpty {
+                    contentParts.append(contentsOf: toolParts)
+                    output.append([
+                        "role": rawRole,
+                        "content": contentParts
+                    ])
+                    continue
+                }
+            }
+
             if let text = item["content"] as? String {
                 if !text.isEmpty {
                     contentParts.append(["type": "text", "text": text])
@@ -314,6 +389,31 @@ enum ChatProviderMessagePayloadEncoder {
         }
         let trimmed = urlString.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed
+    }
+
+    private static func textAndImages(from item: [String: Any]) -> (text: String, images: [[String: Any]]) {
+        var collectedText = ""
+        var collectedImages: [[String: Any]] = []
+
+        if let text = item["content"] as? String {
+            collectedText = text
+        } else if let parts = item["content"] as? [[String: Any]] {
+            for part in parts {
+                let partType = ((part["type"] as? String) ?? "").lowercased()
+                if partType == "text" {
+                    if let text = part["text"] as? String {
+                        collectedText += text
+                    }
+                } else if let dataURL = imageDataURL(from: part) {
+                    collectedImages.append([
+                        "type": "image",
+                        "data_url": dataURL
+                    ])
+                }
+            }
+        }
+
+        return (collectedText, collectedImages)
     }
 
     private static func parseDataURL(_ raw: String) -> (mimeType: String, base64Data: String)? {

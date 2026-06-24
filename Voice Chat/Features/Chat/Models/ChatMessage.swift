@@ -48,6 +48,7 @@ final class ChatMessage {
     var promptCharacterCount: Int?
     var finishReason: String?
     var errorDescription: String?
+    var toolActivityPlacementsData: Data?
 
     // MARK: - Relation
     @Relationship(inverse: \ChatSession.messages) var session: ChatSession?
@@ -86,6 +87,7 @@ final class ChatMessage {
         promptCharacterCount: Int? = nil,
         finishReason: String? = nil,
         errorDescription: String? = nil,
+        toolActivityPlacements: [ChatToolActivityPlacement] = [],
         session: ChatSession? = nil,
         parentMessage: ChatMessage? = nil,
         childMessages: [ChatMessage] = []
@@ -121,6 +123,7 @@ final class ChatMessage {
         self.promptCharacterCount = promptCharacterCount
         self.finishReason = finishReason
         self.errorDescription = errorDescription
+        self.toolActivityPlacementsData = ChatMessage.encodeToolActivityPlacements(toolActivityPlacements)
         self.session = session
         self.parentMessage = parentMessage
         self.childMessages = childMessages
@@ -147,6 +150,11 @@ extension ChatMessage {
         imageAttachmentsData?.hashValue ?? 0
     }
 
+    var toolActivityPlacements: [ChatToolActivityPlacement] {
+        get { ChatMessage.decodeToolActivityPlacements(from: toolActivityPlacementsData) }
+        set { toolActivityPlacementsData = ChatMessage.encodeToolActivityPlacements(newValue) }
+    }
+
     var thinkingOption: ModelThinkingOption? {
         get {
             thinkingOptionRawValue.flatMap(ModelThinkingOption.normalized)
@@ -154,5 +162,15 @@ extension ChatMessage {
         set {
             thinkingOptionRawValue = newValue?.rawValue
         }
+    }
+
+    private static func encodeToolActivityPlacements(_ placements: [ChatToolActivityPlacement]) -> Data? {
+        guard !placements.isEmpty else { return nil }
+        return try? JSONEncoder().encode(placements)
+    }
+
+    private static func decodeToolActivityPlacements(from data: Data?) -> [ChatToolActivityPlacement] {
+        guard let data, !data.isEmpty else { return [] }
+        return (try? JSONDecoder().decode([ChatToolActivityPlacement].self, from: data)) ?? []
     }
 }

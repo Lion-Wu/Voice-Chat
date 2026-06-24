@@ -30,6 +30,7 @@ struct VoiceMessageEqKey: Equatable, Sendable {
     let showActionButtons: Bool
     let branchControlsEnabled: Bool
     let contentFP: ContentFingerprint
+    let toolActivityPlacements: [ChatToolActivityPlacement]
     let developerModeEnabled: Bool
     let searchHighlightID: UUID?
 }

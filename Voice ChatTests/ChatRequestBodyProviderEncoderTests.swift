@@ -46,6 +46,35 @@ final class ChatRequestBodyProviderEncoderTests: XCTestCase {
         XCTAssertEqual(assistantContent.last?["image_url"] as? String, "data:image/png;base64,AAAA")
     }
 
+    func testOpenAIResponsesInputPassesThroughResponseOutputItems() throws {
+        let reasoning: [String: Any] = ["type": "reasoning", "id": "rs_1", "summary": []]
+        let message: [String: Any] = ["type": "message", "id": "msg_1", "content": [["type": "output_text", "text": "hi"]]]
+        let functionCall: [String: Any] = [
+            "type": "function_call",
+            "call_id": "call_1",
+            "name": "device_get_context",
+            "arguments": "{}"
+        ]
+        let toolOutput: [String: Any] = [
+            "type": "function_call_output",
+            "call_id": "call_1",
+            "output": "{}"
+        ]
+
+        let input = ChatProviderMessagePayloadEncoder.openAIResponsesInput(from: [
+            reasoning,
+            message,
+            functionCall,
+            toolOutput
+        ])
+
+        XCTAssertEqual(input.count, 4)
+        XCTAssertEqual(input[0]["id"] as? String, "rs_1")
+        XCTAssertEqual(input[1]["id"] as? String, "msg_1")
+        XCTAssertEqual(input[2]["call_id"] as? String, "call_1")
+        XCTAssertEqual(input[3]["type"] as? String, "function_call_output")
+    }
+
     func testLMStudioRESTInputUsesOnlyLatestUserImages() throws {
         let input = try XCTUnwrap(ChatProviderMessagePayloadEncoder.lmStudioRESTInput(
             from: [

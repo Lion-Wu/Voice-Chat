@@ -76,6 +76,15 @@ extension ChatService {
             guard !isCancelled else { return }
             if frame.isDone {
                 sseParser.clearPendingEventType()
+                if shouldGateLMStudioPromptTools() {
+                    handleLMStudioPromptToolFinish()
+                    return
+                }
+                if shouldRunToolLoopInsteadOfFinishing() {
+                    runPendingToolCallsAndContinue()
+                    return
+                }
+                guard !isCancelled else { return }
                 if newFormatActive && sentThinkOpen && !sentThinkClose && !isLegacyThinkStream {
                     emitDelta(thinkCloseLine, marksPrimaryOutput: false)
                     sentThinkClose = true
@@ -137,15 +146,33 @@ extension ChatService {
             mergeResponseMetadata(metadata)
         }
 
+        if shouldRunToolLoopInsteadOfFinishing() {
+            runPendingToolCallsAndContinue()
+            return
+        }
+        guard !isCancelled else { return }
+
         switch decision.outcome {
         case .ignore:
             return
         case .finish:
+            if shouldFinishWithBufferedLMStudioPromptToolCall() {
+                return
+            }
             emitStreamFinishedOnce()
         case let .recoveredText(text):
+            if shouldRunRecoveredLMStudioPromptToolCall(text) {
+                return
+            }
             emitDelta(text)
             emitStreamFinishedOnce()
         case let .serverError(statusCode, message):
+            if retryLMStudioRequestWithoutPreviousResponseIDIfNeeded(
+                statusCode: statusCode,
+                message: message
+            ) {
+                return
+            }
             clearActiveEndpointCandidate()
             Task { @MainActor in
                 self.onError?(ChatNetworkError.serverError(statusCode: statusCode, message: message))
@@ -157,5 +184,27 @@ extension ChatService {
             clearActiveEndpointCandidate()
             Task { @MainActor in self.onError?(ChatNetworkError.emptyResponse) }
         }
+    }
+
+    private func shouldFinishWithBufferedLMStudioPromptToolCall() -> Bool {
+        guard shouldGateLMStudioPromptTools() else { return false }
+        return runBufferedLMStudioPromptToolCallIfPresent()
+    }
+
+    private func shouldRunRecoveredLMStudioPromptToolCall(_ text: String) -> Bool {
+        guard shouldGateLMStudioPromptTools() else { return false }
+        let calls = LMStudioPromptToolProtocol.parseToolCalls(
+            from: text,
+            provider: activeEndpointCandidate?.provider
+        )
+        guard !calls.isEmpty else { return false }
+        resetLMStudioPromptToolGate()
+        appendPendingToolCalls(calls)
+        guard shouldRunToolLoopInsteadOfFinishing() else {
+            emitStreamFinishedOnce()
+            return true
+        }
+        runPendingToolCallsAndContinue()
+        return true
     }
 }

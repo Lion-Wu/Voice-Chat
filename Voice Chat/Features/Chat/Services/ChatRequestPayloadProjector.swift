@@ -11,11 +11,21 @@ struct ChatRequestSourceMessage: Equatable, Sendable {
     let content: String
     let isUser: Bool
     let imageAttachments: [ChatImageAttachment]
+    let providerResponseID: String?
+    let createdAt: Date
 
-    init(content: String, isUser: Bool, imageAttachments: [ChatImageAttachment] = []) {
+    init(
+        content: String,
+        isUser: Bool,
+        imageAttachments: [ChatImageAttachment] = [],
+        providerResponseID: String? = nil,
+        createdAt: Date = Date()
+    ) {
         self.content = content
         self.isUser = isUser
         self.imageAttachments = imageAttachments
+        self.providerResponseID = providerResponseID
+        self.createdAt = createdAt
     }
 }
 

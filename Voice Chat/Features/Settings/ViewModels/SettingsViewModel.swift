@@ -53,6 +53,12 @@ final class SettingsViewModel: ObservableObject {
             saveAPIAdvancedSettings()
         }
     }
+    @Published var toolUseSettings: ToolUseSettings {
+        didSet {
+            guard !suppression.isActive(.autoSaves) else { return }
+            saveToolUseSettings()
+        }
+    }
 
     // MARK: - Model List (Networking)
 
@@ -187,6 +193,7 @@ final class SettingsViewModel: ObservableObject {
         language = "auto"
         hapticFeedbackEnabled = true
         apiAdvancedSettings = .defaults
+        toolUseSettings = .defaults
 
         refreshFromSettingsManager()
         bindInitialStoreSync()
@@ -196,6 +203,10 @@ final class SettingsViewModel: ObservableObject {
         let model = selectedModel.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !model.isEmpty else { return false }
         return settingsManager.chatModelCapabilities.isImageInputSupportUnknown(for: model)
+    }
+
+    var toolUseStatusMessage: String? {
+        nil
     }
 
     var isSelectedUnknownModelImageInputEnabled: Bool {
@@ -285,6 +296,7 @@ final class SettingsViewModel: ObservableObject {
             enableStreaming = v.enableStreaming
             hapticFeedbackEnabled = settingsManager.hapticFeedbackEnabled
             apiAdvancedSettings = settingsManager.apiAdvancedSettings
+            toolUseSettings = settingsManager.toolUseSettings
 
             autoSplit = m.autoSplit
             modelId = m.modelId
@@ -319,6 +331,10 @@ final class SettingsViewModel: ObservableObject {
             serverAddress: serverAddress,
             textLang: textLang
         )
+    }
+
+    func saveToolUseSettings() {
+        settingsManager.updateToolUseSettings(toolUseSettings)
     }
 
     func saveChatSettings() {
