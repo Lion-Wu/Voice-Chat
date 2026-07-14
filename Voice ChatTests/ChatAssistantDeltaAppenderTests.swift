@@ -16,7 +16,7 @@ final class ChatAssistantDeltaAppenderTests: XCTestCase {
             streamingAssistantFingerprint: nil,
             messageLookup: [parent.id: parent],
             fallbackParent: { nil },
-            now: Date(timeIntervalSince1970: 10)
+            now: TestDate.reference
         )
 
         XCTAssertTrue(result.didCreateMessage)
@@ -44,7 +44,7 @@ final class ChatAssistantDeltaAppenderTests: XCTestCase {
             streamingAssistantFingerprint: previousFingerprint,
             messageLookup: [assistant.id: assistant],
             fallbackParent: { nil },
-            now: Date(timeIntervalSince1970: 11)
+            now: TestDate.reference
         )
 
         XCTAssertFalse(result.didCreateMessage)

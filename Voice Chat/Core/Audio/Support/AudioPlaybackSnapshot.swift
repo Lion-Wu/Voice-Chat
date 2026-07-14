@@ -28,7 +28,7 @@ extension GlobalAudioManager {
             isLoading: isLoading,
             isAudioPlaying: isAudioPlaying,
             isPlaybackRequested: isPlaybackRequested,
-            hasAudioRequests: !dataTasks.isEmpty,
+            hasAudioRequests: hasPendingTTSSynthesisWork(),
             hasLoadedAudioChunk: audioChunks.contains { $0 != nil },
             hasSeekableAudio: totalDuration > 0.0005 || chunkDurations.contains { $0 > 0.0005 }
         )

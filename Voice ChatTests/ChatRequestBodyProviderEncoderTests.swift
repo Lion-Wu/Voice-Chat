@@ -46,7 +46,7 @@ final class ChatRequestBodyProviderEncoderTests: XCTestCase {
         XCTAssertEqual(assistantContent.last?["image_url"] as? String, "data:image/png;base64,AAAA")
     }
 
-    func testOpenAIResponsesInputPassesThroughResponseOutputItems() throws {
+    func testOpenAIResponsesInputPassesThroughDocumentedConversationItems() throws {
         let reasoning: [String: Any] = ["type": "reasoning", "id": "rs_1", "summary": []]
         let message: [String: Any] = ["type": "message", "id": "msg_1", "content": [["type": "output_text", "text": "hi"]]]
         let functionCall: [String: Any] = [
@@ -93,8 +93,7 @@ final class ChatRequestBodyProviderEncoderTests: XCTestCase {
                         ["type": "image_url", "image_url": ["url": "data:image/jpeg;base64,NEW"]]
                     ]
                 ]
-            ],
-            textDiscriminator: "text"
+            ]
         ) as? [[String: Any]])
 
         XCTAssertEqual(input.count, 2)

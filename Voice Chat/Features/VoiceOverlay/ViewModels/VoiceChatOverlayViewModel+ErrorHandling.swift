@@ -30,10 +30,12 @@ extension VoiceChatOverlayViewModel {
     }
 
     func currentVoiceWorkSnapshot() -> VoiceWorkSnapshot {
-        VoiceWorkSnapshot(
+        let assistantSnapshot = activeChatSession?.realtimeVoiceAssistantSnapshot
+        return VoiceWorkSnapshot(
             audio: audioManager.audioPlaybackSnapshot,
             isChatLoading: activeChatSession?.isRealtimeVoiceChatLoading == true,
-            isChatPriming: activeChatSession?.isRealtimeVoiceChatPriming == true
+            isChatPriming: activeChatSession?.isRealtimeVoiceChatPriming == true,
+            isWaitingForToolAuthorization: assistantSnapshot?.isWaitingForToolAuthorization == true
         )
     }
 

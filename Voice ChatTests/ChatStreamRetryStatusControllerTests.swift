@@ -32,7 +32,7 @@ final class ChatStreamRetryStatusControllerTests: XCTestCase {
 
         XCTAssertEqual(
             emissions.last,
-            .init(isRetrying: false, retryAttempt: 0, retryLastError: nil)
+            .init(isRetrying: false, retryAttempt: 1, retryLastError: nil)
         )
     }
 
@@ -55,6 +55,13 @@ final class ChatStreamRetryStatusControllerTests: XCTestCase {
             )
         )
 
+        XCTAssertTrue(controller.shouldAutoRetry(after: URLError(.timedOut)))
+
+        _ = controller.planRetry(
+            after: URLError(.timedOut),
+            errorText: "timeout",
+            hasAssistantMessage: true
+        )
         XCTAssertFalse(controller.shouldAutoRetry(after: URLError(.timedOut)))
     }
 }

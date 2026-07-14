@@ -14,7 +14,11 @@ struct SidebarSearchHeader: View {
             searchField
         }
         .frame(maxWidth: .infinity)
-        .background(backgroundStyle)
+        .background {
+            Rectangle()
+                .fill(backgroundStyle)
+                .ignoresSafeArea(edges: .top)
+        }
         .overlay(alignment: .bottom) {
             Divider()
                 .overlay(ChatTheme.separator)

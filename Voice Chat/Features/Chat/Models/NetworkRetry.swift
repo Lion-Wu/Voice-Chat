@@ -88,7 +88,7 @@ enum NetworkRetryability {
 
     static func shouldRetry(statusCode: Int) -> Bool {
         switch statusCode {
-        case 408, 425, 429, 500, 502, 503, 504:
+        case 408, 425, 429, 500, 502, 503, 504, 529:
             return true
         default:
             return false

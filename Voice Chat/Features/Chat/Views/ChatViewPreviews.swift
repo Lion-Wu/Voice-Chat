@@ -63,7 +63,7 @@ private struct ChatViewAttachmentPreviewScene: View {
 
     var body: some View {
         ChatView(viewModel: makePreviewChatViewModel(session: session, settingsManager: settingsManager))
-            .modelContainer(for: [ChatSession.self, ChatMessage.self, AppSettings.self], inMemory: true)
+            .modelContainer(for: [ChatSession.self, ChatMessage.self, ChatRequestContextMetadata.self, AppSettings.self], inMemory: true)
             .environmentObject(GlobalAudioManager.shared)
             .environmentObject(settingsManager)
             .environmentObject(makePreviewChatSessions(settingsManager: settingsManager))
@@ -112,7 +112,7 @@ private struct ChatViewSupportingContentPreviewScene: View {
 
     var body: some View {
         ChatView(viewModel: viewModel)
-            .modelContainer(for: [ChatSession.self, ChatMessage.self, AppSettings.self], inMemory: true)
+            .modelContainer(for: [ChatSession.self, ChatMessage.self, ChatRequestContextMetadata.self, AppSettings.self], inMemory: true)
             .environmentObject(GlobalAudioManager.shared)
             .environmentObject(settingsManager)
             .environmentObject(makePreviewChatSessions(settingsManager: settingsManager))
@@ -134,7 +134,7 @@ private struct ChatViewSupportingContentPreviewScene: View {
     )
 
     ChatView(viewModel: makePreviewChatViewModel(session: session))
-        .modelContainer(for: [ChatSession.self, ChatMessage.self, AppSettings.self], inMemory: true)
+        .modelContainer(for: [ChatSession.self, ChatMessage.self, ChatRequestContextMetadata.self, AppSettings.self], inMemory: true)
         .environmentObject(GlobalAudioManager.shared)
         .environmentObject(SettingsManager.shared)
         .environmentObject(makePreviewChatSessions())

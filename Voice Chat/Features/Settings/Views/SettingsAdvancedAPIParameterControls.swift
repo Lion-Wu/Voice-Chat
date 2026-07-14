@@ -36,12 +36,6 @@ struct SettingsAdvancedAPIParameterControls: View {
                 value: $viewModel.apiAdvancedSettings.openAIChatMaxCompletionTokens
             )
             SettingsAdvancedAPISamplingControls(sampling: $viewModel.apiAdvancedSettings.openAIChatSampling)
-        case .openAICompatible:
-            SettingsAdvancedAPIIntegerField(
-                title: "max_tokens",
-                value: $viewModel.apiAdvancedSettings.openAICompatibleMaxTokens
-            )
-            SettingsAdvancedAPISamplingControls(sampling: $viewModel.apiAdvancedSettings.openAICompatibleSampling)
         case .anthropic:
             SettingsAdvancedAPIIntegerField(
                 title: "max_tokens",
@@ -71,58 +65,6 @@ struct SettingsAdvancedAPIParameterControls: View {
                 includeJSONMode: false,
                 includeLogprobs: false
             )
-        case .gemini:
-            SettingsAdvancedAPIIntegerField(
-                title: "max_tokens",
-                value: $viewModel.apiAdvancedSettings.geminiMaxTokens
-            )
-            SettingsAdvancedAPISamplingControls(
-                sampling: $viewModel.apiAdvancedSettings.geminiSampling,
-                includePenalties: false,
-                includeSeed: false,
-                includeJSONMode: false,
-                includeLogprobs: false
-            )
-        case .deepSeek:
-            SettingsAdvancedAPIIntegerField(
-                title: "max_tokens",
-                value: $viewModel.apiAdvancedSettings.deepSeekMaxTokens
-            )
-            SettingsAdvancedAPISamplingControls(
-                sampling: $viewModel.apiAdvancedSettings.deepSeekSampling,
-                includePenalties: true,
-                includeSeed: false,
-                includeJSONMode: true,
-                includeLogprobs: true
-            )
-        case .xAI:
-            SettingsAdvancedAPIIntegerField(
-                title: "max_tokens",
-                value: $viewModel.apiAdvancedSettings.xAIMaxTokens
-            )
-            SettingsAdvancedAPISamplingControls(sampling: $viewModel.apiAdvancedSettings.xAISampling)
-        case .openRouter:
-            SettingsAdvancedAPIIntegerField(
-                title: "max_tokens",
-                value: $viewModel.apiAdvancedSettings.openRouterMaxTokens
-            )
-            SettingsAdvancedAPIIntegerField(
-                title: "max_completion_tokens",
-                value: $viewModel.apiAdvancedSettings.openRouterMaxCompletionTokens
-            )
-            SettingsAdvancedAPISamplingControls(
-                sampling: $viewModel.apiAdvancedSettings.openRouterSampling,
-                includeTopK: true,
-                includeMinP: true,
-                includeTopA: true,
-                includeRepetitionPenalty: true,
-                includeStructuredOutputs: true
-            )
-            SettingsAdvancedAPIVerbosityControl(
-                sampling: $viewModel.apiAdvancedSettings.openRouterSampling,
-                title: "verbosity",
-                options: ["low", "medium", "high", "max"]
-            )
         case .lmStudioREST:
             SettingsAdvancedAPIIntegerField(
                 title: "max_output_tokens",
@@ -143,29 +85,6 @@ struct SettingsAdvancedAPIParameterControls: View {
                 includeSeed: false,
                 includeJSONMode: false,
                 includeLogprobs: false
-            )
-        case .lmStudioOpenAICompatible:
-            SettingsAdvancedAPIIntegerField(
-                title: "max_tokens",
-                value: $viewModel.apiAdvancedSettings.lmStudioOpenAICompatibleMaxTokens
-            )
-            SettingsAdvancedAPISamplingControls(
-                sampling: $viewModel.apiAdvancedSettings.lmStudioOpenAICompatibleSampling,
-                includeTopK: true,
-                includeRepetitionPenalty: true,
-                repetitionPenaltyTitle: "repeat_penalty"
-            )
-        case .llamaCpp:
-            SettingsAdvancedAPIIntegerField(
-                title: "max_tokens",
-                value: $viewModel.apiAdvancedSettings.llamaCppMaxTokens
-            )
-            SettingsAdvancedAPISamplingControls(
-                sampling: $viewModel.apiAdvancedSettings.llamaCppSampling,
-                includeTopK: true,
-                includeMinP: true,
-                includeRepetitionPenalty: true,
-                repetitionPenaltyTitle: "repeat_penalty"
             )
         }
     }

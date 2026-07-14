@@ -23,9 +23,17 @@ final class AudioPlaybackSnapshotTests: XCTestCase {
         XCTAssertTrue(manager.audioPlaybackSnapshot.hasSeekableAudio)
 
         let url = try XCTUnwrap(URL(string: "https://example.com/audio.wav"))
-        manager.dataTasks = [URLSession.shared.dataTask(with: url)]
+        let requestID = UUID()
+        manager.activeDataTasks[requestID] = URLSession.shared.dataTask(with: url)
 
+        XCTAssertFalse(manager.audioPlaybackSnapshot.hasAudioRequests)
+
+        manager.inFlightIndexes.insert(0)
         XCTAssertTrue(manager.audioPlaybackSnapshot.hasAudioRequests)
+
+        manager.inFlightIndexes.remove(0)
+        manager.activeDataTasks.removeValue(forKey: requestID)
+        XCTAssertFalse(manager.audioPlaybackSnapshot.hasAudioRequests)
     }
 
     private func snapshot(

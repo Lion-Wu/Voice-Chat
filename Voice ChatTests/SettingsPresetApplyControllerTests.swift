@@ -5,7 +5,7 @@ import XCTest
 final class SettingsPresetApplyControllerTests: XCTestCase {
     func testApplyPublishesStatusesFromInjectedOperation() async {
         let request = makeRequest()
-        let finishedAt = Date(timeIntervalSince1970: 99)
+        let finishedAt = TestDate.reference
         var appliedRequests: [TTSPresetApplyRequest] = []
         let controller = SettingsPresetApplyController(applyOperation: { request, publish in
             appliedRequests.append(request)

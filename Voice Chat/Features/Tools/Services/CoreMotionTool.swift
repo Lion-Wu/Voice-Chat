@@ -17,7 +17,7 @@ protocol MotionToolServing: Sendable {
 struct CoreMotionTool: MotionToolServing {
     func deviceMotion(arguments: ChatToolArgumentReader) async throws -> ChatToolExecutionPayload {
         #if canImport(CoreMotion) && (os(iOS) || os(visionOS))
-        let duration = arguments.double("duration_seconds", default: 1.0, range: 0.2...3.0)
+        let duration = try arguments.double("duration_seconds", default: 1.0, range: 0.2...3.0)
         let manager = CMMotionManager()
         guard manager.isDeviceMotionAvailable else {
             throw ChatToolError.unsupported(NSLocalizedString("Device motion is not available on this platform.", comment: "Tool-use error"))

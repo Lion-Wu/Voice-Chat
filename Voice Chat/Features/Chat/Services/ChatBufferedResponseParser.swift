@@ -62,9 +62,9 @@ struct ChatBufferedResponseParser: ChatBufferedResponseParsing {
 
         let recoveredText: String?
         switch style {
-        case .lmStudioRESTV1, .lmStudioRESTV1LegacyMessage:
+        case .lmStudioRESTV1:
             recoveredText = textExtractor.extractLMStudioAssistantText(from: dictionary)
-        case .openAIChatCompletions:
+        case .openAIResponses, .openAIChatCompletions:
             recoveredText = textExtractor.extractOpenAIAssistantText(from: dictionary)
         case .anthropicMessages:
             recoveredText = textExtractor.extractAnthropicAssistantText(from: dictionary)

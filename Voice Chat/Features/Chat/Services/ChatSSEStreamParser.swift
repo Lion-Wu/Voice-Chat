@@ -26,7 +26,7 @@ enum ChatSSEStreamParserAppendResult: Equatable {
 }
 
 struct ChatSSEStreamParser {
-    private var partialLine: String = ""
+    private var bufferedData = Data()
     private var pendingEventType: String?
     private let maxBufferedBytes: Int
 
@@ -35,7 +35,7 @@ struct ChatSSEStreamParser {
     }
 
     mutating func reset() {
-        partialLine = ""
+        bufferedData.removeAll(keepingCapacity: true)
         pendingEventType = nil
     }
 
@@ -44,49 +44,63 @@ struct ChatSSEStreamParser {
     }
 
     mutating func append(_ data: Data) -> ChatSSEStreamParserAppendResult {
-        append(String(decoding: data, as: UTF8.self))
-    }
-
-    mutating func append(_ chunk: String) -> ChatSSEStreamParserAppendResult {
-        partialLine += chunk
-
-        guard partialLine.utf8.count <= maxBufferedBytes else {
+        bufferedData.append(data)
+        guard bufferedData.count <= maxBufferedBytes else {
             return .exceededBufferLimit
         }
 
-        let lines = partialLine.split(
-            maxSplits: Int.max,
-            omittingEmptySubsequences: false,
-            whereSeparator: { $0.isNewline }
-        )
-
-        var processCount = lines.count
-        if let last = partialLine.last, last != "\n" && last != "\r" {
-            processCount -= 1
-        }
-
         var frames: [ChatSSEStreamFrame] = []
-        for index in 0..<max(0, processCount) {
-            let line = String(lines[index]).trimmingCharacters(in: .whitespacesAndNewlines)
-            if line.isEmpty {
-                pendingEventType = nil
+        var lineStart = bufferedData.startIndex
+        var index = lineStart
+        while index < bufferedData.endIndex {
+            let byte = bufferedData[index]
+            let terminatorLength: Int
+            if byte == 0x0A {
+                terminatorLength = 1
+            } else if byte == 0x0D {
+                let nextIndex = bufferedData.index(after: index)
+                guard nextIndex < bufferedData.endIndex else { break }
+                terminatorLength = bufferedData[nextIndex] == 0x0A ? 2 : 1
+            } else {
+                index = bufferedData.index(after: index)
                 continue
             }
-            if line.hasPrefix("event:") {
-                let eventType = String(line.dropFirst("event:".count))
-                    .trimmingCharacters(in: .whitespaces)
-                pendingEventType = eventType.isEmpty ? nil : eventType
-                continue
-            }
-            guard line.hasPrefix("data:") else { continue }
 
-            let payload = String(line.dropFirst("data:".count))
-                .trimmingCharacters(in: .whitespaces)
-            frames.append(ChatSSEStreamFrame(payload: payload, eventType: pendingEventType))
+            let lineData = bufferedData[lineStart..<index]
+            processLine(String(decoding: lineData, as: UTF8.self), frames: &frames)
+            index = bufferedData.index(index, offsetBy: terminatorLength)
+            lineStart = index
         }
 
-        let remainder = lines.suffix(from: max(0, processCount)).joined(separator: "\n")
-        partialLine = remainder
+        if lineStart > bufferedData.startIndex {
+            bufferedData.removeSubrange(bufferedData.startIndex..<lineStart)
+        }
         return .frames(frames)
+    }
+
+    mutating func append(_ chunk: String) -> ChatSSEStreamParserAppendResult {
+        append(Data(chunk.utf8))
+    }
+
+    private mutating func processLine(
+        _ rawLine: String,
+        frames: inout [ChatSSEStreamFrame]
+    ) {
+        let line = rawLine.trimmingCharacters(in: .whitespacesAndNewlines)
+        if line.isEmpty {
+            pendingEventType = nil
+            return
+        }
+        if line.hasPrefix("event:") {
+            let eventType = String(line.dropFirst("event:".count))
+                .trimmingCharacters(in: .whitespaces)
+            pendingEventType = eventType.isEmpty ? nil : eventType
+            return
+        }
+        guard line.hasPrefix("data:") else { return }
+
+        let payload = String(line.dropFirst("data:".count))
+            .trimmingCharacters(in: .whitespaces)
+        frames.append(ChatSSEStreamFrame(payload: payload, eventType: pendingEventType))
     }
 }

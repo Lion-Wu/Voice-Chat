@@ -42,6 +42,17 @@ struct SidebarView: View {
         isSidebarSearchLoading && !visibleSearchKeyword.isEmpty
     }
 
+    private var isSidebarSearchActive: Bool {
+        !searchKeyword.isEmpty
+    }
+
+    private var appDisplayName: String {
+        Bundle.main.localizedInfoDictionary?["CFBundleDisplayName"] as? String
+        ?? Bundle.main.infoDictionary?["CFBundleDisplayName"] as? String
+        ?? Bundle.main.infoDictionary?["CFBundleName"] as? String
+        ?? "Voice Chat"
+    }
+
     @ViewBuilder
     private var sidebarSearchLoadingRow: some View {
         HStack(spacing: 10) {
@@ -270,7 +281,6 @@ struct SidebarView: View {
     }
 
     private func selectDraftSession() {
-        guard chatSessionsViewModel.canStartNewSession else { return }
         let draft = chatSessionsViewModel.draftSession
         chatSessionsViewModel.selectedSession = draft
         onConversationTap(draft)
@@ -358,80 +368,119 @@ struct SidebarView: View {
         #endif
     }
 
-    private var iosSidebar: some View {
-        ZStack {
-            AppBackgroundView()
-
-            List(selection: $chatSessionsViewModel.selectedSessionID) {
+    @ViewBuilder
+    private var iosSidebarList: some View {
+        List {
+            if !isSidebarSearchActive {
                 Section {
-                    iosDraftRow
-                        .tag(chatSessionsViewModel.draftSession.id)
+                    NavigationLink(value: ChatSessionNavigationRoute(
+                        sessionID: chatSessionsViewModel.draftSession.id
+                    )) {
+                        iosDraftRowContent
+                    }
                 }
-                if sidebarGroups.isEmpty {
-                    Section(LocalizedStringKey("Chats")) {
-                        if visibleSearchKeyword.isEmpty {
-                            ContentUnavailableView(
-                                LocalizedStringKey("No chats yet"),
-                                systemImage: "text.bubble",
-                                description: Text("Start a new conversation to begin talking.")
-                            )
+            }
+            if sidebarGroups.isEmpty {
+                Section(LocalizedStringKey("Chats")) {
+                    if visibleSearchKeyword.isEmpty {
+                        ContentUnavailableView(
+                            LocalizedStringKey("No chats yet"),
+                            systemImage: "text.bubble",
+                            description: Text("Start a new conversation to begin talking.")
+                        )
+                        .listRowBackground(Color.clear)
+                    } else if shouldShowSidebarSearchLoading {
+                        sidebarSearchLoadingRow
                             .listRowBackground(Color.clear)
-                        } else if shouldShowSidebarSearchLoading {
-                            sidebarSearchLoadingRow
-                                .listRowBackground(Color.clear)
-                        } else {
-                            ContentUnavailableView(
-                                LocalizedStringKey("No Results"),
-                                systemImage: "magnifyingglass",
-                                description: Text("Try a different search.")
-                            )
-                            .listRowBackground(Color.clear)
+                    } else {
+                        ContentUnavailableView(
+                            LocalizedStringKey("No Results"),
+                            systemImage: "magnifyingglass",
+                            description: Text("Try a different search.")
+                        )
+                        .listRowBackground(Color.clear)
+                    }
+                }
+            } else {
+                ForEach(sidebarGroups) { group in
+                    Section(group.section.title) {
+                        ForEach(group.sessions) { session in
+                            NavigationLink(value: ChatSessionNavigationRoute(
+                                sessionID: session.id,
+                                searchQuery: visibleSearchKeyword
+                            )) {
+                                iosSessionRow(session)
+                            }
+                            .contextMenu {
+                                Button("Rename") { renameSession(session) }
+                                Button("Delete", role: .destructive) {
+                                    requestDelete(for: session)
+                                }
+                            }
+                        }
+                        .onDelete { offsets in
+                            handleSwipeDelete(at: offsets, within: group.sessions)
+                        }
+                    }
+                }
+                sidebarSearchLoadingSection
+            }
+        }
+        #if os(iOS)
+        .scrollDismissesKeyboard(.interactively)
+        #endif
+    }
+
+    @ViewBuilder
+    private var iosSidebar: some View {
+        #if os(iOS) || os(tvOS)
+        #if os(iOS)
+        iosSidebarList
+            .listStyle(.insetGrouped)
+            .navigationTitle(appDisplayName)
+            .navigationBarTitleDisplayMode(.large)
+            .searchable(text: $searchText, prompt: Text("Search Chats"))
+            .toolbar {
+                if #available(iOS 26.0, *) {
+                    ToolbarItem(placement: .bottomBar) {
+                        Button(action: onOpenSettings) {
+                            Label("Settings", systemImage: "gear")
+                        }
+                    }
+
+                    ToolbarSpacer(placement: .bottomBar)
+
+                    DefaultToolbarItem(kind: .search, placement: .bottomBar)
+
+                    ToolbarSpacer(placement: .bottomBar)
+
+                    ToolbarItem(placement: .bottomBar) {
+                        Button(action: selectDraftSession) {
+                            Label("New Chat", systemImage: "square.and.pencil")
                         }
                     }
                 } else {
-                    ForEach(sidebarGroups) { group in
-                        Section(group.section.title) {
-                            ForEach(group.sessions) { session in
-                                iosSessionRow(session)
-                                    .contentShape(Rectangle())
-                                    .onTapGesture {
-                                        selectSessionFromSidebar(session)
-                                    }
-                                    .contextMenu {
-                                        Button("Rename") { renameSession(session) }
-                                        Button("Delete", role: .destructive) {
-                                            requestDelete(for: session)
-                                        }
-                                    }
-                                    .tag(session.id)
-                            }
-                            .onDelete { offsets in
-                                handleSwipeDelete(at: offsets, within: group.sessions)
-                            }
+                    ToolbarItemGroup(placement: .bottomBar) {
+                        Button(action: onOpenSettings) {
+                            Label("Settings", systemImage: "gear")
+                        }
+
+                        Spacer()
+
+                        Button(action: selectDraftSession) {
+                            Label("New Chat", systemImage: "square.and.pencil")
                         }
                     }
-                    sidebarSearchLoadingSection
                 }
             }
-            #if os(iOS) || os(tvOS)
+        #else
+        iosSidebarList
             .listStyle(.insetGrouped)
-            .scrollContentBackground(.automatic)
-            #if os(iOS)
-            .scrollDismissesKeyboard(.interactively)
-            #endif
-            #else
-            .listStyle(.plain)
-            #endif
-        }
-        .safeAreaInset(edge: .top, spacing: 0) {
-            SidebarSearchHeader(style: .touch, searchText: $searchText)
-        }
-        #if os(iOS) || os(tvOS)
-        .safeAreaInset(edge: .bottom) {
-            SidebarSettingsFooter(style: .touch, onOpenSettings: onOpenSettings)
-        }
         #endif
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        #else
+        iosSidebarList
+            .listStyle(.plain)
+        #endif
     }
 
     private var visionSidebar: some View {
@@ -544,6 +593,12 @@ struct SidebarView: View {
     }
 
     private var iosDraftRow: some View {
+        iosDraftRowContent
+            .contentShape(Rectangle())
+            .onTapGesture { selectDraftSession() }
+    }
+
+    private var iosDraftRowContent: some View {
         HStack(spacing: 12) {
             Image(systemName: "plus.circle.fill")
                 .foregroundStyle(.secondary)
@@ -552,8 +607,6 @@ struct SidebarView: View {
             Spacer()
         }
         .padding(.vertical, sidebarRowVerticalPadding)
-        .contentShape(Rectangle())
-        .onTapGesture { selectDraftSession() }
     }
 
     private func iosSessionRow(_ session: ChatSession) -> some View {
@@ -588,7 +641,7 @@ struct SidebarView: View {
         onConversationTap: { _ in },
         onOpenSettings: {}
     )
-    .modelContainer(for: [ChatSession.self, ChatMessage.self, AppSettings.self], inMemory: true)
+    .modelContainer(for: [ChatSession.self, ChatMessage.self, ChatRequestContextMetadata.self, AppSettings.self], inMemory: true)
     .environmentObject(ChatSessionsViewModel(
         settingsManager: settingsManager,
         reachability: ServerReachabilityMonitor.shared,

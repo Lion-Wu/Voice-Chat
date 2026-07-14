@@ -30,7 +30,7 @@ struct ChatSendCoordinator {
     @discardableResult
     func sendIfPossible() -> Bool {
         guard canSendDraft else { return false }
-        if viewModel.isLoading || viewModel.isPriming {
+        if viewModel.isLoading || viewModel.isPriming || viewModel.isToolContinuationLoading {
             return queueCurrentDraftIfPossible()
         }
         if viewModel.shouldWarnAboutUnsupportedImageInputBeforeSending() {
@@ -77,7 +77,7 @@ struct ChatSendCoordinator {
             restoreRealtimeVoiceDraft(text, imageAttachments: imageAttachments)
             cancelAssistantResponseHaptics()
             cancelScrollToBottomAfterSend()
-            if viewModel.isLoading || viewModel.isPriming {
+            if viewModel.isLoading || viewModel.isPriming || viewModel.isToolContinuationLoading {
                 _ = queueCurrentDraftIfPossible()
             } else if viewModel.shouldWarnAboutUnsupportedImageInputBeforeSending() {
                 setActiveAlert(.unsupportedImageSend)

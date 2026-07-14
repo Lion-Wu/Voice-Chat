@@ -18,6 +18,7 @@ enum AnthropicStreamAction: Equatable {
     case metadata(ChatResponseMetadata)
     case finish
     case fail(String)
+    case retryableFailure(String, statusCode: Int)
 }
 
 struct AnthropicStreamEventReducer {
@@ -55,10 +56,15 @@ struct AnthropicStreamEventReducer {
 
         case "error":
             let message = event.error?.message?.trimmingCharacters(in: .whitespacesAndNewlines)
-            actions.append(.fail((message?.isEmpty == false) ? message! : NSLocalizedString(
+            let resolvedMessage = (message?.isEmpty == false) ? message! : NSLocalizedString(
                 "Anthropic API error",
                 comment: "Fallback error shown when Anthropic stream returns an error event without a message"
-            )))
+            )
+            if let statusCode = ChatStreamErrorRetryClassifier.statusCode(for: [event.error?.type]) {
+                actions.append(.retryableFailure(resolvedMessage, statusCode: statusCode))
+            } else {
+                actions.append(.fail(resolvedMessage))
+            }
 
         default:
             break
@@ -76,6 +82,8 @@ struct AnthropicStreamEventReducer {
         let usage = event.usage ?? event.message?.usage
         if let usage {
             metadata.outputTokenCount = usage.output_tokens
+            metadata.reasoningOutputTokenCount = usage.output_tokens_details?.thinking_tokens
+                ?? usage.output_tokens_details?.reasoning_tokens
         }
         if let stopReason = event.delta?.stop_reason ?? event.message?.stop_reason,
            !stopReason.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {

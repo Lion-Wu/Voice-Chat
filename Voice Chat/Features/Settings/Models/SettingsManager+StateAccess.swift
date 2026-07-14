@@ -11,7 +11,17 @@ import SwiftData
 
 extension SettingsManager {
     var activeAPIAdvancedSettings: APIAdvancedSettings {
-        developerModeEnabled ? apiAdvancedSettings : SettingsDefaults.apiAdvancedSettings
+        DeveloperRuntimeSettingsPolicy.apiAdvancedSettings(
+            configured: apiAdvancedSettings,
+            developerModeEnabled: developerModeEnabled
+        )
+    }
+
+    var activeToolUseSettings: ToolUseSettings {
+        DeveloperRuntimeSettingsPolicy.toolUseSettings(
+            configured: toolUseSettings,
+            developerModeEnabled: developerModeEnabled
+        )
     }
 
     var chatModelCapabilityChanges: AnyPublisher<ChatModelCapabilityStore, Never> {
@@ -62,4 +72,22 @@ extension SettingsManager {
 
     var context: ModelContext? { persistence.context }
     var entity: AppSettings? { persistence.entity }
+}
+
+enum DeveloperRuntimeSettingsPolicy {
+    static func apiAdvancedSettings(
+        configured: APIAdvancedSettings,
+        developerModeEnabled: Bool
+    ) -> APIAdvancedSettings {
+        developerModeEnabled ? configured : SettingsDefaults.apiAdvancedSettings
+    }
+
+    static func toolUseSettings(
+        configured: ToolUseSettings,
+        developerModeEnabled: Bool
+    ) -> ToolUseSettings {
+        developerModeEnabled
+            ? configured
+            : configured.resettingDeveloperRequestPolicyToDefaults()
+    }
 }

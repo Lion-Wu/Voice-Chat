@@ -49,10 +49,19 @@ extension GlobalAudioManager {
 
                 if self.isPlaybackRequested {
                     self.audioPlayer?.currentTime = 0
-                    self.audioPlayer?.play()
-                    self.startAudioTimer()
-                    self.startStallWatchdog()
-                    self.isAudioPlaying = true
+                    if self.audioPlayer?.play() == true {
+                        self.isBuffering = false
+                        self.startAudioTimer()
+                        self.startStallWatchdog()
+                        self.isAudioPlaying = true
+                        if self.isRealtimeMode { self.isLoading = false }
+                    } else {
+                        self.isBuffering = true
+                        self.isAudioPlaying = false
+                        self.stopAudioTimer()
+                        self.startStallWatchdog()
+                        if self.isRealtimeMode { self.isLoading = true }
+                    }
                 } else {
                     self.isAudioPlaying = false
                 }

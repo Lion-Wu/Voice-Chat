@@ -41,7 +41,7 @@ final class ChatTextRequestRuntimeTests: XCTestCase {
 
     func testRuntimeClearsStreamingAnchorWhenFinalizedMessageMatches() {
         let runtime = makeRuntime()
-        let session = ChatSession(title: "Test")
+        let session = ChatSession(title: "Example Conversation")
         let assistant = ChatMessage(content: "hello", isUser: false)
         session.messages.append(assistant)
         runtime.currentAssistantMessageID = assistant.id
@@ -51,7 +51,7 @@ final class ChatTextRequestRuntimeTests: XCTestCase {
         let finalized = runtime.finalizeActiveAssistantMessage(
             in: session,
             reason: "completed",
-            finishedAt: Date(),
+            finishedAt: TestDate.reference,
             errorDescription: nil
         )
 
@@ -63,7 +63,7 @@ final class ChatTextRequestRuntimeTests: XCTestCase {
 
     func testCompleteAfterErrorFinalizesInterruptedAssistantAndBuildsErrorMessage() {
         let runtime = makeRuntime()
-        let session = ChatSession(title: "Test")
+        let session = ChatSession(title: "Example Conversation")
         let assistant = ChatMessage(content: "partial", isUser: false)
         session.messages.append(assistant)
         runtime.markActive(pendingParentMessageID: uuid(53))
@@ -72,7 +72,7 @@ final class ChatTextRequestRuntimeTests: XCTestCase {
         let completion = runtime.completeAfterError(
             LocalizedRuntimeError(message: "network down"),
             in: session,
-            now: Date(timeIntervalSince1970: 100)
+            now: TestDate.reference
         )
 
         XCTAssertEqual(completion.errorText, "network down")
@@ -89,7 +89,7 @@ final class ChatTextRequestRuntimeTests: XCTestCase {
 
     func testCompleteSuccessfullyClearsActivityAndAssistantTracking() {
         let runtime = makeRuntime()
-        let session = ChatSession(title: "Test")
+        let session = ChatSession(title: "Example Conversation")
         let assistant = ChatMessage(content: "done", isUser: false)
         session.messages.append(assistant)
         runtime.markActive(pendingParentMessageID: uuid(54))
@@ -97,7 +97,7 @@ final class ChatTextRequestRuntimeTests: XCTestCase {
 
         let completed = runtime.completeSuccessfully(
             in: session,
-            finishedAt: Date(timeIntervalSince1970: 200)
+            finishedAt: TestDate.reference
         )
 
         XCTAssertEqual(completed?.id, assistant.id)
@@ -110,7 +110,7 @@ final class ChatTextRequestRuntimeTests: XCTestCase {
 
     func testCancelCurrentRequestReturnsAssistantIDForBranchRestoreAndClearsRuntimeState() {
         let runtime = makeRuntime()
-        let session = ChatSession(title: "Test")
+        let session = ChatSession(title: "Example Conversation")
         let assistant = ChatMessage(content: "partial", isUser: false)
         session.messages.append(assistant)
         runtime.markActive(pendingParentMessageID: uuid(55))
@@ -118,20 +118,20 @@ final class ChatTextRequestRuntimeTests: XCTestCase {
 
         let completion = runtime.cancelCurrentRequest(
             in: session,
-            finishedAt: Date(timeIntervalSince1970: 300)
+            finishedAt: TestDate.reference
         )
 
-        XCTAssertEqual(completion.assistantMessageIDForBranchRestore, assistant.id)
+        XCTAssertNil(completion.assistantMessageIDForBranchRestore)
         XCTAssertFalse(runtime.hasActiveTextRequest)
         XCTAssertNil(runtime.currentAssistantMessageID)
         XCTAssertNil(runtime.pendingAssistantParentMessageID)
         XCTAssertFalse(assistant.isActive)
-        XCTAssertEqual(assistant.finishReason, "cancelled")
+        XCTAssertEqual(assistant.finishReason, "stopped")
     }
 
     func testPrepareForBranchRestartFinalizesAssistantAndClearsTracking() {
         let runtime = makeRuntime()
-        let session = ChatSession(title: "Test")
+        let session = ChatSession(title: "Example Conversation")
         let assistant = ChatMessage(content: "old", isUser: false)
         session.messages.append(assistant)
         runtime.currentAssistantMessageID = assistant.id
@@ -139,7 +139,7 @@ final class ChatTextRequestRuntimeTests: XCTestCase {
         runtime.prepareForBranchRestart(
             in: session,
             reason: "retry",
-            finishedAt: Date(timeIntervalSince1970: 400)
+            finishedAt: TestDate.reference
         )
 
         XCTAssertFalse(runtime.hasActiveTextRequest)
@@ -169,6 +169,8 @@ final class ChatTextRequestRuntimeTests: XCTestCase {
 @MainActor
 private final class StubRuntimeChatService: ChatStreamingService {
     var onDelta: (@MainActor (String) -> Void)?
+    var onSegment: (@MainActor (AssistantStreamSegment) -> Void)?
+    var onOpenAIResponsesConversationItems: (@MainActor ([JSONValue]) -> Void)?
     var onError: (@MainActor (Error) -> Void)?
     var onResponseMetadata: (@MainActor (ChatResponseMetadata) -> Void)?
     var onToolActivity: (@MainActor (ChatToolActivity) -> Void)?
@@ -180,7 +182,11 @@ private final class StubRuntimeChatService: ChatStreamingService {
         includeImagesInUserContent: Bool
     ) {}
 
+    func retryLastFailedStreamRequest() -> Bool { false }
+
     func cancelStreaming() {}
+
+    func resolveToolAuthorization(requestID: String, allowed: Bool) {}
 }
 
 private struct LocalizedRuntimeError: LocalizedError {

@@ -15,6 +15,22 @@ final class ChatViewModel: ObservableObject {
         let fingerprint: ContentFingerprint
     }
 
+    private struct StreamAttemptRetryCheckpoint {
+        let messageID: UUID?
+        let content: String
+        let assistantSegments: [ChatAssistantSegment]
+        let openAIResponsesConversationItems: [JSONValue]
+        let requestContentSnapshot: String?
+        let toolActivityPlacements: [ChatToolActivityPlacement]
+        let characterCount: Int
+        let tokenCount: Int
+        let tokenCountSource: String?
+        let activeToolActivities: [ChatToolActivity]
+        let messageToolActivities: [ChatToolActivity]
+        let messageToolActivityPlacements: [ChatToolActivityPlacement]
+        let telemetry: ChatAssistantStreamTelemetryRetryCheckpoint
+    }
+
     // MARK: - Published State
     @Published var userMessage: String = ""
     @Published var pendingImageAttachments: [ChatImageAttachment] = []
@@ -24,6 +40,7 @@ final class ChatViewModel: ObservableObject {
     @Published private(set) var isRetrying: Bool = false
     @Published private(set) var retryAttempt: Int = 0
     @Published private(set) var retryLastError: String? = nil
+    @Published private(set) var isToolContinuationLoading: Bool = false
     @Published private(set) var toolActivities: [ChatToolActivity] = []
     @Published private(set) var messageToolActivities: [UUID: [ChatToolActivity]] = [:]
     @Published private(set) var messageToolActivityPlacements: [UUID: [ChatToolActivityPlacement]] = [:]
@@ -71,6 +88,8 @@ final class ChatViewModel: ObservableObject {
     }
     private let branchRestartCoordinator = ChatBranchRestartCoordinator()
     let queuedDraftAutostartController = ChatQueuedDraftAutostartController()
+    private var recordedRequestContextFingerprintsForActiveRequest = Set<String>()
+    private var streamAttemptRetryCheckpoint: StreamAttemptRetryCheckpoint?
 
     // Emits content fingerprint updates (e.g., streaming deltas) to drive targeted UI refreshes.
     let messageContentDidChange = PassthroughSubject<MessageContentUpdate, Never>()
@@ -170,8 +189,17 @@ final class ChatViewModel: ObservableObject {
                 self.handleAssistantDelta(piece)
                 self.realtimeNarrationCoordinator.appendDelta(piece)
             },
+            onSegment: { [weak self] segment in
+                self?.handleAssistantStreamSegment(segment)
+            },
+            onOpenAIResponsesConversationItems: { [weak self] items in
+                self?.handleOpenAIResponsesConversationItems(items)
+            },
             onError: { [weak self] error in
                 self?.handleChatServiceError(error)
+            },
+            onResponseMetadata: { [weak self] metadata in
+                self?.handleResponseMetadata(metadata)
             },
             onToolActivity: { [weak self] activity in
                 self?.handleToolActivity(activity)
@@ -180,6 +208,58 @@ final class ChatViewModel: ObservableObject {
                 self?.handleChatStreamFinished()
             }
         )
+    }
+
+    private func handleResponseMetadata(_ metadata: ChatResponseMetadata) {
+        applyRequestTransportMetadataToLatestUserMessage(metadata)
+
+        guard let requestContext = metadata.requestContext else { return }
+        guard !recordedRequestContextFingerprintsForActiveRequest.contains(requestContext.fingerprint) else {
+            return
+        }
+        recordedRequestContextFingerprintsForActiveRequest.insert(requestContext.fingerprint)
+        ChatRequestContextMetadataStore.record(requestContext, in: chatSession.modelContext)
+    }
+
+    private func applyRequestTransportMetadataToLatestUserMessage(_ metadata: ChatResponseMetadata) {
+        guard metadata.requestContext != nil || metadata.requestUsedPreviousResponseID != nil else {
+            return
+        }
+        guard let message = activeBranchMessages().last(where: \.isUser) else {
+            return
+        }
+
+        var didChange = false
+        if let fingerprint = metadata.requestContext?.fingerprint,
+           !fingerprint.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+           message.requestContextFingerprint != fingerprint {
+            message.requestContextFingerprint = fingerprint
+            didChange = true
+        }
+        if let usedPreviousResponseID = metadata.requestUsedPreviousResponseID,
+           message.requestUsedPreviousResponseID != usedPreviousResponseID {
+            message.requestUsedPreviousResponseID = usedPreviousResponseID
+            didChange = true
+        }
+        if metadata.requestUsedPreviousResponseID == false,
+           message.requestPreviousResponseID != nil {
+            message.requestPreviousResponseID = nil
+            didChange = true
+        }
+        if metadata.requestUsedPreviousResponseID != false,
+           let previousResponseID = metadata.requestPreviousResponseID?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !previousResponseID.isEmpty,
+           message.requestPreviousResponseID != previousResponseID {
+            message.requestPreviousResponseID = previousResponseID
+            if message.requestUsedPreviousResponseID == nil {
+                message.requestUsedPreviousResponseID = true
+            }
+            didChange = true
+        }
+
+        if didChange {
+            persistSession(reason: .throttled)
+        }
     }
 
     private func bindRequestActivityController() {
@@ -198,14 +278,41 @@ final class ChatViewModel: ObservableObject {
     }
 
     private func handleChatServiceError(_ error: Error) {
+        guard hasActiveTextRequest || isToolContinuationLoading else { return }
         let now = Date()
         let errorText = error.localizedDescription.trimmingCharacters(in: .whitespacesAndNewlines)
+        isToolContinuationLoading = false
 
-        if shouldAutoRetryAfterError(error) {
+        if let incomplete = error as? ChatIncompleteResponseError {
+            restoreIncompleteResponse(incomplete)
+            completeChatServiceError(incomplete, now: now)
+            return
+        }
+
+        if textRequestRuntime.shouldAutoRetry(after: error) {
+            rollbackStreamAttemptRetryCheckpointIfNeeded()
+            realtimeNarrationCoordinator.restartActiveStreamForRetry()
             scheduleAutoRetry(after: error, errorText: errorText)
             return
         }
 
+        completeChatServiceError(error, now: now)
+    }
+
+    private func restoreIncompleteResponse(_ error: ChatIncompleteResponseError) {
+        rollbackStreamAttemptRetryCheckpointIfNeeded()
+        if error.metadata.hasAnyValue {
+            textRequestRuntime.mergeRecoveredResponseMetadata(error.metadata)
+            handleResponseMetadata(error.metadata)
+        }
+        for segment in error.segments {
+            handleAssistantStreamSegment(segment)
+        }
+    }
+
+    private func completeChatServiceError(_ error: Error, now: Date = Date()) {
+        streamAttemptRetryCheckpoint = nil
+        refreshTrackedAssistantRequestSnapshotIfNeeded()
         let completion = textRequestRuntime.completeAfterError(error, in: chatSession, now: now)
 
         if !completion.errorText.isEmpty {
@@ -238,6 +345,9 @@ final class ChatViewModel: ObservableObject {
 
     private func handleChatStreamFinished() {
         let finishedAt = Date()
+        isToolContinuationLoading = false
+        streamAttemptRetryCheckpoint = nil
+        refreshTrackedAssistantRequestSnapshotIfNeeded()
         textRequestRuntime.completeSuccessfully(in: chatSession, finishedAt: finishedAt)
         clearProcessingToolActivitiesFromMessages()
         clearToolActivities()
@@ -253,6 +363,11 @@ final class ChatViewModel: ObservableObject {
     }
 
     private func handleToolActivity(_ activity: ChatToolActivity) {
+        if activity.phase == .processing {
+            isToolContinuationLoading = true
+            return
+        }
+
         let message = ensureAssistantMessageForToolActivity()
         if let index = toolActivities.firstIndex(where: { $0.id == activity.id }) {
             toolActivities[index] = activity
@@ -275,25 +390,115 @@ final class ChatViewModel: ObservableObject {
         }
         messageToolActivityPlacements[message.id] = placements
         persistToolActivityPlacementsIfNeeded(placements, to: message)
-        let fingerprint = ContentFingerprint.make(message.content)
+        if activity.phase.isPersistentToolTracePhase {
+            captureStreamAttemptRetryCheckpoint()
+        }
+        let fingerprint = ContentFingerprint.make(message.renderFingerprintSource)
         messageContentDidChange.send(.init(messageID: message.id, fingerprint: fingerprint))
     }
 
+    private func handleOpenAIResponsesConversationItems(_ items: [JSONValue]) {
+        guard canAcceptAssistantDelta,
+              let message = ensureAssistantMessageForToolActivity(),
+              message.openAIResponsesConversationItems != items else {
+            return
+        }
+        message.openAIResponsesConversationItems = items
+        captureStreamAttemptRetryCheckpoint()
+        persistSession(reason: .immediate)
+    }
+
+    func resolveToolAuthorization(requestID: String, allowed: Bool) {
+        textRequestRuntime.resolveToolAuthorization(requestID: requestID, allowed: allowed)
+    }
+
     private func clearToolActivities() {
+        isToolContinuationLoading = false
         toolActivities.removeAll()
+    }
+
+    private func captureStreamAttemptRetryCheckpoint() {
+        let messageID = currentAssistantMessageID ?? streamingAssistantMessageID
+        let message = messageID.flatMap { messageLookup()[$0] }
+        streamAttemptRetryCheckpoint = StreamAttemptRetryCheckpoint(
+            messageID: message?.id,
+            content: message?.content ?? "",
+            assistantSegments: message?.assistantSegments ?? [],
+            openAIResponsesConversationItems: message?.openAIResponsesConversationItems ?? [],
+            requestContentSnapshot: message?.requestContentSnapshot,
+            toolActivityPlacements: message?.toolActivityPlacements ?? [],
+            characterCount: message?.characterCount ?? 0,
+            tokenCount: message?.tokenCount ?? 0,
+            tokenCountSource: message?.tokenCountSource,
+            activeToolActivities: toolActivities,
+            messageToolActivities: message.flatMap { messageToolActivities[$0.id] } ?? [],
+            messageToolActivityPlacements: message.flatMap { messageToolActivityPlacements[$0.id] } ?? [],
+            telemetry: textRequestRuntime.makeTelemetryRetryCheckpoint()
+        )
+    }
+
+    private func rollbackStreamAttemptRetryCheckpointIfNeeded() {
+        guard let checkpoint = streamAttemptRetryCheckpoint else { return }
+        textRequestRuntime.restoreTelemetryRetryCheckpoint(checkpoint.telemetry)
+        let messageID = checkpoint.messageID ?? currentAssistantMessageID ?? streamingAssistantMessageID
+        var didChange = toolActivities != checkpoint.activeToolActivities
+        toolActivities = checkpoint.activeToolActivities
+
+        guard let messageID, let message = messageLookup()[messageID] else {
+            return
+        }
+
+        if messageToolActivities[messageID] != checkpoint.messageToolActivities {
+            messageToolActivities[messageID] = checkpoint.messageToolActivities.isEmpty
+                ? nil
+                : checkpoint.messageToolActivities
+            didChange = true
+        }
+        if messageToolActivityPlacements[messageID] != checkpoint.messageToolActivityPlacements {
+            messageToolActivityPlacements[messageID] = checkpoint.messageToolActivityPlacements.isEmpty
+                ? nil
+                : checkpoint.messageToolActivityPlacements
+            didChange = true
+        }
+
+        didChange = didChange ||
+            message.content != checkpoint.content ||
+            message.assistantSegments != checkpoint.assistantSegments ||
+            message.openAIResponsesConversationItems != checkpoint.openAIResponsesConversationItems ||
+            message.requestContentSnapshot != checkpoint.requestContentSnapshot ||
+            message.toolActivityPlacements != checkpoint.toolActivityPlacements ||
+            message.characterCount != checkpoint.characterCount ||
+            message.tokenCount != checkpoint.tokenCount ||
+            message.tokenCountSource != checkpoint.tokenCountSource
+        guard didChange else { return }
+
+        message.content = checkpoint.content
+        message.assistantSegments = checkpoint.assistantSegments
+        message.openAIResponsesConversationItems = checkpoint.openAIResponsesConversationItems
+        message.requestContentSnapshot = checkpoint.requestContentSnapshot
+        message.toolActivityPlacements = checkpoint.toolActivityPlacements
+        message.characterCount = checkpoint.characterCount
+        message.tokenCount = checkpoint.tokenCount
+        message.tokenCountSource = checkpoint.tokenCountSource
+        let fingerprint = ContentFingerprint.make(message.renderFingerprintSource)
+        if streamingAssistantMessageID == message.id {
+            streamingAssistantFingerprint = fingerprint
+        }
+        messageContentDidChange.send(.init(messageID: message.id, fingerprint: fingerprint))
+        persistSession(reason: .immediate)
     }
 
     @discardableResult
     private func clearProcessingToolActivitiesFromMessages() -> Bool {
         var changedMessageIDs = Set<UUID>()
 
-        if toolActivities.contains(where: { $0.phase == .processing }) {
-            toolActivities.removeAll { $0.phase == .processing }
+        if toolActivities.contains(where: { !$0.phase.isPersistentToolTracePhase }) {
+            toolActivities.removeAll { !$0.phase.isPersistentToolTracePhase }
         }
 
         for messageID in Array(messageToolActivities.keys) {
             let activities = messageToolActivities[messageID] ?? []
-            let filtered = activities.filter { $0.phase != .processing }
+            let filtered = activities.filter { $0.phase.isPersistentToolTracePhase }
             guard filtered.count != activities.count else { continue }
             messageToolActivities[messageID] = filtered.isEmpty ? nil : filtered
             changedMessageIDs.insert(messageID)
@@ -301,7 +506,7 @@ final class ChatViewModel: ObservableObject {
 
         for messageID in Array(messageToolActivityPlacements.keys) {
             let placements = messageToolActivityPlacements[messageID] ?? []
-            let filtered = placements.filter { $0.activity.phase != .processing }
+            let filtered = placements.filter { $0.activity.phase.isPersistentToolTracePhase }
             guard filtered.count != placements.count else { continue }
             messageToolActivityPlacements[messageID] = filtered.isEmpty ? nil : filtered
             changedMessageIDs.insert(messageID)
@@ -311,7 +516,7 @@ final class ChatViewModel: ObservableObject {
         let lookup = messageLookup()
         for messageID in changedMessageIDs {
             guard let message = lookup[messageID] else { continue }
-            let fingerprint = ContentFingerprint.make(message.content)
+            let fingerprint = ContentFingerprint.make(message.renderFingerprintSource)
             messageContentDidChange.send(.init(messageID: message.id, fingerprint: fingerprint))
         }
         return true
@@ -321,18 +526,19 @@ final class ChatViewModel: ObservableObject {
         _ activity: ChatToolActivity,
         in message: ChatMessage
     ) -> ChatToolActivityPlacement {
-        let parts = message.content.extractThinkParts()
-        if let think = parts.think, parts.body.isEmpty {
-            return ChatToolActivityPlacement(
-                activity: activity,
-                scope: .thinking,
-                offset: think.count
+        let assistantSegments = message.assistantSegments
+        if !assistantSegments.isEmpty {
+            return ChatToolActivityPlacementResolver.placement(
+                for: activity,
+                assistantSegments: assistantSegments
             )
         }
-        return ChatToolActivityPlacement(
-            activity: activity,
-            scope: .body,
-            offset: parts.body.count
+
+        let parts = message.content.extractThinkParts()
+        return ChatToolActivityPlacementResolver.placement(
+            for: activity,
+            bodyText: parts.body,
+            reasoningText: parts.think
         )
     }
 
@@ -341,9 +547,20 @@ final class ChatViewModel: ObservableObject {
         to message: ChatMessage
     ) {
         let persistentPlacements = placements.filter { $0.activity.phase.isPersistentToolTracePhase }
-        guard message.toolActivityPlacements != persistentPlacements else { return }
+        let placementsChanged = message.toolActivityPlacements != persistentPlacements
+        let snapshotChanged = ChatRequestPayloadProjector.refreshAssistantRequestSnapshotIfNeeded(
+            message,
+            placements: persistentPlacements
+        )
+        guard placementsChanged || snapshotChanged else { return }
         message.toolActivityPlacements = persistentPlacements
         persistSession(reason: .throttled)
+    }
+
+    private func refreshTrackedAssistantRequestSnapshotIfNeeded() {
+        let messageID = currentAssistantMessageID ?? streamingAssistantMessageID
+        guard let messageID, let message = messageLookup()[messageID] else { return }
+        _ = ChatRequestPayloadProjector.refreshAssistantRequestSnapshotIfNeeded(message)
     }
 
     private func clearTerminalToolActivitiesAfterDelay() {
@@ -433,6 +650,7 @@ final class ChatViewModel: ObservableObject {
     private func publishBranchChange() { sessionMutationController.publishBranchChange() }
 
     private func markRequestActive(pendingParentMessageID: UUID?) {
+        recordedRequestContextFingerprintsForActiveRequest.removeAll(keepingCapacity: true)
         textRequestRuntime.markActive(pendingParentMessageID: pendingParentMessageID)
     }
 
@@ -445,6 +663,29 @@ final class ChatViewModel: ObservableObject {
         invalidateBranchMessagesCache()
         publishBranchChange()
         markRequestActive(pendingParentMessageID: parent.id)
+    }
+
+    private func createPendingAssistantBranchPlaceholder(parent: ChatMessage) {
+        guard currentAssistantMessageID == nil else { return }
+        let placeholder = ChatMessage(
+            content: "",
+            isUser: false,
+            isActive: true,
+            createdAt: Date(),
+            session: chatSession
+        )
+        placeholder.parentMessage = parent
+        parent.activeChildMessageID = placeholder.id
+        chatSession.messages.append(placeholder)
+        currentAssistantMessageID = placeholder.id
+        streamingAssistantMessageID = placeholder.id
+        streamingAssistantFingerprint = ContentFingerprint.make("")
+        pendingAssistantParentMessageID = nil
+        markSessionMessageActivity(at: placeholder.createdAt)
+        invalidateCachesAfterMessageMutation()
+        branchRestartCoordinator.clearPendingRestore()
+        publishBranchChange()
+        persistSession(reason: .immediate)
     }
 
     // MARK: - Telemetry
@@ -476,7 +717,8 @@ final class ChatViewModel: ObservableObject {
 
     @discardableResult
     private func finalizeActiveAssistantMessage(reason: String, finishedAt: Date = Date(), errorDescription: String? = nil) -> ChatMessage? {
-        textRequestRuntime.finalizeActiveAssistantMessage(
+        refreshTrackedAssistantRequestSnapshotIfNeeded()
+        return textRequestRuntime.finalizeActiveAssistantMessage(
             in: chatSession,
             reason: reason,
             finishedAt: finishedAt,
@@ -490,6 +732,15 @@ final class ChatViewModel: ObservableObject {
 
     private func activeBranchMessages() -> [ChatMessage] {
         sessionMutationController.activeBranchMessages(in: chatSession)
+    }
+
+    private func requestMessages(through userMessage: ChatMessage) -> [ChatMessage]? {
+        guard userMessage.isUser,
+              let messages = sessionMutationController.messagesThrough(userMessage, in: chatSession),
+              messages.last?.id == userMessage.id else {
+            return nil
+        }
+        return messages
     }
 
     /// Exposes the cached active branch chain for UI rendering.
@@ -506,16 +757,85 @@ final class ChatViewModel: ObservableObject {
     @discardableResult
     private func finalizeDanglingActiveAssistantMessagesIfNeeded(now: Date = Date()) -> Bool {
         guard !sending else { return false }
-        var didChange = false
+        var finalizedMessages: [ChatMessage] = []
 
         for message in chatSession.messages where !message.isUser && message.isActive {
-            didChange = textRequestRuntime.finalizeDanglingActiveAssistantMessage(message, now: now) || didChange
+            _ = ChatRequestPayloadProjector.refreshAssistantRequestSnapshotIfNeeded(message)
+            if textRequestRuntime.finalizeDanglingActiveAssistantMessage(message, now: now) {
+                finalizedMessages.append(message)
+            }
         }
 
-        if didChange {
+        if !finalizedMessages.isEmpty {
+            appendInterruptionErrors(for: finalizedMessages, now: now)
             markRequestInactive()
+            invalidateCachesAfterMessageMutation()
+            publishBranchChange()
+            persistSession(reason: .immediate)
         }
-        return didChange
+        return !finalizedMessages.isEmpty
+    }
+
+    private func appendInterruptionErrors(for messages: [ChatMessage], now: Date) {
+        for message in messages where message.finishReason == "cancelled" || message.finishReason == "stopped" {
+            guard message.activeChildMessageID == nil, message.childMessages.isEmpty else { continue }
+            let alreadyHasErrorChild = message.childMessages.contains {
+                $0.content.hasPrefix("!error:")
+            }
+            guard !alreadyHasErrorChild else { continue }
+            let errorText = interruptionErrorText(for: message.finishReason)
+            let error = ChatMessage(
+                content: "!error:\(errorText)",
+                isUser: false,
+                isActive: false,
+                createdAt: now,
+                modelIdentifier: message.modelIdentifier,
+                apiBaseURL: message.apiBaseURL,
+                thinkingOptionRawValue: message.thinkingOptionRawValue,
+                requestID: message.requestID,
+                providerResponseID: message.providerResponseID,
+                providerResponseIDs: message.providerResponseIDs,
+                requestContextFingerprint: message.requestContextFingerprint,
+                requestUsedPreviousResponseID: message.requestUsedPreviousResponseID,
+                requestPreviousResponseID: message.requestPreviousResponseID,
+                streamStartedAt: message.streamStartedAt,
+                streamFirstTokenAt: message.streamFirstTokenAt,
+                streamCompletedAt: now,
+                timeToFirstToken: message.timeToFirstToken,
+                streamDuration: message.streamDuration,
+                generationDuration: message.generationDuration,
+                outputTokenCount: message.outputTokenCount,
+                reasoningOutputTokenCount: message.reasoningOutputTokenCount,
+                tokensPerSecond: message.tokensPerSecond,
+                deltaCount: message.tokenCount,
+                tokenCountSource: message.tokenCountSource,
+                timeToFirstTokenSource: message.timeToFirstTokenSource,
+                tokensPerSecondSource: message.tokensPerSecondSource,
+                finishReasonSource: ChatStreamMetricValueSource.local.rawValue,
+                characterCount: errorText.count,
+                promptMessageCount: message.promptMessageCount,
+                promptCharacterCount: message.promptCharacterCount,
+                finishReason: message.finishReason,
+                errorDescription: errorText,
+                session: chatSession,
+                parentMessage: message
+            )
+            message.activeChildMessageID = error.id
+            chatSession.messages.append(error)
+        }
+    }
+
+    private func interruptionErrorText(for finishReason: String?) -> String {
+        if finishReason == "stopped" {
+            return NSLocalizedString(
+                "Stopped.",
+                comment: "Shown when an assistant response is stopped after output starts"
+            )
+        }
+        return NSLocalizedString(
+            "Cancelled.",
+            comment: "Shown when an assistant response is cancelled before output starts"
+        )
     }
 
     @discardableResult
@@ -580,12 +900,25 @@ final class ChatViewModel: ObservableObject {
         includeImagesInUserContent: Bool
     ) {
         let currentMessages = activeBranchMessages()
+        startStreaming(
+            messages: currentMessages,
+            isVoiceMode: isVoiceMode,
+            includeImagesInUserContent: includeImagesInUserContent
+        )
+    }
+
+    private func startStreaming(
+        messages currentMessages: [ChatMessage],
+        isVoiceMode: Bool,
+        includeImagesInUserContent: Bool
+    ) {
         let developerPrompt = runtimeConfigurationResolver.developerPrompt(isVoiceMode: isVoiceMode)
         recordStreamStart(
             using: currentMessages,
             developerPrompt: developerPrompt,
             includeImagesInUserContent: includeImagesInUserContent
         )
+        captureStreamAttemptRetryCheckpoint()
         textRequestRuntime.fetchStreamedData(
             messages: currentMessages,
             developerPrompt: developerPrompt,
@@ -626,21 +959,29 @@ final class ChatViewModel: ObservableObject {
     }
 
     func cancelCurrentRequest(autostartQueuedDraft: Bool = true) {
-        guard sending || isLoading || isPriming else { return }
+        guard sending || isLoading || isPriming || isToolContinuationLoading else { return }
         let finishedAt = Date()
+        isToolContinuationLoading = false
+        streamAttemptRetryCheckpoint = nil
         cancelQueuedDraftAutostart()
+        refreshTrackedAssistantRequestSnapshotIfNeeded()
         let completion = textRequestRuntime.cancelCurrentRequest(in: chatSession, finishedAt: finishedAt)
 
-        let restore = branchRestartCoordinator.restorePendingBranchIfAssistantDidNotStart(
-            currentAssistantMessageID: completion.assistantMessageIDForBranchRestore,
-            messageLookup: messageLookup()
-        )
-        if restore.didRestoreBranch {
-            invalidateBranchMessagesCache()
-            publishBranchChange()
+        let err = completion.errorMessage
+        if let interrupted = completion.interruptedMessage {
+            err.parentMessage = interrupted
+            interrupted.activeChildMessageID = err.id
+        } else if let parentID = completion.pendingParentMessageID,
+                  let parent = messageLookup()[parentID] {
+            err.parentMessage = parent
+            parent.activeChildMessageID = err.id
         }
+        chatSession.messages.append(err)
 
         branchRestartCoordinator.clearPendingRestore()
+        markSessionMessageActivity(at: err.createdAt)
+        invalidateCachesAfterMessageMutation()
+        publishBranchChange()
         persistSession(reason: .immediate)
         clearProcessingToolActivitiesFromMessages()
         clearToolActivities()
@@ -654,7 +995,8 @@ final class ChatViewModel: ObservableObject {
     }
 
     private func handleAssistantDelta(_ piece: String) {
-        guard isPriming || isLoading || sending else { return }
+        guard canAcceptAssistantDelta else { return }
+        isToolContinuationLoading = false
         clearProcessingToolActivitiesFromMessages()
         markRetryProgressIfNeeded()
 
@@ -705,19 +1047,112 @@ final class ChatViewModel: ObservableObject {
         messageContentDidChange.send(.init(messageID: message.id, fingerprint: fingerprint))
     }
 
+    private func handleAssistantStreamSegment(_ segment: AssistantStreamSegment) {
+        guard canAcceptAssistantDelta else { return }
+        isToolContinuationLoading = false
+        clearProcessingToolActivitiesFromMessages()
+        markRetryProgressIfNeeded()
+
+        if isPriming {
+            textRequestRuntime.markAssistantDeltaStarted()
+        }
+        let now = Date()
+        let mirrorPiece: String
+        let countedPiece: String
+        switch segment {
+        case let .text(_, text):
+            mirrorPiece = text
+            countedPiece = text
+        case let .reasoning(_, text):
+            mirrorPiece = ""
+            countedPiece = text
+        case .tool:
+            mirrorPiece = ""
+            countedPiece = ""
+        }
+
+        let appendResult = ChatAssistantDeltaAppender.append(
+            piece: mirrorPiece,
+            to: chatSession,
+            currentAssistantMessageID: currentAssistantMessageID,
+            pendingAssistantParentMessageID: pendingAssistantParentMessageID,
+            streamingAssistantMessageID: streamingAssistantMessageID,
+            streamingAssistantFingerprint: streamingAssistantFingerprint,
+            messageLookup: messageLookup(),
+            fallbackParent: { activeBranchMessages().last },
+            now: now
+        )
+        if appendResult.didResolvePendingAssistantParent {
+            pendingAssistantParentMessageID = nil
+        }
+        if appendResult.didCreateMessage {
+            markSessionMessageActivity(at: appendResult.message.createdAt)
+            invalidateCachesAfterMessageMutation()
+            branchRestartCoordinator.clearPendingRestore()
+            publishBranchChange()
+            currentAssistantMessageID = appendResult.message.id
+        }
+
+        let message = appendResult.message
+        message.appendAssistantSegment(segment)
+        let segmentFingerprintComponent: String
+        switch segment {
+        case let .reasoning(id, text):
+            segmentFingerprintComponent = "\u{1D}reasoning:\(id ?? ""):\(text)"
+        case let .text(id, text):
+            segmentFingerprintComponent = "\u{1D}text:\(id ?? ""):\(text)"
+        case .tool:
+            segmentFingerprintComponent = ""
+        }
+        let fingerprint = appendResult.fingerprint.appending(segmentFingerprintComponent)
+        streamingAssistantMessageID = message.id
+        streamingAssistantFingerprint = fingerprint
+
+        applyStreamMetadata(to: message, firstTokenTimestamp: now)
+        if !countedPiece.isEmpty {
+            bumpStreamCounters(for: message, delta: countedPiece)
+        }
+        textRequestRuntime.markAssistantDeltaStarted()
+        if case let .text(_, text) = segment, !text.isEmpty {
+            realtimeNarrationCoordinator.appendDelta(text)
+        }
+        if appendResult.didCreateMessage {
+            resetStreamingPersistenceState()
+            persistSession(reason: .immediate)
+        } else if shouldForceImmediatePersist(afterAppending: countedPiece.count) {
+            persistSession(reason: .immediate)
+        } else {
+            persistSession(reason: .throttled)
+        }
+        messageContentDidChange.send(.init(messageID: message.id, fingerprint: fingerprint))
+    }
+
+    private var canAcceptAssistantDelta: Bool {
+        isPriming ||
+        isLoading ||
+        sending ||
+        isToolContinuationLoading ||
+        currentAssistantMessageID != nil ||
+        streamingAssistantMessageID != nil
+    }
+
     func regenerateSystemMessage(_ message: ChatMessage) {
         guard !sending else { return }
         syncChatConfigurationFromSettingsIfNeeded()
         ensureMessageTreeInitializedIfNeeded()
+        guard !message.isUser,
+              let parent = message.parentMessage,
+              let requestMessages = requestMessages(through: parent) else {
+            return
+        }
+
         textRequestRuntime.prepareForBranchRestart(in: chatSession, reason: "regenerate")
-
-        guard !message.isUser else { return }
-        guard let parent = message.parentMessage else { return }
-
         persistSession(reason: .immediate)
 
         prepareBranchRestart(from: parent)
-        startStreamingCurrentBranch(
+        createPendingAssistantBranchPlaceholder(parent: parent)
+        startStreaming(
+            messages: requestMessages,
             isVoiceMode: audioManager.isRealtimeMode,
             includeImagesInUserContent: currentModelSupportsImageInput()
         )
@@ -727,18 +1162,20 @@ final class ChatViewModel: ObservableObject {
         guard !sending else { return }
         syncChatConfigurationFromSettingsIfNeeded()
         ensureMessageTreeInitializedIfNeeded()
+        guard !errorMessage.isUser,
+              let errorLineage = sessionMutationController.messagesThrough(errorMessage, in: chatSession),
+              let precedingUser = errorLineage.dropLast().last(where: \.isUser),
+              let requestMessages = requestMessages(through: precedingUser) else {
+            return
+        }
+
         textRequestRuntime.prepareForBranchRestart(in: chatSession, reason: "retry")
-
-        let active = activeBranchMessages()
-        guard let errorIndex = active.firstIndex(where: { $0.id == errorMessage.id }) else { return }
-        let priorMessages = active.prefix(errorIndex)
-        guard let precedingUser = priorMessages.last(where: { $0.isUser }) else { return }
-
         persistSession(reason: .immediate)
 
         prepareBranchRestart(from: precedingUser)
-
-        startStreamingCurrentBranch(
+        createPendingAssistantBranchPlaceholder(parent: precedingUser)
+        startStreaming(
+            messages: requestMessages,
             isVoiceMode: audioManager.isRealtimeMode,
             includeImagesInUserContent: currentModelSupportsImageInput()
         )
@@ -751,10 +1188,6 @@ final class ChatViewModel: ObservableObject {
     }
 
     // MARK: - Auto Retry (Text Streaming)
-
-    private func shouldAutoRetryAfterError(_ error: Error) -> Bool {
-        textRequestRuntime.shouldAutoRetry(after: error)
-    }
 
     private func scheduleAutoRetry(after error: Error, errorText: String) {
         textRequestRuntime.cancelScheduledRetry()
@@ -769,46 +1202,23 @@ final class ChatViewModel: ObservableObject {
         )
 
         let delay = plan.delay
-        let shouldUseVoicePrompt = realtimeNarrationCoordinator.shouldUseVoicePrompt
-        let requestDeveloperPrompt = textRequestRuntime.activeDeveloperPrompt
-            ?? runtimeConfigurationResolver.developerPrompt(isVoiceMode: shouldUseVoicePrompt)
-        let includeImagesInUserContent = textRequestRuntime.activeTelemetry == nil
-            ? currentModelSupportsImageInput()
-            : textRequestRuntime.activeIncludeImagesInUserContent
 
         textRequestRuntime.scheduleRetry(after: delay) { [weak self] in
-            self?.performScheduledAutoRetry(
-                originalError: error,
-                shouldUseVoicePrompt: shouldUseVoicePrompt,
-                developerPrompt: requestDeveloperPrompt,
-                includeImagesInUserContent: includeImagesInUserContent
-            )
+            self?.performScheduledAutoRetry(originalError: error)
         }
     }
 
-    private func performScheduledAutoRetry(
-        originalError: Error,
-        shouldUseVoicePrompt: Bool,
-        developerPrompt: String?,
-        includeImagesInUserContent: Bool
-    ) {
-        guard isLoading || isPriming || sending else {
+    private func performScheduledAutoRetry(originalError: Error) {
+        guard isLoading || isPriming || sending || isToolContinuationLoading else {
             resetRetryState()
             return
         }
-        // Avoid silently switching prompt modes if the user changes modes between retries.
-        if !shouldUseVoicePrompt && realtimeNarrationCoordinator.shouldUseVoicePrompt {
-            resetRetryState()
-            handleChatServiceError(originalError)
+        if textRequestRuntime.retryLastFailedStreamRequest() {
             return
         }
 
-        let currentMessages = activeBranchMessages()
-        textRequestRuntime.fetchStreamedData(
-            messages: currentMessages,
-            developerPrompt: developerPrompt,
-            includeImagesInUserContent: includeImagesInUserContent
-        )
+        resetRetryState()
+        completeChatServiceError(originalError)
     }
 
     private func markRetryProgressIfNeeded() {
@@ -829,4 +1239,54 @@ final class ChatViewModel: ObservableObject {
         }
     }
 
+}
+
+enum ChatToolActivityPlacementResolver {
+    static func placement(
+        for activity: ChatToolActivity,
+        assistantSegments: [ChatAssistantSegment]
+    ) -> ChatToolActivityPlacement {
+        guard let segmentIndex = assistantSegments.indices.last else {
+            return ChatToolActivityPlacement(activity: activity, scope: .body, offset: 0)
+        }
+        let segment = assistantSegments[segmentIndex]
+        let scope: ChatToolActivityScope = segment.kind == .reasoning ? .thinking : .body
+        let aggregateOffset = assistantSegments.lazy
+            .filter { $0.kind == segment.kind }
+            .reduce(into: 0) { $0 += $1.text.count }
+        return ChatToolActivityPlacement(
+            activity: activity,
+            scope: scope,
+            offset: aggregateOffset,
+            assistantSegmentAnchor: ChatAssistantSegmentAnchor(
+                segmentIndex: segmentIndex,
+                characterOffset: segment.text.count
+            )
+        )
+    }
+
+    static func placement(
+        for activity: ChatToolActivity,
+        bodyText: String,
+        reasoningText: String?
+    ) -> ChatToolActivityPlacement {
+        let reasoningText = reasoningText ?? ""
+        let trimmedBody = bodyText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedReasoning = reasoningText.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmedBody.isEmpty, !trimmedReasoning.isEmpty {
+            return ChatToolActivityPlacement(
+                activity: activity,
+                scope: .thinking,
+                offset: reasoningText.count
+            )
+        }
+        return ChatToolActivityPlacement(
+            activity: activity,
+            scope: .body,
+            offset: bodyText.count,
+            assistantSegmentAnchor: trimmedBody.isEmpty && trimmedReasoning.isEmpty
+                ? ChatAssistantSegmentAnchor(segmentIndex: 0, characterOffset: 0)
+                : nil
+        )
+    }
 }

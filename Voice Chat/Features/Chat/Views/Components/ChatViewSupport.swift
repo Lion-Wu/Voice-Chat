@@ -29,7 +29,12 @@ struct VoiceMessageEqKey: Equatable, Sendable {
     let branchRenderEpoch: Int
     let showActionButtons: Bool
     let branchControlsEnabled: Bool
+    let layoutWidth: CGFloat
     let contentFP: ContentFingerprint
+    let inlineErrorFP: ContentFingerprint?
+    let inlineLoading: Bool
+    let inlineRetryAttempt: Int?
+    let inlineRetryLastError: String?
     let toolActivityPlacements: [ChatToolActivityPlacement]
     let developerModeEnabled: Bool
     let searchHighlightID: UUID?
@@ -68,6 +73,10 @@ struct ChatViewPlatformTitleModifier: ViewModifier {
     func body(content: Content) -> some View {
         #if os(macOS)
         content.navigationTitle(title)
+        #elseif os(iOS) || os(tvOS)
+        content
+            .navigationTitle(title)
+            .navigationBarTitleDisplayMode(.inline)
         #else
         content
         #endif

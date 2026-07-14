@@ -26,7 +26,7 @@ enum ChatVisibleMessagesCoordinator {
     }
 
     static func fingerprintSnapshots(from messages: [ChatMessage]) -> [(UUID, String)] {
-        messages.map { ($0.id, $0.content) }
+        messages.map { ($0.id, $0.renderFingerprintSource) }
     }
 
     static func visibleIDs(in messages: [ChatMessage]) -> Set<UUID> {
@@ -40,7 +40,7 @@ enum ChatVisibleMessagesCoordinator {
         let visibleIDs = visibleIDs(in: messages)
         let missingSnapshots = messages
             .filter { cache[$0.id] == nil }
-            .map { ($0.id, $0.content) }
+            .map { ($0.id, $0.renderFingerprintSource) }
 
         return ChatVisibleMessageFingerprintPlan(
             visibleIDs: visibleIDs,

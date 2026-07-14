@@ -25,7 +25,7 @@ final class ChatConversationTurnControllerTests: XCTestCase {
                 return parent
             },
             estimatedTokenCount: { $0 },
-            createdAt: Date(timeIntervalSince1970: 10)
+            createdAt: TestDate.reference
         )
 
         guard case let .accepted(turnStart) = result else {

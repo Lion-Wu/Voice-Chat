@@ -49,6 +49,12 @@ final class ChatRealtimeNarrationCoordinator {
         appendNonEmptySegments(newSegments)
     }
 
+    func restartActiveStreamForRetry() {
+        guard isActive else { return }
+        segmenter.reset()
+        audioManager.startRealtimeStream()
+    }
+
     func finishActiveStream(flushingBufferedText: Bool) {
         guard isActive else { return }
         if flushingBufferedText {

@@ -11,15 +11,130 @@ import AVFoundation
 import Foundation
 import Speech
 
+enum SpeechRecognitionTaskErrorDisposition: Equatable {
+    case restart
+    case finish
+    case fail
+}
+
+enum SpeechRecognitionTaskErrorPolicy {
+    private static let assistantErrorDomain = "kAFAssistantErrorDomain"
+    private static let noSpeechDetectedCode = 1110
+
+    static func disposition(
+        for error: Error,
+        didEndAudioForSilence: Bool,
+        currentTaskHasRecognizedText: Bool,
+        continuesListeningAfterRecognizedText: Bool
+    ) -> SpeechRecognitionTaskErrorDisposition {
+        let error = error as NSError
+        guard error.domain == assistantErrorDomain,
+              error.code == noSpeechDetectedCode else {
+            return .fail
+        }
+
+        if didEndAudioForSilence || (currentTaskHasRecognizedText && !continuesListeningAfterRecognizedText) {
+            return .finish
+        }
+        return .restart
+    }
+}
+
+#if os(iOS) || os(visionOS)
+private final class SpeechRecognitionAudioSessionController: @unchecked Sendable {
+    static let shared = SpeechRecognitionAudioSessionController()
+
+    private let configurationQueue = DispatchQueue(
+        label: "com.voicechat.speech-recognition.audio-session"
+    )
+
+    private init() {}
+
+    func activateForRecognition() async throws {
+        let session = AVAudioSession.sharedInstance()
+        try await performConfiguration {
+            let category: AVAudioSession.Category =
+                session.availableCategories.contains(.playAndRecord) ? .playAndRecord : .record
+            let mode: AVAudioSession.Mode =
+                session.availableModes.contains(.voiceChat) ? .voiceChat : .default
+
+            #if os(iOS)
+            let options: AVAudioSession.CategoryOptions = [
+                .duckOthers,
+                .defaultToSpeaker,
+                .allowBluetoothA2DP,
+                .allowBluetoothHFP
+            ]
+            #else
+            let options: AVAudioSession.CategoryOptions = []
+            #endif
+
+            try session.setCategory(category, mode: mode, options: options)
+        }
+
+        if #available(iOS 27.0, visionOS 27.0, *) {
+            guard try await session.activate(options: []) else {
+                throw ActivationError.rejected
+            }
+        } else {
+            try await performConfiguration {
+                try session.setActive(true, options: [])
+            }
+        }
+    }
+
+    func deactivateAfterRecognition() async {
+        let session = AVAudioSession.sharedInstance()
+        if #available(iOS 27.0, visionOS 27.0, *) {
+            _ = try? await session.deactivate(options: [])
+        } else {
+            try? await performConfiguration {
+                try session.setActive(false, options: [])
+            }
+        }
+
+        try? await performConfiguration {
+            guard session.availableCategories.contains(.playback) else { return }
+            try session.setCategory(.playback, mode: .default, options: [])
+        }
+    }
+
+    private func performConfiguration<T: Sendable>(
+        _ operation: @escaping @Sendable () throws -> T
+    ) async throws -> T {
+        try await withCheckedThrowingContinuation { continuation in
+            configurationQueue.async {
+                continuation.resume(with: Result { try operation() })
+            }
+        }
+    }
+
+    private enum ActivationError: LocalizedError {
+        case rejected
+
+        var errorDescription: String? {
+            NSLocalizedString(
+                "The system did not activate the audio session.",
+                comment: "Speech recognition audio-session activation error"
+            )
+        }
+    }
+}
+#endif
+
 // MARK: - Background recognition worker
 
 actor SpeechRecognizerWorker {
 
     // MARK: - Internal objects
-    private let audioEngine = AVAudioEngine()
+    private var audioEngine = AVAudioEngine()
     private var request: SFSpeechAudioBufferRecognitionRequest?
     private var task: SFSpeechRecognitionTask?
     private var recognizer: SFSpeechRecognizer?
+
+    #if os(iOS) || os(visionOS)
+    private let audioSessionController = SpeechRecognitionAudioSessionController.shared
+    #endif
 
     private var tapInstalled = false
     private var audioTap: SpeechAudioTap?
@@ -53,8 +168,10 @@ actor SpeechRecognizerWorker {
     /// Minimum time to keep the session open after the first text to avoid clipping natural pauses.
     private let minActiveAfterFirstText: TimeInterval = 1.0
 
-    /// Silence-based termination is allowed only after producing non-empty text.
-    private var hasRecognizedText = false
+    /// Silence-based termination is allowed only after the session produces non-empty text.
+    private var sessionHasRecognizedText = false
+    /// Tracks text produced by the active recognition task, independently of earlier task rollovers.
+    private var currentTaskHasRecognizedText = false
     private var didNotifySpeechActivityStarted = false
     private var sustainedSpeechActivityStartedAt: Date?
     private var sustainedSpeechActivitySampleCount = 0
@@ -63,7 +180,7 @@ actor SpeechRecognizerWorker {
     private var lastNonEmptyText = ""
     private var didEmitFinal = false
     private var isStopping = false
-    private var isRecoveringEmptyRecognition = false
+    private var isRestartingRecognitionTask = false
     private var recognitionTaskGeneration = 0
 
     /// When true, the worker will not terminate the session due to silence and will restart
@@ -100,7 +217,7 @@ actor SpeechRecognizerWorker {
                onLevel: @Sendable @escaping (Float) -> Void,
                onError: @Sendable @escaping (String) -> Void) async throws {
         // Stop any existing session before starting a new one.
-        if tapInstalled || request != nil || task != nil {
+        if audioEngine.isRunning || tapInstalled || request != nil || task != nil {
             await stop()
         }
 
@@ -113,11 +230,12 @@ actor SpeechRecognizerWorker {
         holdToSpeakAccumulatedText = ""
         didEmitFinal = false
         isStopping = false
-        isRecoveringEmptyRecognition = false
+        isRestartingRecognitionTask = false
 
         // Important: silence cannot end the session until real speech has been heard.
         lastSpeechAt = nil
-        hasRecognizedText = false
+        sessionHasRecognizedText = false
+        currentTaskHasRecognizedText = false
         didNotifySpeechActivityStarted = false
         resetSustainedSpeechActivity()
         didEndAudioForSilence = false
@@ -130,30 +248,12 @@ actor SpeechRecognizerWorker {
         self.recognizer = recognizer
 
         #if os(iOS) || os(visionOS)
-        try await MainActor.run {
-            let session = AVAudioSession.sharedInstance()
-            let category: AVAudioSession.Category =
-                session.availableCategories.contains(.playAndRecord) ? .playAndRecord : .record
-
-            let mode: AVAudioSession.Mode =
-                session.availableModes.contains(.voiceChat) ? .voiceChat : .default
-
-            #if os(iOS)
-            let options: AVAudioSession.CategoryOptions = [.duckOthers,
-                                                           .defaultToSpeaker,
-                                                           .allowBluetoothA2DP,
-                                                           .allowBluetoothHFP]
-            #else
-            let options: AVAudioSession.CategoryOptions = []
-            #endif
-
-            try session.setCategory(category,
-                                    mode: mode,
-                                    options: options)
-            try session.setActive(true, options: [])
-        }
+        try await audioSessionController.activateForRecognition()
         #endif
 
+        // A long-lived engine can retain the client format of an input device that has
+        // since disconnected. Build the I/O graph from the current route for each session.
+        audioEngine = AVAudioEngine()
         try await makeNewRequestAndTap()
 
         audioEngine.prepare()
@@ -191,13 +291,7 @@ actor SpeechRecognizerWorker {
         if audioEngine.isRunning { audioEngine.stop() }
 
         #if os(iOS) || os(visionOS)
-        try? await MainActor.run {
-            let session = AVAudioSession.sharedInstance()
-            if session.availableCategories.contains(.playback) {
-                try session.setCategory(.playback, mode: .default, options: [])
-            }
-            try session.setActive(false, options: [])
-        }
+        await audioSessionController.deactivateAfterRecognition()
         #endif
 
         recognizer = nil
@@ -211,13 +305,14 @@ actor SpeechRecognizerWorker {
         monitorTask = nil
 
         didEndAudioForSilence = false
-        hasRecognizedText = false
+        sessionHasRecognizedText = false
+        currentTaskHasRecognizedText = false
         didNotifySpeechActivityStarted = false
         resetSustainedSpeechActivity()
         lastSpeechAt = nil
         graceUntil = nil
         firstTextAt = nil
-        isRecoveringEmptyRecognition = false
+        isRestartingRecognitionTask = false
     }
 
     // MARK: - Internal setup helpers
@@ -246,8 +341,7 @@ actor SpeechRecognizerWorker {
         guard recordingFormat.sampleRate > 0, recordingFormat.channelCount > 0 else {
             throw SpeechError.engineStartFailed("Microphone format is unavailable.")
         }
-
-        inputNode.installTap(onBus: 0, bufferSize: 1024, format: recordingFormat) { [tap] buffer, _ in
+        inputNode.installTap(onBus: 0, bufferSize: 1024, format: nil) { [tap] buffer, _ in
             tap.handle(buffer: buffer)
         }
         audioTap = tap
@@ -257,6 +351,7 @@ actor SpeechRecognizerWorker {
     /// Establishes the recognition task.
     private func attachRecognitionTask() {
         guard let recognizer, let request else { return }
+        currentTaskHasRecognizedText = false
         recognitionTaskGeneration &+= 1
         let generation = recognitionTaskGeneration
         task = recognizer.recognitionTask(with: request) { [weak self] result, error in
@@ -278,39 +373,37 @@ actor SpeechRecognizerWorker {
     private func handleRecognizerError(_ error: Error, generation: Int) async {
         guard generation == recognitionTaskGeneration else { return }
         guard !isStopping else { return }
-        if shouldRecoverFromEmptyRecognitionError(error) {
-            await recoverFromEmptyRecognitionEnd()
-            return
+        switch SpeechRecognitionTaskErrorPolicy.disposition(
+            for: error,
+            didEndAudioForSilence: didEndAudioForSilence,
+            currentTaskHasRecognizedText: currentTaskHasRecognizedText,
+            continuesListeningAfterRecognizedText: holdToSpeakActive
+        ) {
+        case .restart:
+            if currentTaskHasRecognizedText && holdToSpeakActive {
+                holdToSpeakAccumulatedText = lastNonEmptyText
+                emitPartial(lastNonEmptyText)
+            }
+            await restartRecognitionTask()
+        case .finish:
+            await finishRecognitionSession()
+        case .fail:
+            isStopping = true
+            let message = error.localizedDescription.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !message.isEmpty {
+                onErrorHandler?(message)
+            }
+            await stop()
         }
-
-        isStopping = true
-        let message = error.localizedDescription.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !message.isEmpty {
-            onErrorHandler?(message)
-        }
-        await stop()
     }
 
-    private func shouldRecoverFromEmptyRecognitionError(_ error: Error) -> Bool {
-        guard !hasRecognizedText else { return false }
-        guard lastNonEmptyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
-
-        let nsError = error as NSError
-        if nsError.domain == "kAFAssistantErrorDomain", nsError.code == 1110 {
-            return true
-        }
-
-        let message = nsError.localizedDescription.lowercased()
-        return message.contains("no speech")
-            || message.contains("no speech detected")
-    }
-
-    private func recoverFromEmptyRecognitionEnd() async {
-        guard !isRecoveringEmptyRecognition else { return }
-        isRecoveringEmptyRecognition = true
-        defer { isRecoveringEmptyRecognition = false }
+    private func restartRecognitionTask() async {
+        guard !isRestartingRecognitionTask else { return }
+        isRestartingRecognitionTask = true
+        defer { isRestartingRecognitionTask = false }
 
         isStopping = true
+        recognitionTaskGeneration &+= 1
         task?.cancel()
         task = nil
         request?.endAudio()
@@ -321,14 +414,15 @@ actor SpeechRecognizerWorker {
             audioTap = nil
         }
 
-        lastSpeechAt = nil
-        hasRecognizedText = false
-        didNotifySpeechActivityStarted = false
-        resetSustainedSpeechActivity()
+        currentTaskHasRecognizedText = false
         didEndAudioForSilence = false
-        didEmitFinal = false
-        graceUntil = nil
-        firstTextAt = nil
+        if !sessionHasRecognizedText {
+            lastSpeechAt = nil
+            didNotifySpeechActivityStarted = false
+            resetSustainedSpeechActivity()
+            graceUntil = nil
+            firstTextAt = nil
+        }
 
         do {
             try await makeNewRequestAndTap()
@@ -379,6 +473,7 @@ actor SpeechRecognizerWorker {
             return
         }
 
+        currentTaskHasRecognizedText = true
         let combined = holdToSpeakActive
             ? SpeechTranscriptMerger.merge(holdToSpeakAccumulatedText, trimmed)
             : trimmed
@@ -401,7 +496,7 @@ actor SpeechRecognizerWorker {
 
     private func updateLastTextAndActivity(_ text: String) {
         lastNonEmptyText = text
-        hasRecognizedText = true
+        sessionHasRecognizedText = true
         lastSpeechAt = .now
         notifySpeechActivityStartedIfNeeded()
         graceUntil = Date().addingTimeInterval(postPartialGrace)
@@ -445,49 +540,26 @@ actor SpeechRecognizerWorker {
         onSpeechActivityStartedHandler?()
     }
 
+    private func finishRecognitionSession() async {
+        if !didEmitFinal {
+            didEmitFinal = true
+            onFinalHandler?(lastNonEmptyText)
+        }
+        await stop()
+    }
+
     /// When an empty final result arrives, restart recognition instead of ending the session.
     private func handleEmptyFinalAndRestart() async {
         // Only restart if the session wasn't intentionally ended due to silence after valid text.
         if didEndAudioForSilence {
-            // This final was triggered by our own `endAudio`. Deliver whatever transcript we have
-            // (even if empty) so the outer layer can end the session and update the UI.
-            if !didEmitFinal {
-                didEmitFinal = true
-                onFinalHandler?(lastNonEmptyText)
-            }
-            await stop()
+            await finishRecognitionSession()
             return
         }
-        // Recreate the request/tap and attach a new task to keep the engine running.
-        do {
-            task?.cancel()
-            task = nil
-            try await makeNewRequestAndTap()
-            attachRecognitionTask()
-            // Preserve `hasRecognizedText`; silence-based ending still requires prior text.
-        } catch {
-            // If restarting fails, fail the session so the UI doesn't get stuck "recording".
-            let raw = error.localizedDescription.trimmingCharacters(in: .whitespacesAndNewlines)
-            let fallback = NSLocalizedString("Speech recognition stopped unexpectedly.", comment: "Shown when speech recognition ends without producing a final transcript")
-            onErrorHandler?(raw.isEmpty ? fallback : raw)
-            await stop()
-        }
+        await restartRecognitionTask()
     }
 
     private func handleNonEmptyFinalAndContinue() async {
-        // A non-empty final indicates the recognition task ended. Recreate the request/tap and
-        // attach a new task so we can keep listening (used by hold-to-talk).
-        do {
-            task?.cancel()
-            task = nil
-            try await makeNewRequestAndTap()
-            attachRecognitionTask()
-        } catch {
-            let raw = error.localizedDescription.trimmingCharacters(in: .whitespacesAndNewlines)
-            let fallback = NSLocalizedString("Speech recognition stopped unexpectedly.", comment: "Shown when speech recognition ends without producing a final transcript")
-            onErrorHandler?(raw.isEmpty ? fallback : raw)
-            await stop()
-        }
+        await restartRecognitionTask()
     }
 
     // MARK: - End-of-speech silence monitor
@@ -507,7 +579,7 @@ actor SpeechRecognizerWorker {
         guard !holdToSpeakActive else { return }
         guard !didEmitFinal else { return }
         // Only consider silence termination after producing non-empty text.
-        guard hasRecognizedText, let last = lastSpeechAt else { return }
+        guard sessionHasRecognizedText, let last = lastSpeechAt else { return }
 
         // Stay active during the grace period to avoid clipping natural pauses.
         if let graceUntil, Date() < graceUntil { return }

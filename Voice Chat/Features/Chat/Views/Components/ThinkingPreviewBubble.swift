@@ -14,6 +14,8 @@ struct ThinkingPreviewBubble: View {
     let thinkFontSize: CGFloat
     let toolActivityPlacements: [ChatToolActivityPlacement]
     let maxBubbleWidth: CGFloat?
+    var developerModeEnabled = false
+    var onAuthorizeTool: ((String, Bool) -> Void)? = nil
 
     @State private var isShowingFullText = false
 
@@ -29,8 +31,12 @@ struct ThinkingPreviewBubble: View {
         isComplete ? "Thinking Complete" : "Thinking"
     }
 
-    private var shouldShowPreview: Bool {
+    private var shouldShowTextPreview: Bool {
         !isComplete && !isShowingFullText
+    }
+
+    private var shouldShowToolPreview: Bool {
+        !isShowingFullText && !toolActivityPlacements.isEmpty
     }
 
     private var previewTransition: AnyTransition {
@@ -41,13 +47,11 @@ struct ThinkingPreviewBubble: View {
     }
 
     var body: some View {
-        let previewWindow = inlinePreviewWindow
-        Button {
-            withAnimation(.easeInOut(duration: 0.2)) {
-                isShowingFullText = true
-            }
-        } label: {
-            VStack(alignment: .leading, spacing: shouldShowPreview ? 8 : 0) {
+        VStack(
+            alignment: .leading,
+            spacing: shouldShowTextPreview || shouldShowToolPreview ? 8 : 0
+        ) {
+            Button(action: openDetail) {
                 HStack(spacing: 6) {
                     Image(systemName: statusIconName)
                         .font(.subheadline)
@@ -59,26 +63,31 @@ struct ThinkingPreviewBubble: View {
 
                     Spacer(minLength: 0)
                 }
-
-                if shouldShowPreview {
-                    ChatToolInlineContentView(
-                        text: previewWindow.text,
-                        placements: previewWindow.placements,
-                        textStyle: .thinking(fontSize: thinkFontSize),
-                        maxBubbleWidth: maxBubbleWidth
-                    )
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .frame(height: previewHeight, alignment: .bottom)
-                    .clipped()
-                    .transition(previewTransition)
-                }
+                .contentShape(Rectangle())
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .contentShape(Rectangle())
-            .clipped()
+            .buttonStyle(.plain)
+
+            if shouldShowTextPreview {
+                ThinkingInlinePreview(
+                    text: think,
+                    lines: previewLines,
+                    font: PlatformFontSpec(size: thinkFontSize, isMonospaced: true),
+                    toolActivityPlacements: toolActivityPlacements,
+                    maxBubbleWidth: maxBubbleWidth,
+                    developerModeEnabled: developerModeEnabled,
+                    onAuthorizeTool: onAuthorizeTool,
+                    onOpenDetail: openDetail
+                )
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .transition(previewTransition)
+            } else if shouldShowToolPreview {
+                toolPreviews(toolActivityPlacements)
+            }
         }
-        .buttonStyle(.plain)
-        .accessibilityElement(children: .combine)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .contentShape(Rectangle())
+        .clipped()
+        .accessibilityElement(children: .contain)
         .accessibilityLabel(statusTextKey)
         .accessibilityHint("Open full reasoning")
         .padding(.vertical, 4)
@@ -95,34 +104,105 @@ struct ThinkingPreviewBubble: View {
             iconName: statusIconName,
             iconColor: statusColor,
             toolActivityPlacements: toolActivityPlacements,
-            maxBubbleWidth: maxBubbleWidth
+            maxBubbleWidth: maxBubbleWidth,
+            developerModeEnabled: developerModeEnabled,
+            onAuthorizeTool: onAuthorizeTool
         )
-        .animation(.easeInOut(duration: 0.2), value: shouldShowPreview)
+        .animation(.easeInOut(duration: 0.2), value: shouldShowTextPreview)
     }
 
-    private var previewHeight: CGFloat {
-        PlatformFontSpec(size: thinkFontSize, isMonospaced: true).lineHeight * CGFloat(max(1, previewLines))
-    }
-
-    private var inlinePreviewWindow: (text: String, placements: [ChatToolActivityPlacement]) {
-        let maxCharacters = 4_000
-        let length = think.count
-        let cutoff = max(0, length - maxCharacters)
-        guard cutoff > 0 else {
-            return (think, toolActivityPlacements)
+    private func openDetail() {
+        withAnimation(.easeInOut(duration: 0.2)) {
+            isShowingFullText = true
         }
-        let start = think.index(think.startIndex, offsetBy: cutoff)
-        let visibleText = String(think[start...])
-        let visiblePlacements = toolActivityPlacements
-            .filter { $0.offset >= cutoff }
-            .map {
-                ChatToolActivityPlacement(
-                    activity: $0.activity,
-                    scope: $0.scope,
-                    offset: $0.offset - cutoff
-                )
+    }
+
+    @ViewBuilder
+    private func toolPreviews(_ placements: [ChatToolActivityPlacement]) -> some View {
+        ForEach(ChatToolActivityPlacementGrouper.groups(placements)) { group in
+            ToolActivityBubble(
+                activities: group.placements.map(\.activity),
+                maxBubbleWidth: maxBubbleWidth,
+                isEmbeddedInMessage: true,
+                developerModeEnabled: developerModeEnabled,
+                onAuthorize: onAuthorizeTool
+            )
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+}
+
+private struct ThinkingInlinePreview: View {
+    let text: String
+    let lines: Int
+    let font: PlatformFontSpec
+    let toolActivityPlacements: [ChatToolActivityPlacement]
+    let maxBubbleWidth: CGFloat?
+    let developerModeEnabled: Bool
+    let onAuthorizeTool: ((String, Bool) -> Void)?
+    let onOpenDetail: () -> Void
+
+    @State private var displayWindow = TailVisualTextWindow.empty
+    @State private var lastComputedForTextCount = -1
+    @State private var lastWidth: CGFloat = 0
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            ForEach(segments) { segment in
+                switch segment.kind {
+                case let .text(value):
+                    Text(value)
+                        .font(.system(size: font.size, design: font.isMonospaced ? .monospaced : .default))
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .contentShape(Rectangle())
+                        .onTapGesture(perform: onOpenDetail)
+
+                case let .tools(placements):
+                    ToolActivityBubble(
+                        activities: placements.map(\.activity),
+                        maxBubbleWidth: maxBubbleWidth,
+                        isEmbeddedInMessage: true,
+                        developerModeEnabled: developerModeEnabled,
+                        onAuthorize: onAuthorizeTool
+                    )
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
             }
-        return (visibleText, visiblePlacements)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background {
+            GeometryReader { geometry in
+                let width = max(1, floor(geometry.size.width))
+                Color.clear
+                    .onAppear { recomputeIfNeeded(width: width) }
+                    .onChange(of: text) { _, _ in recomputeIfNeeded(width: width) }
+                    .onChange(of: geometry.size) { _, _ in recomputeIfNeeded(width: width) }
+            }
+        }
+    }
+
+    private var segments: [ChatToolInlineSegment] {
+        ChatToolInlineSegmentBuilder.segments(
+            text: displayWindow.text,
+            placements: displayWindow.rebasedPlacements(toolActivityPlacements)
+        )
+    }
+
+    private func recomputeIfNeeded(width: CGFloat) {
+        let textCount = text.utf16.count
+        let needsUpdate = textCount != lastComputedForTextCount || abs(width - lastWidth) > 0.5
+        guard needsUpdate, width > 1 else { return }
+
+        displayWindow = computeTailVisualTextWindow(
+            text: text,
+            width: width,
+            lines: lines,
+            font: font
+        )
+        lastComputedForTextCount = textCount
+        lastWidth = width
     }
 }
 
@@ -137,6 +217,8 @@ private struct ThinkingDetailView: View {
     let text: String
     let toolActivityPlacements: [ChatToolActivityPlacement]
     let maxBubbleWidth: CGFloat?
+    var developerModeEnabled = false
+    var onAuthorizeTool: ((String, Bool) -> Void)? = nil
 
     var body: some View {
         NavigationStack {
@@ -158,8 +240,9 @@ private struct ThinkingDetailView: View {
                     ChatToolInlineContentView(
                         text: text,
                         placements: toolActivityPlacements,
-                        textStyle: .markdown,
-                        maxBubbleWidth: maxBubbleWidth
+                        maxBubbleWidth: maxBubbleWidth,
+                        developerModeEnabled: developerModeEnabled,
+                        onAuthorizeTool: onAuthorizeTool
                     )
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.horizontal, 20)
@@ -190,6 +273,8 @@ private struct ThinkDetailPresentationModifier: ViewModifier {
     let iconColor: Color
     let toolActivityPlacements: [ChatToolActivityPlacement]
     let maxBubbleWidth: CGFloat?
+    var developerModeEnabled = false
+    var onAuthorizeTool: ((String, Bool) -> Void)? = nil
 
     func body(content: Content) -> some View {
         #if os(macOS)
@@ -200,7 +285,9 @@ private struct ThinkDetailPresentationModifier: ViewModifier {
                 iconColor: iconColor,
                 text: think,
                 toolActivityPlacements: toolActivityPlacements,
-                maxBubbleWidth: maxBubbleWidth
+                maxBubbleWidth: maxBubbleWidth,
+                developerModeEnabled: developerModeEnabled,
+                onAuthorizeTool: onAuthorizeTool
             )
         }
         #else
@@ -211,7 +298,9 @@ private struct ThinkDetailPresentationModifier: ViewModifier {
                 iconColor: iconColor,
                 text: think,
                 toolActivityPlacements: toolActivityPlacements,
-                maxBubbleWidth: maxBubbleWidth
+                maxBubbleWidth: maxBubbleWidth,
+                developerModeEnabled: developerModeEnabled,
+                onAuthorizeTool: onAuthorizeTool
             )
             #if os(iOS)
                 .presentationDetents([.medium, .large])
@@ -232,7 +321,9 @@ private extension View {
         iconName: String,
         iconColor: Color,
         toolActivityPlacements: [ChatToolActivityPlacement],
-        maxBubbleWidth: CGFloat?
+        maxBubbleWidth: CGFloat?,
+        developerModeEnabled: Bool = false,
+        onAuthorizeTool: ((String, Bool) -> Void)? = nil
     ) -> some View {
         modifier(
             ThinkDetailPresentationModifier(
@@ -242,7 +333,9 @@ private extension View {
                 iconName: iconName,
                 iconColor: iconColor,
                 toolActivityPlacements: toolActivityPlacements,
-                maxBubbleWidth: maxBubbleWidth
+                maxBubbleWidth: maxBubbleWidth,
+                developerModeEnabled: developerModeEnabled,
+                onAuthorizeTool: onAuthorizeTool
             )
         )
     }

@@ -209,6 +209,56 @@ final class SettingsViewModel: ObservableObject {
         nil
     }
 
+    var openAIResponsesStatefulEndpoint: ChatAPIEndpointCandidate? {
+        let trimmedAPIURL = apiURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedAPIURL.isEmpty else { return nil }
+        let providerHint = selectedChatAPIFormatPreference.providerHint
+            ?? settingsManager.chatModelCapabilities.detectedProvider(for: trimmedAPIURL)
+            ?? ChatAPIEndpointResolver.officialProviderHint(for: trimmedAPIURL)
+        let styleHint = selectedChatAPIFormatPreference.requestStyleHint
+            ?? settingsManager.chatModelCapabilities.detectedRequestStyle(for: trimmedAPIURL)
+        return DefaultChatEndpointResolver()
+            .streamingCandidates(
+                for: trimmedAPIURL,
+                providerHint: providerHint,
+                styleHint: styleHint
+            )
+            .first(where: ToolUseSettings.supportsProviderContinuationIDPreference)
+    }
+
+    var isOpenAIResponsesStatefulEndpointAvailable: Bool {
+        openAIResponsesStatefulEndpoint != nil
+    }
+
+    var currentOpenAIResponsesStatefulEndpointURL: String? {
+        guard let endpoint = openAIResponsesStatefulEndpoint else { return nil }
+        return ToolUseSettings.providerContinuationIDPreferenceKey(for: endpoint)
+    }
+
+    var isCurrentOpenAIResponsesStatefulEndpointEnabled: Bool {
+        guard let endpoint = openAIResponsesStatefulEndpoint else { return false }
+        return toolUseSettings.isOpenAIResponsesStatefulChatEnabled(for: endpoint)
+    }
+
+    var openAIResponsesStatefulEndpointURLs: [String] {
+        ToolUseSettings.normalizedOpenAIResponsesStatefulEndpointURLs(
+            toolUseSettings.openAIResponsesStatefulEndpointURLs
+        )
+    }
+
+    func enableStatefulChatForCurrentOpenAIResponsesEndpoint() {
+        guard let endpoint = openAIResponsesStatefulEndpoint else { return }
+        var next = toolUseSettings
+        next.enableOpenAIResponsesStatefulChat(for: endpoint)
+        toolUseSettings = next
+    }
+
+    func removeOpenAIResponsesStatefulEndpointURL(_ endpointURL: String) {
+        var next = toolUseSettings
+        next.removeOpenAIResponsesStatefulEndpointURL(endpointURL)
+        toolUseSettings = next
+    }
+
     var isSelectedUnknownModelImageInputEnabled: Bool {
         let model = selectedModel.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !model.isEmpty else { return false }
@@ -367,6 +417,14 @@ final class SettingsViewModel: ObservableObject {
             apiAdvancedSettings = .defaults
         }
         settingsManager.resetAPIAdvancedSettingsToDefaults()
+    }
+
+    func resetDeveloperSettingsToDefaults() {
+        withSuppressed(.autoSaves) {
+            apiAdvancedSettings = .defaults
+            toolUseSettings = toolUseSettings.resettingDeveloperRequestPolicyToDefaults()
+        }
+        settingsManager.resetDeveloperSettingsToDefaults()
     }
 
     func saveModelSettings() {

@@ -189,7 +189,7 @@ extension GlobalAudioManager {
         }
         currentTime = newT
 
-        if allChunksLoaded() && currentTime >= totalDuration - endEpsilon {
+        if playbackFinished() {
             currentTime = totalDuration
             finishPlayback()
             return
@@ -242,8 +242,8 @@ extension GlobalAudioManager {
     }
 
     func resetPlayer() {
-        dataTasks.forEach { $0.cancel() }
-        dataTasks.removeAll()
+        activeDataTasks.values.forEach { $0.cancel() }
+        activeDataTasks.removeAll()
         inFlightIndexes.removeAll()
         realtimeRequestQueue.removeAll()
         ttsRetryTasks.values.forEach { $0.cancel() }

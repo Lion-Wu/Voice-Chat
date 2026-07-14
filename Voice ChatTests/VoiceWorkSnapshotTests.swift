@@ -14,9 +14,28 @@ final class VoiceWorkSnapshotTests: XCTestCase {
         XCTAssertTrue(snapshot(isChatLoading: true).blocksListeningStart)
         XCTAssertTrue(snapshot(isChatPriming: true).blocksListeningStart)
         XCTAssertTrue(snapshot(isPlaybackRequested: true).blocksListeningStart)
+        XCTAssertTrue(snapshot(isPlaybackRequested: true).hasActiveVoiceWork)
         XCTAssertFalse(snapshot(isChatLoading: true).blocksAutoResume)
         XCTAssertTrue(snapshot(isAudioPlaying: true).blocksAutoResume)
+        XCTAssertTrue(snapshot(hasAudioRequests: true).blocksAutoResume)
         XCTAssertFalse(snapshot().blocksListeningStart)
+    }
+
+    func testPresentationPhaseCoversRequestPlaybackAndInterSegmentWaiting() {
+        XCTAssertEqual(snapshot(isChatLoading: true).presentationPhase, .loading)
+        XCTAssertEqual(
+            snapshot(isAudioLoading: true, isPlaybackRequested: true).presentationPhase,
+            .loading
+        )
+        XCTAssertEqual(
+            snapshot(isAudioPlaying: true, isPlaybackRequested: true, hasAudioRequests: true).presentationPhase,
+            .speaking
+        )
+        XCTAssertEqual(
+            snapshot(isPlaybackRequested: true, hasAudioRequests: true).presentationPhase,
+            .loading
+        )
+        XCTAssertEqual(snapshot().presentationPhase, .idle)
     }
 
     func testLoadingStallTimeoutUsesLongerTimeoutWhenAudioRequestsAreActive() {
@@ -28,6 +47,13 @@ final class VoiceWorkSnapshotTests: XCTestCase {
             snapshot(hasAudioRequests: true).loadingStallTimeout(defaultTimeout: 60, activeAudioRequestTimeout: 120),
             120
         )
+        XCTAssertEqual(
+            snapshot(isWaitingForToolAuthorization: true).loadingStallTimeout(
+                defaultTimeout: 60,
+                activeAudioRequestTimeout: 120
+            ),
+            .infinity
+        )
     }
 
     private func snapshot(
@@ -37,7 +63,8 @@ final class VoiceWorkSnapshotTests: XCTestCase {
         isPlaybackRequested: Bool = false,
         hasAudioRequests: Bool = false,
         isChatLoading: Bool = false,
-        isChatPriming: Bool = false
+        isChatPriming: Bool = false,
+        isWaitingForToolAuthorization: Bool = false
     ) -> VoiceWorkSnapshot {
         VoiceWorkSnapshot(
             isRealtimeMode: isRealtimeMode,
@@ -46,7 +73,8 @@ final class VoiceWorkSnapshotTests: XCTestCase {
             isPlaybackRequested: isPlaybackRequested,
             hasAudioRequests: hasAudioRequests,
             isChatLoading: isChatLoading,
-            isChatPriming: isChatPriming
+            isChatPriming: isChatPriming,
+            isWaitingForToolAuthorization: isWaitingForToolAuthorization
         )
     }
 }

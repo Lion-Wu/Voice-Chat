@@ -26,6 +26,7 @@ struct RealtimeVoiceOverlayView: View {
     var displayStyle: DisplayStyle = .standard
 
     @State private var voiceControlPulseToken = UUID()
+    @State private var bottomControlHeight: CGFloat = 0
 
     private let stateAnimation = Animation.spring(response: 0.34, dampingFraction: 0.92, blendDuration: 0.16)
 
@@ -59,10 +60,6 @@ struct RealtimeVoiceOverlayView: View {
 
     private var ornamentBottomPadding: CGFloat {
         isVisionSceneStyle ? 24 : 12
-    }
-
-    private var errorNoticeBottomPadding: CGFloat {
-        isVisionSceneStyle ? 176 : 12
     }
 
     private var visionContentBottomInset: CGFloat {
@@ -102,12 +99,13 @@ struct RealtimeVoiceOverlayView: View {
         usesCompactVisionCaptureControls ? 18 : 22
     }
 
-    private var compactVisionControlOverlayHeight: CGFloat {
-        58
+    private var shouldShowRealtimeAssistantPanel: Bool {
+        guard let snapshot = viewModel.realtimeAssistantSnapshot else { return false }
+        return !snapshot.toolActivities.isEmpty || !snapshot.toolActivityPlacements.isEmpty
     }
 
-    private var compactVisionTopTrailingReservedWidth: CGFloat {
-        52
+    private var hasAssistantStatusContent: Bool {
+        shouldShowRealtimeAssistantPanel || overlayErrorText != nil
     }
 
     var body: some View {
@@ -124,36 +122,25 @@ struct RealtimeVoiceOverlayView: View {
                 .padding(.bottom, ornamentBottomPadding)
         }
 #else
-        .safeAreaInset(edge: .bottom) {
-            if !usesCompactVisionCaptureControls {
-                bottomControlContainer
-            }
-        }
-#endif
-        .overlay(alignment: .bottom) {
-            if !errorCenter.notices.isEmpty {
-                ErrorNoticeStack(
-                    notices: errorCenter.notices,
-                    onDismiss: { notice in
-                        errorCenter.dismiss(notice)
-                        viewModel.dismissErrorMessage()
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            bottomControlContainer
+                .background {
+                    GeometryReader { proxy in
+                        Color.clear.preference(
+                            key: VoiceOverlayBottomControlHeightPreferenceKey.self,
+                            value: proxy.size.height
+                        )
                     }
-                )
-                // Keep it behind the language picker / controls.
-                .padding(.bottom, errorNoticeBottomPadding)
-                .zIndex(0)
-            }
-        }
-#if !os(visionOS)
-        .overlay(alignment: .bottom) {
-            if usesCompactVisionCaptureControls {
-                bottomControlContainer
-                    .padding(.horizontal, 6)
-                    .padding(.bottom, 6)
-                    .zIndex(2)
-            }
+                }
         }
 #endif
+        .overlay(alignment: .bottom) {
+            errorNoticeStack
+                .padding(.bottom, isVisionSceneStyle ? 176 : bottomControlHeight + 8)
+        }
+        .onPreferenceChange(VoiceOverlayBottomControlHeightPreferenceKey.self) { height in
+            bottomControlHeight = height
+        }
     }
 
     @ViewBuilder
@@ -168,16 +155,11 @@ struct RealtimeVoiceOverlayView: View {
     private var standardLayout: some View {
         ZStack {
             #if !os(macOS)
-            VStack(spacing: 28) {
-                HStack {
-                    Spacer()
-                    closeButton
-                }
+            closeButton
                 .padding(.top, closeButtonTopPadding)
                 .padding(.horizontal, closeButtonHorizontalPadding)
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
-            .zIndex(3)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+                .zIndex(3)
             #endif
 
             #if os(iOS) || os(macOS)
@@ -190,73 +172,117 @@ struct RealtimeVoiceOverlayView: View {
             centeredVoiceLayout
             #endif
         }
+        .animation(stateAnimation, value: viewModel.isVisionCapturePresented)
+        .animation(stateAnimation, value: shouldShowRealtimeAssistantPanel)
     }
 
     private var centeredVoiceLayout: some View {
-        VStack(spacing: 18) {
-            voiceControl
+        GeometryReader { proxy in
+            let availableWidth = max(0, proxy.size.width - 32)
+            let availableHeight = max(0, proxy.size.height - 24)
+            let usesSideBySideLayout = hasAssistantStatusContent
+                && availableWidth >= 700
+                && availableWidth > availableHeight * 1.22
+            let sideColumnWidth = min(440, max(300, availableWidth * 0.38))
+            let sideColumnHeight = min(360, availableHeight)
+            let sideSpacing = min(36, max(24, availableWidth * 0.03))
 
-            if let message = overlayErrorText {
-                reconnectMessage(message)
+            Group {
+                if usesSideBySideLayout {
+                    HStack(spacing: sideSpacing) {
+                        voiceControl
+
+                        assistantStatusColumn(
+                            maxWidth: sideColumnWidth,
+                            maxHeight: sideColumnHeight
+                        )
+                    }
+                    .frame(maxWidth: min(900, availableWidth))
+                } else {
+                    VStack(spacing: 18) {
+                        voiceControl
+
+                        if hasAssistantStatusContent {
+                            assistantStatusColumn(
+                                maxWidth: min(620, availableWidth),
+                                maxHeight: min(280, max(120, availableHeight * 0.38))
+                            )
+                        }
+                    }
+                }
             }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
         }
         .animation(stateAnimation, value: viewModel.state)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
     }
 
 #if os(iOS) || os(macOS)
     private var inlineVisionLayout: some View {
         GeometryReader { proxy in
-            let isStacked = proxy.size.width < 720 || proxy.size.height < 560
             let isCompactControls = usesCompactVisionCaptureControls
-            let topPadding: CGFloat = isCompactControls ? 6 : (isStacked ? 42 : 70)
-            let horizontalPadding: CGFloat = isCompactControls ? 6 : (isStacked ? 18 : 28)
-            let bottomPadding: CGFloat = isCompactControls ? 6 : 116
-            let voiceBottomPadding: CGFloat = isCompactControls ? (compactVisionControlOverlayHeight + 10) : 10
-            let topTrailingReservedWidth: CGFloat = isCompactControls ? compactVisionTopTrailingReservedWidth : 0
+            let horizontalLayout = proxy.size.width >= 700 || proxy.size.width > proxy.size.height * 1.12
+            let outerPadding: CGFloat = isCompactControls ? 8 : 18
+            let regionSpacing: CGFloat = isCompactControls ? 10 : 16
+
             Group {
-                if isStacked {
-                    ZStack(alignment: .bottom) {
-                        VoiceVisionCameraView(
-                            viewModel: viewModel,
-                            isCompactLayout: isCompactControls,
-                            topTrailingReservedWidth: topTrailingReservedWidth
-                        )
+                if horizontalLayout {
+                    HStack(spacing: regionSpacing) {
+                        VoiceVisionCameraView(viewModel: viewModel, isCompactLayout: isCompactControls)
                             .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-                        inlineVisionVoiceCluster
-                            .frame(maxWidth: .infinity)
-                            .padding(.horizontal, isCompactControls ? 6 : 10)
-                            .padding(.bottom, voiceBottomPadding)
+                        inlineVisionActivityColumn(
+                            maxWidth: min(360, max(250, proxy.size.width * 0.34)),
+                            maxHeight: max(120, proxy.size.height - outerPadding * 2)
+                        )
+                        .frame(width: min(360, max(250, proxy.size.width * 0.34)))
                     }
                 } else {
-                    HStack(spacing: 18) {
-                        inlineVisionVoiceCluster
-                            .frame(width: 154)
-
-                        VoiceVisionCameraView(viewModel: viewModel, isCompactLayout: false)
+                    VStack(spacing: regionSpacing) {
+                        VoiceVisionCameraView(viewModel: viewModel, isCompactLayout: isCompactControls)
                             .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+                        inlineVisionActivityRow(
+                            maxWidth: max(0, proxy.size.width - outerPadding * 2),
+                            maxHeight: shouldShowRealtimeAssistantPanel ? 190 : 116
+                        )
                     }
                 }
             }
-            .padding(.top, topPadding)
-            .padding(.horizontal, horizontalPadding)
-            .padding(.bottom, bottomPadding)
+            .padding(outerPadding)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .animation(stateAnimation, value: viewModel.state)
         }
     }
 
-    private var inlineVisionVoiceCluster: some View {
-        VStack(spacing: 8) {
+    private func inlineVisionActivityColumn(maxWidth: CGFloat, maxHeight: CGFloat) -> some View {
+        VStack(spacing: 12) {
             voiceControl
 
-            if let message = overlayErrorText {
-                reconnectMessage(message)
+            if hasAssistantStatusContent {
+                assistantStatusColumn(
+                    maxWidth: maxWidth,
+                    maxHeight: min(300, max(100, maxHeight - 132))
+                )
             }
         }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 8)
+        .frame(maxWidth: maxWidth, maxHeight: maxHeight, alignment: .center)
+    }
+
+    private func inlineVisionActivityRow(maxWidth: CGFloat, maxHeight: CGFloat) -> some View {
+        HStack(spacing: 12) {
+            voiceControl
+
+            if hasAssistantStatusContent {
+                assistantStatusColumn(
+                    maxWidth: max(0, maxWidth - 120),
+                    maxHeight: maxHeight
+                )
+                .frame(maxWidth: .infinity)
+            }
+        }
+        .frame(maxWidth: maxWidth, maxHeight: maxHeight, alignment: .center)
     }
 #endif
 
@@ -277,8 +303,8 @@ struct RealtimeVoiceOverlayView: View {
             VStack(spacing: 18) {
                 voiceControl
 
-                if let message = overlayErrorText {
-                    reconnectMessage(message)
+                if hasAssistantStatusContent {
+                    assistantStatusColumn(maxWidth: 620, maxHeight: 280)
                 }
             }
             .animation(stateAnimation, value: viewModel.state)
@@ -298,6 +324,35 @@ struct RealtimeVoiceOverlayView: View {
             displayStyle: displayStyle,
             externalPulseToken: voiceControlPulseToken
         )
+    }
+
+    private func assistantStatusColumn(maxWidth: CGFloat, maxHeight: CGFloat) -> some View {
+        VStack(spacing: 10) {
+            realtimeAssistantPanel(maxWidth: maxWidth, maxHeight: maxHeight)
+                .layoutPriority(0)
+
+            if let message = overlayErrorText {
+                reconnectMessage(message)
+                    .layoutPriority(1)
+            }
+        }
+        .frame(maxWidth: maxWidth, maxHeight: maxHeight)
+    }
+
+    @ViewBuilder
+    private func realtimeAssistantPanel(maxWidth: CGFloat, maxHeight: CGFloat) -> some View {
+        if shouldShowRealtimeAssistantPanel,
+           let snapshot = viewModel.realtimeAssistantSnapshot {
+            RealtimeVoiceAssistantPanel(
+                snapshot: snapshot,
+                maxWidth: maxWidth,
+                maxHeight: maxHeight,
+                onAuthorizeTool: { requestID, allowed in
+                    viewModel.resolveRealtimeVoiceToolAuthorization(requestID: requestID, allowed: allowed)
+                }
+            )
+            .transition(.opacity.combined(with: .move(edge: .bottom)))
+        }
     }
 
     private func reconnectMessage(_ message: String) -> some View {
@@ -327,7 +382,22 @@ struct RealtimeVoiceOverlayView: View {
     private var bottomControlContainer: some View {
         AppLiquidGlassContainer(spacing: 20) {
             overlayControlStrip
-                .padding(.bottom, usesCompactVisionCaptureControls ? 0 : 8)
+        }
+        .padding(.horizontal, usesCompactVisionCaptureControls ? 8 : 16)
+        .padding(.top, 6)
+        .padding(.bottom, usesCompactVisionCaptureControls ? 4 : 8)
+    }
+
+    @ViewBuilder
+    private var errorNoticeStack: some View {
+        if !errorCenter.notices.isEmpty {
+            ErrorNoticeStack(
+                notices: errorCenter.notices,
+                onDismiss: { notice in
+                    errorCenter.dismiss(notice)
+                    viewModel.dismissErrorMessage()
+                }
+            )
         }
     }
 
@@ -438,6 +508,69 @@ struct RealtimeVoiceOverlayView: View {
         viewModel.handleCircleTap()
     }
 
+}
+
+private struct VoiceOverlayBottomControlHeightPreferenceKey: PreferenceKey {
+    static let defaultValue: CGFloat = 0
+
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = max(value, nextValue())
+    }
+}
+
+private struct RealtimeVoiceAssistantPanel: View {
+    let snapshot: RealtimeVoiceAssistantSnapshot
+    let maxWidth: CGFloat
+    let maxHeight: CGFloat
+    let onAuthorizeTool: (String, Bool) -> Void
+
+    var body: some View {
+        ViewThatFits(in: .vertical) {
+            activityBubble
+                .fixedSize(horizontal: false, vertical: true)
+
+            ScrollView {
+                activityBubble
+            }
+            .scrollIndicators(.hidden)
+        }
+        .frame(maxWidth: maxWidth, maxHeight: maxHeight)
+    }
+
+    private var activityBubble: some View {
+        ToolActivityBubble(
+            activities: displayedActivities,
+            maxBubbleWidth: maxWidth,
+            isEmbeddedInMessage: true,
+            fillsAvailableWidth: true,
+            developerModeEnabled: false,
+            onAuthorize: onAuthorizeTool
+        )
+        .frame(maxWidth: maxWidth)
+    }
+
+    private var displayedActivities: [ChatToolActivity] {
+        var activities = snapshot.toolActivityPlacements.map(\.activity)
+        for activity in snapshot.toolActivities {
+            if let index = activities.firstIndex(where: { $0.id == activity.id }) {
+                activities[index] = activity
+            } else {
+                activities.append(activity)
+            }
+        }
+        var placementOrder: [String: Int] = [:]
+        for (index, placement) in snapshot.toolActivityPlacements.enumerated() where placementOrder[placement.id] == nil {
+            placementOrder[placement.id] = index
+        }
+        return activities.sorted {
+            let lhs = placementOrder[$0.id] ?? Int.max
+            let rhs = placementOrder[$1.id] ?? Int.max
+            if lhs == rhs {
+                return $0.id < $1.id
+            }
+            return lhs < rhs
+        }
+    }
 }
 
 #Preview {

@@ -14,23 +14,8 @@ struct APIAdvancedSettings: Codable, Equatable, Sendable {
     var openAIResponsesSampling: APIAdvancedSamplingSettings
     var openAIChatMaxCompletionTokens: Int
     var openAIChatSampling: APIAdvancedSamplingSettings
-    var openAICompatibleMaxTokens: Int
-    var openAICompatibleSampling: APIAdvancedSamplingSettings
-    var geminiMaxTokens: Int
-    var geminiSampling: APIAdvancedSamplingSettings
-    var deepSeekMaxTokens: Int
-    var deepSeekSampling: APIAdvancedSamplingSettings
-    var xAIMaxTokens: Int
-    var xAISampling: APIAdvancedSamplingSettings
-    var openRouterMaxTokens: Int
-    var openRouterMaxCompletionTokens: Int
-    var openRouterSampling: APIAdvancedSamplingSettings
     var lmStudioMaxTokens: Int
     var lmStudioSampling: APIAdvancedSamplingSettings
-    var lmStudioOpenAICompatibleMaxTokens: Int
-    var lmStudioOpenAICompatibleSampling: APIAdvancedSamplingSettings
-    var llamaCppMaxTokens: Int
-    var llamaCppSampling: APIAdvancedSamplingSettings
     var anthropicMaxTokens: Int
     var anthropicSampling: APIAdvancedSamplingSettings
     var anthropicThinkingResponseReserve: Int
@@ -43,23 +28,8 @@ struct APIAdvancedSettings: Codable, Equatable, Sendable {
         openAIResponsesSampling: APIAdvancedSamplingSettings = .defaults,
         openAIChatMaxCompletionTokens: Int = 0,
         openAIChatSampling: APIAdvancedSamplingSettings = .defaults,
-        openAICompatibleMaxTokens: Int = 0,
-        openAICompatibleSampling: APIAdvancedSamplingSettings = .defaults,
-        geminiMaxTokens: Int = 0,
-        geminiSampling: APIAdvancedSamplingSettings = .defaults,
-        deepSeekMaxTokens: Int = 0,
-        deepSeekSampling: APIAdvancedSamplingSettings = .defaults,
-        xAIMaxTokens: Int = 0,
-        xAISampling: APIAdvancedSamplingSettings = .defaults,
-        openRouterMaxTokens: Int = 0,
-        openRouterMaxCompletionTokens: Int = 0,
-        openRouterSampling: APIAdvancedSamplingSettings = .defaults,
         lmStudioMaxTokens: Int = 0,
         lmStudioSampling: APIAdvancedSamplingSettings = .defaults,
-        lmStudioOpenAICompatibleMaxTokens: Int = 0,
-        lmStudioOpenAICompatibleSampling: APIAdvancedSamplingSettings = .defaults,
-        llamaCppMaxTokens: Int = 0,
-        llamaCppSampling: APIAdvancedSamplingSettings = .defaults,
         anthropicMaxTokens: Int = 4096,
         anthropicSampling: APIAdvancedSamplingSettings = .defaults,
         anthropicThinkingResponseReserve: Int = 1024,
@@ -71,23 +41,8 @@ struct APIAdvancedSettings: Codable, Equatable, Sendable {
         self.openAIResponsesSampling = openAIResponsesSampling
         self.openAIChatMaxCompletionTokens = openAIChatMaxCompletionTokens
         self.openAIChatSampling = openAIChatSampling
-        self.openAICompatibleMaxTokens = openAICompatibleMaxTokens
-        self.openAICompatibleSampling = openAICompatibleSampling
-        self.geminiMaxTokens = geminiMaxTokens
-        self.geminiSampling = geminiSampling
-        self.deepSeekMaxTokens = deepSeekMaxTokens
-        self.deepSeekSampling = deepSeekSampling
-        self.xAIMaxTokens = xAIMaxTokens
-        self.xAISampling = xAISampling
-        self.openRouterMaxTokens = openRouterMaxTokens
-        self.openRouterMaxCompletionTokens = openRouterMaxCompletionTokens
-        self.openRouterSampling = openRouterSampling
         self.lmStudioMaxTokens = lmStudioMaxTokens
         self.lmStudioSampling = lmStudioSampling
-        self.lmStudioOpenAICompatibleMaxTokens = lmStudioOpenAICompatibleMaxTokens
-        self.lmStudioOpenAICompatibleSampling = lmStudioOpenAICompatibleSampling
-        self.llamaCppMaxTokens = llamaCppMaxTokens
-        self.llamaCppSampling = llamaCppSampling
         self.anthropicMaxTokens = anthropicMaxTokens
         self.anthropicSampling = anthropicSampling
         self.anthropicThinkingResponseReserve = anthropicThinkingResponseReserve
@@ -102,23 +57,8 @@ struct APIAdvancedSettings: Codable, Equatable, Sendable {
             openAIResponsesSampling: openAIResponsesSampling.sanitized,
             openAIChatMaxCompletionTokens: max(0, openAIChatMaxCompletionTokens),
             openAIChatSampling: openAIChatSampling.sanitized,
-            openAICompatibleMaxTokens: max(0, openAICompatibleMaxTokens),
-            openAICompatibleSampling: openAICompatibleSampling.sanitized,
-            geminiMaxTokens: max(0, geminiMaxTokens),
-            geminiSampling: geminiSampling.sanitized,
-            deepSeekMaxTokens: max(0, deepSeekMaxTokens),
-            deepSeekSampling: deepSeekSampling.sanitized,
-            xAIMaxTokens: max(0, xAIMaxTokens),
-            xAISampling: xAISampling.sanitized,
-            openRouterMaxTokens: max(0, openRouterMaxTokens),
-            openRouterMaxCompletionTokens: max(0, openRouterMaxCompletionTokens),
-            openRouterSampling: openRouterSampling.sanitized,
             lmStudioMaxTokens: max(0, lmStudioMaxTokens),
             lmStudioSampling: lmStudioSampling.sanitized,
-            lmStudioOpenAICompatibleMaxTokens: max(0, lmStudioOpenAICompatibleMaxTokens),
-            lmStudioOpenAICompatibleSampling: lmStudioOpenAICompatibleSampling.sanitized,
-            llamaCppMaxTokens: max(0, llamaCppMaxTokens),
-            llamaCppSampling: llamaCppSampling.sanitized,
             anthropicMaxTokens: max(1, anthropicMaxTokens),
             anthropicSampling: anthropicSampling.sanitized,
             anthropicThinkingResponseReserve: max(1, anthropicThinkingResponseReserve),
@@ -128,129 +68,6 @@ struct APIAdvancedSettings: Codable, Equatable, Sendable {
         )
     }
 
-    private enum CodingKeys: String, CodingKey {
-        case openAIResponsesMaxOutputTokens
-        case openAIResponsesSampling
-        case openAIChatMaxCompletionTokens
-        case openAIChatSampling
-        case openAICompatibleMaxTokens
-        case openAICompatibleSampling
-        case geminiMaxTokens
-        case geminiSampling
-        case deepSeekMaxTokens
-        case deepSeekSampling
-        case xAIMaxTokens
-        case xAISampling
-        case openRouterMaxTokens
-        case openRouterMaxCompletionTokens
-        case openRouterSampling
-        case lmStudioMaxTokens
-        case lmStudioSampling
-        case lmStudioOpenAICompatibleMaxTokens
-        case lmStudioOpenAICompatibleSampling
-        case llamaCppMaxTokens
-        case llamaCppSampling
-        case anthropicMaxTokens
-        case anthropicSampling
-        case anthropicThinkingResponseReserve
-        case anthropicLowThinkingBudget
-        case anthropicMediumThinkingBudget
-        case anthropicHighThinkingBudget
-
-        case temperatureEnabled
-        case temperature
-        case topPEnabled
-        case topP
-        case topK
-        case presencePenaltyEnabled
-        case presencePenalty
-        case frequencyPenaltyEnabled
-        case frequencyPenalty
-        case seed
-    }
-
-    init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        let defaults = APIAdvancedSettings.defaults
-        let legacyTopK = try container.decodeIfPresent(Int.self, forKey: .topK) ?? 0
-        let legacySeed = try container.decodeIfPresent(Int.self, forKey: .seed) ?? 0
-        let legacySampling = APIAdvancedSamplingSettings(
-            temperatureEnabled: try container.decodeIfPresent(Bool.self, forKey: .temperatureEnabled) ?? false,
-            temperature: try container.decodeIfPresent(Double.self, forKey: .temperature) ?? 1,
-            topPEnabled: try container.decodeIfPresent(Bool.self, forKey: .topPEnabled) ?? false,
-            topP: try container.decodeIfPresent(Double.self, forKey: .topP) ?? 1,
-            topKEnabled: legacyTopK > 0,
-            topK: legacyTopK,
-            presencePenaltyEnabled: try container.decodeIfPresent(Bool.self, forKey: .presencePenaltyEnabled) ?? false,
-            presencePenalty: try container.decodeIfPresent(Double.self, forKey: .presencePenalty) ?? 0,
-            frequencyPenaltyEnabled: try container.decodeIfPresent(Bool.self, forKey: .frequencyPenaltyEnabled) ?? false,
-            frequencyPenalty: try container.decodeIfPresent(Double.self, forKey: .frequencyPenalty) ?? 0,
-            seedEnabled: legacySeed > 0,
-            seed: legacySeed
-        ).sanitized
-
-        self.init(
-            openAIResponsesMaxOutputTokens: try container.decodeIfPresent(Int.self, forKey: .openAIResponsesMaxOutputTokens) ?? defaults.openAIResponsesMaxOutputTokens,
-            openAIResponsesSampling: try container.decodeIfPresent(APIAdvancedSamplingSettings.self, forKey: .openAIResponsesSampling) ?? legacySampling,
-            openAIChatMaxCompletionTokens: try container.decodeIfPresent(Int.self, forKey: .openAIChatMaxCompletionTokens) ?? defaults.openAIChatMaxCompletionTokens,
-            openAIChatSampling: try container.decodeIfPresent(APIAdvancedSamplingSettings.self, forKey: .openAIChatSampling) ?? legacySampling,
-            openAICompatibleMaxTokens: try container.decodeIfPresent(Int.self, forKey: .openAICompatibleMaxTokens) ?? defaults.openAICompatibleMaxTokens,
-            openAICompatibleSampling: try container.decodeIfPresent(APIAdvancedSamplingSettings.self, forKey: .openAICompatibleSampling) ?? legacySampling,
-            geminiMaxTokens: try container.decodeIfPresent(Int.self, forKey: .geminiMaxTokens) ?? defaults.geminiMaxTokens,
-            geminiSampling: try container.decodeIfPresent(APIAdvancedSamplingSettings.self, forKey: .geminiSampling) ?? legacySampling,
-            deepSeekMaxTokens: try container.decodeIfPresent(Int.self, forKey: .deepSeekMaxTokens) ?? defaults.deepSeekMaxTokens,
-            deepSeekSampling: try container.decodeIfPresent(APIAdvancedSamplingSettings.self, forKey: .deepSeekSampling) ?? legacySampling,
-            xAIMaxTokens: try container.decodeIfPresent(Int.self, forKey: .xAIMaxTokens) ?? defaults.xAIMaxTokens,
-            xAISampling: try container.decodeIfPresent(APIAdvancedSamplingSettings.self, forKey: .xAISampling) ?? legacySampling,
-            openRouterMaxTokens: try container.decodeIfPresent(Int.self, forKey: .openRouterMaxTokens) ?? defaults.openRouterMaxTokens,
-            openRouterMaxCompletionTokens: try container.decodeIfPresent(Int.self, forKey: .openRouterMaxCompletionTokens) ?? defaults.openRouterMaxCompletionTokens,
-            openRouterSampling: try container.decodeIfPresent(APIAdvancedSamplingSettings.self, forKey: .openRouterSampling) ?? legacySampling,
-            lmStudioMaxTokens: try container.decodeIfPresent(Int.self, forKey: .lmStudioMaxTokens) ?? defaults.lmStudioMaxTokens,
-            lmStudioSampling: try container.decodeIfPresent(APIAdvancedSamplingSettings.self, forKey: .lmStudioSampling) ?? legacySampling,
-            lmStudioOpenAICompatibleMaxTokens: try container.decodeIfPresent(Int.self, forKey: .lmStudioOpenAICompatibleMaxTokens) ?? defaults.lmStudioOpenAICompatibleMaxTokens,
-            lmStudioOpenAICompatibleSampling: try container.decodeIfPresent(APIAdvancedSamplingSettings.self, forKey: .lmStudioOpenAICompatibleSampling) ?? legacySampling,
-            llamaCppMaxTokens: try container.decodeIfPresent(Int.self, forKey: .llamaCppMaxTokens) ?? defaults.llamaCppMaxTokens,
-            llamaCppSampling: try container.decodeIfPresent(APIAdvancedSamplingSettings.self, forKey: .llamaCppSampling) ?? legacySampling,
-            anthropicMaxTokens: try container.decodeIfPresent(Int.self, forKey: .anthropicMaxTokens) ?? defaults.anthropicMaxTokens,
-            anthropicSampling: try container.decodeIfPresent(APIAdvancedSamplingSettings.self, forKey: .anthropicSampling) ?? legacySampling,
-            anthropicThinkingResponseReserve: try container.decodeIfPresent(Int.self, forKey: .anthropicThinkingResponseReserve) ?? defaults.anthropicThinkingResponseReserve,
-            anthropicLowThinkingBudget: try container.decodeIfPresent(Int.self, forKey: .anthropicLowThinkingBudget) ?? defaults.anthropicLowThinkingBudget,
-            anthropicMediumThinkingBudget: try container.decodeIfPresent(Int.self, forKey: .anthropicMediumThinkingBudget) ?? defaults.anthropicMediumThinkingBudget,
-            anthropicHighThinkingBudget: try container.decodeIfPresent(Int.self, forKey: .anthropicHighThinkingBudget) ?? defaults.anthropicHighThinkingBudget
-        )
-    }
-
-    func encode(to encoder: Encoder) throws {
-        let sanitized = sanitized
-        var container = encoder.container(keyedBy: CodingKeys.self)
-        try container.encode(sanitized.openAIResponsesMaxOutputTokens, forKey: .openAIResponsesMaxOutputTokens)
-        try container.encode(sanitized.openAIResponsesSampling, forKey: .openAIResponsesSampling)
-        try container.encode(sanitized.openAIChatMaxCompletionTokens, forKey: .openAIChatMaxCompletionTokens)
-        try container.encode(sanitized.openAIChatSampling, forKey: .openAIChatSampling)
-        try container.encode(sanitized.openAICompatibleMaxTokens, forKey: .openAICompatibleMaxTokens)
-        try container.encode(sanitized.openAICompatibleSampling, forKey: .openAICompatibleSampling)
-        try container.encode(sanitized.geminiMaxTokens, forKey: .geminiMaxTokens)
-        try container.encode(sanitized.geminiSampling, forKey: .geminiSampling)
-        try container.encode(sanitized.deepSeekMaxTokens, forKey: .deepSeekMaxTokens)
-        try container.encode(sanitized.deepSeekSampling, forKey: .deepSeekSampling)
-        try container.encode(sanitized.xAIMaxTokens, forKey: .xAIMaxTokens)
-        try container.encode(sanitized.xAISampling, forKey: .xAISampling)
-        try container.encode(sanitized.openRouterMaxTokens, forKey: .openRouterMaxTokens)
-        try container.encode(sanitized.openRouterMaxCompletionTokens, forKey: .openRouterMaxCompletionTokens)
-        try container.encode(sanitized.openRouterSampling, forKey: .openRouterSampling)
-        try container.encode(sanitized.lmStudioMaxTokens, forKey: .lmStudioMaxTokens)
-        try container.encode(sanitized.lmStudioSampling, forKey: .lmStudioSampling)
-        try container.encode(sanitized.lmStudioOpenAICompatibleMaxTokens, forKey: .lmStudioOpenAICompatibleMaxTokens)
-        try container.encode(sanitized.lmStudioOpenAICompatibleSampling, forKey: .lmStudioOpenAICompatibleSampling)
-        try container.encode(sanitized.llamaCppMaxTokens, forKey: .llamaCppMaxTokens)
-        try container.encode(sanitized.llamaCppSampling, forKey: .llamaCppSampling)
-        try container.encode(sanitized.anthropicMaxTokens, forKey: .anthropicMaxTokens)
-        try container.encode(sanitized.anthropicSampling, forKey: .anthropicSampling)
-        try container.encode(sanitized.anthropicThinkingResponseReserve, forKey: .anthropicThinkingResponseReserve)
-        try container.encode(sanitized.anthropicLowThinkingBudget, forKey: .anthropicLowThinkingBudget)
-        try container.encode(sanitized.anthropicMediumThinkingBudget, forKey: .anthropicMediumThinkingBudget)
-        try container.encode(sanitized.anthropicHighThinkingBudget, forKey: .anthropicHighThinkingBudget)
-    }
 }
 
 struct APIAdvancedSamplingSettings: Codable, Equatable, Sendable {
@@ -419,62 +236,34 @@ struct APIAdvancedSamplingSettings: Codable, Equatable, Sendable {
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        let temperatureEnabled = try container.decodeIfPresent(Bool.self, forKey: .temperatureEnabled) ?? false
-        let temperature = try container.decodeIfPresent(Double.self, forKey: .temperature) ?? 1
-        let topPEnabled = try container.decodeIfPresent(Bool.self, forKey: .topPEnabled) ?? false
-        let topP = try container.decodeIfPresent(Double.self, forKey: .topP) ?? 1
-        let topK = try container.decodeIfPresent(Int.self, forKey: .topK) ?? 0
-        let topKEnabled = try container.decodeIfPresent(Bool.self, forKey: .topKEnabled) ?? (topK > 0)
-        let minPEnabled = try container.decodeIfPresent(Bool.self, forKey: .minPEnabled) ?? false
-        let minP = try container.decodeIfPresent(Double.self, forKey: .minP) ?? 0
-        let topAEnabled = try container.decodeIfPresent(Bool.self, forKey: .topAEnabled) ?? false
-        let topA = try container.decodeIfPresent(Double.self, forKey: .topA) ?? 0
-        let presencePenaltyEnabled = try container.decodeIfPresent(Bool.self, forKey: .presencePenaltyEnabled) ?? false
-        let presencePenalty = try container.decodeIfPresent(Double.self, forKey: .presencePenalty) ?? 0
-        let frequencyPenaltyEnabled = try container.decodeIfPresent(Bool.self, forKey: .frequencyPenaltyEnabled) ?? false
-        let frequencyPenalty = try container.decodeIfPresent(Double.self, forKey: .frequencyPenalty) ?? 0
-        let repetitionPenaltyEnabled = try container.decodeIfPresent(Bool.self, forKey: .repetitionPenaltyEnabled) ?? false
-        let repetitionPenalty = try container.decodeIfPresent(Double.self, forKey: .repetitionPenalty) ?? 1
-        let seed = try container.decodeIfPresent(Int.self, forKey: .seed) ?? 0
-        let seedEnabled = try container.decodeIfPresent(Bool.self, forKey: .seedEnabled) ?? (seed > 0)
-        let contextLength = try container.decodeIfPresent(Int.self, forKey: .contextLength) ?? 0
-        let contextLengthEnabled = try container.decodeIfPresent(Bool.self, forKey: .contextLengthEnabled) ?? (contextLength > 0)
-        let jsonModeEnabled = try container.decodeIfPresent(Bool.self, forKey: .jsonModeEnabled) ?? false
-        let structuredOutputsEnabled = try container.decodeIfPresent(Bool.self, forKey: .structuredOutputsEnabled) ?? false
-        let logprobsEnabled = try container.decodeIfPresent(Bool.self, forKey: .logprobsEnabled) ?? false
-        let topLogprobs = try container.decodeIfPresent(Int.self, forKey: .topLogprobs) ?? 0
-        let topLogprobsEnabled = try container.decodeIfPresent(Bool.self, forKey: .topLogprobsEnabled) ?? (topLogprobs > 0)
-        let verbosityEnabled = try container.decodeIfPresent(Bool.self, forKey: .verbosityEnabled) ?? false
-        let verbosity = try container.decodeIfPresent(String.self, forKey: .verbosity) ?? "medium"
-
         self.init(
-            temperatureEnabled: temperatureEnabled,
-            temperature: temperature,
-            topPEnabled: topPEnabled,
-            topP: topP,
-            topKEnabled: topKEnabled,
-            topK: topK,
-            minPEnabled: minPEnabled,
-            minP: minP,
-            topAEnabled: topAEnabled,
-            topA: topA,
-            presencePenaltyEnabled: presencePenaltyEnabled,
-            presencePenalty: presencePenalty,
-            frequencyPenaltyEnabled: frequencyPenaltyEnabled,
-            frequencyPenalty: frequencyPenalty,
-            repetitionPenaltyEnabled: repetitionPenaltyEnabled,
-            repetitionPenalty: repetitionPenalty,
-            seedEnabled: seedEnabled,
-            seed: seed,
-            contextLengthEnabled: contextLengthEnabled,
-            contextLength: contextLength,
-            jsonModeEnabled: jsonModeEnabled,
-            structuredOutputsEnabled: structuredOutputsEnabled,
-            logprobsEnabled: logprobsEnabled,
-            topLogprobsEnabled: topLogprobsEnabled,
-            topLogprobs: topLogprobs,
-            verbosityEnabled: verbosityEnabled,
-            verbosity: verbosity
+            temperatureEnabled: try container.decode(Bool.self, forKey: .temperatureEnabled),
+            temperature: try container.decode(Double.self, forKey: .temperature),
+            topPEnabled: try container.decode(Bool.self, forKey: .topPEnabled),
+            topP: try container.decode(Double.self, forKey: .topP),
+            topKEnabled: try container.decode(Bool.self, forKey: .topKEnabled),
+            topK: try container.decode(Int.self, forKey: .topK),
+            minPEnabled: try container.decode(Bool.self, forKey: .minPEnabled),
+            minP: try container.decode(Double.self, forKey: .minP),
+            topAEnabled: try container.decode(Bool.self, forKey: .topAEnabled),
+            topA: try container.decode(Double.self, forKey: .topA),
+            presencePenaltyEnabled: try container.decode(Bool.self, forKey: .presencePenaltyEnabled),
+            presencePenalty: try container.decode(Double.self, forKey: .presencePenalty),
+            frequencyPenaltyEnabled: try container.decode(Bool.self, forKey: .frequencyPenaltyEnabled),
+            frequencyPenalty: try container.decode(Double.self, forKey: .frequencyPenalty),
+            repetitionPenaltyEnabled: try container.decode(Bool.self, forKey: .repetitionPenaltyEnabled),
+            repetitionPenalty: try container.decode(Double.self, forKey: .repetitionPenalty),
+            seedEnabled: try container.decode(Bool.self, forKey: .seedEnabled),
+            seed: try container.decode(Int.self, forKey: .seed),
+            contextLengthEnabled: try container.decode(Bool.self, forKey: .contextLengthEnabled),
+            contextLength: try container.decode(Int.self, forKey: .contextLength),
+            jsonModeEnabled: try container.decode(Bool.self, forKey: .jsonModeEnabled),
+            structuredOutputsEnabled: try container.decode(Bool.self, forKey: .structuredOutputsEnabled),
+            logprobsEnabled: try container.decode(Bool.self, forKey: .logprobsEnabled),
+            topLogprobsEnabled: try container.decode(Bool.self, forKey: .topLogprobsEnabled),
+            topLogprobs: try container.decode(Int.self, forKey: .topLogprobs),
+            verbosityEnabled: try container.decode(Bool.self, forKey: .verbosityEnabled),
+            verbosity: try container.decode(String.self, forKey: .verbosity)
         )
     }
 

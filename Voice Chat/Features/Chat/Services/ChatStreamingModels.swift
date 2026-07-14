@@ -30,6 +30,9 @@ struct Choice: Decodable {
 
 struct ChatResponseMetadata: Sendable, Equatable {
     var providerResponseID: String?
+    var requestContext: ChatRequestContextSnapshot?
+    var requestUsedPreviousResponseID: Bool?
+    var requestPreviousResponseID: String?
     var outputTokenCount: Int?
     var reasoningOutputTokenCount: Int?
     var tokensPerSecond: Double?
@@ -40,6 +43,9 @@ struct ChatResponseMetadata: Sendable, Equatable {
 
     var hasAnyValue: Bool {
         providerResponseID != nil ||
+        requestContext != nil ||
+        requestUsedPreviousResponseID != nil ||
+        requestPreviousResponseID != nil ||
         outputTokenCount != nil ||
         reasoningOutputTokenCount != nil ||
         tokensPerSecond != nil ||
@@ -51,6 +57,24 @@ struct ChatResponseMetadata: Sendable, Equatable {
         if let providerResponseID = update.providerResponseID,
            !providerResponseID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             self.providerResponseID = providerResponseID
+        }
+        if let requestContext = update.requestContext,
+           !requestContext.fingerprint.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            self.requestContext = requestContext
+        }
+        if let requestUsedPreviousResponseID = update.requestUsedPreviousResponseID {
+            self.requestUsedPreviousResponseID = requestUsedPreviousResponseID
+            if !requestUsedPreviousResponseID {
+                self.requestPreviousResponseID = nil
+            }
+        }
+        if update.requestUsedPreviousResponseID != false,
+           let requestPreviousResponseID = update.requestPreviousResponseID,
+           !requestPreviousResponseID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            self.requestPreviousResponseID = requestPreviousResponseID
+            if update.requestUsedPreviousResponseID == nil {
+                self.requestUsedPreviousResponseID = true
+            }
         }
         if let outputTokenCount = update.outputTokenCount {
             self.outputTokenCount = outputTokenCount
@@ -175,12 +199,14 @@ struct Delta: Decodable {
     var content: String?
     var reasoning: ReasoningValue?
     var reasoning_content: String?
+    var reasoning_details: [JSONValue]?
 
     private enum CodingKeys: String, CodingKey {
         case role
         case content
         case reasoning
         case reasoning_content
+        case reasoning_details
     }
 
     init(from decoder: Decoder) throws {
@@ -188,6 +214,7 @@ struct Delta: Decodable {
         role = try? container.decodeIfPresent(String.self, forKey: .role)
         reasoning = try? container.decodeIfPresent(ReasoningValue.self, forKey: .reasoning)
         reasoning_content = try? container.decodeIfPresent(String.self, forKey: .reasoning_content)
+        reasoning_details = try? container.decodeIfPresent([JSONValue].self, forKey: .reasoning_details)
 
         if let text = try? container.decodeIfPresent(String.self, forKey: .content) {
             content = text
@@ -228,9 +255,18 @@ struct Delta: Decodable {
 
 enum ChatNetworkError: Error {
     case invalidURL
+    case invalidRequestHistory
     case serverError(statusCode: Int?, message: String)
     case timeout(String)
     case emptyResponse
+}
+
+struct ChatIncompleteResponseError: LocalizedError, Sendable {
+    let message: String
+    let segments: [AssistantStreamSegment]
+    let metadata: ChatResponseMetadata
+
+    var errorDescription: String? { message }
 }
 
 extension ChatNetworkError: LocalizedError {
@@ -238,6 +274,11 @@ extension ChatNetworkError: LocalizedError {
         switch self {
         case .invalidURL:
             return NSLocalizedString("Invalid API URL", comment: "Shown when the configured chat API URL is invalid")
+        case .invalidRequestHistory:
+            return NSLocalizedString(
+                "Unable to build a request from the selected conversation branch.",
+                comment: "Shown when a chat branch does not end with the intended user message"
+            )
         case .serverError(_, let message):
             return message
         case .timeout(let message):

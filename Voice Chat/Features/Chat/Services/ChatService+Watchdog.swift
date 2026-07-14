@@ -21,12 +21,12 @@ extension ChatService {
                 if now.timeIntervalSince(start) > self.firstTokenTimeout {
                     self.dataTask?.cancel()
                     self.dataTask = nil
+                    self.rememberLastRetryableActiveStreamRequest()
+                    self.activeStreamRequestBodyData = nil
                     self.stopConnectionWatchdog()
                     self.stopWatchdog()
                     self.endBackgroundExecutionForCurrentRequest()
-                    Task { @MainActor in
-                        self.onError?(ChatNetworkError.timeout(NSLocalizedString("Connection timed out", comment: "Shown when the chat server request exceeds the timeout")))
-                    }
+                    self.deliverError(ChatNetworkError.timeout(NSLocalizedString("Connection timed out", comment: "Shown when the chat server request exceeds the timeout")))
                 }
                 return
             }
@@ -35,12 +35,12 @@ extension ChatService {
                 if now.timeIntervalSince(last) > self.silentGapTimeout {
                     self.dataTask?.cancel()
                     self.dataTask = nil
+                    self.rememberLastRetryableActiveStreamRequest()
+                    self.activeStreamRequestBodyData = nil
                     self.stopConnectionWatchdog()
                     self.stopWatchdog()
                     self.endBackgroundExecutionForCurrentRequest()
-                    Task { @MainActor in
-                        self.onError?(ChatNetworkError.timeout(NSLocalizedString("Connection timed out", comment: "Shown when the chat server request exceeds the timeout")))
-                    }
+                    self.deliverError(ChatNetworkError.timeout(NSLocalizedString("Connection timed out", comment: "Shown when the chat server request exceeds the timeout")))
                 }
             }
         }
@@ -71,12 +71,12 @@ extension ChatService {
             }
             task.cancel()
             self.dataTask = nil
+            self.rememberLastRetryableActiveStreamRequest()
+            self.activeStreamRequestBodyData = nil
             self.stopWatchdog()
             self.stopConnectionWatchdog()
             self.endBackgroundExecutionForCurrentRequest()
-            Task { @MainActor in
-                self.onError?(ChatNetworkError.timeout(NSLocalizedString("Connection timed out", comment: "Shown when connecting to the chat server takes too long")))
-            }
+            self.deliverError(ChatNetworkError.timeout(NSLocalizedString("Connection timed out", comment: "Shown when connecting to the chat server takes too long")))
         }
         connectionWatchdog = timer
         timer.resume()
@@ -97,20 +97,27 @@ extension ChatService {
 
     @MainActor
     func handleBackgroundExecutionInterruption(_ message: String) {
-        let shouldReportError = stateQueue.sync { [self] in
-            cancelCurrentStreamForBackgroundInterruption()
+        stateQueue.sync { [self] in
+            guard cancelCurrentStreamForBackgroundInterruption() else { return }
+            deliverError(ChatNetworkError.timeout(message))
         }
-        guard shouldReportError else { return }
-        onError?(ChatNetworkError.timeout(message))
     }
 
     func cancelCurrentStreamForBackgroundInterruption() -> Bool {
-        guard dataTask != nil else { return false }
+        guard dataTask != nil || activeToolLoopContext != nil else { return false }
         isCancelled = true
+        beginNewStreamCallbackEpoch()
+        if dataTask != nil {
+            rememberLastRetryableActiveStreamRequest()
+        }
         dataTask?.cancel()
         dataTask = nil
+        activeStreamRequestBodyData = nil
+        cancelActiveToolExecution()
         stopConnectionWatchdog()
         stopWatchdog()
+        activeToolLoopContext = nil
+        Task { await toolAuthorizationCoordinator.cancelAll() }
         clearActiveEndpointCandidate()
         return true
     }

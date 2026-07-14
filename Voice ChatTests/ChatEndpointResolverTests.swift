@@ -21,10 +21,10 @@ final class ChatEndpointResolverTests: XCTestCase {
         let candidates = resolver.streamingCandidates(
             for: "http://localhost:1234",
             providerHint: .lmStudio,
-            styleHint: .lmStudioRESTV1LegacyMessage
+            styleHint: .anthropicMessages
         )
 
         XCTAssertEqual(candidates.first?.provider, .lmStudio)
-        XCTAssertFalse(candidates.contains { $0.style == .lmStudioRESTV1LegacyMessage })
+        XCTAssertFalse(candidates.contains { $0.style == .anthropicMessages })
     }
 }

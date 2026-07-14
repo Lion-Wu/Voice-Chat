@@ -5,21 +5,33 @@ final class ChatSidebarPresentationControllerTests: XCTestCase {
     func testSearchMatchesFoldedTitleAndActiveMessageBody() {
         var controller = ChatSidebarPresentationController()
         let titleMatch = makeSession(
-            title: "Café Plan",
+            title: "Café Match",
             messages: [
-                ChatMessage(content: "ordinary message", isUser: true, createdAt: Date(timeIntervalSince1970: 1))
+                ChatMessage(
+                    content: "Message without the body query",
+                    isUser: true,
+                    createdAt: TestDate.reference
+                )
             ]
         )
         let bodyMatch = makeSession(
-            title: "Notes",
+            title: "Body Match",
             messages: [
-                ChatMessage(content: "The needle is in the body", isUser: false, createdAt: Date(timeIntervalSince1970: 2))
+                ChatMessage(
+                    content: "This message contains the needle query",
+                    isUser: false,
+                    createdAt: TestDate.offset(1)
+                )
             ]
         )
         let miss = makeSession(
-            title: "Other",
+            title: "Nonmatching Conversation",
             messages: [
-                ChatMessage(content: "unrelated", isUser: false, createdAt: Date(timeIntervalSince1970: 3))
+                ChatMessage(
+                    content: "Message without either search query",
+                    isUser: false,
+                    createdAt: TestDate.offset(2)
+                )
             ]
         )
 
@@ -36,7 +48,7 @@ final class ChatSidebarPresentationControllerTests: XCTestCase {
                 ChatMessage(
                     content: "alpha beta gamma needle delta epsilon zeta eta theta",
                     isUser: false,
-                    createdAt: Date(timeIntervalSince1970: 4)
+                    createdAt: TestDate.reference
                 )
             ]
         )
@@ -52,7 +64,7 @@ final class ChatSidebarPresentationControllerTests: XCTestCase {
     func testBodySearchMatchIgnoresThinkPartsAndComputesLineAnchor() throws {
         var controller = ChatSidebarPresentationController()
         let body = "<think>\nhidden needle\n</think>\none\ntwo\nthree\nfour\nneedle five"
-        let message = ChatMessage(content: body, isUser: false, createdAt: Date(timeIntervalSince1970: 5))
+        let message = ChatMessage(content: body, isUser: false, createdAt: TestDate.reference)
         let session = makeSession(title: "Anchors", messages: [message])
         let normalized = controller.normalizedQuery("needle")
 

@@ -83,6 +83,7 @@ final class StartupDataCoordinator: ObservableObject {
     private nonisolated static let persistentSchema = Schema([
         ChatSession.self,
         ChatMessage.self,
+        ChatRequestContextMetadata.self,
         AppSettings.self,
         ChatServerPreset.self,
         VoiceServerPreset.self,

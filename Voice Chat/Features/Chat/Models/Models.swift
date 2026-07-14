@@ -10,13 +10,7 @@ import Foundation
 enum ChatProvider: String, Codable, Sendable {
     case openAI = "openai"
     case anthropic = "anthropic"
-    case gemini = "gemini"
-    case deepSeek = "deepseek"
-    case xAI = "xai"
-    case openRouter = "openrouter"
     case lmStudio = "lmstudio"
-    case llamaCpp = "llama.cpp"
-    case openAICompatible = "openai-compatible"
     case unknown = "unknown"
 
     var displayName: String {
@@ -25,46 +19,49 @@ enum ChatProvider: String, Codable, Sendable {
 }
 
 enum ChatRequestStyle: String, Codable, Sendable {
+    case openAIResponses
     case openAIChatCompletions
     case lmStudioRESTV1
-    case lmStudioRESTV1LegacyMessage
     case anthropicMessages
+
+    var toolCallingTransport: ChatToolCallingTransport {
+        switch self {
+        case .openAIResponses:
+            return .openAIResponsesAPI
+        case .openAIChatCompletions:
+            return .openAIChatCompletionsAPI
+        case .anthropicMessages:
+            return .anthropicMessagesAPI
+        case .lmStudioRESTV1:
+            return .promptProtocol
+        }
+    }
+}
+
+enum ChatToolCallingTransport: Equatable, Sendable {
+    case openAIResponsesAPI
+    case openAIChatCompletionsAPI
+    case anthropicMessagesAPI
+    case promptProtocol
 }
 
 enum ChatAPIFormatPreference: String, Codable, CaseIterable, Sendable {
     case automatic
-    case openAI
+    case openAIResponses
+    case openAIChatCompletions
     case anthropic
-    case gemini
-    case deepSeek
-    case xAI
-    case openRouter
     case lmStudio
-    case llamaCpp
-    case openAICompatible
 
     var providerHint: ChatProvider? {
         switch self {
         case .automatic:
             return nil
-        case .openAI:
+        case .openAIResponses, .openAIChatCompletions:
             return .openAI
         case .anthropic:
             return .anthropic
-        case .gemini:
-            return .gemini
-        case .deepSeek:
-            return .deepSeek
-        case .xAI:
-            return .xAI
-        case .openRouter:
-            return .openRouter
         case .lmStudio:
             return .lmStudio
-        case .llamaCpp:
-            return .llamaCpp
-        case .openAICompatible:
-            return .openAICompatible
         }
     }
 
@@ -72,7 +69,9 @@ enum ChatAPIFormatPreference: String, Codable, CaseIterable, Sendable {
         switch self {
         case .automatic:
             return nil
-        case .openAI, .gemini, .deepSeek, .xAI, .openRouter, .llamaCpp, .openAICompatible:
+        case .openAIResponses:
+            return .openAIResponses
+        case .openAIChatCompletions:
             return .openAIChatCompletions
         case .anthropic:
             return .anthropicMessages
@@ -80,6 +79,7 @@ enum ChatAPIFormatPreference: String, Codable, CaseIterable, Sendable {
             return .lmStudioRESTV1
         }
     }
+
 }
 
 struct ChatAPIEndpointCandidate: Hashable, Sendable {
@@ -87,4 +87,8 @@ struct ChatAPIEndpointCandidate: Hashable, Sendable {
     let style: ChatRequestStyle
     let chatURL: URL
     let modelsURL: URL
+
+    var toolCallingTransport: ChatToolCallingTransport {
+        style.toolCallingTransport
+    }
 }

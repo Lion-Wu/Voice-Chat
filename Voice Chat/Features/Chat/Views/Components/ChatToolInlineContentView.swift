@@ -7,32 +7,36 @@
 
 import SwiftUI
 
-enum ChatToolInlineTextStyle: Equatable {
-    case markdown
-    case thinking(fontSize: CGFloat)
-}
-
 struct ChatToolInlineContentView: View {
     let text: String
     let placements: [ChatToolActivityPlacement]
-    let textStyle: ChatToolInlineTextStyle
     let maxBubbleWidth: CGFloat?
     var searchHighlightQuery: String? = nil
     var animateNewText = false
+    var developerModeEnabled = false
+    var onAuthorizeTool: ((String, Bool) -> Void)? = nil
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            ForEach(segments) { segment in
-                switch segment.kind {
-                case let .text(value):
-                    textView(value)
-                case let .tool(placement):
-                    ToolActivityBubble(
-                        activities: [placement.activity],
-                        maxBubbleWidth: maxBubbleWidth,
-                        isEmbeddedInMessage: true
-                    )
-                    .frame(maxWidth: .infinity, alignment: .leading)
+            if placements.isEmpty {
+                if !text.isEmpty {
+                    textView(text)
+                }
+            } else {
+                ForEach(segments) { segment in
+                    switch segment.kind {
+                    case let .text(value):
+                        textView(value)
+                    case let .tools(placements):
+                        ToolActivityBubble(
+                            activities: placements.map(\.activity),
+                            maxBubbleWidth: maxBubbleWidth,
+                            isEmbeddedInMessage: true,
+                            developerModeEnabled: developerModeEnabled,
+                            onAuthorize: onAuthorizeTool
+                        )
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    }
                 }
             }
         }
@@ -41,21 +45,12 @@ struct ChatToolInlineContentView: View {
 
     @ViewBuilder
     private func textView(_ value: String) -> some View {
-        switch textStyle {
-        case .markdown:
-            RichMarkdownView(
-                markdown: value,
-                searchHighlightQuery: searchHighlightQuery,
-                animateNewText: animateNewText
-            )
-            .frame(maxWidth: .infinity, alignment: .leading)
-        case let .thinking(fontSize):
-            Text(value)
-                .font(.system(size: fontSize, design: .monospaced))
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-                .frame(maxWidth: .infinity, alignment: .leading)
-        }
+        RichMarkdownView(
+            markdown: value,
+            searchHighlightQuery: searchHighlightQuery,
+            animateNewText: animateNewText
+        )
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private var segments: [ChatToolInlineSegment] {
@@ -66,7 +61,7 @@ struct ChatToolInlineContentView: View {
 struct ChatToolInlineSegment: Identifiable, Equatable {
     enum Kind: Equatable {
         case text(String)
-        case tool(ChatToolActivityPlacement)
+        case tools([ChatToolActivityPlacement])
     }
 
     let id: String
@@ -78,34 +73,28 @@ enum ChatToolInlineSegmentBuilder {
         text: String,
         placements: [ChatToolActivityPlacement]
     ) -> [ChatToolInlineSegment] {
-        let sorted = placements.sorted {
-            if $0.offset == $1.offset {
-                return $0.id < $1.id
-            }
-            return $0.offset < $1.offset
-        }
         var output: [ChatToolInlineSegment] = []
         var cursor = 0
         var previousBoundaryID = "start"
         let length = text.count
 
-        for placement in sorted {
-            let offset = min(max(placement.offset, 0), length)
+        for group in ChatToolActivityPlacementGrouper.groups(placements) {
+            let offset = min(max(group.offset, 0), length)
             if cursor < offset {
                 appendTextSegment(
                     textSlice(text, from: cursor, to: offset),
                     startOffset: cursor,
                     previousBoundaryID: previousBoundaryID,
-                    nextBoundaryID: placement.id,
+                    nextBoundaryID: group.id,
                     to: &output
                 )
             }
             output.append(ChatToolInlineSegment(
-                id: "tool-\(placement.id)",
-                kind: .tool(placement)
+                id: "tool-\(group.id)",
+                kind: .tools(group.placements)
             ))
             cursor = offset
-            previousBoundaryID = placement.id
+            previousBoundaryID = group.id
         }
 
         if cursor < length {
@@ -139,5 +128,40 @@ enum ChatToolInlineSegmentBuilder {
         let lower = text.index(text.startIndex, offsetBy: start)
         let upper = text.index(text.startIndex, offsetBy: end)
         return String(text[lower..<upper])
+    }
+}
+
+struct ChatToolActivityPlacementGroup: Identifiable, Equatable {
+    let id: String
+    let offset: Int
+    var placements: [ChatToolActivityPlacement]
+}
+
+enum ChatToolActivityPlacementGrouper {
+    static func groups(
+        _ placements: [ChatToolActivityPlacement]
+    ) -> [ChatToolActivityPlacementGroup] {
+        let sorted = placements.enumerated().sorted { lhs, rhs in
+            if lhs.element.offset == rhs.element.offset {
+                return lhs.offset < rhs.offset
+            }
+            return lhs.element.offset < rhs.element.offset
+        }.map(\.element)
+        var groups: [ChatToolActivityPlacementGroup] = []
+
+        for placement in sorted {
+            if let lastIndex = groups.indices.last,
+               groups[lastIndex].offset == placement.offset,
+               groups[lastIndex].placements.last?.scope == placement.scope {
+                groups[lastIndex].placements.append(placement)
+            } else {
+                groups.append(ChatToolActivityPlacementGroup(
+                    id: placement.id,
+                    offset: placement.offset,
+                    placements: [placement]
+                ))
+            }
+        }
+        return groups
     }
 }

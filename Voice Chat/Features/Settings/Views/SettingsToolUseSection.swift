@@ -10,18 +10,42 @@ import SwiftUI
 struct SettingsToolUseSection: View {
     @ObservedObject var viewModel: SettingsViewModel
     let hideHeader: Bool
+    @State private var isConfirmingToolUse = false
+    @State private var isConfirmingHighRiskAutoExecution = false
 
     var body: some View {
         Group {
             Section {
-                Toggle("Enable Tool Use", isOn: toolBinding(\.isEnabled))
+                Toggle("Enable Tool Use", isOn: toolUseEnabledBinding)
+                    .alert("Enable Tool Use?", isPresented: $isConfirmingToolUse) {
+                        Button("Cancel", role: .cancel) {}
+                        Button("Enable") {
+                            setToolUseEnabled(true)
+                        }
+                    } message: {
+                        Text("Not all models support tool use. Enabling it may increase token usage.")
+                    }
 
                 if viewModel.toolUseSettings.isEnabled {
-                    Toggle("Allow Sensitive Tools Remotely", isOn: toolBinding(\.allowRemoteSensitiveTools))
-                    Text("When disabled, calendar, reminders, location, and motion tools are available only to local or private-network endpoints.")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
+                    Picker("Authorization", selection: toolBinding(\.authorizationMode)) {
+                        Text("Ask Every Time").tag(ToolAuthorizationMode.askEveryTime)
+                        Text("Read Only").tag(ToolAuthorizationMode.readOnly)
+                        Text("Read and Write").tag(ToolAuthorizationMode.readWrite)
+                    }
+
+                    Toggle(isOn: highRiskAutoExecutionBinding) {
+                        Text("Allow Automatic High-Risk Tools")
+                            .foregroundStyle(.red)
+                    }
+                    .tint(.red)
+                    .alert("Allow Automatic High-Risk Tools?", isPresented: $isConfirmingHighRiskAutoExecution) {
+                        Button("Cancel", role: .cancel) {}
+                        Button("Allow", role: .destructive) {
+                            setHighRiskAutoExecution(true)
+                        }
+                    } message: {
+                        Text("This will allow location, clipboard, URL, and Code Interpreter tools to run automatically when permitted by the authorization mode. This may increase the risk of privacy exposure.")
+                    }
                 }
             } header: {
                 header
@@ -29,11 +53,29 @@ struct SettingsToolUseSection: View {
 
             if viewModel.toolUseSettings.isEnabled {
                 Section {
+                    HStack {
+                        Spacer()
+                        Button {
+                            setAllToolsEnabled(!allToolsEnabled)
+                        } label: {
+                            Label(
+                                allToolsEnabled ? "Disable All Tools" : "Enable All Tools",
+                                systemImage: allToolsEnabled ? "xmark.circle" : "checkmark.circle"
+                            )
+                        }
+                        .settingsActionButtonStyle()
+                    }
+
                     Toggle("Calendar", isOn: toolBinding(\.calendarEnabled))
                     Toggle("Reminders", isOn: toolBinding(\.remindersEnabled))
                     Toggle("Location", isOn: toolBinding(\.locationEnabled))
                     Toggle("Motion", isOn: toolBinding(\.motionEnabled))
                     Toggle("Device Context", isOn: toolBinding(\.deviceContextEnabled))
+                    Toggle("Time", isOn: toolBinding(\.timeEnabled))
+                        .disabled(viewModel.toolUseSettings.requiresTimeTool)
+                    Toggle("Clipboard", isOn: toolBinding(\.clipboardEnabled))
+                    Toggle("URL Actions", isOn: toolBinding(\.urlActionsEnabled))
+                    Toggle("Code Interpreter", isOn: toolBinding(\.codeInterpreterEnabled))
 
                     if let status = viewModel.toolUseStatusMessage {
                         Text(status)
@@ -46,7 +88,84 @@ struct SettingsToolUseSection: View {
         }
     }
 
+    private var allToolsEnabled: Bool {
+        let settings = viewModel.toolUseSettings
+        return settings.calendarEnabled &&
+            settings.remindersEnabled &&
+            settings.locationEnabled &&
+            settings.motionEnabled &&
+            settings.deviceContextEnabled &&
+            settings.timeEnabled &&
+            settings.clipboardEnabled &&
+            settings.urlActionsEnabled &&
+            settings.codeInterpreterEnabled
+    }
+
+    private var highRiskAutoExecutionBinding: Binding<Bool> {
+        Binding(
+            get: { viewModel.toolUseSettings.allowHighRiskToolAutoExecution },
+            set: { value in
+                if value {
+                    isConfirmingHighRiskAutoExecution = true
+                } else {
+                    setHighRiskAutoExecution(false)
+                }
+            }
+        )
+    }
+
+    private var toolUseEnabledBinding: Binding<Bool> {
+        Binding(
+            get: { viewModel.toolUseSettings.isEnabled },
+            set: { enabled in
+                if enabled {
+                    guard !viewModel.toolUseSettings.isEnabled else { return }
+                    isConfirmingToolUse = true
+                } else {
+                    setToolUseEnabled(false)
+                }
+            }
+        )
+    }
+
+    private func setToolUseEnabled(_ enabled: Bool) {
+        var next = viewModel.toolUseSettings
+        next.isEnabled = enabled
+        viewModel.toolUseSettings = next
+    }
+
+    private func setHighRiskAutoExecution(_ enabled: Bool) {
+        var next = viewModel.toolUseSettings
+        next.allowHighRiskToolAutoExecution = enabled
+        viewModel.toolUseSettings = next
+    }
+
+    private func setAllToolsEnabled(_ enabled: Bool) {
+        var next = viewModel.toolUseSettings
+        next.calendarEnabled = enabled
+        next.remindersEnabled = enabled
+        next.locationEnabled = enabled
+        next.motionEnabled = enabled
+        next.deviceContextEnabled = enabled
+        next.timeEnabled = enabled
+        next.clipboardEnabled = enabled
+        next.urlActionsEnabled = enabled
+        next.codeInterpreterEnabled = enabled
+        viewModel.toolUseSettings = next
+    }
+
     private func toolBinding(_ keyPath: WritableKeyPath<ToolUseSettings, Bool>) -> Binding<Bool> {
+        Binding(
+            get: { viewModel.toolUseSettings[keyPath: keyPath] },
+            set: { value in
+                var next = viewModel.toolUseSettings
+                next[keyPath: keyPath] = value
+                viewModel.toolUseSettings = next
+            }
+        )
+    }
+
+    private func toolBinding<Value: Equatable>(_ keyPath: WritableKeyPath<ToolUseSettings, Value>) -> Binding<Value> {
         Binding(
             get: { viewModel.toolUseSettings[keyPath: keyPath] },
             set: { value in
@@ -70,6 +189,154 @@ struct SettingsToolUseSection: View {
             Text("Tool Use")
             #endif
         }
+    }
+}
+
+struct SettingsDeveloperRequestPolicySection: View {
+    @ObservedObject var viewModel: SettingsViewModel
+    @State private var statefulEndpointPendingRemoval: String?
+
+    var body: some View {
+        Section {
+            Toggle("Enable Stateful Chat for LM Studio", isOn: toolBoolBinding(\.useProviderContinuationIDs))
+
+            Text("Enables Stateful Chat for conversations that support it.")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            VStack(alignment: .leading, spacing: 8) {
+                Text("OpenAI Responses Stateful Chat")
+                    .font(.subheadline.weight(.semibold))
+
+                if let currentEndpointURL = viewModel.currentOpenAIResponsesStatefulEndpointURL {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Current Endpoint")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        Text(currentEndpointURL)
+                            .font(.system(.callout, design: .monospaced))
+                            .textSelection(.enabled)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                    if viewModel.isCurrentOpenAIResponsesStatefulEndpointEnabled {
+                        Label("Stateful chat is enabled for this backend.", systemImage: "checkmark.circle.fill")
+                            .font(.footnote)
+                            .foregroundStyle(.green)
+                    } else {
+                        HStack {
+                            Spacer()
+                            Button {
+                                viewModel.enableStatefulChatForCurrentOpenAIResponsesEndpoint()
+                            } label: {
+                                Label("Enable for This Backend", systemImage: "plus.circle")
+                            }
+                            .settingsActionButtonStyle()
+                        }
+                    }
+                } else {
+                    Text("Select or auto-detect an OpenAI Responses API endpoint to enable the current backend.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                Text("Enabled Endpoints")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                Text("Only the endpoint URLs listed below may continue from an OpenAI Responses response ID.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                if viewModel.openAIResponsesStatefulEndpointURLs.isEmpty {
+                    Text("No endpoint URLs are enabled.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                } else {
+                    ForEach(viewModel.openAIResponsesStatefulEndpointURLs, id: \.self) { endpointURL in
+                        statefulEndpointRow(endpointURL)
+                    }
+                }
+            }
+            .padding(.top, 4)
+
+        } header: {
+            #if os(macOS)
+            Text("Request Policy")
+                .font(.headline)
+                .textCase(.none)
+            #else
+            Text("Request Policy")
+            #endif
+        }
+        .alert(
+            "Delete Stateful Endpoint?",
+            isPresented: isConfirmingStatefulEndpointRemoval
+        ) {
+            Button("Cancel", role: .cancel) {
+                statefulEndpointPendingRemoval = nil
+            }
+            Button("Delete", role: .destructive) {
+                guard let endpointURL = statefulEndpointPendingRemoval else { return }
+                viewModel.removeOpenAIResponsesStatefulEndpointURL(endpointURL)
+                statefulEndpointPendingRemoval = nil
+            }
+        } message: {
+            Text("This endpoint will no longer continue chats from an OpenAI Responses response ID.")
+        }
+    }
+
+    private var isConfirmingStatefulEndpointRemoval: Binding<Bool> {
+        Binding(
+            get: { statefulEndpointPendingRemoval != nil },
+            set: { isPresented in
+                if !isPresented {
+                    statefulEndpointPendingRemoval = nil
+                }
+            }
+        )
+    }
+
+    private func toolBoolBinding(_ keyPath: WritableKeyPath<ToolUseSettings, Bool>) -> Binding<Bool> {
+        Binding(
+            get: { viewModel.toolUseSettings[keyPath: keyPath] },
+            set: { value in
+                var next = viewModel.toolUseSettings
+                next[keyPath: keyPath] = value
+                viewModel.toolUseSettings = next
+            }
+        )
+    }
+
+    @ViewBuilder
+    private func statefulEndpointRow(_ endpointURL: String) -> some View {
+        HStack(alignment: .center, spacing: 10) {
+            Image(systemName: "link")
+                .foregroundStyle(.secondary)
+                .frame(width: 18)
+
+            Text(endpointURL)
+                .font(.system(.callout, design: .monospaced))
+                .textSelection(.enabled)
+                .lineLimit(2)
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+            Button(role: .destructive) {
+                statefulEndpointPendingRemoval = endpointURL
+            } label: {
+                Label("Delete", systemImage: "trash")
+                    .labelStyle(.iconOnly)
+                    .foregroundStyle(.red)
+            }
+            .buttonStyle(.plain)
+            .controlSize(.small)
+            .help("Remove endpoint")
+        }
+        .padding(.vertical, 3)
     }
 }
 
@@ -97,6 +364,18 @@ struct SettingsDeveloperToolUseSection: View {
                     .font(.footnote)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
+            }
+
+            LabeledContent("Authorization Mode") {
+                Text(viewModel.toolUseSettings.authorizationMode.rawValue)
+                    .font(.system(.footnote, design: .monospaced))
+                    .textSelection(.enabled)
+            }
+            LabeledContent("Automatic High-Risk Tools") {
+                Text(viewModel.toolUseSettings.allowHighRiskToolAutoExecution ? "Enabled" : "Disabled")
+                    .font(.system(.footnote, design: .monospaced))
+                    .foregroundStyle(viewModel.toolUseSettings.allowHighRiskToolAutoExecution ? .red : .secondary)
+                    .textSelection(.enabled)
             }
 
             ForEach(allDefinitions, id: \.id) { definition in
@@ -147,9 +426,9 @@ struct SettingsDeveloperToolUseSection: View {
 
     private func iconName(for id: ChatToolID) -> String {
         switch id {
-        case .calendarListEvents:
+        case .calendarListEvents, .calendarCreateEvent, .calendarDeleteEvent, .calendarShowEvents:
             return "calendar"
-        case .remindersListReminders:
+        case .remindersListReminders, .remindersCreateReminder, .remindersDeleteReminder, .remindersShowReminders:
             return "checklist"
         case .locationCurrent:
             return "location"
@@ -157,6 +436,14 @@ struct SettingsDeveloperToolUseSection: View {
             return "gyroscope"
         case .deviceContext:
             return "desktopcomputer"
+        case .clipboardGetText, .clipboardSetText:
+            return "doc.on.clipboard"
+        case .systemOpenURL:
+            return "arrow.up.forward.app"
+        case .systemGetTime:
+            return "clock"
+        case .codeInterpreterRun:
+            return "curlybraces"
         }
     }
 

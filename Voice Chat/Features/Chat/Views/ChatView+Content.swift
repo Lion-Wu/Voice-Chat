@@ -121,9 +121,6 @@ extension ChatView {
         layoutDecoratedChatView
             .modifier(ChatViewLifecycleModifier(
                 editingBannerHeight: $editingBannerHeight,
-                errorNoticeStackHeight: $errorNoticeStackHeight,
-                measuredFloatingInputPanelHeight: $measuredFloatingInputPanelHeight,
-                noticesAreEmpty: errorCenter.notices.isEmpty,
                 onAppear: handleChatViewAppear,
                 onDisappear: handleChatViewDisappear
             ))
@@ -132,7 +129,6 @@ extension ChatView {
     var layoutDecoratedChatView: some View {
         mainChatLayout
             .modifier(ChatViewChromeModifier(
-                title: viewModel.chatSession.title,
                 layoutMetrics: layoutMetrics,
                 availableMessageWidth: availableMessageWidth,
                 showScrollToBottomButton: scrollState.showScrollToBottomButton,
@@ -141,7 +137,7 @@ extension ChatView {
                 composer: { floatingInputPanel },
                 scrollToBottomButton: { scrollToBottomButton },
                 shadowShelf: {
-                    ChatComposerShadowShelf(bottomPadding: layoutMetrics.composerBottomPadding)
+                    ChatComposerShadowShelf()
                 }
             ))
     }
@@ -149,6 +145,7 @@ extension ChatView {
     var mainChatLayout: some View {
         ChatConversationLayout(
             audioManager: audioManager,
+            navigationTitle: viewModel.chatSession.title,
             isHydratingSession: isHydratingSession,
             isVoiceOverlayPresented: voiceOverlayVM.isPresented,
             shouldDisplayAudioPlayer: shouldDisplayAudioPlayer,
@@ -208,12 +205,13 @@ extension ChatView {
             branchRenderEpoch: branchRenderEpoch,
             isLoading: viewModel.isLoading,
             isPriming: viewModel.isPriming,
+            isToolContinuationLoading: viewModel.isToolContinuationLoading,
             isRetrying: viewModel.isRetrying,
             retryAttempt: viewModel.retryAttempt,
             retryLastError: viewModel.retryLastError,
             messageToolActivities: viewModel.messageToolActivities,
             messageToolActivityPlacements: viewModel.messageToolActivityPlacements,
-            branchControlsEnabled: !(viewModel.isLoading || viewModel.isPriming || viewModel.isEditing),
+            branchControlsEnabled: !(viewModel.isLoading || viewModel.isPriming || viewModel.isToolContinuationLoading || viewModel.isEditing),
             developerModeEnabled: settingsManager.developerModeEnabled,
             activeSearchHighlightTargetID: scrollInteractionState.activeSearchHighlightTargetID,
             availableMessageWidth: availableMessageWidth,
@@ -239,6 +237,9 @@ extension ChatView {
                 didTriggerResponseStartHaptic = false
                 viewModel.retry(afterErrorMessage: message)
                 triggerTextHaptic(.lightTap)
+            },
+            onAuthorizeTool: { requestID, allowed in
+                viewModel.resolveToolAuthorization(requestID: requestID, allowed: allowed)
             }
         )
     }

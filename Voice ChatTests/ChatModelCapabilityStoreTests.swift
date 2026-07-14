@@ -22,6 +22,12 @@ final class ChatModelCapabilityStoreTests: XCTestCase {
                 apiBaseURL: "http://localhost:1234"
             )
         )
+        XCTAssertFalse(
+            store.isImageInputSupportUnknown(
+                for: "plain-text-model",
+                apiBaseURL: "http://localhost:1234"
+            )
+        )
         XCTAssertTrue(
             store.supportsImageInput(
                 for: "plain-text-model",
@@ -43,7 +49,7 @@ final class ChatModelCapabilityStoreTests: XCTestCase {
             store.thinkingCapability(
                 for: "custom-model",
                 apiBaseURL: "http://localhost:1234",
-                provider: .openAICompatible,
+                provider: .openAI,
                 requestStyle: .openAIChatCompletions
             ),
             explicitCapability
@@ -52,7 +58,7 @@ final class ChatModelCapabilityStoreTests: XCTestCase {
             store.thinkingCapability(
                 for: "custom-model",
                 apiBaseURL: "http://other-host:1234",
-                provider: .openAICompatible,
+                provider: .openAI,
                 requestStyle: .openAIChatCompletions
             )
         )

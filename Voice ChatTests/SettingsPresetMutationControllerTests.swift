@@ -14,7 +14,7 @@ final class SettingsPresetMutationControllerTests: XCTestCase {
             name: "Local",
             apiURL: "http://localhost:1234",
             selectedModel: "model-a",
-            apiFormatPreference: .openAICompatible,
+            apiFormatPreference: .openAIResponses,
             apiKey: "secret",
             context: harness.context,
             saveAPIKey: { savedKeys.append(($0, $1)) },

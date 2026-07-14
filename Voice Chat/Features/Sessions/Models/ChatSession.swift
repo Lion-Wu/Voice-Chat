@@ -52,4 +52,28 @@ extension ChatSession {
             lastMessageAt = date
         }
     }
+
+    func synchronizeTransientMessageStateForPersistence() {
+        for message in messages {
+            message.synchronizeAssistantSegmentsForPersistence()
+        }
+    }
+
+    func hydrateTransientMessageState() {
+        for message in messages {
+            message.hydrateAssistantSegmentsIfNeeded()
+        }
+    }
+
+    func markTransientMessageStatePersisted() {
+        for message in messages {
+            message.markAssistantSegmentsPersisted()
+        }
+    }
+
+    func markTransientMessageStatePersistenceFailed() {
+        for message in messages {
+            message.markAssistantSegmentsPersistenceFailed()
+        }
+    }
 }

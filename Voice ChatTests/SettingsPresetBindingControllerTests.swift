@@ -46,7 +46,7 @@ final class SettingsPresetBindingControllerTests: XCTestCase {
         let automatic = ChatServerPreset(name: "Auto")
         let responses = ChatServerPreset(
             name: "Responses",
-            apiFormatPreferenceRaw: ChatAPIFormatPreference.openAICompatible.rawValue
+            apiFormatPreferenceRaw: ChatAPIFormatPreference.openAIResponses.rawValue
         )
 
         let binding = SettingsPresetBindingProjector.chatServerBinding(
@@ -57,7 +57,7 @@ final class SettingsPresetBindingControllerTests: XCTestCase {
         XCTAssertEqual(binding.presets.map(\.name), ["Auto", "Responses"])
         XCTAssertEqual(binding.selectedID, responses.id)
         XCTAssertEqual(binding.name, "Responses")
-        XCTAssertEqual(binding.formatPreference, .openAICompatible)
+        XCTAssertEqual(binding.formatPreference, .openAIResponses)
 
         let missing = SettingsPresetBindingProjector.chatServerBinding(
             presets: [automatic, responses],

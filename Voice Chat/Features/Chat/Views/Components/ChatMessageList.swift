@@ -14,6 +14,7 @@ struct ChatMessageList: View {
     let branchRenderEpoch: Int
     let isLoading: Bool
     let isPriming: Bool
+    let isToolContinuationLoading: Bool
     let isRetrying: Bool
     let retryAttempt: Int
     let retryLastError: String?
@@ -33,6 +34,7 @@ struct ChatMessageList: View {
     let onEditUserMessage: (ChatMessage) -> Void
     let onSwitchVersion: (ChatMessage) -> Void
     let onRetry: (ChatMessage) -> Void
+    let onAuthorizeTool: (String, Bool) -> Void
 
     var body: some View {
         let content = core
@@ -49,22 +51,27 @@ struct ChatMessageList: View {
     }
 
     private var core: some View {
-        let visibleMessageIDs = visibleMessages.map(\.id)
+        let visibleMessageIDs = Set(visibleMessages.map(\.id))
+        let displayMessages = visibleMessages.filter {
+            !shouldInlineErrorMessage($0, visibleMessageIDs: visibleMessageIDs)
+        }
+        let displayMessageIDs = displayMessages.map(\.id)
+        let statusHostID = inlineStatusHostMessageID(in: displayMessages)
 
         return VStack(spacing: 12) {
-            ForEach(visibleMessages, id: \.id) { message in
-                messageRow(for: message)
+            ForEach(displayMessages, id: \.id) { message in
+                messageRow(for: message, inlineStatusHostID: statusHostID)
                     .id(message.id)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             }
 
-            if isRetrying {
+            if statusHostID == nil, isRetrying {
                 AssistantAlignedRetryingBubble(
                     attempt: retryAttempt,
                     lastError: retryLastError,
                     maxBubbleWidth: availableMessageWidth
                 )
-            } else if isPriming {
+            } else if statusHostID == nil, isPriming || isToolContinuationLoading {
                 AssistantAlignedLoadingBubble(maxBubbleWidth: availableMessageWidth)
             }
 
@@ -85,13 +92,14 @@ struct ChatMessageList: View {
                 Color.clear.preference(key: ContentHeightKey.self, value: contentGeo.size.height)
             }
         )
-        .animation(.spring(response: 0.35, dampingFraction: 0.85), value: visibleMessageIDs)
+        .animation(.spring(response: 0.35, dampingFraction: 0.85), value: displayMessageIDs)
     }
 
-    private func messageRow(for message: ChatMessage) -> some View {
+    private func messageRow(for message: ChatMessage, inlineStatusHostID: UUID?) -> some View {
         let isStreamingAssistant = isLoading && !message.isUser && message.isActive
-        let showButtons = !isStreamingAssistant
-        let fingerprint = fingerprintCache[message.id] ?? ContentFingerprint.make(message.content)
+        let isInlineStatusHost = inlineStatusHostID == message.id
+        let showButtons = !(isStreamingAssistant || isInlineStatusHost)
+        let fingerprint = fingerprintCache[message.id] ?? ContentFingerprint.make(message.renderFingerprintSource)
         let highlightQuery = searchHighlightQuery(message)
         let searchHighlightID = highlightQuery == nil ? nil : activeSearchHighlightTargetID
         let messageActivityPlacements = mergedToolActivityPlacements(for: message)
@@ -100,6 +108,8 @@ struct ChatMessageList: View {
             runtimeActivities: messageToolActivities[message.id] ?? [],
             mergedPlacements: messageActivityPlacements
         )
+        let inlineErrorMessage = inlineErrorMessage(for: message)
+        let inlineErrorFingerprint = inlineErrorMessage.map { ContentFingerprint.make($0.content) }
         let key = VoiceMessageEqKey(
             id: message.id,
             isUser: message.isUser,
@@ -108,7 +118,12 @@ struct ChatMessageList: View {
             branchRenderEpoch: branchRenderEpoch,
             showActionButtons: showButtons,
             branchControlsEnabled: branchControlsEnabled,
+            layoutWidth: availableMessageWidth.rounded(),
             contentFP: fingerprint,
+            inlineErrorFP: inlineErrorFingerprint,
+            inlineLoading: isInlineStatusHost && !isRetrying,
+            inlineRetryAttempt: isInlineStatusHost && isRetrying ? retryAttempt : nil,
+            inlineRetryLastError: isInlineStatusHost && isRetrying ? retryLastError : nil,
             toolActivityPlacements: messageActivityPlacements,
             developerModeEnabled: developerModeEnabled,
             searchHighlightID: searchHighlightID
@@ -123,6 +138,10 @@ struct ChatMessageList: View {
                 developerModeEnabled: developerModeEnabled,
                 maxBubbleWidth: availableMessageWidth,
                 contentFingerprint: fingerprint,
+                inlineErrorMessage: inlineErrorMessage,
+                inlineLoading: isInlineStatusHost && !isRetrying,
+                inlineRetryAttempt: isInlineStatusHost && isRetrying ? retryAttempt : nil,
+                inlineRetryLastError: isInlineStatusHost && isRetrying ? retryLastError : nil,
                 toolActivities: messageActivities,
                 toolActivityPlacements: messageActivityPlacements,
                 searchHighlightQuery: highlightQuery,
@@ -130,8 +149,46 @@ struct ChatMessageList: View {
                 onRegenerate: onRegenerate,
                 onEditUserMessage: onEditUserMessage,
                 onSwitchVersion: onSwitchVersion,
-                onRetry: onRetry
+                onRetry: onRetry,
+                onAuthorizeTool: onAuthorizeTool
             )
+        }
+    }
+
+    private func inlineStatusHostMessageID(in messages: [ChatMessage]) -> UUID? {
+        guard isRetrying || isPriming || isToolContinuationLoading else { return nil }
+        if let activeAssistant = messages.last(where: { message in
+            !message.isUser && message.isActive && !message.content.hasPrefix("!error:")
+        }) {
+            return activeAssistant.id
+        }
+        if isToolContinuationLoading || isRetrying {
+            return messages.last(where: { message in
+                !message.isUser && !message.content.hasPrefix("!error:")
+            })?.id
+        }
+        return nil
+    }
+
+    private func shouldInlineErrorMessage(_ message: ChatMessage, visibleMessageIDs: Set<UUID>) -> Bool {
+        guard message.content.hasPrefix("!error:"),
+              let parent = message.parentMessage,
+              !parent.isUser,
+              visibleMessageIDs.contains(parent.id),
+              parent.activeChildMessageID == message.id else {
+            return false
+        }
+        return true
+    }
+
+    private func inlineErrorMessage(for message: ChatMessage) -> ChatMessage? {
+        guard !message.isUser,
+              !message.content.hasPrefix("!error:"),
+              let activeChildMessageID = message.activeChildMessageID else {
+            return nil
+        }
+        return message.childMessages.first {
+            $0.id == activeChildMessageID && $0.content.hasPrefix("!error:")
         }
     }
 
@@ -144,12 +201,7 @@ struct ChatMessageList: View {
                 merged.append(placement)
             }
         }
-        return merged.sorted {
-            if $0.offset == $1.offset {
-                return $0.id < $1.id
-            }
-            return $0.offset < $1.offset
-        }
+        return merged
     }
 
     private func mergedToolActivities(
@@ -166,8 +218,8 @@ struct ChatMessageList: View {
             }
         }
         var placementOrder: [String: Int] = [:]
-        for placement in mergedPlacements where placementOrder[placement.id] == nil {
-            placementOrder[placement.id] = placement.offset
+        for (index, placement) in mergedPlacements.enumerated() where placementOrder[placement.id] == nil {
+            placementOrder[placement.id] = index
         }
         return activities.sorted {
             let lhs = placementOrder[$0.id] ?? Int.max

@@ -10,14 +10,11 @@ import SwiftUI
 struct ChatComposerLayoutMetrics: Equatable {
     let textFieldHeight: CGFloat
     let editingBannerHeight: CGFloat
-    let measuredFloatingInputPanelHeight: CGFloat
     let pendingAttachmentCount: Int
     let queuedDraftCount: Int
     let hasQueuedDrafts: Bool
     let isEditingComposerDraft: Bool
     let hasConfigurableThinking: Bool
-    let hasErrorNotices: Bool
-    let errorNoticeStackHeight: CGFloat
 
     var messageListHorizontalPadding: CGFloat {
         #if os(macOS)
@@ -73,15 +70,9 @@ struct ChatComposerLayoutMetrics: Equatable {
         composerMainBarHeight + composerSupportingContentEstimatedHeight
     }
 
-    var floatingInputPanelHeight: CGFloat {
-        measuredFloatingInputPanelHeight > 0
-            ? measuredFloatingInputPanelHeight
-            : estimatedFloatingInputPanelHeight
-    }
-
     var composerBottomPadding: CGFloat {
         #if os(iOS) || os(tvOS)
-        return 26
+        return 8
         #elseif os(visionOS)
         return 24
         #else
@@ -199,17 +190,13 @@ struct ChatComposerLayoutMetrics: Equatable {
     }
 
     var messageListBottomInset: CGFloat {
-        let composerClearance = floatingInputPanelHeight + composerBottomPadding + 6
-        guard hasErrorNotices else { return composerClearance }
-        return max(composerClearance, noticeBottomPadding + errorNoticeStackHeight + 6)
-    }
-
-    var noticeBottomPadding: CGFloat {
-        composerBottomPadding + floatingInputPanelHeight + 8
-    }
-
-    var scrollButtonNoticeClearance: CGFloat {
-        hasErrorNotices ? errorNoticeStackHeight + AppChromeMetrics.floatingGap : 0
+        #if os(iOS) || os(tvOS)
+        return 14
+        #elseif os(visionOS)
+        return 18
+        #else
+        return 12
+        #endif
     }
 
     var scrollButtonSize: CGFloat {

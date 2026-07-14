@@ -51,6 +51,10 @@ final class ChatSessionMutationController {
         return resolution.messages
     }
 
+    func messagesThrough(_ target: ChatMessage, in session: ChatSession) -> [ChatMessage]? {
+        ChatMessageBranchResolver.messagesThrough(target, in: session)
+    }
+
     func invalidateBranchMessagesCache() {
         branchState.invalidateBranchMessages()
     }

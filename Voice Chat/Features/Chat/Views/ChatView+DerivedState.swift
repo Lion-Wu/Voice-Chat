@@ -12,14 +12,11 @@ extension ChatView {
         ChatComposerLayoutMetrics(
             textFieldHeight: textFieldHeight,
             editingBannerHeight: editingBannerHeight,
-            measuredFloatingInputPanelHeight: measuredFloatingInputPanelHeight,
             pendingAttachmentCount: viewModel.pendingImageAttachments.count,
             queuedDraftCount: viewModel.queuedDrafts.count,
             hasQueuedDrafts: viewModel.hasQueuedDrafts,
             isEditingComposerDraft: viewModel.isEditingComposerDraft,
-            hasConfigurableThinking: currentModelThinkingCapability?.isConfigurable == true,
-            hasErrorNotices: !errorCenter.notices.isEmpty,
-            errorNoticeStackHeight: errorNoticeStackHeight
+            hasConfigurableThinking: currentModelThinkingCapability?.isConfigurable == true
         )
     }
 
@@ -43,7 +40,7 @@ extension ChatView {
     }
 
     var canActivateComposerOverflowBottomAnchor: Bool {
-        viewModel.isLoading || viewModel.isPriming
+        viewModel.isLoading || viewModel.isPriming || viewModel.isToolContinuationLoading
     }
 
     var shouldUseBottomScrollAnchor: Bool {

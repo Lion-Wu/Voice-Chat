@@ -62,6 +62,11 @@ struct TTSPlaybackState: Equatable, Sendable {
     }
 
     var playbackFinished: Bool {
+        playbackFinished(at: currentTime)
+    }
+
+    func playbackFinished(at playbackTime: TimeInterval) -> Bool {
+        guard !isRealtimeMode || realtimeFinalized else { return false }
         if !isRealtimeMode,
            !audioChunkIsLoaded.isEmpty,
            allChunksLoaded,
@@ -69,7 +74,9 @@ struct TTSPlaybackState: Equatable, Sendable {
            currentChunkIndex >= textSegmentCount {
             return true
         }
-        return totalDuration > 0 && allChunksLoaded && currentTime >= max(0, totalDuration - endEpsilon)
+        return totalDuration > 0 &&
+            allChunksLoaded &&
+            playbackTime >= max(0, totalDuration - endEpsilon)
     }
 
     var calculatedTotalDuration: TimeInterval {

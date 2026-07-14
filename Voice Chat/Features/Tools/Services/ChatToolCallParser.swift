@@ -9,12 +9,17 @@ import Foundation
 
 struct ChatToolCallAccumulator: Equatable {
     private var openAIChunks: [String: PartialToolCall] = [:]
+    private var openAIResponseChunkAliases: [String: String] = [:]
     private var anthropicChunks: [String: PartialToolCall] = [:]
 
-    mutating func absorbOpenAICompatiblePayload(_ dictionary: [String: Any], provider: ChatProvider?) -> [ChatToolCallEnvelope] {
+    mutating func absorbOpenAICompatiblePayload(
+        _ dictionary: [String: Any],
+        fallbackType: String? = nil,
+        provider: ChatProvider?
+    ) -> [ChatToolCallEnvelope] {
         var completed: [ChatToolCallEnvelope] = []
         completed.append(contentsOf: absorbChatCompletionsPayload(dictionary, provider: provider))
-        completed.append(contentsOf: absorbResponsesPayload(dictionary, provider: provider))
+        completed.append(contentsOf: absorbResponsesPayload(dictionary, fallbackType: fallbackType, provider: provider))
         return completed
     }
 
@@ -46,16 +51,6 @@ struct ChatToolCallAccumulator: Equatable {
         }
     }
 
-    mutating func drain(provider: ChatProvider?) -> [ChatToolCallEnvelope] {
-        let openAI = openAIChunks.values.compactMap { partial in
-            partial.name.isEmpty ? nil : partial.envelope(provider: provider)
-        }
-        let anthropic = anthropicChunks.values.map { $0.envelope(provider: provider ?? .anthropic) }
-        openAIChunks.removeAll()
-        anthropicChunks.removeAll()
-        return openAI + anthropic
-    }
-
     private func anthropicToolCallKey(for event: AnthropicStreamEvent) -> String? {
         event.index.map { "index-\($0)" }
     }
@@ -67,6 +62,7 @@ struct ChatToolCallAccumulator: Equatable {
 
     mutating func reset() {
         openAIChunks.removeAll()
+        openAIResponseChunkAliases.removeAll()
         anthropicChunks.removeAll()
     }
 
@@ -145,39 +141,65 @@ struct ChatToolCallAccumulator: Equatable {
         openAIChunks[key] = partial
     }
 
-    private mutating func absorbResponsesPayload(_ dictionary: [String: Any], provider: ChatProvider?) -> [ChatToolCallEnvelope] {
-        let eventType = ((dictionary["type"] as? String) ?? "").lowercased()
+    private mutating func absorbResponsesPayload(
+        _ dictionary: [String: Any],
+        fallbackType: String?,
+        provider: ChatProvider?
+    ) -> [ChatToolCallEnvelope] {
+        let eventType = ((dictionary["type"] as? String) ?? fallbackType ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
         var completed: [ChatToolCallEnvelope] = []
 
         if eventType == "response.output_item.added" || eventType == "response.output_item.done",
            let item = dictionary["item"] as? [String: Any],
            ((item["type"] as? String) ?? "").lowercased() == "function_call" {
-            absorbResponsesFunctionCallItem(item, completes: eventType == "response.output_item.done", provider: provider, into: &completed)
+            let completes = eventType == "response.output_item.done" && functionCallItemIsComplete(item, terminalEvent: true)
+            absorbResponsesFunctionCallItem(item, completes: completes, provider: provider, into: &completed)
         }
 
         if eventType == "response.function_call_arguments.delta" {
-            let itemID = (dictionary["item_id"] as? String) ?? (dictionary["call_id"] as? String) ?? "responses-tool-call"
-            openAIChunks[itemID, default: PartialToolCall(callID: dictionary["call_id"] as? String ?? itemID, name: dictionary["name"] as? String ?? "", arguments: "")]
+            let callID = normalizedIdentifier(dictionary["call_id"] as? String)
+            let itemID = normalizedIdentifier(dictionary["item_id"] as? String)
+            let key = responseToolCallKey(itemID: itemID, callID: callID, fallback: "responses-tool-call")
+            openAIChunks[key, default: PartialToolCall(callID: callID ?? key, itemID: itemID, name: dictionary["name"] as? String ?? "", arguments: "")]
                 .arguments += (dictionary["delta"] as? String) ?? ""
         }
 
         if eventType == "response.function_call_arguments.done" {
-            let itemID = (dictionary["item_id"] as? String) ?? (dictionary["call_id"] as? String) ?? "responses-tool-call"
-            var partial = openAIChunks[itemID] ?? PartialToolCall(callID: dictionary["call_id"] as? String ?? itemID, name: dictionary["name"] as? String ?? "", arguments: "")
+            if let item = dictionary["item"] as? [String: Any],
+               ((item["type"] as? String) ?? "").lowercased() == "function_call" {
+                absorbResponsesFunctionCallItem(item, completes: true, provider: provider, into: &completed)
+                return completed
+            }
+
+            let callID = normalizedIdentifier(dictionary["call_id"] as? String)
+            let itemID = normalizedIdentifier(dictionary["item_id"] as? String)
+            let key = responseToolCallKey(itemID: itemID, callID: callID, fallback: "responses-tool-call")
+            var partial = openAIChunks[key] ?? PartialToolCall(callID: callID ?? key, itemID: itemID, name: dictionary["name"] as? String ?? "", arguments: "")
+            if let callID { partial.callID = callID }
+            if let itemID { partial.itemID = itemID }
             if let arguments = dictionary["arguments"] as? String { partial.arguments = arguments }
             if let name = dictionary["name"] as? String, !name.isEmpty { partial.name = name }
             if !partial.name.isEmpty {
                 completed.append(partial.envelope(provider: provider))
-                openAIChunks[itemID] = nil
+                openAIChunks[key] = nil
+                removeResponseAliases(pointingTo: key)
             } else {
-                openAIChunks[itemID] = partial
+                openAIChunks[key] = partial
             }
         }
 
         if let response = dictionary["response"] as? [String: Any],
+           responseIsComplete(response, eventType: eventType),
            let output = response["output"] as? [[String: Any]] {
             for item in output where ((item["type"] as? String) ?? "").lowercased() == "function_call" {
-                absorbResponsesFunctionCallItem(item, completes: true, provider: provider, into: &completed)
+                absorbResponsesFunctionCallItem(
+                    item,
+                    completes: functionCallItemIsComplete(item, terminalEvent: true),
+                    provider: provider,
+                    into: &completed
+                )
             }
         }
 
@@ -190,19 +212,66 @@ struct ChatToolCallAccumulator: Equatable {
         provider: ChatProvider?,
         into completed: inout [ChatToolCallEnvelope]
     ) {
-        let itemID = (item["id"] as? String) ?? (item["call_id"] as? String) ?? UUID().uuidString
-        var partial = openAIChunks[itemID] ?? PartialToolCall(callID: item["call_id"] as? String ?? itemID, name: "", arguments: "")
+        let callID = normalizedIdentifier(item["call_id"] as? String)
+        let itemID = normalizedIdentifier(item["id"] as? String)
+        let key = responseToolCallKey(itemID: itemID, callID: callID, fallback: UUID().uuidString)
+        var partial = openAIChunks[key] ?? PartialToolCall(callID: callID ?? key, itemID: itemID, name: "", arguments: "")
         if let callID = item["call_id"] as? String, !callID.isEmpty { partial.callID = callID }
+        if let itemID { partial.itemID = itemID }
         if let name = item["name"] as? String, !name.isEmpty { partial.name = name }
         if let arguments = normalizedArgumentFragment(from: item["arguments"]), !arguments.isEmpty {
             partial.arguments = arguments
         }
         if completes, !partial.name.isEmpty {
             completed.append(partial.envelope(provider: provider))
-            openAIChunks[itemID] = nil
+            openAIChunks[key] = nil
+            removeResponseAliases(pointingTo: key)
         } else {
-            openAIChunks[itemID] = partial
+            openAIChunks[key] = partial
         }
+    }
+
+    private mutating func responseToolCallKey(
+        itemID: String?,
+        callID: String?,
+        fallback: String
+    ) -> String {
+        if let itemID, let existing = openAIResponseChunkAliases[itemID] {
+            if let callID { openAIResponseChunkAliases[callID] = existing }
+            mergeResponseChunks(into: existing, from: [itemID, callID].compactMap { $0 })
+            return existing
+        }
+        if let callID, let existing = openAIResponseChunkAliases[callID] {
+            if let itemID { openAIResponseChunkAliases[itemID] = existing }
+            mergeResponseChunks(into: existing, from: [itemID, callID].compactMap { $0 })
+            return existing
+        }
+
+        let key = itemID ?? callID ?? fallback
+        if let itemID { openAIResponseChunkAliases[itemID] = key }
+        if let callID { openAIResponseChunkAliases[callID] = key }
+        mergeResponseChunks(into: key, from: [itemID, callID].compactMap { $0 })
+        return key
+    }
+
+    private mutating func mergeResponseChunks(into key: String, from aliases: [String]) {
+        for alias in aliases where alias != key {
+            guard let other = openAIChunks.removeValue(forKey: alias) else { continue }
+            var merged = openAIChunks[key] ?? PartialToolCall(callID: key, name: "", arguments: "")
+            merged = merged.merging(other)
+            openAIChunks[key] = merged
+        }
+    }
+
+    private mutating func removeResponseAliases(pointingTo key: String) {
+        openAIResponseChunkAliases = openAIResponseChunkAliases.filter { entry in
+            entry.key != key && entry.value != key
+        }
+    }
+
+    private func normalizedIdentifier(_ value: String?) -> String? {
+        let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return trimmed.isEmpty ? nil : trimmed
     }
 
     private func isOpenAIToolFinishReason(_ finishReason: String?) -> Bool {
@@ -210,6 +279,23 @@ struct ChatToolCallAccumulator: Equatable {
         return finishReason == "tool_calls" ||
             finishReason == "tool_call" ||
             finishReason == "function_call"
+    }
+
+    private func responseIsComplete(_ response: [String: Any], eventType: String) -> Bool {
+        let status = ((response["status"] as? String) ?? "").lowercased()
+        if status == "completed" {
+            return true
+        }
+        guard status.isEmpty else { return false }
+        return eventType == "response.completed" || eventType == "response.done"
+    }
+
+    private func functionCallItemIsComplete(_ item: [String: Any], terminalEvent: Bool) -> Bool {
+        let status = ((item["status"] as? String) ?? "").lowercased()
+        if status.isEmpty {
+            return terminalEvent
+        }
+        return status == "completed"
     }
 
     private func toolCallKey(from item: [String: Any]) -> String {
@@ -248,12 +334,32 @@ struct ChatToolCallAccumulator: Equatable {
 
 private struct PartialToolCall: Equatable {
     var callID: String
+    var itemID: String? = nil
     var name: String
     var arguments: String
+
+    func merging(_ other: PartialToolCall) -> PartialToolCall {
+        PartialToolCall(
+            callID: callID.isEmpty ? other.callID : callID,
+            itemID: itemID ?? other.itemID,
+            name: name.isEmpty ? other.name : name,
+            arguments: mergedArguments(with: other.arguments)
+        )
+    }
+
+    private func mergedArguments(with otherArguments: String) -> String {
+        guard !arguments.isEmpty else { return otherArguments }
+        guard !otherArguments.isEmpty else { return arguments }
+        if arguments == otherArguments { return arguments }
+        if arguments.hasSuffix(otherArguments) { return arguments }
+        if otherArguments.hasSuffix(arguments) { return otherArguments }
+        return arguments + otherArguments
+    }
 
     func envelope(provider: ChatProvider?) -> ChatToolCallEnvelope {
         ChatToolCallEnvelope(
             callID: callID,
+            itemID: itemID,
             name: name,
             argumentsJSON: arguments.isEmpty ? "{}" : arguments,
             provider: provider

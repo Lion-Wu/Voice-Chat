@@ -39,7 +39,7 @@ final class VoiceVisionSampleSelectorTests: XCTestCase {
 
     func testSelectedAttachmentsPreferVisuallyDistinctSamplesInTimeOrder() throws {
         #if os(iOS) || os(macOS)
-        let start = Date(timeIntervalSince1970: 100)
+        let start = TestDate.reference
         let samples = [
             imageSample(gray: 96, capturedAt: start),
             imageSample(gray: 108, capturedAt: start.addingTimeInterval(2)),
@@ -62,7 +62,7 @@ final class VoiceVisionSampleSelectorTests: XCTestCase {
 
     func testSelectedAttachmentsTreatsSmallCameraShiftAsSimilar() throws {
         #if os(iOS) || os(macOS)
-        let start = Date(timeIntervalSince1970: 100)
+        let start = TestDate.reference
         let samples = [
             imageSample(splitAt: 28, capturedAt: start),
             imageSample(splitAt: 36, capturedAt: start.addingTimeInterval(2))
@@ -81,7 +81,7 @@ final class VoiceVisionSampleSelectorTests: XCTestCase {
 
     func testSelectedAttachmentsTreatsLargeCameraShiftAsSimilar() throws {
         #if os(iOS) || os(macOS)
-        let start = Date(timeIntervalSince1970: 100)
+        let start = TestDate.reference
         let samples = [
             imageSample(splitAt: 16, capturedAt: start),
             imageSample(splitAt: 40, capturedAt: start.addingTimeInterval(2))
@@ -106,7 +106,7 @@ final class VoiceVisionSampleSelectorTests: XCTestCase {
     }
 
     func testSelectedAttachmentsUsesDurationAndAvailability() {
-        let start = Date(timeIntervalSince1970: 100)
+        let start = TestDate.reference
         let samples = sampleRange(0..<10, start: start)
 
         let selected = VoiceVisionSampleSelector.selectedAttachments(
@@ -126,7 +126,7 @@ final class VoiceVisionSampleSelectorTests: XCTestCase {
     }
 
     func testSelectedAttachmentsFallsBackWhenFingerprintsAreIncomplete() {
-        let start = Date(timeIntervalSince1970: 100)
+        let start = TestDate.reference
         let samples = [
             sample(index: 0, capturedAt: start, visualFingerprint: nil),
             sample(
@@ -154,7 +154,7 @@ final class VoiceVisionSampleSelectorTests: XCTestCase {
     }
 
     func testEstimatedCountAndMIMETypeNormalization() {
-        let start = Date(timeIntervalSince1970: 100)
+        let start = TestDate.reference
         let samples = sampleRange(0..<10, start: start)
 
         XCTAssertEqual(VoiceVisionSampleSelector.estimatedAttachmentCount(
@@ -175,7 +175,7 @@ final class VoiceVisionSampleSelectorTests: XCTestCase {
 
     private func sampleRange(
         _ range: Range<Int>,
-        start: Date = Date(timeIntervalSince1970: 0)
+        start: Date = TestDate.reference
     ) -> [VoiceVisionCaptureSample] {
         range.map { index in
             sample(index: index, capturedAt: start.addingTimeInterval(Double(index)))

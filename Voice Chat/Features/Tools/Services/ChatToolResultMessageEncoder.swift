@@ -12,18 +12,44 @@ enum ChatToolResultMessageEncoder {
         for endpoint: ChatAPIEndpointCandidate,
         originalPayload: [[String: Any]],
         calls: [ChatToolCallEnvelope],
-        results: [ChatToolResultEnvelope]
+        results: [ChatToolResultEnvelope],
+        previousResponseID: String? = nil,
+        responsesOutputItems: [[String: Any]] = [],
+        anthropicContentBlocks: [[String: Any]] = [],
+        chatCompletionsReasoningDetails: [JSONValue] = [],
+        chatCompletionsReasoning: String? = nil
     ) -> [[String: Any]] {
-        switch endpoint.style {
-        case .anthropicMessages:
-            return anthropicPayload(originalPayload: originalPayload, calls: calls, results: results)
-        case .openAIChatCompletions:
-            if ChatRequestBodyEndpointClassifier.isOpenAIResponsesEndpoint(endpoint.chatURL) {
-                return responsesPayload(originalPayload: originalPayload, calls: calls, results: results)
-            }
-            return chatCompletionsPayload(originalPayload: originalPayload, calls: calls, results: results)
-        case .lmStudioRESTV1, .lmStudioRESTV1LegacyMessage:
-            return lmStudioPromptPayload(originalPayload: originalPayload, calls: calls, results: results)
+        switch endpoint.toolCallingTransport {
+        case .anthropicMessagesAPI:
+            return anthropicPayload(
+                originalPayload: originalPayload,
+                calls: calls,
+                results: results,
+                contentBlocks: anthropicContentBlocks
+            )
+        case .openAIResponsesAPI:
+            return responsesPayload(
+                originalPayload: originalPayload,
+                calls: calls,
+                results: results,
+                previousResponseID: previousResponseID,
+                outputItems: responsesOutputItems
+            )
+        case .openAIChatCompletionsAPI:
+            return chatCompletionsPayload(
+                originalPayload: originalPayload,
+                calls: calls,
+                results: results,
+                reasoningDetails: chatCompletionsReasoningDetails,
+                reasoning: chatCompletionsReasoning
+            )
+        case .promptProtocol:
+            return promptToolPayload(
+                originalPayload: originalPayload,
+                calls: calls,
+                results: results,
+                previousResponseID: previousResponseID
+            )
         }
     }
 
@@ -32,10 +58,11 @@ enum ChatToolResultMessageEncoder {
         to requestBody: inout [String: Any],
         endpoint: ChatAPIEndpointCandidate
     ) {
-        guard endpoint.style == .openAIChatCompletions,
-              ChatRequestBodyEndpointClassifier.isOpenAIResponsesEndpoint(endpoint.chatURL),
-              let responseID,
-              !responseID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+        guard endpoint.style == .openAIResponses,
+              let responseID = ChatRequestBodyProviderEncoder.normalizedPreviousResponseID(
+                responseID,
+                endpoint: endpoint
+              ) else {
             return
         }
         requestBody["previous_response_id"] = responseID
@@ -43,22 +70,24 @@ enum ChatToolResultMessageEncoder {
 
     static func previousResponseIDForToolContinuation(
         _ responseID: String?,
-        endpoint: ChatAPIEndpointCandidate
+        endpoint: ChatAPIEndpointCandidate,
+        settings: ToolUseSettings = .defaults
     ) -> String? {
-        guard endpoint.style == .openAIChatCompletions,
-              ChatRequestBodyEndpointClassifier.isOpenAIResponsesEndpoint(endpoint.chatURL) else {
-            return responseID
+        guard settings.useProviderContinuationIDs(for: endpoint) else {
+            return nil
         }
-        return nil
+        return ChatRequestBodyProviderEncoder.normalizedPreviousResponseID(responseID, endpoint: endpoint)
     }
 
     private static func chatCompletionsPayload(
         originalPayload: [[String: Any]],
         calls: [ChatToolCallEnvelope],
-        results: [ChatToolResultEnvelope]
+        results: [ChatToolResultEnvelope],
+        reasoningDetails: [JSONValue],
+        reasoning: String?
     ) -> [[String: Any]] {
         var payload = originalPayload
-        payload.append([
+        var assistantMessage: [String: Any] = [
             "role": "assistant",
             "content": NSNull(),
             "tool_calls": calls.map { call in
@@ -71,7 +100,14 @@ enum ChatToolResultMessageEncoder {
                     ]
                 ]
             }
-        ])
+        ]
+        if !reasoningDetails.isEmpty {
+            assistantMessage["reasoning_details"] = reasoningDetails.map(\.jsonObject)
+        } else if let reasoning,
+                  !reasoning.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            assistantMessage["reasoning"] = reasoning
+        }
+        payload.append(assistantMessage)
         for result in results {
             payload.append([
                 "role": "tool",
@@ -85,14 +121,28 @@ enum ChatToolResultMessageEncoder {
     private static func responsesPayload(
         originalPayload: [[String: Any]],
         calls: [ChatToolCallEnvelope],
-        results: [ChatToolResultEnvelope]
+        results: [ChatToolResultEnvelope],
+        previousResponseID: String?,
+        outputItems: [[String: Any]]
     ) -> [[String: Any]] {
-        var payload = originalPayload
+        if previousResponseID?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false {
+            return results.map { result in
+                [
+                    "type": "function_call_output",
+                    "call_id": result.callID,
+                    "output": result.outputJSONString
+                ]
+            }
+        }
+
+        var payload = openAIResponsesConversationPayload(from: originalPayload)
+        appendOpenAIResponsesOutputItems(outputItems, to: &payload)
         let existingCallIDs = Set(payload.compactMap { $0["call_id"] as? String })
         payload.append(contentsOf: calls.compactMap { call in
             guard !existingCallIDs.contains(call.callID) else { return nil }
             return [
                 "type": "function_call",
+                "id": call.itemID ?? call.callID,
                 "call_id": call.callID,
                 "name": call.name,
                 "arguments": call.argumentsJSON
@@ -108,22 +158,54 @@ enum ChatToolResultMessageEncoder {
         return payload
     }
 
+    private static func openAIResponsesConversationPayload(from payload: [[String: Any]]) -> [[String: Any]] {
+        payload
+    }
+
+    private static func appendOpenAIResponsesOutputItems(
+        _ outputItems: [[String: Any]],
+        to payload: inout [[String: Any]]
+    ) {
+        for item in outputItems {
+            let type = ((item["type"] as? String) ?? "").lowercased()
+            guard type == "reasoning" || type == "message" || type == "function_call" else { continue }
+            let key = openAIResponsesOutputItemKey(item)
+            guard !payload.contains(where: { openAIResponsesOutputItemKey($0) == key }) else { continue }
+            payload.append(item)
+        }
+    }
+
+    private static func openAIResponsesOutputItemKey(_ item: [String: Any]) -> String {
+        let type = ((item["type"] as? String) ?? "").lowercased()
+        if let id = item["id"] as? String, !id.isEmpty {
+            return "\(type):id:\(id)"
+        }
+        if let callID = item["call_id"] as? String, !callID.isEmpty {
+            return "\(type):call_id:\(callID)"
+        }
+        return "\(type):\(String(describing: item))"
+    }
+
     private static func anthropicPayload(
         originalPayload: [[String: Any]],
         calls: [ChatToolCallEnvelope],
-        results: [ChatToolResultEnvelope]
+        results: [ChatToolResultEnvelope],
+        contentBlocks: [[String: Any]]
     ) -> [[String: Any]] {
         var payload = originalPayload
-        payload.append([
-            "role": "assistant",
-            "content": calls.map { call in
+        let assistantContent = contentBlocks.isEmpty
+            ? calls.map { call in
                 [
                     "type": "tool_use",
                     "id": call.callID,
                     "name": call.name,
                     "input": parsedJSONObject(call.argumentsJSON) ?? [:]
-                ]
+                ] as [String: Any]
             }
+            : contentBlocks
+        payload.append([
+            "role": "assistant",
+            "content": assistantContent
         ])
         payload.append([
             "role": "user",
@@ -139,21 +221,25 @@ enum ChatToolResultMessageEncoder {
         return payload
     }
 
-    private static func lmStudioPromptPayload(
+    private static func promptToolPayload(
         originalPayload: [[String: Any]],
         calls: [ChatToolCallEnvelope],
-        results: [ChatToolResultEnvelope]
+        results: [ChatToolResultEnvelope],
+        previousResponseID: String?
     ) -> [[String: Any]] {
         var payload = originalPayload
         for call in calls {
             payload.append([
                 "role": "assistant",
-                "content": LMStudioPromptToolProtocol.toolCallText(for: call)
+                "content": ChatPromptToolProtocol.toolCallText(for: call)
             ])
         }
         payload.append([
             "role": "user",
-            "content": LMStudioPromptToolProtocol.toolResultText(for: results)
+            "content": ChatPromptToolProtocol.toolResultText(
+                for: results,
+                includeContinuationInstruction: previousResponseID?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false
+            )
         ])
         return payload
     }

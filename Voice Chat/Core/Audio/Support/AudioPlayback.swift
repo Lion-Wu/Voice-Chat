@@ -20,7 +20,8 @@ extension GlobalAudioManager {
             currentTime: currentTime,
             totalDuration: totalDuration,
             endEpsilon: endEpsilon,
-            isRealtimeMode: isRealtimeMode
+            isRealtimeMode: isRealtimeMode,
+            realtimeFinalized: realtimeFinalized
         )
     }
 
@@ -39,6 +40,10 @@ extension GlobalAudioManager {
 
     func playbackFinished() -> Bool {
         playbackStateSnapshot().playbackFinished
+    }
+
+    func playbackFinished(at playbackTime: TimeInterval) -> Bool {
+        playbackStateSnapshot().playbackFinished(at: playbackTime)
     }
 
     func recalcTotalDuration() {
@@ -103,7 +108,7 @@ extension GlobalAudioManager {
         }
 
         do {
-            if playbackFinished() || (allChunksLoaded() && currentTime >= totalDuration - endEpsilon) {
+            if playbackFinished() {
                 finishPlayback()
                 return false
             }
@@ -125,7 +130,7 @@ extension GlobalAudioManager {
             }
 
             let atSegmentEnd = localTime >= max(0, p.duration - endEpsilon)
-            let atGlobalEnd = allChunksLoaded() && (segStart + localTime) >= (totalDuration - endEpsilon)
+            let atGlobalEnd = playbackFinished(at: segStart + localTime)
             if atSegmentEnd && atGlobalEnd {
                 finishPlayback()
                 return false
@@ -139,12 +144,18 @@ extension GlobalAudioManager {
 
             if shouldPlay {
                 isPlaybackRequested = true
-                if allChunksLoaded() && (segStart + p.currentTime) >= (totalDuration - endEpsilon) {
+                if playbackFinished(at: segStart + p.currentTime) {
                     finishPlayback()
                     return false
                 }
-                let didPlay = p.play()
-                if !didPlay { _ = p.play() }
+                let didPlay = p.play() || p.play()
+                guard didPlay else {
+                    isBuffering = true
+                    isAudioPlaying = false
+                    if isRealtimeMode { isLoading = true }
+                    startStallWatchdog()
+                    return false
+                }
                 startAudioTimer()
                 startStallWatchdog()
                 isAudioPlaying = true

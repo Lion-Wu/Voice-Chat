@@ -10,11 +10,11 @@ import Foundation
 enum ModelCapabilityResolver {
     static func providerHint(from requestStyle: ChatRequestStyle?) -> ChatProvider? {
         switch requestStyle {
-        case .lmStudioRESTV1, .lmStudioRESTV1LegacyMessage:
+        case .lmStudioRESTV1:
             return .lmStudio
         case .anthropicMessages:
             return .anthropic
-        case .openAIChatCompletions, nil:
+        case .openAIResponses, .openAIChatCompletions, nil:
             return nil
         }
     }
@@ -62,9 +62,15 @@ enum ModelCapabilityResolver {
         guard !normalized.isEmpty else { return nil }
 
         switch provider {
-        case .openAI:
+        case .openAI, .unknown:
             if normalized.contains("gpt-5-pro") {
                 return nil
+            }
+            if normalized.contains("gpt-5.6") {
+                return ModelThinkingCapability(
+                    options: [.none, .low, .medium, .high, .xhigh, .max],
+                    defaultOption: .medium
+                )
             }
             if normalized.contains("gpt-5.5") {
                 return ModelThinkingCapability(options: [.low, .medium, .high, .xhigh], defaultOption: .medium)
@@ -95,6 +101,30 @@ enum ModelCapabilityResolver {
             if normalized.contains("o1") || normalized.contains("o3") || normalized.contains("o4") || normalized.contains("gpt-oss") {
                 return ModelThinkingCapability(options: [.low, .medium, .high], defaultOption: .medium)
             }
+            if normalized.contains("gemini-3") {
+                if normalized.contains("pro") {
+                    return ModelThinkingCapability(options: [.minimal, .low, .high], defaultOption: .high)
+                }
+                return ModelThinkingCapability(options: [.minimal, .low, .medium, .high], defaultOption: .high)
+            }
+            if normalized.contains("gemini-2.5") {
+                if normalized.contains("pro") {
+                    return ModelThinkingCapability(options: [.minimal, .low, .medium, .high], defaultOption: .high)
+                }
+                return ModelThinkingCapability(options: [.none, .minimal, .low, .medium, .high], defaultOption: ModelThinkingOption.none)
+            }
+            if normalized.contains("deepseek-v4") ||
+                normalized.contains("deepseek-reasoner") ||
+                normalized.contains("deepseek-chat") {
+                return ModelThinkingCapability(options: [.off, .high, .max], defaultOption: .high, requestParameter: .reasoning)
+            }
+            if normalized.contains("multi-agent") {
+                return ModelThinkingCapability(
+                    options: [.low, .medium, .high, .xhigh],
+                    defaultOption: .medium,
+                    requestParameter: .reasoning
+                )
+            }
             return nil
 
         case .anthropic:
@@ -115,89 +145,8 @@ enum ModelCapabilityResolver {
             }
             return nil
 
-        case .gemini:
-            if normalized.contains("gemini-3") {
-                if normalized.contains("pro") {
-                    return ModelThinkingCapability(options: [.minimal, .low, .high], defaultOption: .high)
-                }
-                return ModelThinkingCapability(options: [.minimal, .low, .medium, .high], defaultOption: .high)
-            }
-            if normalized.contains("gemini-2.5") {
-                if normalized.contains("pro") {
-                    return ModelThinkingCapability(options: [.minimal, .low, .medium, .high], defaultOption: .high)
-                }
-                return ModelThinkingCapability(options: [.none, .minimal, .low, .medium, .high], defaultOption: ModelThinkingOption.none)
-            }
-            return nil
-
-        case .deepSeek:
-            if normalized.contains("deepseek-v4") ||
-                normalized.contains("deepseek-reasoner") ||
-                normalized == "deepseek-chat" ||
-                normalized.hasSuffix("/deepseek-chat") {
-                return ModelThinkingCapability(options: [.off, .high, .max], defaultOption: .high)
-            }
-            return nil
-
         case .lmStudio:
             return nil
-
-        case .xAI:
-            if normalized.contains("multi-agent") {
-                return ModelThinkingCapability(
-                    options: [.low, .medium, .high, .xhigh],
-                    defaultOption: .medium,
-                    requestParameter: .reasoning
-                )
-            }
-            // xAI reasoning models reason automatically; current docs warn that generic
-            // reasoning effort parameters return errors for normal Grok reasoning models.
-            return nil
-
-        case .openRouter:
-            if let openAI = thinkingCapability(fromModelIdentifier: normalized, provider: .openAI, requestStyle: .openAIChatCompletions) {
-                return openRouterReasoningCapability(from: openAI)
-            }
-            if let gemini = thinkingCapability(fromModelIdentifier: normalized, provider: .gemini, requestStyle: .openAIChatCompletions) {
-                return openRouterReasoningCapability(from: gemini)
-            }
-            if let anthropic = thinkingCapability(fromModelIdentifier: normalized, provider: .anthropic, requestStyle: .openAIChatCompletions) {
-                return openRouterReasoningCapability(from: anthropic)
-            }
-            if normalized.contains("deepseek-v4") ||
-                normalized.contains("deepseek-chat") ||
-                normalized.contains("deepseek-reasoner") {
-                return ModelThinkingCapability(options: [.off, .high, .xhigh], defaultOption: .high, requestParameter: .reasoning)
-            }
-            return nil
-
-        case .llamaCpp:
-            return nil
-
-        case .openAICompatible, .unknown:
-            guard requestStyle == nil || requestStyle == .openAIChatCompletions else { return nil }
-            if let openAI = thinkingCapability(fromModelIdentifier: normalized, provider: .openAI, requestStyle: .openAIChatCompletions) {
-                return openAI
-            }
-            if let gemini = thinkingCapability(fromModelIdentifier: normalized, provider: .gemini, requestStyle: .openAIChatCompletions) {
-                return gemini
-            }
-            if normalized.contains("gpt-oss") {
-                return ModelThinkingCapability(options: [.low, .medium, .high], defaultOption: .medium)
-            }
-            return nil
         }
-    }
-
-    private static func openRouterReasoningCapability(from capability: ModelThinkingCapability) -> ModelThinkingCapability {
-        let options = capability.options.map { option in
-            option == .max ? .xhigh : option
-        }
-        let defaultOption = capability.defaultOption == .max ? ModelThinkingOption.xhigh : capability.defaultOption
-        return ModelThinkingCapability(
-            options: options,
-            defaultOption: defaultOption,
-            requestParameter: .reasoning
-        )
     }
 }

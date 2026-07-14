@@ -10,6 +10,7 @@ import SwiftUI
 struct ChatConversationLayout<MessageList: View, HydrationMask: View>: View {
     @ObservedObject var audioManager: GlobalAudioManager
 
+    let navigationTitle: String
     let isHydratingSession: Bool
     let isVoiceOverlayPresented: Bool
     let shouldDisplayAudioPlayer: Bool
@@ -24,51 +25,52 @@ struct ChatConversationLayout<MessageList: View, HydrationMask: View>: View {
     let onScrollProxyReady: (ScrollViewProxy, CGFloat) -> Void
 
     var body: some View {
-        ZStack(alignment: .top) {
-            VStack(spacing: 0) {
-                Divider().overlay(ChatTheme.separator).opacity(0)
-                conversationContent
+        conversationContent
+            .overlay(alignment: .top) {
+                if shouldDisplayAudioPlayer {
+                    audioPlayerOverlay
+                }
             }
-
-            if shouldDisplayAudioPlayer {
-                audioPlayerOverlay
-            }
-        }
     }
 
     @ViewBuilder
     private var conversationContent: some View {
         if isHydratingSession {
             hydrationMask()
+                .modifier(ChatViewPlatformTitleModifier(title: navigationTitle))
         } else if !isVoiceOverlayPresented {
-            GeometryReader { outerGeo in
-                ScrollViewReader { proxy in
-                    ScrollView {
-                        messageList()
-                    }
-                    .coordinateSpace(name: "ChatScroll")
-                    .background(
-                        Color.clear.preference(key: ViewportHeightKey.self, value: outerGeo.size.height)
-                    )
-                    .onPreferenceChange(ContentHeightKey.self, perform: onContentHeightChange)
-                    .onPreferenceChange(ViewportHeightKey.self, perform: onViewportHeightChange)
-                    .onPreferenceChange(BottomAnchorKey.self, perform: onBottomAnchorChange)
-                    .defaultScrollAnchor(shouldUseBottomScrollAnchor ? .bottom : .top)
-                    #if os(iOS) || os(tvOS)
-                    .scrollDismissesKeyboard(.interactively)
-                    #endif
-                    .onTapGesture(perform: onDismissKeyboard)
-                    .onChange(of: outerGeo.size.width) { _, newWidth in
-                        onWidthChange(newWidth)
-                    }
-                    .onAppear {
-                        onWidthChange(outerGeo.size.width)
-                        onScrollProxyReady(proxy, outerGeo.size.width)
-                    }
+            ScrollViewReader { proxy in
+                ScrollView {
+                    messageList()
                 }
+                .modifier(ChatViewPlatformTitleModifier(title: navigationTitle))
+                .coordinateSpace(name: "ChatScroll")
+                .background(
+                    GeometryReader { outerGeo in
+                        Color.clear
+                            .preference(key: ViewportHeightKey.self, value: outerGeo.size.height)
+                            .onChange(of: outerGeo.size.width) { _, newWidth in
+                                onWidthChange(newWidth)
+                            }
+                            .onAppear {
+                                onWidthChange(outerGeo.size.width)
+                                onScrollProxyReady(proxy, outerGeo.size.width)
+                            }
+                    }
+                )
+                .onPreferenceChange(ContentHeightKey.self, perform: onContentHeightChange)
+                .onPreferenceChange(ViewportHeightKey.self, perform: onViewportHeightChange)
+                .onPreferenceChange(BottomAnchorKey.self, perform: onBottomAnchorChange)
+                .defaultScrollAnchor(shouldUseBottomScrollAnchor ? .bottom : .top)
+                #if os(iOS) || os(tvOS)
+                .scrollDismissesKeyboard(.interactively)
+                #endif
+                .onTapGesture(perform: onDismissKeyboard)
             }
         } else {
-            Color.clear.frame(height: 1)
+            Color.clear
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .modifier(ChatViewPlatformTitleModifier(title: navigationTitle))
         }
     }
 
@@ -94,7 +96,8 @@ struct ChatConversationLayout<MessageList: View, HydrationMask: View>: View {
 }
 
 struct ChatViewChromeModifier<Composer: View, ScrollButton: View, ShadowShelf: View>: ViewModifier {
-    let title: String
+    @State private var noticeStackHeight: CGFloat = 0
+
     let layoutMetrics: ChatComposerLayoutMetrics
     let availableMessageWidth: CGFloat
     let showScrollToBottomButton: Bool
@@ -106,40 +109,31 @@ struct ChatViewChromeModifier<Composer: View, ScrollButton: View, ShadowShelf: V
 
     func body(content: Content) -> some View {
         content
-            .modifier(ChatViewPlatformTitleModifier(title: title))
-            .overlay(alignment: .bottom) {
-                composerOverlay
-            }
             .overlay(alignment: .bottom) {
                 noticesOverlay
             }
+            .overlay(alignment: .bottom) {
+                scrollToBottomOverlay
+            }
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                bottomChrome
+            }
+            .onPreferenceChange(FloatingNoticeStackHeightKey.self) { newHeight in
+                let cleaned = max(0, newHeight)
+                if abs(cleaned - noticeStackHeight) > 0.5 {
+                    noticeStackHeight = cleaned
+                }
+            }
     }
 
-    private var composerOverlay: some View {
+    private var bottomChrome: some View {
         ZStack(alignment: .bottom) {
             shadowShelf()
 
             VStack(spacing: 12) {
-                if showScrollToBottomButton {
-                    scrollToBottomButton()
-                        .padding(.bottom, layoutMetrics.scrollButtonNoticeClearance)
-                        .transition(
-                            .move(edge: .bottom)
-                                .combined(with: .opacity)
-                        )
-                }
-
                 composer()
                     .frame(maxWidth: composerPanelMaxWidth(availableWidth: availableMessageWidth))
                     .frame(maxWidth: .infinity)
-                    .background(
-                        GeometryReader { proxy in
-                            Color.clear.preference(
-                                key: FloatingInputPanelHeightKey.self,
-                                value: proxy.size.height
-                            )
-                        }
-                    )
             }
             .padding(.horizontal, layoutMetrics.floatingPanelHorizontalInset)
             .padding(.bottom, layoutMetrics.composerBottomPadding)
@@ -148,77 +142,103 @@ struct ChatViewChromeModifier<Composer: View, ScrollButton: View, ShadowShelf: V
 
     @ViewBuilder
     private var noticesOverlay: some View {
+        noticesView
+            .frame(maxWidth: composerPanelMaxWidth(availableWidth: availableMessageWidth))
+            .frame(maxWidth: .infinity)
+            .padding(.horizontal, layoutMetrics.floatingPanelHorizontalInset)
+            .padding(.bottom, floatingControlsBottomPadding)
+            .animation(floatingControlAnimation, value: noticeIDs)
+            .zIndex(1)
+    }
+
+    @ViewBuilder
+    private var scrollToBottomOverlay: some View {
+        ZStack(alignment: .bottom) {
+            if showScrollToBottomButton {
+                scrollToBottomButton()
+                    .padding(.bottom, scrollToBottomOverlayBottomPadding)
+                    .transition(floatingControlTransition)
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.horizontal, layoutMetrics.floatingPanelHorizontalInset)
+        .animation(floatingControlAnimation, value: showScrollToBottomButton)
+        .zIndex(2)
+    }
+
+    private var scrollToBottomOverlayBottomPadding: CGFloat {
+        floatingControlsBottomPadding
+            + noticeStackHeight
+            + (notices.isEmpty ? 0 : 12)
+    }
+
+    private var floatingControlsBottomPadding: CGFloat {
+        12
+    }
+
+    private var floatingControlTransition: AnyTransition {
+        .asymmetric(
+            insertion: .offset(y: 44)
+                .combined(with: .opacity)
+                .combined(with: .scale(scale: 0.98, anchor: .bottom)),
+            removal: .offset(y: 28)
+                .combined(with: .opacity)
+                .combined(with: .scale(scale: 0.985, anchor: .bottom))
+        )
+    }
+
+    private var floatingControlAnimation: Animation {
+        .spring(response: 0.32, dampingFraction: 0.9)
+    }
+
+    private var noticeIDs: [UUID] {
+        notices.map(\.id)
+    }
+
+    @ViewBuilder
+    private var noticesView: some View {
         if !notices.isEmpty {
             ErrorNoticeStack(
                 notices: notices,
                 onDismiss: onDismissNotice,
-                maxWidth: composerPanelMaxWidth(availableWidth: availableMessageWidth)
-            )
-            .background(
-                GeometryReader { proxy in
-                    Color.clear.preference(key: ErrorNoticeStackHeightKey.self, value: proxy.size.height)
-                }
+                maxWidth: composerPanelMaxWidth(availableWidth: availableMessageWidth),
+                edgePadding: 0
             )
             .frame(maxWidth: .infinity)
-            .padding(.bottom, layoutMetrics.noticeBottomPadding)
-            .transition(.move(edge: .bottom).combined(with: .opacity))
+            .background(
+                GeometryReader { proxy in
+                    Color.clear.preference(
+                        key: FloatingNoticeStackHeightKey.self,
+                        value: proxy.size.height
+                    )
+                }
+            )
+            .transition(floatingControlTransition)
             .zIndex(0)
+        } else {
+            Color.clear
+                .frame(width: 0, height: 0)
+                .preference(key: FloatingNoticeStackHeightKey.self, value: 0)
         }
     }
 }
 
 struct ChatComposerShadowShelf: View {
-    let bottomPadding: CGFloat
-
     var body: some View {
-        #if os(iOS) || os(tvOS)
-        let shadowColor = Color.black.opacity(0.18)
-        LinearGradient(
-            colors: [
-                shadowColor,
-                shadowColor.opacity(0.08),
-                .clear
-            ],
-            startPoint: .bottom,
-            endPoint: .top
-        )
-        .frame(maxWidth: .infinity)
-        .frame(height: bottomPadding + 16)
-        .allowsHitTesting(false)
-        #else
         EmptyView()
-        #endif
     }
 }
 
 struct ChatViewLifecycleModifier: ViewModifier {
     @Binding var editingBannerHeight: CGFloat
-    @Binding var errorNoticeStackHeight: CGFloat
-    @Binding var measuredFloatingInputPanelHeight: CGFloat
 
-    let noticesAreEmpty: Bool
     let onAppear: () -> Void
     let onDisappear: () -> Void
 
     func body(content: Content) -> some View {
         content
-            #if os(iOS) || os(tvOS)
-            .ignoresSafeArea(.container, edges: .bottom)
-            .ignoresSafeArea(.keyboard, edges: .bottom)
-            #endif
             .onPreferenceChange(EditingBannerHeightKey.self) { newHeight in
                 assignHeight(newHeight, to: $editingBannerHeight)
-            }
-            .onPreferenceChange(ErrorNoticeStackHeightKey.self) { newHeight in
-                assignHeight(newHeight, to: $errorNoticeStackHeight)
-            }
-            .onPreferenceChange(FloatingInputPanelHeightKey.self) { newHeight in
-                assignHeight(newHeight, to: $measuredFloatingInputPanelHeight)
-            }
-            .onChange(of: noticesAreEmpty) { _, isEmpty in
-                if isEmpty {
-                    errorNoticeStackHeight = 0
-                }
             }
             .onAppear(perform: onAppear)
             .onDisappear(perform: onDisappear)

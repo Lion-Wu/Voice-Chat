@@ -9,7 +9,7 @@ final class TTSPresetApplyStatusTests: XCTestCase {
             retryAttempt: 2,
             retryLastError: "timeout",
             lastError: "failed",
-            lastAppliedAt: Date(timeIntervalSince1970: 1),
+            lastAppliedAt: TestDate.reference,
             lastSucceeded: true
         )
 
@@ -41,7 +41,7 @@ final class TTSPresetApplyStatusTests: XCTestCase {
     }
 
     func testFinalStatesStopApplyingAndRecordOutcome() {
-        let date = Date(timeIntervalSince1970: 42)
+        let date = TestDate.reference
         let failure = TTSPresetApplyStatus.idle
             .starting()
             .updatingRetry(TTSPresetApplyRetryStatus(nextAttempt: 2, errorDescription: "retry"))

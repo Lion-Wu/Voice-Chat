@@ -8,19 +8,24 @@
 import SwiftUI
 
 struct MessageDetailsView: View {
-    @Bindable var message: ChatMessage
     @Environment(\.dismiss) private var dismiss
+    let message: ChatMessage
     let toolActivities: [ChatToolActivity]
     let toolActivityPlacements: [ChatToolActivityPlacement]
+    let developerModeEnabled: Bool
+    private let requestContextRows: [MessageDetailsRequestContextRow]
 
     init(
         message: ChatMessage,
         toolActivities: [ChatToolActivity] = [],
-        toolActivityPlacements: [ChatToolActivityPlacement] = []
+        toolActivityPlacements: [ChatToolActivityPlacement] = [],
+        developerModeEnabled: Bool = false
     ) {
         self.message = message
         self.toolActivities = toolActivities
         self.toolActivityPlacements = toolActivityPlacements
+        self.developerModeEnabled = developerModeEnabled
+        self.requestContextRows = Self.makeRequestContextRows(for: message)
     }
 
     private enum MetricSourceBadge {
@@ -72,70 +77,35 @@ struct MessageDetailsView: View {
 
     var body: some View {
         NavigationStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 16) {
-                    sourceIndicatorsHeader
+            ZStack {
+                PlatformColor.groupedBackground
+                    .ignoresSafeArea()
 
-                    sectionBox("Identity", systemImage: "person.text.rectangle") {
-                        detailRow("Message ID", fieldKey: "id", source: .local) { valueCode(message.id.uuidString) }
-                        detailRow("Created At", fieldKey: "createdAt", source: .local) { valueDate(message.createdAt) }
-                        detailRow("Sender", fieldKey: "isUser", source: .local) { valueText(message.isUser ? String(localized: "User") : String(localized: "Assistant")) }
-                        detailRow("Active", fieldKey: "isActive", source: .local) { valueText(formatBool(message.isActive)) }
-                    }
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 16) {
+                        sourceIndicatorsHeader
+                        identitySection
+                        branchingSection
+                        sessionSection
+                        contentSection
+                        MessageDetailsRequestContextSection(rows: requestContextRows)
 
-                    sectionBox("Branching", systemImage: "point.topleft.down.curvedto.point.bottomright.up") {
-                        detailRow("Active Child Message ID", fieldKey: "activeChildMessageID", source: .local) { valueCode(formatUUID(message.activeChildMessageID)) }
-                        detailRow("Parent Message ID", fieldKey: "parentMessageID", source: .local) { valueCode(formatUUID(message.parentMessage?.id)) }
-                        detailRow("Child Messages", fieldKey: "childMessages.count", source: .local) { valueText("\(message.childMessages.count)") }
-
-                        if !message.childMessages.isEmpty {
-                            DisclosureGroup {
-                                valueCode(message.childMessages.map(\.id.uuidString).joined(separator: "\n"))
-                            } label: {
-                                fieldLabel("Child Message IDs", fieldKey: "childMessages[].id", source: .local)
-                            }
+                        if !message.isUser {
+                            assistantGenerationSection
+                            toolTraceSection
+                            assistantTimingSection
                         }
                     }
-
-                    sectionBox("Session", systemImage: "bubble.left.and.bubble.right") {
-                        detailRow("Chat Session ID", fieldKey: "session.id", source: .local) { valueCode(formatUUID(message.session?.id)) }
-                        detailRow("Chat Session Title", fieldKey: "session.title", source: .local) { valueText(message.session?.title) }
-                        detailRow("Active Root Message ID", fieldKey: "session.activeRootMessageID", source: .local) { valueCode(formatUUID(message.session?.activeRootMessageID)) }
-                    }
-
-                    sectionBox("Telemetry", systemImage: "chart.xyaxis.line") {
-                        detailRow("Model Identifier", fieldKey: "modelIdentifier", source: .local) { valueCode(message.modelIdentifier) }
-                        detailRow("API Base URL", fieldKey: "apiBaseURL", source: .local) { valueCode(message.apiBaseURL) }
-                        detailRow("Thinking Setting", fieldKey: "thinkingOptionRawValue", source: .local) { valueText(formatThinkingOption(message.thinkingOptionRawValue)) }
-                        detailRow("Request ID", fieldKey: "requestID", source: .local) { valueCode(formatUUID(message.requestID)) }
-                        detailRow("Provider Response ID", fieldKey: "providerResponseID", source: .provider) { valueCode(message.providerResponseID) }
-                        detailRow("Finish Reason", fieldKey: "finishReason", source: finishReasonSourceBadge) { valueText(message.finishReason) }
-                        detailRow("Error Description", fieldKey: "errorDescription", source: .local) { valueWrappedText(message.errorDescription) }
-                        detailRow("Token Count", fieldKey: "tokenCount", source: tokenCountSourceBadge) { valueText(formatInt(resolvedTokenCount)) }
-                        detailRow("Reasoning Output Tokens", fieldKey: "reasoningOutputTokenCount", source: reasoningTokenSourceBadge) { valueText(formatInt(message.reasoningOutputTokenCount)) }
-                        detailRow("Tokens Per Second", fieldKey: "tokensPerSecond", source: tokensPerSecondSourceBadge) { valueText(formatDouble(message.tokensPerSecond, decimals: 3)) }
-                        detailRow("Character Count", fieldKey: "characterCount", source: .local) { valueText("\(message.characterCount)") }
-                        detailRow("Prompt Message Count", fieldKey: "promptMessageCount", source: .local) { valueText(formatInt(message.promptMessageCount)) }
-                        detailRow("Prompt Character Count", fieldKey: "promptCharacterCount", source: .local) { valueText(formatInt(message.promptCharacterCount)) }
-                    }
-
-                    toolTraceSection
-
-                    sectionBox("Timing", systemImage: "clock") {
-                        detailRow("Stream Started At", fieldKey: "streamStartedAt", source: .local) { valueDate(message.streamStartedAt) }
-                        detailRow("First Token At", fieldKey: "streamFirstTokenAt", source: firstTokenAtSourceBadge) { valueDate(message.streamFirstTokenAt) }
-                        detailRow("Stream Completed At", fieldKey: "streamCompletedAt", source: .local) { valueDate(message.streamCompletedAt) }
-                        detailRow("Time To First Token", fieldKey: "timeToFirstToken", source: timeToFirstTokenSourceBadge) { valueText(formatInterval(message.timeToFirstToken)) }
-                        detailRow("Stream Duration", fieldKey: "streamDuration", source: .local) { valueText(formatInterval(message.streamDuration)) }
-                        detailRow("Generation Duration", fieldKey: "generationDuration", source: .local) { valueText(formatInterval(message.generationDuration)) }
-                    }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 16)
+                    .frame(maxWidth: 860, alignment: .topLeading)
+                    .frame(maxWidth: .infinity, alignment: .center)
                 }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 16)
-                .frame(maxWidth: 860, alignment: .topLeading)
-                .frame(maxWidth: .infinity, alignment: .center)
+                .background(PlatformColor.groupedBackground)
+#if os(iOS) || os(tvOS)
+                .scrollContentBackground(.hidden)
+#endif
             }
-            .background(AppBackgroundView())
             .navigationTitle("Message Details")
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -149,21 +119,112 @@ struct MessageDetailsView: View {
     }
 
     @ViewBuilder
+    private var identitySection: some View {
+        sectionBox("Identity", systemImage: "person.text.rectangle") {
+            detailRow("Message ID", fieldKey: "id", source: .local) { valueCode(message.id.uuidString) }
+            detailRow("Created At", fieldKey: "createdAt", source: .local) { valueDate(message.createdAt) }
+            detailRow("Sender", fieldKey: "isUser", source: .local) { valueText(message.isUser ? String(localized: "User") : String(localized: "Assistant")) }
+            detailRow("Active", fieldKey: "isActive", source: .local) { valueText(formatBool(message.isActive)) }
+        }
+    }
+
+    @ViewBuilder
+    private var branchingSection: some View {
+        sectionBox("Branching", systemImage: "point.topleft.down.curvedto.point.bottomright.up") {
+            detailRow("Active Child Message ID", fieldKey: "activeChildMessageID", source: .local) { valueCode(formatUUID(message.activeChildMessageID)) }
+            detailRow("Parent Message ID", fieldKey: "parentMessageID", source: .local) { valueCode(formatUUID(message.parentMessage?.id)) }
+            detailRow("Child Messages", fieldKey: "childMessages.count", source: .local) { valueText("\(message.childMessages.count)") }
+
+            if !message.childMessages.isEmpty {
+                DisclosureGroup {
+                    valueCode(message.childMessages.map(\.id.uuidString).joined(separator: "\n"))
+                } label: {
+                    fieldLabel("Child Message IDs", fieldKey: "childMessages[].id", source: .local)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var sessionSection: some View {
+        sectionBox("Session", systemImage: "bubble.left.and.bubble.right") {
+            detailRow("Chat Session ID", fieldKey: "session.id", source: .local) { valueCode(formatUUID(message.session?.id)) }
+            detailRow("Chat Session Title", fieldKey: "session.title", source: .local) { valueText(message.session?.title) }
+            detailRow("Active Root Message ID", fieldKey: "session.activeRootMessageID", source: .local) { valueCode(formatUUID(message.session?.activeRootMessageID)) }
+        }
+    }
+
+    @ViewBuilder
+    private var contentSection: some View {
+        sectionBox("Content", systemImage: "doc.text") {
+            detailRow("Character Count", fieldKey: "characterCount", source: .local) { valueText("\(resolvedCharacterCount)") }
+            detailRow("Image Attachments", fieldKey: "imageAttachments.count", source: .local) { valueText("\(message.imageAttachments.count)") }
+            if !message.assistantSegments.isEmpty {
+                detailRow("Assistant Segments", fieldKey: "assistantSegments", source: .local) {
+                    valueCode(formatAssistantSegments(message.assistantSegments))
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var assistantGenerationSection: some View {
+        sectionBox("Generation", systemImage: "chart.xyaxis.line") {
+            detailRow("Model Identifier", fieldKey: "modelIdentifier", source: .local) { valueCode(message.modelIdentifier) }
+            detailRow("API Base URL", fieldKey: "apiBaseURL", source: .local) { valueCode(message.apiBaseURL) }
+            detailRow("Thinking Setting", fieldKey: "thinkingOptionRawValue", source: .local) { valueText(formatThinkingOption(message.thinkingOptionRawValue)) }
+            detailRow("Request ID", fieldKey: "requestID", source: .local) { valueCode(formatUUID(message.requestID)) }
+            detailRow("Provider Response ID", fieldKey: "providerResponseID", source: .provider) { valueCode(message.providerResponseID) }
+            if !message.providerResponseIDs.isEmpty {
+                detailRow("Provider Response IDs", fieldKey: "providerResponseIDs", source: .provider) {
+                    valueCode(message.providerResponseIDs.enumerated().map { index, responseID in
+                        "\(index + 1). \(responseID)"
+                    }.joined(separator: "\n"))
+                }
+            }
+            detailRow("Finish Reason", fieldKey: "finishReason", source: finishReasonSourceBadge) { valueText(message.finishReason) }
+            detailRow("Error Description", fieldKey: "errorDescription", source: .local) { valueWrappedText(message.errorDescription) }
+            detailRow("Output Token Count", fieldKey: "tokenCount", source: tokenCountSourceBadge) { valueText(formatInt(resolvedTokenCount)) }
+            detailRow("Reasoning Output Tokens", fieldKey: "reasoningOutputTokenCount", source: reasoningTokenSourceBadge) { valueText(formatInt(message.reasoningOutputTokenCount)) }
+            detailRow("Tokens Per Second", fieldKey: "tokensPerSecond", source: tokensPerSecondSourceBadge) { valueText(formatDouble(message.tokensPerSecond, decimals: 3)) }
+            detailRow("Prompt Message Count", fieldKey: "promptMessageCount", source: .local) { valueText(formatInt(message.promptMessageCount)) }
+            detailRow("Prompt Character Count", fieldKey: "promptCharacterCount", source: .local) { valueText(formatInt(message.promptCharacterCount)) }
+        }
+    }
+
+    @ViewBuilder
+    private var assistantTimingSection: some View {
+        sectionBox("Timing", systemImage: "clock") {
+            detailRow("Stream Started At", fieldKey: "streamStartedAt", source: .local) { valueDate(message.streamStartedAt) }
+            detailRow("First Token At", fieldKey: "streamFirstTokenAt", source: firstTokenAtSourceBadge) { valueDate(message.streamFirstTokenAt) }
+            detailRow("Stream Completed At", fieldKey: "streamCompletedAt", source: .local) { valueDate(message.streamCompletedAt) }
+            detailRow("Time To First Token", fieldKey: "timeToFirstToken", source: timeToFirstTokenSourceBadge) { valueText(formatInterval(message.timeToFirstToken)) }
+            detailRow("Stream Duration", fieldKey: "streamDuration", source: .local) { valueText(formatInterval(message.streamDuration)) }
+            detailRow("Generation Duration", fieldKey: "generationDuration", source: .local) { valueText(formatInterval(message.generationDuration)) }
+        }
+    }
+
+    @ViewBuilder
     private func sectionBox<Content: View>(
         _ title: LocalizedStringKey,
         systemImage: String,
         @ViewBuilder content: () -> Content
     ) -> some View {
-        GroupBox {
+        VStack(alignment: .leading, spacing: 14) {
+            Label(title, systemImage: systemImage)
+                .font(.headline)
+
             VStack(alignment: .leading, spacing: 12) {
                 content()
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-        } label: {
-            Label(title, systemImage: systemImage)
-                .font(.headline)
         }
-        .groupBoxStyle(.automatic)
+        .padding(12)
+        .background(MessageDetailsChrome.sectionFill, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .stroke(MessageDetailsChrome.sectionBorder, lineWidth: 1)
+        )
     }
 
     @ViewBuilder
@@ -185,7 +246,7 @@ struct MessageDetailsView: View {
             fieldLabel(title, fieldKey: fieldKey, source: source)
             value()
         }
-        #endif
+#endif
     }
 
     private func fieldLabel(_ title: LocalizedStringKey, fieldKey: String, source: MetricSourceBadge? = nil) -> some View {
@@ -257,6 +318,22 @@ struct MessageDetailsView: View {
                             }
                             detailRow("Summary", fieldKey: "toolTrace[].summary", source: .local) {
                                 valueWrappedText(item.activity.summary)
+                            }
+                            if let presentation = item.activity.presentation, !presentation.items.isEmpty {
+                                detailRow("Displayed Items", fieldKey: "toolTrace[].presentation", source: .local) {
+                                    ChatToolPresentationView(presentation: presentation)
+                                }
+                            }
+                            if developerModeEnabled,
+                               let resultPayload = item.activity.resultPayload,
+                               !resultPayload.isEmpty {
+                                detailRow("Result Payload", fieldKey: "toolTrace[].resultPayload", source: .local) {
+                                    valueCode(JSONValue.object(resultPayload).debugPreviewJSONString(
+                                        maxCharacters: 12_000,
+                                        maxDepth: 8,
+                                        maxCollectionItems: 80
+                                    ))
+                                }
                             }
                             detailRow("Placement Scope", fieldKey: "toolTrace[].scope", source: .local) {
                                 valueText(item.placement?.scope.rawValue)
@@ -335,6 +412,10 @@ struct MessageDetailsView: View {
             return legacyProviderTokenCount
         }
         return nil
+    }
+
+    private var resolvedCharacterCount: Int {
+        message.characterCount > 0 ? message.characterCount : message.content.count
     }
 
     private var timeToFirstTokenSourceBadge: MetricSourceBadge {
@@ -418,6 +499,15 @@ struct MessageDetailsView: View {
         }
     }
 
+    private func formatAssistantSegments(_ segments: [ChatAssistantSegment]) -> String {
+        segments.enumerated().map { index, segment in
+            let id = segment.itemID?.trimmingCharacters(in: .whitespacesAndNewlines)
+            let idLine = (id?.isEmpty == false) ? " id=\(id!)" : ""
+            return "[\(index)] \(segment.kind.rawValue)\(idLine)\n\(segment.text)"
+        }
+        .joined(separator: "\n\n")
+    }
+
     private func valueWrappedText(_ value: String?) -> some View {
         let raw = value ?? ""
         let isPlaceholder = raw.isEmpty
@@ -460,9 +550,19 @@ struct MessageDetailsView: View {
         value ? String(localized: "Yes") : String(localized: "No")
     }
 
+    private func formatOptionalBool(_ value: Bool?) -> String? {
+        guard let value else { return nil }
+        return formatBool(value)
+    }
+
     private func formatInt(_ value: Int?) -> String? {
         guard let value else { return nil }
         return String(value)
+    }
+
+    private func formatToolLoopLimit(_ value: Int?) -> String? {
+        guard let value else { return nil }
+        return value > 0 ? String(value) : String(localized: "Unlimited")
     }
 
     private func formatUUID(_ value: UUID?) -> String? {
@@ -525,9 +625,9 @@ struct MessageDetailsView: View {
 
     private func iconName(forToolName name: String) -> String {
         switch ChatToolID(toolName: name) {
-        case .calendarListEvents:
+        case .calendarListEvents, .calendarCreateEvent, .calendarDeleteEvent, .calendarShowEvents:
             return "calendar"
-        case .remindersListReminders:
+        case .remindersListReminders, .remindersCreateReminder, .remindersDeleteReminder, .remindersShowReminders:
             return "checklist"
         case .locationCurrent:
             return "location"
@@ -535,6 +635,14 @@ struct MessageDetailsView: View {
             return "gyroscope"
         case .deviceContext:
             return "desktopcomputer"
+        case .clipboardGetText, .clipboardSetText:
+            return "doc.on.clipboard"
+        case .systemOpenURL:
+            return "arrow.up.forward.app"
+        case .systemGetTime:
+            return "clock"
+        case .codeInterpreterRun:
+            return "curlybraces"
         case .none:
             return "wrench.and.screwdriver"
         }
@@ -551,6 +659,325 @@ struct MessageDetailsView: View {
         case .unsupported:
             return .secondary
         }
+    }
+
+    @MainActor
+    private static func makeRequestContextRows(for message: ChatMessage) -> [MessageDetailsRequestContextRow] {
+        var rows: [MessageDetailsRequestContextRow] = [
+            .code("Fingerprint", fieldKey: "requestContextFingerprint", value: message.requestContextFingerprint),
+            .text(
+                "Previous Response ID Used",
+                fieldKey: "requestUsedPreviousResponseID",
+                value: Self.formatOptionalBoolValue(message.requestUsedPreviousResponseID)
+            ),
+            .code("Request Previous Response ID", fieldKey: "requestPreviousResponseID", value: message.requestPreviousResponseID)
+        ]
+
+        let metadata = ChatRequestContextMetadataStore.fetch(
+            fingerprint: message.requestContextFingerprint,
+            in: message.modelContext
+        )
+        if let metadata {
+            rows.append(contentsOf: [
+                .text("Version", fieldKey: "requestContext.version", value: "\(metadata.version)"),
+                .code("Model", fieldKey: "requestContext.modelIdentifier", value: metadata.modelIdentifier),
+                .text("Provider", fieldKey: "requestContext.providerRawValue", value: metadata.providerRawValue),
+                .text("Request Style", fieldKey: "requestContext.requestStyleRawValue", value: metadata.requestStyleRawValue),
+                .code("Endpoint URL Hash", fieldKey: "requestContext.endpointURLHash", value: metadata.endpointURLHash),
+                .code("Developer Prompt Hash", fieldKey: "requestContext.developerPromptHash", value: metadata.developerPromptHash),
+                .text(
+                    "Developer Prompt Characters",
+                    fieldKey: "requestContext.developerPromptCharacterCount",
+                    value: "\(metadata.developerPromptCharacterCount)"
+                ),
+                .text(
+                    "Thinking Setting",
+                    fieldKey: "requestContext.thinkingOptionRawValue",
+                    value: Self.formatThinkingOptionValue(metadata.thinkingOptionRawValue)
+                ),
+                .text("Tool Use Enabled", fieldKey: "requestContext.toolUseEnabled", value: Self.formatBoolValue(metadata.toolUseEnabled)),
+                .code("Enabled Tools", fieldKey: "requestContext.enabledToolIDs", value: metadata.enabledToolIDs.joined(separator: "\n")),
+                .code("Tool Schema Digest", fieldKey: "requestContext.toolSchemaDigest", value: metadata.toolSchemaDigest),
+                .code("Tool Schema Metadata", fieldKey: "requestContext.toolSchemaSummaryJSON", value: metadata.toolSchemaSummaryJSON),
+                .text("Authorization Mode", fieldKey: "requestContext.toolAuthorizationModeRawValue", value: metadata.toolAuthorizationModeRawValue),
+                .text(
+                    "Automatic High-Risk Tools",
+                    fieldKey: "requestContext.allowHighRiskToolAutoExecution",
+                    value: Self.formatOptionalBoolValue(metadata.allowHighRiskToolAutoExecution)
+                ),
+                .text(
+                    "Use Provider Continuation IDs",
+                    fieldKey: "requestContext.useProviderContinuationIDs",
+                    value: Self.formatOptionalBoolValue(metadata.useProviderContinuationIDs)
+                ),
+                .text("Reference Count", fieldKey: "requestContext.referenceCount", value: "\(metadata.referenceCount)"),
+                .date("Created At", fieldKey: "requestContext.createdAt", value: metadata.createdAt),
+                .date("Last Seen At", fieldKey: "requestContext.lastSeenAt", value: metadata.lastSeenAt)
+            ])
+        } else if !(message.requestContextFingerprint?.isEmpty ?? true) {
+            rows.append(.text("Metadata", fieldKey: "requestContext.metadata", value: String(localized: "Not Available")))
+        }
+
+        return rows
+    }
+
+    private static func formatBoolValue(_ value: Bool) -> String {
+        value ? String(localized: "Yes") : String(localized: "No")
+    }
+
+    private static func formatOptionalBoolValue(_ value: Bool?) -> String? {
+        guard let value else { return nil }
+        return formatBoolValue(value)
+    }
+
+    private static func formatThinkingOptionValue(_ value: String?) -> String? {
+        guard let raw = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !raw.isEmpty else {
+            return nil
+        }
+        guard let option = ModelThinkingOption.normalized(raw) else {
+            return raw
+        }
+        return "\(option.displayName) (\(option.rawValue))"
+    }
+}
+
+private struct MessageDetailsRequestContextRow: Identifiable {
+    enum Value {
+        case text(String?)
+        case code(String?)
+        case date(Date?)
+    }
+
+    let id: String
+    let title: String
+    let fieldKey: String
+    let value: Value
+
+    static func text(_ title: String, fieldKey: String, value: String?) -> Self {
+        Self(id: fieldKey, title: title, fieldKey: fieldKey, value: .text(value))
+    }
+
+    static func code(_ title: String, fieldKey: String, value: String?) -> Self {
+        Self(id: fieldKey, title: title, fieldKey: fieldKey, value: .code(value))
+    }
+
+    static func date(_ title: String, fieldKey: String, value: Date?) -> Self {
+        Self(id: fieldKey, title: title, fieldKey: fieldKey, value: .date(value))
+    }
+}
+
+private enum MessageDetailsChrome {
+    static var sectionFill: Color {
+        Color.primary.opacity(0.045)
+    }
+
+    static var sectionBorder: Color {
+        Color.primary.opacity(0.08)
+    }
+}
+
+private struct MessageDetailsRequestContextSection: View {
+    let rows: [MessageDetailsRequestContextRow]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Label("Request Context", systemImage: "fingerprint")
+                .font(.headline)
+
+            VStack(alignment: .leading, spacing: 12) {
+                ForEach(rows) { row in
+                    MessageDetailsRequestContextRowView(row: row)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(12)
+        .background(MessageDetailsChrome.sectionFill, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .stroke(MessageDetailsChrome.sectionBorder, lineWidth: 1)
+        )
+    }
+}
+
+private struct MessageDetailsRequestContextRowView: View {
+    let row: MessageDetailsRequestContextRow
+
+    var body: some View {
+        #if os(macOS)
+        HStack(alignment: .top, spacing: 14) {
+            label
+                .frame(width: 240, alignment: .leading)
+            value
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        #else
+        VStack(alignment: .leading, spacing: 8) {
+            label
+            value
+        }
+        #endif
+    }
+
+    private var label: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                Text(row.title)
+                    .font(.subheadline.weight(.semibold))
+                Image(systemName: "laptopcomputer")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+            Text(row.fieldKey)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .monospaced()
+        }
+    }
+
+    @ViewBuilder
+    private var value: some View {
+        switch row.value {
+        case .text(let text):
+            MessageDetailsRequestContextValueText(text)
+        case .code(let text):
+            MessageDetailsRequestContextValueCode(text)
+        case .date(let date):
+            MessageDetailsRequestContextValueDate(date)
+        }
+    }
+}
+
+private struct MessageDetailsRequestContextValueText: View {
+    let value: String?
+
+    init(_ value: String?) {
+        self.value = value
+    }
+
+    var body: some View {
+        MessageDetailsRequestContextValueCard {
+            Text(display)
+                .font(.body)
+                .foregroundStyle(isPlaceholder ? .secondary : .primary)
+                .textSelection(.enabled)
+        }
+    }
+
+    private var raw: String {
+        value ?? ""
+    }
+
+    private var isPlaceholder: Bool {
+        raw.isEmpty
+    }
+
+    private var display: String {
+        isPlaceholder ? String(localized: "Not Available") : raw
+    }
+}
+
+private struct MessageDetailsRequestContextValueCode: View {
+    let value: String?
+
+    init(_ value: String?) {
+        self.value = value
+    }
+
+    var body: some View {
+        MessageDetailsRequestContextValueCard {
+            ScrollView(.horizontal, showsIndicators: horizontalValueIndicators) {
+                Text(display)
+                    .font(.system(.footnote, design: .monospaced))
+                    .foregroundStyle(isPlaceholder ? .secondary : .primary)
+                    .textSelection(.enabled)
+                    .fixedSize(horizontal: true, vertical: true)
+                    .padding(.vertical, 1)
+            }
+        }
+    }
+
+    private var raw: String {
+        value ?? ""
+    }
+
+    private var isPlaceholder: Bool {
+        raw.isEmpty
+    }
+
+    private var display: String {
+        isPlaceholder ? String(localized: "Not Available") : raw
+    }
+
+    private var horizontalValueIndicators: Bool {
+        #if os(macOS)
+        true
+        #else
+        false
+        #endif
+    }
+}
+
+private struct MessageDetailsRequestContextValueDate: View {
+    let date: Date?
+
+    init(_ date: Date?) {
+        self.date = date
+    }
+
+    var body: some View {
+        if let date {
+            let localized = DateFormatter.localizedString(from: date, dateStyle: .medium, timeStyle: .medium)
+            let iso = Self.isoFormatter.string(from: date)
+
+            MessageDetailsRequestContextValueCard {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(localized)
+                        .font(.body)
+                    ScrollView(.horizontal, showsIndicators: horizontalValueIndicators) {
+                        Text(iso)
+                            .font(.system(.footnote, design: .monospaced))
+                            .foregroundStyle(.secondary)
+                            .textSelection(.enabled)
+                            .fixedSize(horizontal: true, vertical: true)
+                            .padding(.vertical, 1)
+                    }
+                }
+            }
+        } else {
+            MessageDetailsRequestContextValueText(nil)
+        }
+    }
+
+    private static let isoFormatter: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter
+    }()
+
+    private var horizontalValueIndicators: Bool {
+        #if os(macOS)
+        true
+        #else
+        false
+        #endif
+    }
+}
+
+private struct MessageDetailsRequestContextValueCard<Content: View>: View {
+    @ViewBuilder let content: () -> Content
+
+    var body: some View {
+        content()
+            .padding(.horizontal, 10)
+            .padding(.vertical, 8)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(PlatformColor.tertiaryGroupedBackground, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .stroke(ChatTheme.chromeBorder, lineWidth: 1)
+            )
     }
 }
 
@@ -586,5 +1013,5 @@ struct MessageDetailsView: View {
     }()
 
     MessageDetailsView(message: message)
-        .modelContainer(for: [ChatSession.self, ChatMessage.self, AppSettings.self], inMemory: true)
+        .modelContainer(for: [ChatSession.self, ChatMessage.self, ChatRequestContextMetadata.self, AppSettings.self], inMemory: true)
 }

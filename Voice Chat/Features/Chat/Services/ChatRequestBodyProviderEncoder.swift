@@ -21,6 +21,48 @@ protocol ChatRequestBodyProviderEncoding {
 }
 
 enum ChatRequestBodyProviderEncoder {
+    static func supportsPreviousResponseContinuation(_ endpoint: ChatAPIEndpointCandidate) -> Bool {
+        switch endpoint.style {
+        case .lmStudioRESTV1:
+            return true
+        case .openAIResponses:
+            return ToolUseSettings.supportsProviderContinuationIDPreference(for: endpoint)
+        case .openAIChatCompletions:
+            return false
+        case .anthropicMessages:
+            return false
+        }
+    }
+
+    static func isPreviousResponseContinuation(
+        previousResponseID: String?,
+        endpoint: ChatAPIEndpointCandidate
+    ) -> Bool {
+        normalizedPreviousResponseID(previousResponseID, endpoint: endpoint) != nil
+    }
+
+    static func normalizedPreviousResponseID(
+        _ responseID: String?,
+        endpoint: ChatAPIEndpointCandidate
+    ) -> String? {
+        guard supportsPreviousResponseContinuation(endpoint) else { return nil }
+        let trimmed = responseID?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    static func previousResponseCarriesInstructions(_ endpoint: ChatAPIEndpointCandidate) -> Bool {
+        switch endpoint.style {
+        case .lmStudioRESTV1:
+            return true
+        case .openAIResponses:
+            return false
+        case .openAIChatCompletions:
+            return true
+        case .anthropicMessages:
+            return true
+        }
+    }
+
     static func makeBaseRequestBody(
         model: String,
         messagePayload: [[String: Any]],
@@ -42,14 +84,15 @@ enum ChatRequestBodyProviderEncoder {
 
     private static func encoder(for endpoint: ChatAPIEndpointCandidate) -> ChatRequestBodyProviderEncoding {
         switch endpoint.style {
-        case .openAIChatCompletions:
+        case .openAIResponses, .openAIChatCompletions:
             return OpenAICompatibleRequestBodyEncoder()
-        case .lmStudioRESTV1, .lmStudioRESTV1LegacyMessage:
+        case .lmStudioRESTV1:
             return LMStudioRESTRequestBodyEncoder()
         case .anthropicMessages:
             return AnthropicMessagesRequestBodyEncoder()
         }
     }
+
 }
 
 enum ChatRequestBodyEndpointClassifier {
@@ -64,36 +107,62 @@ enum ChatRequestBodyEndpointClassifier {
 
 private struct OpenAICompatibleRequestBodyEncoder: ChatRequestBodyProviderEncoding {
     func makeBaseRequestBody(_ context: ChatRequestBodyEncodingContext) -> [String: Any] {
-        if ChatRequestBodyEndpointClassifier.isOpenAIResponsesEndpoint(context.endpoint.chatURL) {
-            return [
+        if context.endpoint.style == .openAIResponses {
+            let host = (context.endpoint.chatURL.host ?? "").lowercased()
+            let requiresStructuredAssistantHistory = ChatEndpointBaseURL.hostMatchesOfficialDomain(
+                host,
+                domain: "openrouter.ai"
+            )
+            let input = ChatRequestBodyProviderEncoder.isPreviousResponseContinuation(
+                previousResponseID: context.previousResponseID,
+                endpoint: context.endpoint
+            )
+            ? ChatProviderMessagePayloadEncoder.openAIResponsesLatestUserInput(from: context.messagePayload)
+            : ChatProviderMessagePayloadEncoder.openAIResponsesInput(
+                from: context.messagePayload,
+                includeInstructionMessages: false,
+                requiresStructuredAssistantHistory: requiresStructuredAssistantHistory
+            )
+            var requestBody: [String: Any] = [
                 "model": context.model,
                 "stream": true,
-                "input": ChatProviderMessagePayloadEncoder.openAIResponsesInput(from: context.messagePayload)
+                "input": input
             ]
+            if let instructions = ChatProviderMessagePayloadEncoder.openAIInstructions(
+                from: context.messagePayload,
+                developerPrompt: context.developerPrompt
+            ) {
+                requestBody["instructions"] = instructions
+            }
+            return requestBody
         }
 
         return [
             "model": context.model,
             "stream": true,
-            "messages": context.messagePayload
+            "messages": ChatProviderMessagePayloadEncoder.openAIChatCompletionsMessages(
+                from: context.messagePayload,
+                developerPrompt: context.developerPrompt
+            )
         ]
     }
 }
 
 private struct LMStudioRESTRequestBodyEncoder: ChatRequestBodyProviderEncoding {
     func makeBaseRequestBody(_ context: ChatRequestBodyEncodingContext) -> [String: Any] {
-        let textDiscriminator = context.endpoint.style == .lmStudioRESTV1LegacyMessage ? "message" : "text"
         let previousResponseID = context.previousResponseID?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let isPreviousResponseContinuation = ChatRequestBodyProviderEncoder.isPreviousResponseContinuation(
+            previousResponseID: previousResponseID,
+            endpoint: context.endpoint
+        )
         let lmStudioInput: Any
-        if let previousResponseID, previousResponseID.hasPrefix("resp_") {
+        if isPreviousResponseContinuation {
             lmStudioInput = ChatProviderMessagePayloadEncoder.lmStudioRESTLatestUserInput(
-                from: context.messagePayload,
-                textDiscriminator: textDiscriminator
+                from: context.messagePayload
             )
         } else {
             lmStudioInput = ChatProviderMessagePayloadEncoder.lmStudioRESTInput(
-                from: context.messagePayload,
-                textDiscriminator: textDiscriminator
+                from: context.messagePayload
             )
         }
         var requestBody: [String: Any] = [
@@ -102,10 +171,11 @@ private struct LMStudioRESTRequestBodyEncoder: ChatRequestBodyProviderEncoding {
             "input": lmStudioInput,
             "store": true
         ]
-        if let previousResponseID, previousResponseID.hasPrefix("resp_") {
+        if isPreviousResponseContinuation, let previousResponseID {
             requestBody["previous_response_id"] = previousResponseID
         }
-        if let prompt = context.developerPrompt?.trimmingCharacters(in: .whitespacesAndNewlines),
+        if !isPreviousResponseContinuation,
+           let prompt = context.developerPrompt?.trimmingCharacters(in: .whitespacesAndNewlines),
            !prompt.isEmpty {
             requestBody["system_prompt"] = prompt
         }
@@ -130,7 +200,56 @@ private struct AnthropicMessagesRequestBodyEncoder: ChatRequestBodyProviderEncod
 }
 
 enum ChatProviderMessagePayloadEncoder {
-    static func openAIResponsesInput(from messagePayload: [[String: Any]]) -> [[String: Any]] {
+    static func openAIInstructions(
+        from messagePayload: [[String: Any]],
+        developerPrompt: String?
+    ) -> String? {
+        var prompts: [String] = []
+        appendPrompt(developerPrompt, to: &prompts)
+        for item in messagePayload {
+            let role = ((item["role"] as? String) ?? "").lowercased()
+            guard role == "developer" || role == "system" else { continue }
+            appendPrompt(textContent(from: item), to: &prompts)
+        }
+        return prompts.isEmpty ? nil : prompts.joined(separator: "\n\n")
+    }
+
+    static func openAIChatCompletionsMessages(
+        from messagePayload: [[String: Any]],
+        developerPrompt: String?
+    ) -> [[String: Any]] {
+        var output: [[String: Any]] = []
+        var systemPrompts: [String] = []
+        appendPrompt(developerPrompt, to: &systemPrompts)
+
+        for item in messagePayload {
+            let rawRole = ((item["role"] as? String) ?? "user").lowercased()
+            if rawRole == "developer" || rawRole == "system" {
+                appendPrompt(textContent(from: item), to: &systemPrompts)
+                continue
+            }
+            var normalized = item
+            normalized["role"] = rawRole.isEmpty ? "user" : rawRole
+            normalized.removeValue(forKey: "id")
+            normalized.removeValue(forKey: "status")
+            normalized.removeValue(forKey: "type")
+            output.append(normalized)
+        }
+
+        if !systemPrompts.isEmpty {
+            output.insert([
+                "role": "system",
+                "content": systemPrompts.joined(separator: "\n\n")
+            ], at: 0)
+        }
+        return output
+    }
+
+    static func openAIResponsesInput(
+        from messagePayload: [[String: Any]],
+        includeInstructionMessages: Bool = true,
+        requiresStructuredAssistantHistory: Bool = false
+    ) -> [[String: Any]] {
         var input: [[String: Any]] = []
         input.reserveCapacity(messagePayload.count)
 
@@ -142,6 +261,33 @@ enum ChatProviderMessagePayloadEncoder {
             }
 
             let rawRole = ((item["role"] as? String) ?? "user").lowercased()
+            if !includeInstructionMessages,
+               rawRole == "developer" || rawRole == "system" {
+                continue
+            }
+            if requiresStructuredAssistantHistory, rawRole == "assistant" {
+                guard let text = textContent(from: item), !text.isEmpty else { continue }
+                let existingID = (item["id"] as? String)?
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                let itemID: String
+                if let existingID, !existingID.isEmpty {
+                    itemID = existingID
+                } else {
+                    itemID = "msg_voice_chat_\(input.count)"
+                }
+                input.append([
+                    "type": "message",
+                    "role": "assistant",
+                    "id": itemID,
+                    "status": "completed",
+                    "content": [[
+                        "type": "output_text",
+                        "text": text,
+                        "annotations": []
+                    ]]
+                ])
+                continue
+            }
             let role: String
             switch rawRole {
             case "assistant", "system", "developer":
@@ -191,6 +337,13 @@ enum ChatProviderMessagePayloadEncoder {
         return input
     }
 
+    static func openAIResponsesLatestUserInput(from messagePayload: [[String: Any]]) -> [[String: Any]] {
+        guard let latestUser = messagePayload.last(where: { (($0["role"] as? String) ?? "").lowercased() == "user" }) else {
+            return openAIResponsesInput(from: messagePayload)
+        }
+        return openAIResponsesInput(from: [latestUser])
+    }
+
     private static func isOpenAIResponsesPassthroughItemType(_ type: String?) -> Bool {
         guard let type else { return false }
         return [
@@ -201,10 +354,7 @@ enum ChatProviderMessagePayloadEncoder {
         ].contains(type)
     }
 
-    static func lmStudioRESTInput(
-        from messagePayload: [[String: Any]],
-        textDiscriminator: String
-    ) -> Any {
+    static func lmStudioRESTInput(from messagePayload: [[String: Any]]) -> Any {
         var transcriptLines: [String] = []
         transcriptLines.reserveCapacity(messagePayload.count)
 
@@ -266,7 +416,7 @@ enum ChatProviderMessagePayloadEncoder {
         var input: [[String: Any]] = []
         if !trimmedTranscript.isEmpty {
             input.append([
-                "type": textDiscriminator,
+                "type": "text",
                 "content": transcript
             ])
         }
@@ -274,10 +424,7 @@ enum ChatProviderMessagePayloadEncoder {
         return input
     }
 
-    static func lmStudioRESTLatestUserInput(
-        from messagePayload: [[String: Any]],
-        textDiscriminator: String
-    ) -> Any {
+    static func lmStudioRESTLatestUserInput(from messagePayload: [[String: Any]]) -> Any {
         guard let latestUserMessage = messagePayload.last(where: {
             (($0["role"] as? String) ?? "").lowercased() == "user"
         }) else {
@@ -293,7 +440,7 @@ enum ChatProviderMessagePayloadEncoder {
         var input: [[String: Any]] = []
         if !trimmedText.isEmpty {
             input.append([
-                "type": textDiscriminator,
+                "type": "text",
                 "content": trimmedText
             ])
         }
@@ -310,21 +457,6 @@ enum ChatProviderMessagePayloadEncoder {
             guard rawRole == "user" || rawRole == "assistant" else { continue }
 
             var contentParts: [[String: Any]] = []
-            if let content = item["content"] as? [[String: Any]] {
-                let toolParts = content.filter { part in
-                    let type = ((part["type"] as? String) ?? "").lowercased()
-                    return type == "tool_use" || type == "tool_result"
-                }
-                if !toolParts.isEmpty {
-                    contentParts.append(contentsOf: toolParts)
-                    output.append([
-                        "role": rawRole,
-                        "content": contentParts
-                    ])
-                    continue
-                }
-            }
-
             if let text = item["content"] as? String {
                 if !text.isEmpty {
                     contentParts.append(["type": "text", "text": text])
@@ -332,6 +464,10 @@ enum ChatProviderMessagePayloadEncoder {
             } else if let parts = item["content"] as? [[String: Any]] {
                 for part in parts {
                     let partType = ((part["type"] as? String) ?? "").lowercased()
+                    if ["thinking", "redacted_thinking", "tool_use", "tool_result"].contains(partType) {
+                        contentParts.append(part)
+                        continue
+                    }
                     if partType == "text" {
                         if let text = part["text"] as? String, !text.isEmpty {
                             contentParts.append(["type": "text", "text": text])
@@ -432,5 +568,28 @@ enum ChatProviderMessagePayloadEncoder {
         let isBase64 = parts.dropFirst().contains { $0.caseInsensitiveCompare("base64") == .orderedSame }
         guard isBase64 else { return nil }
         return (mimeType: String(media), base64Data: payload)
+    }
+
+    private static func appendPrompt(_ prompt: String?, to prompts: inout [String]) {
+        let trimmed = prompt?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !trimmed.isEmpty, !prompts.contains(trimmed) else { return }
+        prompts.append(trimmed)
+    }
+
+    private static func textContent(from item: [String: Any]) -> String? {
+        if let text = item["content"] as? String {
+            return text
+        }
+        if let parts = item["content"] as? [[String: Any]] {
+            let text = parts.compactMap { part -> String? in
+                let type = ((part["type"] as? String) ?? "").lowercased()
+                if type == "text" || type == "input_text" || type == "output_text" {
+                    return (part["text"] as? String) ?? (part["content"] as? String)
+                }
+                return nil
+            }.joined()
+            return text.isEmpty ? nil : text
+        }
+        return nil
     }
 }

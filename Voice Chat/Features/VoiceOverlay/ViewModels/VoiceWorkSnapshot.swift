@@ -7,6 +7,12 @@
 
 import Foundation
 
+enum VoiceWorkPresentationPhase: Equatable, Sendable {
+    case idle
+    case loading
+    case speaking
+}
+
 struct VoiceWorkSnapshot: Equatable, Sendable {
     static let idle = VoiceWorkSnapshot(
         isRealtimeMode: false,
@@ -15,7 +21,8 @@ struct VoiceWorkSnapshot: Equatable, Sendable {
         isPlaybackRequested: false,
         hasAudioRequests: false,
         isChatLoading: false,
-        isChatPriming: false
+        isChatPriming: false,
+        isWaitingForToolAuthorization: false
     )
 
     let isRealtimeMode: Bool
@@ -25,21 +32,66 @@ struct VoiceWorkSnapshot: Equatable, Sendable {
     let hasAudioRequests: Bool
     let isChatLoading: Bool
     let isChatPriming: Bool
+    let isWaitingForToolAuthorization: Bool
+
+    init(
+        isRealtimeMode: Bool,
+        isAudioLoading: Bool,
+        isAudioPlaying: Bool,
+        isPlaybackRequested: Bool,
+        hasAudioRequests: Bool,
+        isChatLoading: Bool,
+        isChatPriming: Bool,
+        isWaitingForToolAuthorization: Bool = false
+    ) {
+        self.isRealtimeMode = isRealtimeMode
+        self.isAudioLoading = isAudioLoading
+        self.isAudioPlaying = isAudioPlaying
+        self.isPlaybackRequested = isPlaybackRequested
+        self.hasAudioRequests = hasAudioRequests
+        self.isChatLoading = isChatLoading
+        self.isChatPriming = isChatPriming
+        self.isWaitingForToolAuthorization = isWaitingForToolAuthorization
+    }
 
     var hasVoiceWork: Bool {
-        isRealtimeMode || isAudioLoading || isAudioPlaying || hasAudioRequests
+        isRealtimeMode || isPlaybackRequested || isAudioLoading || isAudioPlaying || hasAudioRequests
+    }
+
+    var hasActiveVoiceWork: Bool {
+        isPlaybackRequested || isAudioLoading || isAudioPlaying || hasAudioRequests
+    }
+
+    var presentationPhase: VoiceWorkPresentationPhase {
+        if isAudioPlaying {
+            return .speaking
+        }
+        if isChatLoading ||
+            isChatPriming ||
+            isPlaybackRequested ||
+            isAudioLoading ||
+            hasAudioRequests {
+            return .loading
+        }
+        return .idle
     }
 
     var blocksListeningStart: Bool {
-        isPlaybackRequested || isAudioPlaying || isAudioLoading || isChatLoading || isChatPriming
+        isPlaybackRequested ||
+            isAudioPlaying ||
+            isAudioLoading ||
+            hasAudioRequests ||
+            isChatLoading ||
+            isChatPriming
     }
 
     var blocksAutoResume: Bool {
-        isPlaybackRequested || isAudioPlaying || isAudioLoading
+        isPlaybackRequested || isAudioPlaying || isAudioLoading || hasAudioRequests
     }
 
     func loadingStallTimeout(defaultTimeout: TimeInterval, activeAudioRequestTimeout: TimeInterval) -> TimeInterval {
-        hasAudioRequests ? activeAudioRequestTimeout : defaultTimeout
+        guard !isWaitingForToolAuthorization else { return .infinity }
+        return hasAudioRequests ? activeAudioRequestTimeout : defaultTimeout
     }
 }
 
@@ -47,7 +99,8 @@ extension VoiceWorkSnapshot {
     init(
         audio: AudioPlaybackSnapshot,
         isChatLoading: Bool,
-        isChatPriming: Bool
+        isChatPriming: Bool,
+        isWaitingForToolAuthorization: Bool = false
     ) {
         self.init(
             isRealtimeMode: audio.isRealtimeMode,
@@ -56,7 +109,8 @@ extension VoiceWorkSnapshot {
             isPlaybackRequested: audio.isPlaybackRequested,
             hasAudioRequests: audio.hasAudioRequests,
             isChatLoading: isChatLoading,
-            isChatPriming: isChatPriming
+            isChatPriming: isChatPriming,
+            isWaitingForToolAuthorization: isWaitingForToolAuthorization
         )
     }
 }

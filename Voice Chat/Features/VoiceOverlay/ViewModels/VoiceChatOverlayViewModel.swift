@@ -29,6 +29,7 @@ final class VoiceChatOverlayViewModel: ObservableObject {
     @Published var isVisionCaptureSamplingActive: Bool = false
     @Published var visionCaptureSampleCount: Int = 0
     @Published var visionCaptureResetID = UUID()
+    @Published var realtimeAssistantSnapshot: RealtimeVoiceAssistantSnapshot?
     var isSendSuppressed: Bool = false
 
     var availableLanguages: [SpeechInputManager.DictationLanguage] {
@@ -96,6 +97,7 @@ final class VoiceChatOverlayViewModel: ObservableObject {
         outputLevelSubject.send(0)
         showErrorBanner = false
         errorMessage = nil
+        realtimeAssistantSnapshot = nil
         withAnimation(overlayAnimation) {
             isPresented = true
         }
@@ -117,6 +119,7 @@ final class VoiceChatOverlayViewModel: ObservableObject {
         showErrorBanner = false
         errorMessage = nil
         isSendSuppressed = false
+        realtimeAssistantSnapshot = nil
         dismissVisionCapture()
         resetVisionCaptureSpeechActivity()
         inputLevelSubject.send(0)
@@ -200,6 +203,15 @@ final class VoiceChatOverlayViewModel: ObservableObject {
                 self.restartListening()
             }
         }
+    }
+
+    func refreshRealtimeAssistantSnapshot() {
+        realtimeAssistantSnapshot = activeChatSession?.realtimeVoiceAssistantSnapshot
+    }
+
+    func resolveRealtimeVoiceToolAuthorization(requestID: String, allowed: Bool) {
+        activeChatSession?.resolveRealtimeVoiceToolAuthorization(requestID: requestID, allowed: allowed)
+        refreshRealtimeAssistantSnapshot()
     }
 
 }

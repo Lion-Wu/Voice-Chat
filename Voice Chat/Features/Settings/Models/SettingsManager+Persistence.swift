@@ -109,6 +109,11 @@ extension SettingsManager {
         updateAPIAdvancedSettings(SettingsDefaults.apiAdvancedSettings)
     }
 
+    func resetDeveloperSettingsToDefaults() {
+        updateAPIAdvancedSettings(SettingsDefaults.apiAdvancedSettings)
+        updateToolUseSettings(toolUseSettings.resettingDeveloperRequestPolicyToDefaults())
+    }
+
     func saveServerSettings() {
         saveServerSettings(serverSettings)
     }
