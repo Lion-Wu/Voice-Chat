@@ -43,17 +43,19 @@ final class ChatEndpointProviderOrderTests: XCTestCase {
         ]
 
         for testCase in cases {
-            XCTContext.runActivity(named: testCase.name) { _ in
-                let providers = ChatEndpointProviderOrder.providers(
-                    for: testCase.context,
-                    preferred: testCase.preferred
+            let providers = ChatEndpointProviderOrder.providers(
+                for: testCase.context,
+                preferred: testCase.preferred
+            )
+            if let expected = testCase.expected {
+                XCTAssertEqual(providers, expected, testCase.name)
+            }
+            if let expectedPrefix = testCase.expectedPrefix {
+                XCTAssertEqual(
+                    Array(providers.prefix(expectedPrefix.count)),
+                    expectedPrefix,
+                    testCase.name
                 )
-                if let expected = testCase.expected {
-                    XCTAssertEqual(providers, expected)
-                }
-                if let expectedPrefix = testCase.expectedPrefix {
-                    XCTAssertEqual(Array(providers.prefix(expectedPrefix.count)), expectedPrefix)
-                }
             }
         }
     }
@@ -215,30 +217,28 @@ final class ChatEndpointProviderOrderTests: XCTestCase {
         ]
 
         for testCase in cases {
-            XCTContext.runActivity(named: testCase.name) { _ in
-                let candidates = DefaultChatEndpointResolver().streamingCandidates(
-                    for: testCase.base,
-                    providerHint: testCase.providerHint,
-                    styleHint: testCase.styleHint
-                )
-                XCTAssertEqual(candidates.first?.provider, testCase.expectedProvider)
-                XCTAssertEqual(candidates.first?.style, testCase.expectedStyle)
-                XCTAssertEqual(candidates.first?.chatURL.absoluteString, testCase.expectedChatURL)
-                XCTAssertEqual(candidates.first?.modelsURL.absoluteString, testCase.expectedModelsURL)
+            let candidates = DefaultChatEndpointResolver().streamingCandidates(
+                for: testCase.base,
+                providerHint: testCase.providerHint,
+                styleHint: testCase.styleHint
+            )
+            XCTAssertEqual(candidates.first?.provider, testCase.expectedProvider, testCase.name)
+            XCTAssertEqual(candidates.first?.style, testCase.expectedStyle, testCase.name)
+            XCTAssertEqual(candidates.first?.chatURL.absoluteString, testCase.expectedChatURL, testCase.name)
+            XCTAssertEqual(candidates.first?.modelsURL.absoluteString, testCase.expectedModelsURL, testCase.name)
 
-                for required in testCase.requiredCandidates {
-                    XCTAssertTrue(candidates.contains {
-                        $0.provider == required.provider &&
-                        $0.style == required.style &&
-                        $0.chatURL.absoluteString == required.url
-                    })
-                }
-                for provider in testCase.forbiddenProviders {
-                    XCTAssertFalse(candidates.contains { $0.provider == provider })
-                }
-                for style in testCase.forbiddenStyles {
-                    XCTAssertFalse(candidates.contains { $0.style == style })
-                }
+            for required in testCase.requiredCandidates {
+                XCTAssertTrue(candidates.contains {
+                    $0.provider == required.provider &&
+                    $0.style == required.style &&
+                    $0.chatURL.absoluteString == required.url
+                }, testCase.name)
+            }
+            for provider in testCase.forbiddenProviders {
+                XCTAssertFalse(candidates.contains { $0.provider == provider }, testCase.name)
+            }
+            for style in testCase.forbiddenStyles {
+                XCTAssertFalse(candidates.contains { $0.style == style }, testCase.name)
             }
         }
     }

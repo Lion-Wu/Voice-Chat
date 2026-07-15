@@ -962,7 +962,7 @@ final class ChatRequestBodyBuilderTests: XCTestCase {
             modelsURL: try XCTUnwrap(URL(string: "https://api.openai.com/v1/models"))
         )
 
-        try XCTContext.runActivity(named: "authorization mode") { _ in
+        do {
             let readOnly = ToolUseSettings(
                 isEnabled: true,
                 calendarEnabled: false,
@@ -1001,7 +1001,7 @@ final class ChatRequestBodyBuilderTests: XCTestCase {
             XCTAssertEqual(second.snapshot.toolAuthorizationModeRawValue, ToolAuthorizationMode.askEveryTime.rawValue)
         }
 
-        try XCTContext.runActivity(named: "automatic high-risk execution") { _ in
+        do {
             var disabled = ToolUseSettings.defaults
             disabled.isEnabled = true
             disabled.codeInterpreterEnabled = true

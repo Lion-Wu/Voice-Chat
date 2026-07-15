@@ -808,7 +808,8 @@ final class ChatToolCallParserTests: XCTestCase {
         await fulfillment(of: [activityExpectation], timeout: 1.0)
         XCTAssertTrue(deltas.isEmpty)
         XCTAssertEqual(Set(activities.map(\.id)).count, 1)
-        XCTAssertTrue(activities.allSatisfy { $0.title == "Generating Tool Call" })
+        let expectedTitle = NSLocalizedString("Generating Tool Call", comment: "Tool activity title")
+        XCTAssertTrue(activities.allSatisfy { $0.title == expectedTitle })
         XCTAssertTrue(activities.allSatisfy { $0.phase == .requested })
         XCTAssertTrue(activities.last?.summary?.contains(ChatToolID.deviceContext.rawValue) == true)
         XCTAssertTrue(

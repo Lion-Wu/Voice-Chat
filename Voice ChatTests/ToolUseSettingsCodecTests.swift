@@ -363,17 +363,19 @@ final class ToolUseSettingsCodecTests: XCTestCase {
 
     private func assertAuthorizationDecisions(_ cases: [AuthorizationDecisionCase]) {
         for testCase in cases {
-            XCTContext.runActivity(named: testCase.name) { _ in
-                XCTAssertTrue(testCase.settings.enabledToolIDs.contains(testCase.tool))
-                XCTAssertEqual(
-                    ChatToolAuthorizationPolicy.decision(
-                        for: testCase.tool,
-                        settings: testCase.settings,
-                        endpoint: testCase.endpoint
-                    ),
-                    testCase.expected
-                )
-            }
+            XCTAssertTrue(
+                testCase.settings.enabledToolIDs.contains(testCase.tool),
+                testCase.name
+            )
+            XCTAssertEqual(
+                ChatToolAuthorizationPolicy.decision(
+                    for: testCase.tool,
+                    settings: testCase.settings,
+                    endpoint: testCase.endpoint
+                ),
+                testCase.expected,
+                testCase.name
+            )
         }
     }
 }
