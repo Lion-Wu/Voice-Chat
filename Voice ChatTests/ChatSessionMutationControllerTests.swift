@@ -12,7 +12,7 @@ final class ChatSessionMutationControllerTests: XCTestCase {
             sessionPersistence: persistence,
             branchDidChange: PassthroughSubject<Void, Never>()
         )
-        let session = ChatSession(title: "Test")
+        let session = ChatSession(title: "Example Conversation")
 
         controller.persistSession(session, reason: .immediate)
 
@@ -34,27 +34,27 @@ final class ChatSessionMutationControllerTests: XCTestCase {
             .sink { branchChangeCount += 1 }
             .store(in: &cancellables)
 
-        let session = ChatSession(title: "Branched")
+        let session = ChatSession(title: "Branched Conversation")
         let root = ChatMessage(
             content: "root",
             isUser: true,
-            createdAt: Date(timeIntervalSince1970: 1)
+            createdAt: TestDate.reference
         )
         let child = ChatMessage(
             content: "child",
             isUser: false,
-            createdAt: Date(timeIntervalSince1970: 2)
+            createdAt: TestDate.offset(1)
         )
         let leaf = ChatMessage(
             content: "leaf",
             isUser: true,
-            createdAt: Date(timeIntervalSince1970: 3)
+            createdAt: TestDate.offset(2)
         )
         child.parentMessage = root
         leaf.parentMessage = child
-        root.activeChildMessageID = UUID()
+        root.activeChildMessageID = uuid(98)
         child.activeChildMessageID = leaf.id
-        leaf.activeChildMessageID = UUID()
+        leaf.activeChildMessageID = uuid(99)
         session.messages = [leaf, child, root]
         session.activeRootMessageID = child.id
 

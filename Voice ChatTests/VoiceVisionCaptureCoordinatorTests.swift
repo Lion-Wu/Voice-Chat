@@ -17,7 +17,7 @@ final class VoiceVisionCaptureCoordinatorTests: XCTestCase {
 
     func testHeldUtteranceKeepsSamplesAcrossRecordingPause() {
         var coordinator = VoiceVisionCaptureCoordinator()
-        let start = Date(timeIntervalSince1970: 100)
+        let start = TestDate.reference
 
         XCTAssertTrue(coordinator.present(
             isAvailable: true,
@@ -59,7 +59,7 @@ final class VoiceVisionCaptureCoordinatorTests: XCTestCase {
 
     func testNonSuppressedUtteranceRestartClearsPreviousSamples() {
         var coordinator = VoiceVisionCaptureCoordinator()
-        let start = Date(timeIntervalSince1970: 200)
+        let start = TestDate.reference
         let firstResetID: UUID
 
         XCTAssertTrue(coordinator.present(
@@ -98,7 +98,7 @@ final class VoiceVisionCaptureCoordinatorTests: XCTestCase {
 
     func testDismissResetsVisibleStateAndSamples() {
         var coordinator = VoiceVisionCaptureCoordinator()
-        let start = Date(timeIntervalSince1970: 300)
+        let start = TestDate.reference
 
         XCTAssertTrue(coordinator.present(
             isAvailable: true,

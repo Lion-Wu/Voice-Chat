@@ -98,7 +98,7 @@ struct SettingsVoicePresetSection: View {
     private var presetDetailFields: some View {
         Group {
             LabeledTextField(label: "Preset Name",
-                             placeholder: "Preset name",
+                             placeholder: "Enter preset name",
                              text: $viewModel.presetName)
 
             LabeledTextField(label: "Reference Audio Path",

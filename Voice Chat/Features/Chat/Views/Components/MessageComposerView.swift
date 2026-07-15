@@ -214,7 +214,7 @@ final class ComposerContainerView: UIView {
             tintColor: UIColor(ChatTheme.accent),
             symbolConfiguration: symbolConfig
         )
-        primaryButton.accessibilityLabel = "Send"
+        primaryButton.accessibilityLabel = String(localized: "Send Message")
 
         configureButton(
             expandButton,
@@ -222,7 +222,7 @@ final class ComposerContainerView: UIView {
             tintColor: .secondaryLabel,
             symbolConfiguration: symbolConfig
         )
-        expandButton.accessibilityLabel = "Open full screen editor"
+        expandButton.accessibilityLabel = String(localized: "Open full screen editor")
         expandButton.isHidden = true
 
         buttonStack.addArrangedSubview(expandButton)
@@ -277,7 +277,7 @@ final class ComposerContainerView: UIView {
                 tintColor: .systemRed,
                 symbolConfiguration: config
             )
-            primaryButton.accessibilityLabel = "Stop Generation"
+            primaryButton.accessibilityLabel = String(localized: "Stop Generation")
         } else if trimmedEmpty {
             configureButton(
                 primaryButton,
@@ -285,7 +285,7 @@ final class ComposerContainerView: UIView {
                 tintColor: UIColor(ChatTheme.accent),
                 symbolConfiguration: config
             )
-            primaryButton.accessibilityLabel = "Start Realtime Voice Conversation"
+            primaryButton.accessibilityLabel = String(localized: "Start Realtime Voice Conversation")
         } else {
             configureButton(
                 primaryButton,
@@ -293,7 +293,7 @@ final class ComposerContainerView: UIView {
                 tintColor: UIColor(ChatTheme.accent),
                 symbolConfiguration: config
             )
-            primaryButton.accessibilityLabel = "Send Message"
+            primaryButton.accessibilityLabel = String(localized: "Send Message")
         }
     }
 

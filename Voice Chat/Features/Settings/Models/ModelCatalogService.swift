@@ -16,37 +16,100 @@ protocol ModelCatalogFetching: Sendable {
     ) async throws -> [ModelInfo]
 }
 
+typealias ModelCatalogDataLoader = @Sendable (URLRequest) async throws -> (Data, URLResponse)
+
+enum ModelCatalogPaginationError: LocalizedError, Equatable {
+    case missingCursor
+    case repeatedCursor(String)
+
+    var errorDescription: String? {
+        switch self {
+        case .missingCursor:
+            return "The model catalog reported another page without a cursor."
+        case let .repeatedCursor(cursor):
+            return "The model catalog repeated pagination cursor \(cursor)."
+        }
+    }
+}
+
 struct DefaultModelCatalogService: ModelCatalogFetching, Sendable {
+    private let dataLoader: ModelCatalogDataLoader
+
+    init(
+        dataLoader: @escaping ModelCatalogDataLoader = { request in
+            try await URLSession.shared.data(for: request)
+        }
+    ) {
+        self.dataLoader = dataLoader
+    }
+
     func fetchModels(
         from candidate: ChatAPIEndpointCandidate,
         apiKey: String,
         retryPolicy: NetworkRetryPolicy,
         onRetry: (@Sendable (_ nextAttempt: Int, _ delay: TimeInterval, _ error: Error) async -> Void)? = nil
     ) async throws -> [ModelInfo] {
-        var mutableRequest = URLRequest(url: candidate.modelsURL, timeoutInterval: 30)
-        mutableRequest.httpMethod = "GET"
-        applyModelRequestHeaders(to: &mutableRequest, candidate: candidate, rawAPIKey: apiKey)
-        let request = mutableRequest
+        var pageURL = candidate.modelsURL
+        var models: [ModelInfo] = []
+        var seenModelIDs = Set<String>()
+        var seenCursors = Set<String>()
 
-        let data = try await NetworkRetry.run(
-            policy: retryPolicy,
-            onRetry: onRetry,
-            operation: {
-                let (data, response) = try await URLSession.shared.data(for: request)
-                if let http = response as? HTTPURLResponse,
-                   !(200...299).contains(http.statusCode) {
-                    let preview = String(data: data, encoding: .utf8)?
-                        .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-                    let snippet = preview.isEmpty ? nil : String(preview.prefix(180))
-                    throw HTTPStatusError(statusCode: http.statusCode, bodyPreview: snippet)
+        while true {
+            try Task.checkCancellation()
+            var request = URLRequest(url: pageURL, timeoutInterval: 30)
+            request.httpMethod = "GET"
+            applyModelRequestHeaders(to: &request, candidate: candidate, rawAPIKey: apiKey)
+            let immutableRequest = request
+
+            let data = try await NetworkRetry.run(
+                policy: retryPolicy,
+                onRetry: onRetry,
+                operation: {
+                    let (data, response) = try await dataLoader(immutableRequest)
+                    if let http = response as? HTTPURLResponse,
+                       !(200...299).contains(http.statusCode) {
+                        let preview = String(data: data, encoding: .utf8)?
+                            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                        let snippet = preview.isEmpty ? nil : String(preview.prefix(180))
+                        throw HTTPStatusError(statusCode: http.statusCode, bodyPreview: snippet)
+                    }
+                    return data
                 }
-                return data
-            }
-        )
+            )
 
-        return try await Task.detached(priority: .utility) { @Sendable in
-            try JSONDecoder().decode(ModelListResponse.self, from: data).data
-        }.value
+            let page = try await Task.detached(priority: .utility) { @Sendable in
+                try JSONDecoder().decode(ModelListResponse.self, from: data)
+            }.value
+            for model in page.data where seenModelIDs.insert(model.id).inserted {
+                models.append(model)
+            }
+
+            guard candidate.style == .anthropicMessages, page.hasMore == true else {
+                return models
+            }
+            let cursor = page.lastID?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            guard !cursor.isEmpty else {
+                throw ModelCatalogPaginationError.missingCursor
+            }
+            guard seenCursors.insert(cursor).inserted else {
+                throw ModelCatalogPaginationError.repeatedCursor(cursor)
+            }
+            pageURL = try Self.paginationURL(afterID: cursor, baseURL: candidate.modelsURL)
+        }
+    }
+
+    static func paginationURL(afterID: String, baseURL: URL) throws -> URL {
+        guard var components = URLComponents(url: baseURL, resolvingAgainstBaseURL: false) else {
+            throw ChatNetworkError.invalidURL
+        }
+        var queryItems = components.queryItems ?? []
+        queryItems.removeAll { $0.name == "after_id" }
+        queryItems.append(URLQueryItem(name: "after_id", value: afterID))
+        components.queryItems = queryItems
+        guard let url = components.url else {
+            throw ChatNetworkError.invalidURL
+        }
+        return url
     }
 
     private func normalizedAPIKeyForXAPIKeyHeader(_ raw: String) -> String {
@@ -65,19 +128,42 @@ struct DefaultModelCatalogService: ModelCatalogFetching, Sendable {
     ) {
         switch candidate.style {
         case .anthropicMessages:
-            let xAPIKey = normalizedAPIKeyForXAPIKeyHeader(rawAPIKey)
-            if !xAPIKey.isEmpty {
-                request.setValue(xAPIKey, forHTTPHeaderField: "x-api-key")
+            let trimmed = rawAPIKey.trimmingCharacters(in: .whitespacesAndNewlines)
+            if usesBearerAuthForAnthropicMessages(candidate.modelsURL) {
+                if !trimmed.isEmpty {
+                    let headerValue = trimmed.lowercased().hasPrefix("bearer ") ? trimmed : "Bearer \(trimmed)"
+                    request.setValue(headerValue, forHTTPHeaderField: "Authorization")
+                }
+            } else {
+                let xAPIKey = normalizedAPIKeyForXAPIKeyHeader(trimmed)
+                if !xAPIKey.isEmpty {
+                    request.setValue(xAPIKey, forHTTPHeaderField: "x-api-key")
+                }
+                request.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
             }
-            request.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
 
-        case .openAIChatCompletions, .lmStudioRESTV1, .lmStudioRESTV1LegacyMessage:
+        case .openAIResponses, .openAIChatCompletions, .lmStudioRESTV1:
             let trimmed = rawAPIKey.trimmingCharacters(in: .whitespacesAndNewlines)
             if !trimmed.isEmpty {
-                let headerValue = trimmed.lowercased().hasPrefix("bearer ") ? trimmed : "Bearer \(trimmed)"
-                request.setValue(headerValue, forHTTPHeaderField: "Authorization")
+                if usesAzureOpenAIAPIKeyAuth(candidate.modelsURL, rawAPIKey: trimmed) {
+                    request.setValue(normalizedAPIKeyForXAPIKeyHeader(trimmed), forHTTPHeaderField: "api-key")
+                } else {
+                    let headerValue = trimmed.lowercased().hasPrefix("bearer ") ? trimmed : "Bearer \(trimmed)"
+                    request.setValue(headerValue, forHTTPHeaderField: "Authorization")
+                }
             }
         }
+    }
+
+    private func usesBearerAuthForAnthropicMessages(_ url: URL) -> Bool {
+        let host = (url.host ?? "").lowercased()
+        return ChatEndpointBaseURL.hostMatchesOfficialDomain(host, domain: "openrouter.ai")
+    }
+
+    private func usesAzureOpenAIAPIKeyAuth(_ url: URL, rawAPIKey: String) -> Bool {
+        let host = (url.host ?? "").lowercased()
+        return ChatEndpointBaseURL.hostMatchesOfficialDomain(host, domain: "openai.azure.com") &&
+            !rawAPIKey.lowercased().hasPrefix("bearer ")
     }
 }
 
@@ -140,11 +226,6 @@ struct ModelCatalogFetchCoordinator {
                 return [forced]
             }
             return []
-        }
-
-        if let official = ChatAPIEndpointResolver.officialProviderHint(for: apiURL),
-           let pinned = ChatAPIEndpointResolver.endpointCandidate(for: apiURL, provider: official) {
-            return [pinned]
         }
 
         return ChatAPIEndpointResolver.autoDetectionCandidates(

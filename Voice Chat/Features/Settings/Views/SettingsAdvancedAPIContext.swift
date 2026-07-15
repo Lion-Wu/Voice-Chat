@@ -17,24 +17,30 @@ struct SettingsAdvancedAPIContext {
         return viewModel.selectedChatAPIFormatPreference.providerHint
             ?? settingsManager.chatModelCapabilities.detectedProvider(for: base)
             ?? ChatAPIEndpointResolver.officialProviderHint(for: base)
-            ?? .openAICompatible
+            ?? .unknown
     }
 
     var currentRequestStyle: ChatRequestStyle {
         let base = viewModel.apiURL.trimmingCharacters(in: .whitespacesAndNewlines)
         return viewModel.selectedChatAPIFormatPreference.requestStyleHint
             ?? settingsManager.chatModelCapabilities.detectedRequestStyle(for: base)
-            ?? .openAIChatCompletions
+            ?? SettingsAPIRequestStyleResolver.inferredStyle(
+                for: base,
+                providerHint: currentProvider
+            )
+            ?? .openAIResponses
     }
 
     var currentRequestStyleDisplayName: String {
         switch currentRequestStyle {
+        case .openAIResponses:
+            return currentProvider == .unknown
+                ? String(localized: "Unknown, using OpenAI Responses")
+                : String(localized: "OpenAI Responses")
         case .openAIChatCompletions:
-            return isCurrentOpenAIResponsesEndpoint ? String(localized: "OpenAI Responses") : String(localized: "OpenAI Chat Completions")
+            return String(localized: "OpenAI Chat Completions")
         case .lmStudioRESTV1:
             return String(localized: "LM Studio REST v1")
-        case .lmStudioRESTV1LegacyMessage:
-            return String(localized: "LM Studio REST legacy message")
         case .anthropicMessages:
             return String(localized: "Anthropic Messages")
         }
@@ -44,33 +50,15 @@ struct SettingsAdvancedAPIContext {
         switch viewModel.selectedChatAPIFormatPreference {
         case .automatic:
             return String(localized: "Automatic")
-        case .openAI:
-            return ChatProvider.openAI.displayName
+        case .openAIResponses:
+            return String(localized: "OpenAI Responses")
+        case .openAIChatCompletions:
+            return String(localized: "OpenAI Chat Completions")
         case .anthropic:
             return ChatProvider.anthropic.displayName
-        case .gemini:
-            return ChatProvider.gemini.displayName
-        case .deepSeek:
-            return ChatProvider.deepSeek.displayName
-        case .xAI:
-            return ChatProvider.xAI.displayName
-        case .openRouter:
-            return ChatProvider.openRouter.displayName
         case .lmStudio:
             return ChatProvider.lmStudio.displayName
-        case .llamaCpp:
-            return ChatProvider.llamaCpp.displayName
-        case .openAICompatible:
-            return ChatProvider.openAICompatible.displayName
         }
-    }
-
-    var isCurrentOpenAIResponsesEndpoint: Bool {
-        guard currentRequestStyle == .openAIChatCompletions else { return false }
-        if let endpoint = viewModel.lastModelFetchEndpoint {
-            return endpoint.chatURL.path.lowercased().hasSuffix("/responses")
-        }
-        return viewModel.apiURL.lowercased().contains("/responses")
     }
 
     var selectedModelMetadata: ModelInfo? {
@@ -89,5 +77,21 @@ struct SettingsAdvancedAPIContext {
     func optionalBool(_ value: Bool?) -> String {
         guard let value else { return localizedUnknown }
         return value ? String(localized: "Yes") : String(localized: "No")
+    }
+}
+
+enum SettingsAPIRequestStyleResolver {
+    static func inferredStyle(
+        for baseURL: String,
+        providerHint: ChatProvider? = nil
+    ) -> ChatRequestStyle? {
+        DefaultChatEndpointResolver()
+            .streamingCandidates(
+                for: baseURL,
+                providerHint: providerHint,
+                styleHint: nil
+            )
+            .first?
+            .style
     }
 }

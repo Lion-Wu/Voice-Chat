@@ -34,7 +34,24 @@ struct ChatModelCapabilityFacade {
     }
 
     mutating func noteDetectedEndpoint(_ endpoint: ChatAPIEndpointCandidate, for apiBaseURL: String) {
-        store.noteDetectedEndpoint(endpoint, for: apiBaseURL)
+        store.noteDetectedProvider(endpoint.provider, for: apiBaseURL)
+
+        let explicitOrOfficialStyle = ChatEndpointBaseURL.normalizedComponents(from: apiBaseURL).flatMap { components in
+            ChatEndpointCandidateFactory.explicitStyleHint(from: components)
+                ?? ChatEndpointOfficialProviderDetector.preferredRequestStyle(for: components)
+        }
+        let catalogProvenStyle: ChatRequestStyle? = if endpoint.provider == .lmStudio,
+                                                       endpoint.style == .lmStudioRESTV1 {
+            .lmStudioRESTV1
+        } else {
+            explicitOrOfficialStyle
+        }
+
+        if let catalogProvenStyle {
+            store.noteDetectedRequestStyle(catalogProvenStyle, for: apiBaseURL)
+        } else {
+            store.clearDetectedRequestStyle(for: apiBaseURL)
+        }
     }
 
     func detectedProvider(for apiBaseURL: String) -> ChatProvider? {
@@ -99,7 +116,7 @@ struct ChatModelCapabilityFacade {
         let provider = resolvedProvider(for: chatSettings.apiURL)
             ?? ModelCapabilityResolver.providerHint(from: requestStyle)
             ?? ChatAPIEndpointResolver.officialProviderHint(for: chatSettings.apiURL)
-            ?? .openAICompatible
+            ?? .unknown
         return store.thinkingCapability(
             for: trimmed,
             apiBaseURL: chatSettings.apiURL,

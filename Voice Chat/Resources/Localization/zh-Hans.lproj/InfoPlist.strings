@@ -1,3 +1,10 @@
+"NSCalendarsFullAccessUsageDescription" = "用于在你要求助理处理日程时读取和创建日历日程。";
+"NSCalendarsUsageDescription" = "用于在你要求助理处理日程时读取和创建日历日程。";
 "NSCameraUsageDescription" = "用于拍摄照片并添加到聊天消息中。";
+"NSLocationUsageDescription" = "用于在你要求助理使用位置信息时读取你的当前位置。";
+"NSLocationWhenInUseUsageDescription" = "用于在你要求助理使用位置信息时读取你的当前位置。";
 "NSMicrophoneUsageDescription" = "用于录制你的语音，以支持语音模式。";
+"NSMotionUsageDescription" = "用于在你要求助理使用设备运动信息时读取短时运动数据。";
+"NSRemindersFullAccessUsageDescription" = "用于在你要求助理处理提醒事项时读取和创建提醒事项。";
+"NSRemindersUsageDescription" = "用于在你要求助理处理提醒事项时读取和创建提醒事项。";
 "NSSpeechRecognitionUsageDescription" = "用于将你的语音转换为文字，以支持语音模式。";

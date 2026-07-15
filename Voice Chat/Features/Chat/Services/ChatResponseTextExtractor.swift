@@ -54,12 +54,6 @@ struct ChatResponseTextExtractor: ChatResponseTextExtracting {
                     return text
                 }
             }
-            if let textValue = response["text"] {
-                let text = flattenedText(from: textValue).trimmingCharacters(in: .whitespacesAndNewlines)
-                if !text.isEmpty {
-                    return text
-                }
-            }
         }
 
         if let item = dictionary["item"] as? [String: Any] {
@@ -107,7 +101,8 @@ struct ChatResponseTextExtractor: ChatResponseTextExtracting {
             }
         }
 
-        if let textValue = dictionary["text"] {
+        if let textValue = dictionary["text"],
+           !isOpenAITextConfiguration(textValue) {
             let text = flattenedText(from: textValue).trimmingCharacters(in: .whitespacesAndNewlines)
             if !text.isEmpty {
                 return text
@@ -132,6 +127,13 @@ struct ChatResponseTextExtractor: ChatResponseTextExtracting {
         return nil
     }
 
+    private func isOpenAITextConfiguration(_ value: Any) -> Bool {
+        guard let dictionary = value as? [String: Any] else { return false }
+        return dictionary["format"] != nil &&
+            dictionary["text"] == nil &&
+            dictionary["content"] == nil
+    }
+
     func extractOpenAIResponseOutputText(_ output: [[String: Any]]) -> String? {
         for item in output {
             let itemType = ((item["type"] as? String) ?? "").lowercased()
@@ -140,11 +142,14 @@ struct ChatResponseTextExtractor: ChatResponseTextExtracting {
                 if let content = item["content"] as? [[String: Any]] {
                     let merged = content.compactMap { part -> String? in
                         let partType = ((part["type"] as? String) ?? "").lowercased()
-                        guard partType == "output_text" || partType == "text" || partType.isEmpty else {
+                        guard partType == "output_text" || partType == "text" || partType == "refusal" || partType.isEmpty else {
                             return nil
                         }
                         if let text = part["text"] as? String, !text.isEmpty {
                             return text
+                        }
+                        if let refusal = part["refusal"] as? String, !refusal.isEmpty {
+                            return refusal
                         }
                         if let content = part["content"] as? String, !content.isEmpty {
                             return content
@@ -166,10 +171,14 @@ struct ChatResponseTextExtractor: ChatResponseTextExtracting {
                 }
             }
 
-            if itemType == "output_text" || itemType == "text" {
+            if itemType == "output_text" || itemType == "text" || itemType == "refusal" {
                 if let text = item["text"] as? String,
                    !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     return text
+                }
+                if let refusal = item["refusal"] as? String,
+                   !refusal.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    return refusal
                 }
                 if let content = item["content"] {
                     let text = flattenedText(from: content).trimmingCharacters(in: .whitespacesAndNewlines)

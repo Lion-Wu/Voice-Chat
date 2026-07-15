@@ -11,7 +11,7 @@ final class ChatModelCapabilityFacadeTests: XCTestCase {
             apiFormatPreferenceRaw: ChatAPIFormatPreference.lmStudio.rawValue
         )
         var store = ChatModelCapabilityStore()
-        store.noteDetectedProvider(.openAICompatible, for: "http://localhost:1234/v1")
+        store.noteDetectedProvider(.openAI, for: "http://localhost:1234/v1")
         let facade = ChatModelCapabilityFacade(
             store: store,
             chatSettings: ChatSettings(apiURL: "http://localhost:1234/v1", selectedModel: "local", apiKey: ""),
@@ -31,7 +31,7 @@ final class ChatModelCapabilityFacadeTests: XCTestCase {
             apiFormatPreferenceRaw: ChatAPIFormatPreference.lmStudio.rawValue
         )
         var store = ChatModelCapabilityStore()
-        store.noteDetectedProvider(.openAICompatible, for: "http://localhost:1234/v1")
+        store.noteDetectedProvider(.openAI, for: "http://localhost:1234/v1")
         let facade = ChatModelCapabilityFacade(
             store: store,
             chatSettings: ChatSettings(apiURL: "http://localhost:1234/v1", selectedModel: "local", apiKey: ""),
@@ -39,7 +39,49 @@ final class ChatModelCapabilityFacadeTests: XCTestCase {
             selectedChatServerPresetID: preset.id
         )
 
-        XCTAssertEqual(facade.resolvedProvider(for: "http://localhost:1234/v1"), .openAICompatible)
+        XCTAssertEqual(facade.resolvedProvider(for: "http://localhost:1234/v1"), .openAI)
+    }
+
+    func testModelCatalogDoesNotTreatSharedModelsEndpointAsGenerationStyleProbe() throws {
+        let baseURL = "https://compatible.example.com/v1"
+        var staleStore = ChatModelCapabilityStore()
+        staleStore.noteDetectedRequestStyle(.openAIResponses, for: baseURL)
+        var facade = ChatModelCapabilityFacade(
+            store: staleStore,
+            chatSettings: ChatSettings(apiURL: baseURL, selectedModel: "model", apiKey: ""),
+            chatServerPresets: [],
+            selectedChatServerPresetID: nil
+        )
+        let endpoint = ChatAPIEndpointCandidate(
+            provider: .unknown,
+            style: .openAIResponses,
+            chatURL: try XCTUnwrap(URL(string: "https://compatible.example.com/v1/responses")),
+            modelsURL: try XCTUnwrap(URL(string: "https://compatible.example.com/v1/models"))
+        )
+
+        facade.noteDetectedEndpoint(endpoint, for: baseURL)
+
+        XCTAssertNil(facade.detectedRequestStyle(for: baseURL))
+    }
+
+    func testModelCatalogKeepsStyleProvenByExplicitGenerationPath() throws {
+        let baseURL = "https://compatible.example.com/v1/chat/completions"
+        var facade = ChatModelCapabilityFacade(
+            store: ChatModelCapabilityStore(),
+            chatSettings: ChatSettings(apiURL: baseURL, selectedModel: "model", apiKey: ""),
+            chatServerPresets: [],
+            selectedChatServerPresetID: nil
+        )
+        let endpoint = ChatAPIEndpointCandidate(
+            provider: .unknown,
+            style: .openAIChatCompletions,
+            chatURL: try XCTUnwrap(URL(string: baseURL)),
+            modelsURL: try XCTUnwrap(URL(string: "https://compatible.example.com/v1/models"))
+        )
+
+        facade.noteDetectedEndpoint(endpoint, for: baseURL)
+
+        XCTAssertEqual(facade.detectedRequestStyle(for: baseURL), .openAIChatCompletions)
     }
 
     func testThinkingSelectionMutatesUnderlyingStore() throws {

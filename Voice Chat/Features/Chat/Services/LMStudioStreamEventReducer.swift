@@ -10,6 +10,7 @@ import Foundation
 struct LMStudioStreamEventState: Equatable {
     var isLegacyThinkStream = false
     var sawAnyPrimaryAssistantToken = false
+    var sawAnyReasoningToken = false
     var newFormatActive = false
     var sentThinkOpen = false
     var sentThinkClose = false
@@ -21,6 +22,7 @@ enum LMStudioStreamAction: Equatable {
     case metadata(ChatResponseMetadata)
     case finish
     case fail(String)
+    case retryableFailure(String, statusCode: Int)
 }
 
 struct LMStudioStreamEventReducer {
@@ -58,11 +60,21 @@ struct LMStudioStreamEventReducer {
             state.newFormatActive = true
             openThinkIfNeeded(state: &state, actions: &actions)
             if let content = event.content, !content.isEmpty {
+                state.sawAnyReasoningToken = true
                 actions.append(.delta(content, marksPrimaryOutput: false))
             }
 
         case "reasoning.end":
-            closeThinkIfNeeded(state: &state, actions: &actions)
+            break
+
+        case "tool_call.start", "tool_call.arguments", "tool_call.success":
+            break
+
+        case "tool_call.failure":
+            let message = toolFailureMessage(from: event)
+            if !message.isEmpty {
+                state.pendingStreamErrorMessage = message
+            }
 
         case "message", "message.delta", "response.output_text.delta", "response.content":
             closeThinkIfNeeded(state: &state, actions: &actions)
@@ -72,6 +84,15 @@ struct LMStudioStreamEventReducer {
             }
 
         case "chat.end", "response.completed":
+            if !state.sawAnyReasoningToken {
+                let reasoningText = completedReasoningText(from: event)
+                if !reasoningText.isEmpty {
+                    state.newFormatActive = true
+                    openThinkIfNeeded(state: &state, actions: &actions)
+                    state.sawAnyReasoningToken = true
+                    actions.append(.delta(reasoningText, marksPrimaryOutput: false))
+                }
+            }
             closeThinkIfNeeded(state: &state, actions: &actions)
             if !state.sawAnyPrimaryAssistantToken {
                 let fullText = completedFullText(from: event)
@@ -85,6 +106,10 @@ struct LMStudioStreamEventReducer {
                     .trimmingCharacters(in: .whitespacesAndNewlines),
                    !pending.isEmpty {
                     actions.append(.fail(pending))
+                    return actions
+                }
+                if state.sawAnyReasoningToken {
+                    actions.append(.finish)
                 }
                 return actions
             }
@@ -92,9 +117,19 @@ struct LMStudioStreamEventReducer {
 
         case "chat.error", "error":
             let message = event.error?.message?.trimmingCharacters(in: .whitespacesAndNewlines)
-            if let message, !message.isEmpty {
-                state.pendingStreamErrorMessage = message
+            let resolvedMessage = message.flatMap { $0.isEmpty ? nil : $0 }
+                ?? NSLocalizedString("LM Studio stream error.", comment: "Fallback error shown for an LM Studio error event")
+            if let statusCode = event.error?.retryableStatusCode {
+                actions.append(.retryableFailure(resolvedMessage, statusCode: statusCode))
+            } else {
+                actions.append(.fail(resolvedMessage))
             }
+
+        case "chat.start",
+             "model_load.start", "model_load.progress", "model_load.end",
+             "prompt_processing.start", "prompt_processing.progress", "prompt_processing.end",
+             "message.start", "message.end":
+            break
 
         default:
             break
@@ -145,6 +180,34 @@ struct LMStudioStreamEventReducer {
         ]
             .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
             .first(where: { !$0.isEmpty }) ?? ""
+    }
+
+    private func completedReasoningText(from event: LMStudioChatStreamEvent) -> String {
+        [
+            event.result?.reasoningText,
+            event.response?.reasoningText
+        ]
+            .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .first(where: { !$0.isEmpty }) ?? ""
+    }
+
+    private func toolFailureMessage(from event: LMStudioChatStreamEvent) -> String {
+        if let reason = event.reason?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !reason.isEmpty {
+            return reason
+        }
+        let toolName = event.metadata?.tool_name?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if let toolName, !toolName.isEmpty {
+            return String.localizedStringWithFormat(
+                NSLocalizedString("Tool call failed: %@", comment: "LM Studio tool-call failure with tool name"),
+                toolName
+            )
+        }
+        return NSLocalizedString(
+            "Tool call failed.",
+            comment: "Fallback error shown when LM Studio reports a tool-call failure without details"
+        )
     }
 
     private func openThinkIfNeeded(

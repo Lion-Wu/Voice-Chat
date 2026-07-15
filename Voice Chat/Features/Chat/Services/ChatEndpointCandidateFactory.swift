@@ -17,11 +17,28 @@ enum ChatEndpointCandidateFactory {
         appendCandidates(for: provider, base: base, to: &candidates)
         guard !candidates.isEmpty else { return nil }
 
-        if let preferredStyle,
-           let preferred = candidates.first(where: { $0.style == preferredStyle }) {
+        let effectivePreferredStyle = preferredStyle
+            ?? explicitStyleHint(from: base)
+            ?? ChatEndpointOfficialProviderDetector.preferredRequestStyle(for: base)
+        if let effectivePreferredStyle,
+           let preferred = candidates.first(where: { $0.style == effectivePreferredStyle }) {
             return preferred
         }
         return candidates.first
+    }
+
+    static func explicitStyleHint(from base: URLComponents) -> ChatRequestStyle? {
+        let path = ChatEndpointBaseURL.canonicalPath(base.path).lowercased()
+        if path.hasSuffix("/chat/completions") {
+            return .openAIChatCompletions
+        }
+        if path.hasSuffix("/responses") {
+            return .openAIResponses
+        }
+        if path.hasSuffix("/api/v1/chat") {
+            return .lmStudioRESTV1
+        }
+        return nil
     }
 
     static func appendCandidates(
@@ -34,20 +51,10 @@ enum ChatEndpointCandidateFactory {
             appendLMStudioCandidates(base: base, to: &list)
         case .anthropic:
             appendAnthropicCandidate(base: base, to: &list)
-        case .gemini:
-            appendGeminiCandidate(base: base, to: &list)
-        case .deepSeek:
-            appendChatCompletionsCandidate(provider: .deepSeek, base: base, to: &list)
-        case .xAI:
-            appendChatCompletionsCandidate(provider: .xAI, base: base, to: &list)
-        case .openRouter:
-            appendChatCompletionsCandidate(provider: .openRouter, base: base, to: &list)
-        case .llamaCpp:
-            appendOpenAICompatibleCandidate(provider: .llamaCpp, base: base, to: &list)
         case .openAI:
-            appendOpenAICompatibleCandidate(provider: .openAI, base: base, to: &list)
-        case .openAICompatible, .unknown:
-            appendOpenAICompatibleCandidate(provider: .openAICompatible, base: base, to: &list)
+            appendOpenAICompatibleCandidates(provider: .openAI, base: base, to: &list)
+        case .unknown:
+            appendOpenAICompatibleCandidates(provider: .unknown, base: base, to: &list)
         }
     }
 
@@ -67,6 +74,17 @@ enum ChatEndpointCandidateFactory {
             )
         }
         if let urls = ChatEndpointProviderURLFactory.openAICompatibleURLs(from: base) {
+            appendUnique(
+                ChatAPIEndpointCandidate(
+                    provider: .lmStudio,
+                    style: .openAIResponses,
+                    chatURL: urls.chat,
+                    modelsURL: urls.models
+                ),
+                to: &list
+            )
+        }
+        if let urls = ChatEndpointProviderURLFactory.chatCompletionsCompatibleURLs(from: base) {
             appendUnique(
                 ChatAPIEndpointCandidate(
                     provider: .lmStudio,
@@ -95,54 +113,33 @@ enum ChatEndpointCandidateFactory {
         )
     }
 
-    private static func appendGeminiCandidate(
-        base: URLComponents,
-        to list: inout [ChatAPIEndpointCandidate]
-    ) {
-        guard let urls = ChatEndpointProviderURLFactory.geminiOpenAICompatibleURLs(from: base) else { return }
-        appendUnique(
-            ChatAPIEndpointCandidate(
-                provider: .gemini,
-                style: .openAIChatCompletions,
-                chatURL: urls.chat,
-                modelsURL: urls.models
-            ),
-            to: &list
-        )
-    }
-
-    private static func appendChatCompletionsCandidate(
+    private static func appendOpenAICompatibleCandidates(
         provider: ChatProvider,
         base: URLComponents,
         to list: inout [ChatAPIEndpointCandidate]
     ) {
-        guard let urls = ChatEndpointProviderURLFactory.chatCompletionsCompatibleURLs(from: base) else { return }
-        appendUnique(
-            ChatAPIEndpointCandidate(
-                provider: provider,
-                style: .openAIChatCompletions,
-                chatURL: urls.chat,
-                modelsURL: urls.models
-            ),
-            to: &list
-        )
-    }
-
-    private static func appendOpenAICompatibleCandidate(
-        provider: ChatProvider,
-        base: URLComponents,
-        to list: inout [ChatAPIEndpointCandidate]
-    ) {
-        guard let urls = ChatEndpointProviderURLFactory.openAICompatibleURLs(from: base) else { return }
-        appendUnique(
-            ChatAPIEndpointCandidate(
-                provider: provider,
-                style: .openAIChatCompletions,
-                chatURL: urls.chat,
-                modelsURL: urls.models
-            ),
-            to: &list
-        )
+        if let urls = ChatEndpointProviderURLFactory.openAICompatibleURLs(from: base) {
+            appendUnique(
+                ChatAPIEndpointCandidate(
+                    provider: provider,
+                    style: .openAIResponses,
+                    chatURL: urls.chat,
+                    modelsURL: urls.models
+                ),
+                to: &list
+            )
+        }
+        if let urls = ChatEndpointProviderURLFactory.chatCompletionsCompatibleURLs(from: base) {
+            appendUnique(
+                ChatAPIEndpointCandidate(
+                    provider: provider,
+                    style: .openAIChatCompletions,
+                    chatURL: urls.chat,
+                    modelsURL: urls.models
+                ),
+                to: &list
+            )
+        }
     }
 
     private static func appendUnique(

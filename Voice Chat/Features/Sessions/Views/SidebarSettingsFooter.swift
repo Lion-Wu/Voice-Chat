@@ -155,7 +155,11 @@ struct SidebarSettingsFooter: View {
             }
         }
         .padding(.vertical, 8)
-        .background(.thinMaterial)
+        .background {
+            Rectangle()
+                .fill(.thinMaterial)
+                .ignoresSafeArea(edges: .bottom)
+        }
         #endif
     }
 

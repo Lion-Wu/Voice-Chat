@@ -9,141 +9,120 @@ import SwiftUI
 
 struct SystemTextBubble: View {
     let message: ChatMessage
-    @State private var isShowingMessageDetails = false
-    @State private var isShowingCopyFeedback = false
-    @State private var copyFeedbackToken = 0
 
     let thinkPreviewLines: Int
     let thinkFontSize: CGFloat
-    let showActionButtons: Bool
     let developerModeEnabled: Bool
     let maxBubbleWidth: CGFloat?
     let contentFingerprint: ContentFingerprint
+    let toolActivityPlacements: [ChatToolActivityPlacement]
     let searchHighlightQuery: String?
     let isStreamingResponse: Bool
 
-    let onCopy: () -> Void
-    let onRegenerate: () -> Void
-    let onReadAloud: () -> Void
+    let onAuthorizeTool: (String, Bool) -> Void
     private let renderCache = MessageRenderCache.shared
 
     var body: some View {
-        let parts = renderCache.thinkParts(for: message.id, content: message.content, fingerprint: contentFingerprint)
-
-        let thinkView = Group {
-            if let think = parts.think {
-                ThinkingPreviewBubble(
-                    think: think,
-                    isComplete: parts.isClosed,
-                    previewLines: thinkPreviewLines,
-                    thinkFontSize: thinkFontSize
-                )
-                    .frame(maxWidth: contentMaxWidthForAssistant(availableWidth: maxBubbleWidth), alignment: .leading)
-            }
-        }
-
-        let bodyView = Group {
-            if !parts.body.isEmpty {
-                RichMarkdownView(
-                    markdown: parts.body,
-                    searchHighlightQuery: searchHighlightQuery,
-                    animateNewText: isStreamingResponse
-                )
-                    .frame(maxWidth: contentMaxWidthForAssistant(availableWidth: maxBubbleWidth), alignment: .leading)
-                    .frame(maxWidth: .infinity, alignment: .center)
-            }
-        }
+        let assistantSegments = message.assistantSegments
 
         return VStack(alignment: .center, spacing: 8) {
-            thinkView
-            bodyView
-            if parts.isClosed && !parts.body.isEmpty && showActionButtons {
-                HStack(spacing: 6) {
-                    Button { handleCopy() } label: {
-                        Image(systemName: isShowingCopyFeedback ? "checkmark" : "doc.on.doc")
-                            #if os(macOS)
-                            .font(.system(size: 12, weight: .semibold))
-                            #else
-                            .font(.system(size: 16, weight: .semibold))
-                            #endif
-                            .padding(2)
-                            .frame(minWidth: 18, minHeight: 18)
-                    }
-                    .buttonStyle(.plain)
-                    .foregroundStyle(isShowingCopyFeedback ? Color.green : .secondary)
-                    .accessibilityLabel(isShowingCopyFeedback ? Text("Copied") : Text("Copy"))
-
-                    Button { onRegenerate() } label: {
-                        Image(systemName: "arrow.clockwise")
-                            #if os(macOS)
-                            .font(.system(size: 12, weight: .semibold))
-                            #else
-                            .font(.system(size: 16, weight: .semibold))
-                            #endif
-                            .padding(2)
-                            .accessibilityLabel("Regenerate")
-                    }
-                    .buttonStyle(.plain)
-                    .foregroundStyle(.secondary)
-
-                    Button { onReadAloud() } label: {
-                        Image(systemName: "speaker.wave.2.fill")
-                            #if os(macOS)
-                            .font(.system(size: 12, weight: .semibold))
-                            #else
-                            .font(.system(size: 16, weight: .semibold))
-                            #endif
-                            .padding(2)
-                            .accessibilityLabel("Read Aloud")
-                    }
-                    .buttonStyle(.plain)
-                    .foregroundStyle(.secondary)
-
-                    if developerModeEnabled {
-                        Button { isShowingMessageDetails = true } label: {
-                            Image(systemName: "info.circle")
-                                #if os(macOS)
-                                .font(.system(size: 12, weight: .semibold))
-                                #else
-                                .font(.system(size: 16, weight: .semibold))
-                                #endif
-                                .padding(2)
-                                .accessibilityLabel("Details")
-                        }
-                        .buttonStyle(.plain)
-                        .foregroundStyle(.secondary)
-                    }
-                }
-                .frame(maxWidth: contentMaxWidthForAssistant(availableWidth: maxBubbleWidth), alignment: .leading)
-                .transition(.opacity.combined(with: .move(edge: .top)))
+            if assistantSegments.isEmpty {
+                unstructuredContent
+            } else {
+                structuredContent(assistantSegments)
             }
         }
         .tint(ChatTheme.accent)
         .frame(maxWidth: .infinity, alignment: .center)
         .textSelection(.enabled)
-        .task(id: copyFeedbackToken) {
-            guard copyFeedbackToken > 0 else { return }
-            try? await Task.sleep(for: .seconds(1.2))
-            await MainActor.run {
-                withAnimation(.easeInOut(duration: 0.18)) {
-                    isShowingCopyFeedback = false
+    }
+
+    @ViewBuilder
+    private func structuredContent(_ segments: [ChatAssistantSegment]) -> some View {
+        let blocks = ChatAssistantRenderBlockBuilder.blocks(
+            segments: segments,
+            placements: toolActivityPlacements
+        )
+
+        ForEach(Array(blocks.enumerated()), id: \.element.id) { indexedBlock in
+            let block = indexedBlock.element
+            switch block.kind {
+            case .reasoning:
+                ThinkingPreviewBubble(
+                    think: block.text,
+                    isComplete: !isStreamingResponse || indexedBlock.offset < blocks.count - 1,
+                    previewLines: thinkPreviewLines,
+                    thinkFontSize: thinkFontSize,
+                    toolActivityPlacements: block.toolActivityPlacements,
+                    maxBubbleWidth: maxBubbleWidth,
+                    developerModeEnabled: developerModeEnabled,
+                    onAuthorizeTool: onAuthorizeTool
+                )
+                .frame(
+                    maxWidth: contentMaxWidthForAssistant(availableWidth: maxBubbleWidth),
+                    alignment: .leading
+                )
+
+            case .text:
+                if !block.text.isEmpty || !block.toolActivityPlacements.isEmpty {
+                    bodyContent(
+                        text: block.text,
+                        placements: block.toolActivityPlacements
+                    )
                 }
             }
         }
-        .onDisappear {
-            isShowingCopyFeedback = false
-            copyFeedbackToken = 0
+    }
+
+    @ViewBuilder
+    private var unstructuredContent: some View {
+        let parts = renderCache.thinkParts(
+            for: message.id,
+            content: message.content,
+            fingerprint: contentFingerprint
+        )
+        let thinkingPlacements = toolActivityPlacements.filter { $0.scope == .thinking }
+        let bodyPlacements = toolActivityPlacements.filter { $0.scope == .body }
+
+        if parts.think != nil || !thinkingPlacements.isEmpty {
+            ThinkingPreviewBubble(
+                think: parts.think ?? "",
+                isComplete: parts.isClosed && (
+                    !isStreamingResponse || thinkingPlacements.isEmpty || !parts.body.isEmpty
+                ),
+                previewLines: thinkPreviewLines,
+                thinkFontSize: thinkFontSize,
+                toolActivityPlacements: thinkingPlacements,
+                maxBubbleWidth: maxBubbleWidth,
+                developerModeEnabled: developerModeEnabled,
+                onAuthorizeTool: onAuthorizeTool
+            )
+            .frame(
+                maxWidth: contentMaxWidthForAssistant(availableWidth: maxBubbleWidth),
+                alignment: .leading
+            )
         }
-        .sheet(isPresented: $isShowingMessageDetails) {
-            MessageDetailsView(message: message)
+
+        if !parts.body.isEmpty || !bodyPlacements.isEmpty {
+            bodyContent(text: parts.body, placements: bodyPlacements)
         }
     }
 
-    private func handleCopy() {
-        onCopy()
-        withAnimation(.easeInOut(duration: 0.18)) {
-            isShowingCopyFeedback = true
-        }
-        copyFeedbackToken += 1
+    private func bodyContent(
+        text: String,
+        placements: [ChatToolActivityPlacement]
+    ) -> some View {
+        let contentWidth = contentMaxWidthForAssistant(availableWidth: maxBubbleWidth)
+        return ChatToolInlineContentView(
+            text: text,
+            placements: placements,
+            maxBubbleWidth: maxBubbleWidth,
+            searchHighlightQuery: searchHighlightQuery,
+            animateNewText: isStreamingResponse,
+            developerModeEnabled: developerModeEnabled,
+            onAuthorizeTool: onAuthorizeTool
+        )
+        .frame(maxWidth: contentWidth, alignment: .leading)
+        .frame(maxWidth: .infinity, alignment: .center)
     }
 }

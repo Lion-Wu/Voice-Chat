@@ -4,7 +4,7 @@ import XCTest
 @MainActor
 final class VoiceLoadingWatchdogTests: XCTestCase {
     func testTimesOutWhenLoadingStalls() async {
-        var now = Date(timeIntervalSince1970: 100)
+        var now = TestDate.reference
         let timedOut = expectation(description: "watchdog timed out")
         let watchdog = VoiceLoadingWatchdog(
             defaultTimeout: 1,
@@ -26,7 +26,7 @@ final class VoiceLoadingWatchdogTests: XCTestCase {
     }
 
     func testMarkProgressDelaysTimeout() async {
-        var now = Date(timeIntervalSince1970: 200)
+        var now = TestDate.reference
         var didTimeout = false
         let timedOut = expectation(description: "watchdog timed out after progress")
         let watchdog = VoiceLoadingWatchdog(
@@ -57,7 +57,7 @@ final class VoiceLoadingWatchdogTests: XCTestCase {
     }
 
     func testStopPreventsTimeout() async {
-        var now = Date(timeIntervalSince1970: 300)
+        var now = TestDate.reference
         var didTimeout = false
         let watchdog = VoiceLoadingWatchdog(
             defaultTimeout: 1,

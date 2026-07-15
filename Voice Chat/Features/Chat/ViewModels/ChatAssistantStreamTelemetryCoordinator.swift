@@ -25,9 +25,25 @@ struct ChatAssistantStreamTelemetry {
     var firstTokenAt: Date?
 }
 
+struct ChatAssistantStreamTelemetryRetryCheckpoint {
+    fileprivate let activeTelemetry: ChatAssistantStreamTelemetry?
+    fileprivate let pendingServerMetadata: ChatResponseMetadata
+    fileprivate let completedServerMetadata: ChatResponseMetadata
+    fileprivate let currentResponseMetadata: ChatResponseMetadata
+    fileprivate let currentResponseKey: String?
+    fileprivate let orderedProviderResponseIDs: [String]
+    fileprivate let observedResponseCount: Int
+    fileprivate let pendingDeltaWriteBytes: Int
+}
+
 struct ChatAssistantStreamTelemetryCoordinator {
     private(set) var activeTelemetry: ChatAssistantStreamTelemetry?
     private var pendingServerMetadata: ChatResponseMetadata = .empty
+    private var completedServerMetadata = ChatResponseMetadata.empty
+    private var currentResponseMetadata = ChatResponseMetadata.empty
+    private var currentResponseKey: String?
+    private var orderedProviderResponseIDs: [String] = []
+    private var observedResponseCount = 0
     private var pendingDeltaWriteBytes: Int = 0
     private let deltaPersistThreshold: Int
 
@@ -43,8 +59,58 @@ struct ChatAssistantStreamTelemetryCoordinator {
         activeTelemetry?.includeImagesInUserContent ?? false
     }
 
+    func makeRetryCheckpoint() -> ChatAssistantStreamTelemetryRetryCheckpoint {
+        ChatAssistantStreamTelemetryRetryCheckpoint(
+            activeTelemetry: activeTelemetry,
+            pendingServerMetadata: pendingServerMetadata,
+            completedServerMetadata: completedServerMetadata,
+            currentResponseMetadata: currentResponseMetadata,
+            currentResponseKey: currentResponseKey,
+            orderedProviderResponseIDs: orderedProviderResponseIDs,
+            observedResponseCount: observedResponseCount,
+            pendingDeltaWriteBytes: pendingDeltaWriteBytes
+        )
+    }
+
+    mutating func restoreRetryCheckpoint(_ checkpoint: ChatAssistantStreamTelemetryRetryCheckpoint) {
+        var requestMetadata = ChatResponseMetadata.empty
+        requestMetadata.requestContext = pendingServerMetadata.requestContext
+        requestMetadata.requestUsedPreviousResponseID = pendingServerMetadata.requestUsedPreviousResponseID
+        requestMetadata.requestPreviousResponseID = pendingServerMetadata.requestPreviousResponseID
+
+        activeTelemetry = checkpoint.activeTelemetry
+        pendingServerMetadata = checkpoint.pendingServerMetadata
+        completedServerMetadata = checkpoint.completedServerMetadata
+        currentResponseMetadata = checkpoint.currentResponseMetadata
+        currentResponseKey = checkpoint.currentResponseKey
+        orderedProviderResponseIDs = checkpoint.orderedProviderResponseIDs
+        observedResponseCount = checkpoint.observedResponseCount
+        pendingDeltaWriteBytes = checkpoint.pendingDeltaWriteBytes
+
+        // The service emits request context after the UI checkpoint is captured. It belongs
+        // to the retried request body, unlike response metadata from the failed attempt.
+        currentResponseMetadata.merge(requestMetadata)
+        pendingServerMetadata = combinedServerMetadata()
+    }
+
     mutating func mergeServerMetadata(_ metadata: ChatResponseMetadata) {
-        pendingServerMetadata.merge(metadata)
+        let responseKey = metadata.providerResponseID?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let responseKey, !responseKey.isEmpty {
+            if let currentResponseKey, currentResponseKey != responseKey {
+                commitCurrentResponseMetadata()
+                currentResponseMetadata = .empty
+                observedResponseCount += 1
+            } else if currentResponseKey == nil {
+                observedResponseCount += 1
+            }
+            currentResponseKey = responseKey
+            if orderedProviderResponseIDs.last != responseKey {
+                orderedProviderResponseIDs.append(responseKey)
+            }
+        }
+
+        currentResponseMetadata.merge(metadata)
+        pendingServerMetadata = combinedServerMetadata()
     }
 
     mutating func resetStreamingPersistenceState() {
@@ -65,6 +131,11 @@ struct ChatAssistantStreamTelemetryCoordinator {
         }
         resetStreamingPersistenceState()
         pendingServerMetadata = .empty
+        completedServerMetadata = .empty
+        currentResponseMetadata = .empty
+        currentResponseKey = nil
+        orderedProviderResponseIDs.removeAll(keepingCapacity: true)
+        observedResponseCount = 0
 
         activeTelemetry = ChatAssistantStreamTelemetry(
             streamID: streamID,
@@ -137,6 +208,7 @@ struct ChatAssistantStreamTelemetryCoordinator {
                 message.timeToFirstTokenSource = ChatStreamMetricValueSource.local.rawValue
             }
         }
+        applyRequestTransportMetadata(to: message)
     }
 
     func estimatedTokenCountFromCharacters(_ characterCount: Int) -> Int {
@@ -285,6 +357,10 @@ struct ChatAssistantStreamTelemetryCoordinator {
             thinkingOptionRawValue: (telemetry?.thinkingOption ?? fallbackConfiguration.thinkingOption)?.rawValue,
             requestID: telemetry?.streamID,
             providerResponseID: pendingServerMetadata.providerResponseID,
+            providerResponseIDs: orderedProviderResponseIDs,
+            requestContextFingerprint: pendingServerMetadata.requestContext?.fingerprint,
+            requestUsedPreviousResponseID: pendingServerMetadata.requestUsedPreviousResponseID,
+            requestPreviousResponseID: pendingServerMetadata.requestPreviousResponseID,
             streamStartedAt: telemetry?.startedAt,
             streamFirstTokenAt: telemetry?.firstTokenAt,
             streamCompletedAt: createdAt,
@@ -297,11 +373,11 @@ struct ChatAssistantStreamTelemetryCoordinator {
             tokenCountSource: resolvedTokenCountSource,
             timeToFirstTokenSource: resolvedTimeToFirstTokenSource,
             tokensPerSecondSource: pendingServerMetadata.tokensPerSecond != nil ? ChatStreamMetricValueSource.provider.rawValue : nil,
-            finishReasonSource: pendingServerMetadata.finishReason != nil ? ChatStreamMetricValueSource.provider.rawValue : ChatStreamMetricValueSource.local.rawValue,
+            finishReasonSource: ChatStreamMetricValueSource.local.rawValue,
             characterCount: content.count,
             promptMessageCount: telemetry?.promptMessageCount,
             promptCharacterCount: telemetry?.promptCharacterCount,
-            finishReason: pendingServerMetadata.finishReason ?? "error",
+            finishReason: "error",
             errorDescription: errorText.isEmpty ? fallbackErrorDescription : errorText,
             session: session
         )
@@ -323,10 +399,13 @@ struct ChatAssistantStreamTelemetryCoordinator {
         guard !message.isUser, message.isActive else { return false }
         message.isActive = false
         if message.finishReason == nil {
-            message.finishReason = "interrupted"
+            message.finishReason = message.hasAssistantOutput ? "stopped" : "cancelled"
             if message.finishReasonSource == nil {
                 message.finishReasonSource = ChatStreamMetricValueSource.local.rawValue
             }
+        }
+        if message.errorDescription == nil {
+            message.errorDescription = interruptionDisplayText(for: message.finishReason)
         }
         if message.streamStartedAt == nil {
             message.streamStartedAt = message.createdAt
@@ -370,15 +449,29 @@ struct ChatAssistantStreamTelemetryCoordinator {
            !responseID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             message.providerResponseID = responseID
         }
+        if !orderedProviderResponseIDs.isEmpty {
+            message.providerResponseIDs = orderedProviderResponseIDs
+        }
+        if let fingerprint = metadata.requestContext?.fingerprint,
+           !fingerprint.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            message.requestContextFingerprint = fingerprint
+        }
+        applyRequestTransportMetadata(to: message)
         if let outputTokenCount = metadata.outputTokenCount {
-            message.tokenCount = max(0, outputTokenCount)
+            let normalizedOutputTokenCount = max(0, outputTokenCount)
+            message.outputTokenCount = normalizedOutputTokenCount
+            message.tokenCount = normalizedOutputTokenCount
             message.tokenCountSource = ChatStreamMetricValueSource.provider.rawValue
         }
         if let reasoningOutputTokenCount = metadata.reasoningOutputTokenCount {
             message.reasoningOutputTokenCount = reasoningOutputTokenCount
         }
-        if let finishReason = metadata.finishReason,
-           !finishReason.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+        if shouldPreserveLocalTerminalFinishReason(message.finishReason) {
+            if message.finishReasonSource == nil {
+                message.finishReasonSource = ChatStreamMetricValueSource.local.rawValue
+            }
+        } else if let finishReason = metadata.finishReason,
+                  !finishReason.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             message.finishReason = finishReason
             message.finishReasonSource = ChatStreamMetricValueSource.provider.rawValue
         } else if message.finishReason != nil, message.finishReasonSource == nil {
@@ -397,7 +490,8 @@ struct ChatAssistantStreamTelemetryCoordinator {
             message.timeToFirstTokenSource = ChatStreamMetricValueSource.local.rawValue
         }
 
-        if let apiTPS = metadata.tokensPerSecond,
+        if observedResponseCount <= 1,
+           let apiTPS = metadata.tokensPerSecond,
            apiTPS.isFinite,
            apiTPS >= 0 {
             message.tokensPerSecond = apiTPS
@@ -414,8 +508,87 @@ struct ChatAssistantStreamTelemetryCoordinator {
         }
     }
 
+    private func applyRequestTransportMetadata(to message: ChatMessage) {
+        let metadata = pendingServerMetadata
+        if let usedPreviousResponseID = metadata.requestUsedPreviousResponseID {
+            message.requestUsedPreviousResponseID = usedPreviousResponseID
+            if !usedPreviousResponseID {
+                message.requestPreviousResponseID = nil
+            }
+        }
+        if metadata.requestUsedPreviousResponseID != false,
+           let previousResponseID = metadata.requestPreviousResponseID,
+           !previousResponseID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            message.requestPreviousResponseID = previousResponseID
+            if message.requestUsedPreviousResponseID == nil {
+                message.requestUsedPreviousResponseID = true
+            }
+        }
+    }
+
     private mutating func clearActiveStream() {
         activeTelemetry = nil
         pendingServerMetadata = .empty
+        completedServerMetadata = .empty
+        currentResponseMetadata = .empty
+        currentResponseKey = nil
+        orderedProviderResponseIDs.removeAll(keepingCapacity: true)
+        observedResponseCount = 0
+    }
+
+    private func interruptionDisplayText(for finishReason: String?) -> String {
+        if finishReason == "stopped" {
+            return NSLocalizedString(
+                "Stopped.",
+                comment: "Shown when an assistant response is stopped after output starts"
+            )
+        }
+        return NSLocalizedString(
+            "Cancelled.",
+            comment: "Shown when an active assistant response is cancelled before output starts"
+        )
+    }
+
+    private func shouldPreserveLocalTerminalFinishReason(_ finishReason: String?) -> Bool {
+        switch finishReason {
+        case "error", "cancelled", "stopped", "superseded":
+            return true
+        default:
+            return false
+        }
+    }
+
+    private mutating func commitCurrentResponseMetadata() {
+        completedServerMetadata = combineServerMetadata(
+            completedServerMetadata,
+            currentResponseMetadata
+        )
+    }
+
+    private func combinedServerMetadata() -> ChatResponseMetadata {
+        combineServerMetadata(completedServerMetadata, currentResponseMetadata)
+    }
+
+    private func combineServerMetadata(
+        _ completed: ChatResponseMetadata,
+        _ current: ChatResponseMetadata
+    ) -> ChatResponseMetadata {
+        var combined = completed
+        combined.merge(current)
+
+        if completed.outputTokenCount != nil || current.outputTokenCount != nil {
+            combined.outputTokenCount = max(0, completed.outputTokenCount ?? 0) + max(0, current.outputTokenCount ?? 0)
+        }
+        if completed.reasoningOutputTokenCount != nil || current.reasoningOutputTokenCount != nil {
+            combined.reasoningOutputTokenCount =
+                max(0, completed.reasoningOutputTokenCount ?? 0) + max(0, current.reasoningOutputTokenCount ?? 0)
+        }
+        if completed.timeToFirstTokenSeconds != nil, current.timeToFirstTokenSeconds != nil {
+            combined.timeToFirstTokenSeconds = completed.timeToFirstTokenSeconds
+        }
+        if completed.tokensPerSecond != nil, current.tokensPerSecond != nil {
+            combined.tokensPerSecond = current.tokensPerSecond
+        }
+        return combined
     }
 }

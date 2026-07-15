@@ -1,6 +1,14 @@
 import XCTest
 @testable import Voice_Chat
 
+enum TestDate {
+    static let reference = Date(timeIntervalSinceReferenceDate: 0)
+
+    static func offset(_ seconds: TimeInterval) -> Date {
+        reference.addingTimeInterval(seconds)
+    }
+}
+
 extension XCTestCase {
     func decodedBody(from data: Data) throws -> [String: Any] {
         let object = try JSONSerialization.jsonObject(with: data)
@@ -69,7 +77,7 @@ extension XCTestCase {
         id: UUID = UUID(),
         content: String,
         isUser: Bool = true,
-        createdAt: Date = Date()
+        createdAt: Date = TestDate.reference
     ) -> ChatMessage {
         let message = ChatMessage(content: content, isUser: isUser, createdAt: createdAt)
         message.id = id

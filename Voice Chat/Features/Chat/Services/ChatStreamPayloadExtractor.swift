@@ -146,6 +146,12 @@ struct ChatStreamPayloadExtractor: ChatStreamPayloadExtracting {
             let trimmed = message.trimmingCharacters(in: .whitespacesAndNewlines)
             return trimmed.isEmpty ? nil : trimmed
         }
+        if let response = dictionary["response"] as? [String: Any],
+           let error = response["error"] as? [String: Any],
+           let message = error["message"] as? String {
+            let trimmed = message.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? nil : trimmed
+        }
         if let message = dictionary["message"] as? String {
             let trimmed = message.trimmingCharacters(in: .whitespacesAndNewlines)
             return trimmed.isEmpty ? nil : trimmed
@@ -155,6 +161,13 @@ struct ChatStreamPayloadExtractor: ChatStreamPayloadExtracting {
 
     func sseStreamErrorMessage(from dictionary: [String: Any]) -> String? {
         if let errorObject = dictionary["error"] as? [String: Any],
+           let message = errorObject["message"] as? String {
+            let trimmed = message.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmed.isEmpty { return trimmed }
+        }
+
+        if let response = dictionary["response"] as? [String: Any],
+           let errorObject = response["error"] as? [String: Any],
            let message = errorObject["message"] as? String {
             let trimmed = message.trimmingCharacters(in: .whitespacesAndNewlines)
             if !trimmed.isEmpty { return trimmed }
@@ -193,6 +206,85 @@ struct ChatStreamPayloadExtractor: ChatStreamPayloadExtracting {
             }
         }
 
+        return nil
+    }
+}
+
+enum ChatStreamErrorRetryClassifier {
+    static func statusCode(from dictionary: [String: Any]) -> Int? {
+        let response = dictionary["response"] as? [String: Any]
+        let error = (dictionary["error"] as? [String: Any])
+            ?? (response?["error"] as? [String: Any])
+        let metadata = error?["metadata"] as? [String: Any]
+        for rawCode in [error?["code"], dictionary["code"], response?["code"]] {
+            if let statusCode = retryableHTTPStatus(from: rawCode) {
+                return statusCode
+            }
+        }
+        return statusCode(for: [
+            error?["code"] as? String,
+            error?["type"] as? String,
+            error?["error_type"] as? String,
+            metadata?["error_type"] as? String,
+            dictionary["type"] as? String,
+            dictionary["code"] as? String,
+            dictionary["error_type"] as? String,
+            response?["error_type"] as? String
+        ])
+    }
+
+    private static func retryableHTTPStatus(from rawValue: Any?) -> Int? {
+        let statusCode: Int?
+        if let value = rawValue as? Int {
+            statusCode = value
+        } else if let value = rawValue as? NSNumber,
+                  CFGetTypeID(value) != CFBooleanGetTypeID(),
+                  value.doubleValue.isFinite,
+                  value.doubleValue.rounded(.towardZero) == value.doubleValue {
+            statusCode = value.intValue
+        } else if let value = rawValue as? String {
+            statusCode = Int(value.trimmingCharacters(in: .whitespacesAndNewlines))
+        } else {
+            statusCode = nil
+        }
+        guard let statusCode,
+              NetworkRetryability.shouldRetry(statusCode: statusCode) else {
+            return nil
+        }
+        return statusCode
+    }
+
+    static func statusCode(for rawTypes: [String?]) -> Int? {
+        let types = Set(rawTypes.compactMap { rawType -> String? in
+            guard let rawType else { return nil }
+            let normalized = rawType.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            return normalized.isEmpty ? nil : normalized
+        })
+
+        if !types.isDisjoint(with: [
+            "rate_limit_exceeded",
+            "rate_limit",
+            "rate_limit_error",
+            "too_many_requests"
+        ]) {
+            return 429
+        }
+        if types.contains("overloaded_error") {
+            return 529
+        }
+        if !types.isDisjoint(with: ["server", "server_error", "api_error", "internal_error"]) {
+            return 500
+        }
+        if !types.isDisjoint(with: [
+            "timeout",
+            "request_timeout",
+            "provider_overloaded",
+            "provider_unavailable",
+            "overloaded",
+            "service_unavailable"
+        ]) {
+            return 503
+        }
         return nil
     }
 }

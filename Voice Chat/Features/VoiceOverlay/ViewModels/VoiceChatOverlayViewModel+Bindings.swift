@@ -44,19 +44,15 @@ extension VoiceChatOverlayViewModel {
             }
             .store(in: &cancellables)
 
-        audioManager.$isAudioPlaying
-            .removeDuplicates()
+        Publishers.CombineLatest4(
+            audioManager.$isAudioPlaying.removeDuplicates(),
+            audioManager.$isLoading.removeDuplicates(),
+            audioManager.$isPlaybackRequested.removeDuplicates(),
+            audioManager.isBufferingPublisher.removeDuplicates()
+        )
             .receive(on: RunLoop.main)
-            .sink { [weak self] playing in
-                self?.handleAudioPlayingChange(playing)
-            }
-            .store(in: &cancellables)
-
-        audioManager.$isLoading
-            .removeDuplicates()
-            .receive(on: RunLoop.main)
-            .sink { [weak self] loading in
-                self?.handleAudioLoadingChange(loading)
+            .sink { [weak self] _, _, _, _ in
+                self?.handleAudioActivityChange()
             }
             .store(in: &cancellables)
 
@@ -99,6 +95,13 @@ extension VoiceChatOverlayViewModel {
         sessionCancellables.removeAll()
         guard let chatSession else { return }
 
+        chatSession.realtimeVoiceLoadingStatePublisher
+            .receive(on: RunLoop.main)
+            .sink { [weak self] isLoading in
+                self?.handleChatLoadingStateChange(isLoading)
+            }
+            .store(in: &sessionCancellables)
+
         chatSession.realtimeVoiceRequestFailurePublisher
             .receive(on: RunLoop.main)
             .sink { [weak self] message in
@@ -112,10 +115,11 @@ extension VoiceChatOverlayViewModel {
 
         chatSession.realtimeVoiceContentProgressPublisher
             .receive(on: RunLoop.main)
-            .sink { [weak self] _ in
+            .sink { [weak self] snapshot in
                 guard let self else { return }
                 guard self.isPresented else { return }
                 self.markLoadingProgress()
+                self.realtimeAssistantSnapshot = snapshot
             }
             .store(in: &sessionCancellables)
 
@@ -126,6 +130,7 @@ extension VoiceChatOverlayViewModel {
                 guard let self else { return }
                 guard self.isPresented else { return }
                 self.markLoadingProgress()
+                self.refreshRealtimeAssistantSnapshot()
             }
             .store(in: &sessionCancellables)
     }

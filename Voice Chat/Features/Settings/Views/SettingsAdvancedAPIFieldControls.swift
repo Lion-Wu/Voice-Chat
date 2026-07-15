@@ -70,7 +70,7 @@ struct SettingsAdvancedAPIIntegerField: View {
         #if os(macOS)
         SettingsAdvancedAPILabeledContent(title) {
             TextField("", value: $value, format: .number)
-                .multilineTextAlignment(.trailing)
+                .multilineTextAlignment(.leading)
                 .textFieldStyle(.roundedBorder)
                 .frame(width: 180)
         }
@@ -81,7 +81,7 @@ struct SettingsAdvancedAPIIntegerField: View {
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
             TextField("", value: $value, format: .number)
-                .multilineTextAlignment(.trailing)
+                .multilineTextAlignment(.leading)
                 .keyboardType(.numberPad)
         }
         .padding(.vertical, 4)
@@ -104,7 +104,7 @@ struct SettingsAdvancedAPIIntegerToggleField: View {
 
                 if enabled {
                     TextField("", value: $value, format: .number)
-                        .multilineTextAlignment(.trailing)
+                        .multilineTextAlignment(.leading)
                         .textFieldStyle(.roundedBorder)
                         .frame(width: 180)
                 }
@@ -115,7 +115,7 @@ struct SettingsAdvancedAPIIntegerToggleField: View {
             Toggle(title, isOn: $enabled)
             if enabled {
                 TextField("", value: $value, format: .number)
-                    .multilineTextAlignment(.trailing)
+                    .multilineTextAlignment(.leading)
                     .keyboardType(.numberPad)
             }
         }
@@ -139,7 +139,7 @@ struct SettingsAdvancedAPIDoubleToggleField: View {
 
                 if enabled {
                     TextField("", value: $value, format: .number.precision(.fractionLength(0...3)))
-                        .multilineTextAlignment(.trailing)
+                        .multilineTextAlignment(.leading)
                         .textFieldStyle(.roundedBorder)
                         .frame(width: 180)
                 }
@@ -150,7 +150,7 @@ struct SettingsAdvancedAPIDoubleToggleField: View {
             Toggle(title, isOn: $enabled)
             if enabled {
                 TextField("", value: $value, format: .number.precision(.fractionLength(0...3)))
-                    .multilineTextAlignment(.trailing)
+                    .multilineTextAlignment(.leading)
                     .keyboardType(.decimalPad)
             }
         }

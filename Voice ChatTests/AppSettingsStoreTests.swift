@@ -49,6 +49,11 @@ final class AppSettingsStoreTests: XCTestCase {
 
         XCTAssertEqual(settings.hapticFeedbackEnabled, true)
         XCTAssertNotNil(settings.apiAdvancedSettingsJSON)
-        XCTAssertEqual(labels, ["backfill haptic feedback setting", "backfill API advanced settings"])
+        XCTAssertNotNil(settings.toolUseSettingsJSON)
+        XCTAssertEqual(labels, [
+            "backfill haptic feedback setting",
+            "backfill API advanced settings",
+            "backfill tool-use settings"
+        ])
     }
 }

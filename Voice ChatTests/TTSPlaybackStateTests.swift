@@ -72,4 +72,31 @@ final class TTSPlaybackStateTests: XCTestCase {
         )
         XCTAssertFalse(queuedRequest.isPlaybackFullyLoaded)
     }
+
+    func testRealtimePlaybackCannotFinishBeforeStreamFinalization() {
+        let pendingRealtime = TTSPlaybackState(
+            textSegmentCount: 1,
+            audioChunkIsLoaded: [true],
+            chunkDurations: [1],
+            skippedAudioChunkIndexes: [],
+            currentTime: 1,
+            totalDuration: 1,
+            isRealtimeMode: true,
+            realtimeFinalized: false
+        )
+        let finalizedRealtime = TTSPlaybackState(
+            textSegmentCount: 1,
+            audioChunkIsLoaded: [true],
+            chunkDurations: [1],
+            skippedAudioChunkIndexes: [],
+            currentTime: 1,
+            totalDuration: 1,
+            isRealtimeMode: true,
+            realtimeFinalized: true
+        )
+
+        XCTAssertFalse(pendingRealtime.playbackFinished)
+        XCTAssertFalse(pendingRealtime.playbackFinished(at: 1))
+        XCTAssertTrue(finalizedRealtime.playbackFinished)
+    }
 }

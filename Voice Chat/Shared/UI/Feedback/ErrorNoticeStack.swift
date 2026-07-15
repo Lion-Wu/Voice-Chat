@@ -30,12 +30,16 @@ struct ErrorNoticeStack: View {
     let notices: [AppErrorNotice]
     let onDismiss: (AppErrorNotice) -> Void
     var maxWidth: CGFloat? = nil
+    var edgePadding: CGFloat? = nil
 
     private var stackSpacing: CGFloat {
         AppChromeMetrics.floatingGap
     }
 
     private var horizontalPadding: CGFloat {
+        if let edgePadding {
+            return edgePadding
+        }
         #if os(iOS) || os(tvOS)
         return 16
         #else
@@ -88,7 +92,9 @@ struct ErrorNoticeStack: View {
                     Spacer(minLength: 0)
 
                     Button {
-                        onDismiss(notice)
+                        withAnimation(noticeAnimation) {
+                            onDismiss(notice)
+                        }
                     } label: {
                         Image(systemName: "xmark.circle.fill")
                             .font(.system(size: 18, weight: .semibold))

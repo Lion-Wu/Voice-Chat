@@ -55,9 +55,9 @@ final class SettingsChatModelCapabilityControllerTests: XCTestCase {
             saveImageInputOverrides: {}
         )
 
-        controller.noteDetectedProvider(.openRouter, for: "https://models.example.com/v1")
+        controller.noteDetectedProvider(.openAI, for: "https://models.example.com/v1")
 
-        XCTAssertEqual(controller.detectedProvider(for: "https://models.example.com/v1"), .openRouter)
+        XCTAssertEqual(controller.detectedProvider(for: "https://models.example.com/v1"), .openAI)
         XCTAssertNil(controller.detectedProvider(for: "https://other.example.com/v1"))
     }
 

@@ -157,9 +157,9 @@ final class ChatViewStateSeamTests: XCTestCase {
     }
 
     func testChatSearchScrollCoordinatorFallsBackToVisibleSearchBody() throws {
-        let sessionID = UUID()
-        let missingMessageID = UUID()
-        let fallbackMessageID = UUID()
+        let sessionID = uuid(1)
+        let missingMessageID = uuid(2)
+        let fallbackMessageID = uuid(3)
         let target = ChatSearchNavigationTarget(
             sessionID: sessionID,
             messageID: missingMessageID,
@@ -171,7 +171,7 @@ final class ChatViewStateSeamTests: XCTestCase {
             pending: target,
             sessionID: sessionID,
             visibleMessages: [
-                ChatSearchScrollMessageSnapshot(id: UUID(), searchText: "unrelated"),
+                ChatSearchScrollMessageSnapshot(id: uuid(4), searchText: "message without the query"),
                 ChatSearchScrollMessageSnapshot(id: fallbackMessageID, searchText: "intro\nNeedle here\nthird\nfourth")
             ]
         ))
@@ -182,7 +182,7 @@ final class ChatViewStateSeamTests: XCTestCase {
     }
 
     func testChatSearchScrollCoordinatorExtendsLockUntilHardDeadline() throws {
-        let now = Date(timeIntervalSince1970: 100)
+        let now = TestDate.reference
         let generation = try XCTUnwrap(UUID(uuidString: "00000000-0000-0000-0000-000000000100"))
         let lock = ChatSearchScrollCoordinator.makeLock(
             targetID: UUID(),

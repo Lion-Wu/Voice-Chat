@@ -10,21 +10,51 @@ import SwiftUI
 struct UserContextMenuModifier: ViewModifier {
     let isUser: Bool
     let message: ChatMessage
+    let developerModeEnabled: Bool
+    let toolActivities: [ChatToolActivity]
+    let toolActivityPlacements: [ChatToolActivityPlacement]
     let onSelectText: (String) -> Void
     let onEditUserMessage: (ChatMessage) -> Void
     let copyToClipboard: (String) -> Void
+    @State private var isShowingMessageDetails = false
 
     func body(content: Content) -> some View {
         if isUser {
-            content.contextMenu(menuItems: {
-                let parts = message.content.extractThinkParts()
-                let bodyText = parts.body
-                Button { copyToClipboard(bodyText) } label: { Label("Copy", systemImage: "doc.on.doc") }
-                Button { onSelectText(bodyText) } label: { Label("Select Text", systemImage: "text.cursor") }
-                Button { onEditUserMessage(message) } label: { Label("Edit Message", systemImage: "pencil") }
-            })
+            content
+                .contextMenu(menuItems: {
+                    let parts = message.content.extractThinkParts()
+                    let bodyText = parts.body
+                    Button { copyToClipboard(bodyText) } label: { Label("Copy", systemImage: "doc.on.doc") }
+                    Button { onSelectText(bodyText) } label: { Label("Select Text", systemImage: "text.cursor") }
+                    Button { onEditUserMessage(message) } label: { Label("Edit Message", systemImage: "pencil") }
+                    if developerModeEnabled {
+                        Divider()
+                        Button { showMessageDetails() } label: { Label("Details", systemImage: "info.circle") }
+                    }
+                })
+                .sheet(isPresented: $isShowingMessageDetails) {
+                    MessageDetailsView(
+                        message: message,
+                        toolActivities: toolActivities,
+                        toolActivityPlacements: toolActivityPlacements,
+                        developerModeEnabled: developerModeEnabled
+                    )
+                }
+                .onChange(of: developerModeEnabled) { _, isEnabled in
+                    if !isEnabled {
+                        isShowingMessageDetails = false
+                    }
+                }
         } else {
             content
+        }
+    }
+
+    private func showMessageDetails() {
+        // Presenting a sheet directly from a context menu action is unreliable;
+        // schedule for the next run loop after the menu starts dismissing.
+        DispatchQueue.main.async {
+            isShowingMessageDetails = true
         }
     }
 }

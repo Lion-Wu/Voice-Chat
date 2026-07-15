@@ -19,6 +19,7 @@ protocol ChatServiceConfiguring {
     var thinkingCapability: ModelThinkingCapability? { get }
     var thinkingOption: ModelThinkingOption? { get }
     var apiAdvancedSettings: APIAdvancedSettings { get }
+    var toolUseSettings: ToolUseSettings { get }
 }
 
 /// Lightweight snapshot of chat configuration to avoid actor-hopping from main-actor singletons.
@@ -31,6 +32,7 @@ struct ChatServiceConfiguration: ChatServiceConfiguring, Equatable {
     let thinkingCapability: ModelThinkingCapability?
     let thinkingOption: ModelThinkingOption?
     let apiAdvancedSettings: APIAdvancedSettings
+    let toolUseSettings: ToolUseSettings
 
     init(
         apiBaseURL: String,
@@ -40,7 +42,8 @@ struct ChatServiceConfiguration: ChatServiceConfiguring, Equatable {
         requestStyleHint: ChatRequestStyle? = nil,
         thinkingCapability: ModelThinkingCapability? = nil,
         thinkingOption: ModelThinkingOption? = nil,
-        apiAdvancedSettings: APIAdvancedSettings = .defaults
+        apiAdvancedSettings: APIAdvancedSettings = .defaults,
+        toolUseSettings: ToolUseSettings = .defaults
     ) {
         self.apiBaseURL = apiBaseURL
         self.modelIdentifier = modelIdentifier
@@ -50,6 +53,7 @@ struct ChatServiceConfiguration: ChatServiceConfiguring, Equatable {
         self.thinkingCapability = thinkingCapability
         self.thinkingOption = thinkingOption
         self.apiAdvancedSettings = apiAdvancedSettings.sanitized
+        self.toolUseSettings = toolUseSettings
     }
 }
 
@@ -58,12 +62,17 @@ struct ChatServiceConfiguration: ChatServiceConfiguring, Equatable {
 @MainActor
 protocol ChatStreamingService: AnyObject {
     var onDelta: (@MainActor (String) -> Void)? { get set }
+    var onSegment: (@MainActor (AssistantStreamSegment) -> Void)? { get set }
+    var onOpenAIResponsesConversationItems: (@MainActor ([JSONValue]) -> Void)? { get set }
     var onError: (@MainActor (Error) -> Void)? { get set }
     var onResponseMetadata: (@MainActor (ChatResponseMetadata) -> Void)? { get set }
+    var onToolActivity: (@MainActor (ChatToolActivity) -> Void)? { get set }
     var onStreamFinished: (@MainActor () -> Void)? { get set }
 
     func fetchStreamedData(messages: [ChatMessage], developerPrompt: String?, includeImagesInUserContent: Bool)
+    func retryLastFailedStreamRequest() -> Bool
     func cancelStreaming()
+    func resolveToolAuthorization(requestID: String, allowed: Bool)
 }
 
 // MARK: - ChatService (Streaming)

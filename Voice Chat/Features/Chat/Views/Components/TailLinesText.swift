@@ -84,22 +84,67 @@ struct TailLinesText: View {
     }
 }
 
+struct TailVisualTextWindow: Equatable {
+    let text: String
+    let sourceStartOffset: Int
+
+    static let empty = TailVisualTextWindow(text: "", sourceStartOffset: 0)
+
+    var sourceEndOffset: Int {
+        sourceStartOffset + text.count
+    }
+
+    func rebasedPlacements(
+        _ placements: [ChatToolActivityPlacement]
+    ) -> [ChatToolActivityPlacement] {
+        placements.compactMap { placement in
+            guard placement.offset >= sourceStartOffset,
+                  placement.offset <= sourceEndOffset else {
+                return nil
+            }
+            return ChatToolActivityPlacement(
+                activity: placement.activity,
+                scope: placement.scope,
+                offset: placement.offset - sourceStartOffset,
+                assistantSegmentAnchor: placement.assistantSegmentAnchor
+            )
+        }
+    }
+}
+
 func computeTailVisualLines(text: String, width: CGFloat, lines: Int, font: PlatformFontSpec) -> String {
-    guard !text.isEmpty, width > 1, lines > 0 else { return "" }
+    computeTailVisualTextWindow(text: text, width: width, lines: lines, font: font).text
+}
+
+func computeTailVisualTextWindow(
+    text: String,
+    width: CGFloat,
+    lines: Int,
+    font: PlatformFontSpec
+) -> TailVisualTextWindow {
+    guard !text.isEmpty, width > 1, lines > 0 else { return .empty }
 
     let ns = text as NSString
     let total = ns.length
     var windowLen = min(2048, total)
     let maxLen = min(32768, total)
 
-    var lastResult: String = ""
+    var lastResult = TailVisualTextWindow.empty
     while true {
-        let start = max(0, total - windowLen)
+        let rawStart = max(0, total - windowLen)
+        let start = rawStart > 0
+            ? ns.rangeOfComposedCharacterSequence(at: rawStart).location
+            : 0
         let range = NSRange(location: start, length: total - start)
         let chunk = ns.substring(with: range) as NSString
 
+        // CoreText omits the empty visual line after a terminal line break unless
+        // another character follows it. Measure with a zero-width sentinel so the
+        // returned tail never contains `lines` text rows plus an extra blank row.
+        let measuredChunk = NSMutableString(string: chunk)
+        measuredChunk.append("\u{2060}")
         let attrs: [CFString: Any] = [kCTFontAttributeName: font.ctFont]
-        guard let attrStr = CFAttributedStringCreate(nil, chunk as CFString, attrs as CFDictionary) else {
+        guard let attrStr = CFAttributedStringCreate(nil, measuredChunk as CFString, attrs as CFDictionary) else {
             return lastResult
         }
         let framesetter = CTFramesetterCreateWithAttributedString(attrStr)
@@ -110,7 +155,7 @@ func computeTailVisualLines(text: String, width: CGFloat, lines: Int, font: Plat
         let linesCF = CTFrameGetLines(frame)
         let count = CFArrayGetCount(linesCF)
 
-        if count == 0 { return "" }
+        if count == 0 { return .empty }
 
         let take = min(lines, count)
         var firstLoc = Int.max
@@ -124,11 +169,23 @@ func computeTailVisualLines(text: String, width: CGFloat, lines: Int, font: Plat
             firstLoc = min(firstLoc, loc)
             lastMax = max(lastMax, loc + len)
         }
-        let tailRange = NSRange(location: firstLoc == Int.max ? 0 : firstLoc,
-                                length: max(0, lastMax - (firstLoc == Int.max ? 0 : firstLoc)))
-        let tail = chunk.substring(with: NSIntersectionRange(tailRange, NSRange(location: 0, length: chunk.length)))
-
-        lastResult = tail
+        let first = firstLoc == Int.max ? 0 : firstLoc
+        let tailRange = NSIntersectionRange(
+            NSRange(location: first, length: max(0, lastMax - first)),
+            NSRange(location: 0, length: chunk.length)
+        )
+        let safeTailRange = chunk.rangeOfComposedCharacterSequences(for: tailRange)
+        let absoluteRange = NSRange(
+            location: start + safeTailRange.location,
+            length: safeTailRange.length
+        )
+        guard let stringRange = Range(absoluteRange, in: text) else {
+            return lastResult
+        }
+        lastResult = TailVisualTextWindow(
+            text: String(text[stringRange]),
+            sourceStartOffset: text.distance(from: text.startIndex, to: stringRange.lowerBound)
+        )
 
         if count >= lines || windowLen >= maxLen || windowLen >= total {
             break

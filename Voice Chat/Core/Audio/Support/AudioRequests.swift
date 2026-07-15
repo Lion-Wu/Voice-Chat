@@ -109,13 +109,11 @@ extension GlobalAudioManager {
 
         let genAtRequest = self.currentGenerationID
 
-        var task: URLSessionDataTask?
-        task = ttsSession.dataTask(with: request) { [weak self, weak task] (data: Data?, resp: URLResponse?, error: Error?) in
+        let requestID = UUID()
+        let task = ttsSession.dataTask(with: request) { [weak self] (data: Data?, resp: URLResponse?, error: Error?) in
             guard let self = self else { return }
             DispatchQueue.main.async {
-                if let task {
-                    self.dataTasks.removeAll(where: { $0 === task })
-                }
+                self.activeDataTasks.removeValue(forKey: requestID)
                 guard genAtRequest == self.currentGenerationID else { return }
 
                 defer {
@@ -251,10 +249,8 @@ extension GlobalAudioManager {
                 }
             }
         }
-        if let task {
-            task.resume()
-            dataTasks.append(task)
-        }
+        activeDataTasks[requestID] = task
+        task.resume()
     }
 
 }

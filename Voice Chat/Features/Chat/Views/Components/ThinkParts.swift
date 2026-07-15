@@ -29,28 +29,23 @@ extension String {
         }
 
         let afterOpen = self.index(self.startIndex, offsetBy: openMarker.count)
-        let contentAfterOpen = String(self[afterOpen...])
-        let lines = contentAfterOpen.components(separatedBy: .newlines)
-        let endIdx = lines.firstIndex(where: { $0.trimmingCharacters(in: .whitespacesAndNewlines) == closeMarker })
-
-        let thinkLines: ArraySlice<String>
-        let bodyLines: ArraySlice<String>
+        let closeRange = self[afterOpen...].range(of: closeMarker)
+        let thinkContent: String
+        let bodyContent: String
         let isClosed: Bool
 
-        if let endIdx {
-            thinkLines = lines[..<endIdx]
-            bodyLines = lines.suffix(from: lines.index(after: endIdx))
+        if let closeRange {
+            thinkContent = String(self[afterOpen..<closeRange.lowerBound])
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            bodyContent = String(self[closeRange.upperBound...])
+                .trimmingCharacters(in: .whitespacesAndNewlines)
             isClosed = true
         } else {
-            thinkLines = lines[...]
-            bodyLines = []
+            thinkContent = String(self[afterOpen...])
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            bodyContent = ""
             isClosed = false
         }
-
-        let thinkContent = thinkLines.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
-        let bodyContent = bodyLines
-            .drop(while: { $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty })
-            .joined(separator: "\n")
 
         let thinkValue = thinkContent.isEmpty ? nil : thinkContent
         return ThinkParts(think: thinkValue, isClosed: isClosed, body: bodyContent)

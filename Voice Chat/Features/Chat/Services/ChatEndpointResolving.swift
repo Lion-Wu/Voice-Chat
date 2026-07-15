@@ -42,7 +42,7 @@ struct DefaultChatEndpointResolver: ChatEndpointResolving {
             }
         }
 
-        return prioritized(candidates, preferredStyle: styleHint)
+        return prioritized(candidates, preferredStyle: styleHint ?? defaultStyleHint(for: base))
     }
 
     private func prioritized(
@@ -58,6 +58,12 @@ struct DefaultChatEndpointResolver: ChatEndpointResolving {
             }
             return lhs.offset < rhs.offset
         }.map(\.element)
+    }
+
+    private func defaultStyleHint(for base: String) -> ChatRequestStyle? {
+        guard let comps = ChatEndpointBaseURL.normalizedComponents(from: base) else { return nil }
+        return ChatEndpointCandidateFactory.explicitStyleHint(from: comps)
+            ?? ChatEndpointOfficialProviderDetector.preferredRequestStyle(for: comps)
     }
 }
 
@@ -96,64 +102,17 @@ enum ChatAPIEndpointResolver {
         preferredProvider: ChatProvider? = nil
     ) -> [ChatAPIEndpointCandidate] {
         guard let comps = ChatEndpointBaseURL.normalizedComponents(from: base) else { return [] }
-        let path = ChatEndpointBaseURL.canonicalPath(comps.path).lowercased()
-        let host = (comps.host ?? "").lowercased()
-        let port = comps.port
-        let isLocal = ChatEndpointBaseURL.isLocalHost(host)
-        let looksLlamaCpp = host.contains("llama")
-            || path.contains("llama.cpp")
-            || (isLocal && (port == 8080 || port == 8081))
 
-        if let official = officialProviderHint(for: base),
-           let pinned = endpointCandidate(for: base, provider: official) {
-            return [pinned]
-        }
-
-        var candidates: [ChatAPIEndpointCandidate] = []
-        candidates.reserveCapacity(4)
-
-        appendUnique(
-            ChatEndpointCandidateFactory.candidate(
-                for: .lmStudio,
-                base: comps,
-                preferredStyle: .lmStudioRESTV1
-            ),
-            to: &candidates
-        )
-        appendUnique(
-            ChatEndpointCandidateFactory.candidate(
-                for: .lmStudio,
-                base: comps,
-                preferredStyle: .lmStudioRESTV1LegacyMessage
-            ),
-            to: &candidates
-        )
-
-        if isLocal || looksLlamaCpp {
-            appendUnique(
-                ChatEndpointCandidateFactory.candidate(
-                    for: .llamaCpp,
-                    base: comps,
-                    preferredStyle: .openAIChatCompletions
-                ),
-                to: &candidates
-            )
-        }
-
-        appendUnique(
-            ChatEndpointCandidateFactory.candidate(
-                for: .openAICompatible,
-                base: comps,
-                preferredStyle: .openAIChatCompletions
-            ),
-            to: &candidates
-        )
+        var candidates = endpointCandidates(for: base, preferredProvider: preferredProvider)
+        candidates = uniqueCandidates(candidates)
 
         if candidates.isEmpty {
             return fallbackCandidates(for: base, preferredProvider: preferredProvider)
         }
 
-        return candidates
+        let preferredStyle = ChatEndpointCandidateFactory.explicitStyleHint(from: comps)
+            ?? ChatEndpointOfficialProviderDetector.preferredRequestStyle(for: comps)
+        return prioritized(candidates, preferredStyle: preferredStyle)
     }
 
     static func normalizedAPIBaseKey(_ base: String) -> String? {
@@ -189,6 +148,30 @@ enum ChatAPIEndpointResolver {
             }
         }
         return fallback
+    }
+
+    private static func prioritized(
+        _ candidates: [ChatAPIEndpointCandidate],
+        preferredStyle: ChatRequestStyle?
+    ) -> [ChatAPIEndpointCandidate] {
+        guard let preferredStyle else { return candidates }
+        return candidates.enumerated().sorted { lhs, rhs in
+            let lhsPreferred = lhs.element.style == preferredStyle
+            let rhsPreferred = rhs.element.style == preferredStyle
+            if lhsPreferred != rhsPreferred {
+                return lhsPreferred && !rhsPreferred
+            }
+            return lhs.offset < rhs.offset
+        }.map(\.element)
+    }
+
+    private static func uniqueCandidates(_ candidates: [ChatAPIEndpointCandidate]) -> [ChatAPIEndpointCandidate] {
+        var unique: [ChatAPIEndpointCandidate] = []
+        unique.reserveCapacity(candidates.count)
+        for candidate in candidates {
+            appendUnique(candidate, to: &unique)
+        }
+        return unique
     }
 
     private static func providerOrder(path: String, host: String, port: Int?, preferred: ChatProvider?) -> [ChatProvider] {

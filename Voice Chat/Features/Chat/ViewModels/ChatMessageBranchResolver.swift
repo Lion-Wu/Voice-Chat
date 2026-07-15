@@ -35,6 +35,30 @@ enum ChatMessageBranchResolver {
         return lookup
     }
 
+    static func messagesThrough(
+        _ target: ChatMessage,
+        in session: ChatSession
+    ) -> [ChatMessage]? {
+        let lookup = messageLookup(in: session)
+        guard let storedTarget = lookup[target.id] else { return nil }
+
+        var reversed: [ChatMessage] = []
+        reversed.reserveCapacity(min(64, session.messages.count))
+        var visited = Set<UUID>()
+        var current = storedTarget
+
+        while true {
+            guard visited.insert(current.id).inserted else { return nil }
+            reversed.append(current)
+
+            guard let parent = current.parentMessage else {
+                return Array(reversed.reversed())
+            }
+            guard let storedParent = lookup[parent.id] else { return nil }
+            current = storedParent
+        }
+    }
+
     static func activeBranchMessages(
         in session: ChatSession,
         repairRootSelection: Bool = false

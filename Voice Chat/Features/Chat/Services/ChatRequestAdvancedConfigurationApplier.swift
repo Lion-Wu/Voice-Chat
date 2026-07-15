@@ -15,42 +15,24 @@ struct ChatRequestAdvancedConfigurationApplier: Sendable {
         settings: APIAdvancedSettings
     ) {
         switch endpoint.style {
+        case .openAIResponses:
+            applyPositiveInteger(settings.openAIResponsesMaxOutputTokens, key: "max_output_tokens", to: &requestBody)
+            applyOpenAIResponsesSamplingConfiguration(settings.openAIResponsesSampling, to: &requestBody)
+
         case .openAIChatCompletions:
-            if ChatRequestBodyEndpointClassifier.isOpenAIResponsesEndpoint(endpoint.chatURL) {
-                applyPositiveInteger(settings.openAIResponsesMaxOutputTokens, key: "max_output_tokens", to: &requestBody)
-                applyOpenAIResponsesSamplingConfiguration(settings.openAIResponsesSampling, to: &requestBody)
-                return
-            }
-
             switch endpoint.provider {
-            case .openAI:
-                applyPositiveInteger(settings.openAIChatMaxCompletionTokens, key: "max_completion_tokens", to: &requestBody)
+            case .openAI, .lmStudio, .unknown:
+                applyPositiveInteger(
+                    settings.openAIChatMaxCompletionTokens,
+                    key: openAIChatTokenLimitKey(for: endpoint),
+                    to: &requestBody
+                )
                 applyOpenAIChatSamplingConfiguration(settings.openAIChatSampling, to: &requestBody)
-            case .gemini:
-                applyPositiveInteger(settings.geminiMaxTokens, key: "max_tokens", to: &requestBody)
-                applyGeminiSamplingConfiguration(settings.geminiSampling, to: &requestBody)
-            case .deepSeek:
-                applyPositiveInteger(settings.deepSeekMaxTokens, key: "max_tokens", to: &requestBody)
-                applyDeepSeekSamplingConfiguration(settings.deepSeekSampling, model: model, to: &requestBody)
-            case .xAI:
-                applyPositiveInteger(settings.xAIMaxTokens, key: "max_tokens", to: &requestBody)
-                applyOpenAIChatSamplingConfiguration(settings.xAISampling, to: &requestBody, topLogprobsLimit: 8)
-            case .openRouter:
-                applyPositiveInteger(settings.openRouterMaxTokens, key: "max_tokens", to: &requestBody)
-                applyPositiveInteger(settings.openRouterMaxCompletionTokens, key: "max_completion_tokens", to: &requestBody)
-                applyOpenRouterSamplingConfiguration(settings.openRouterSampling, to: &requestBody)
-            case .lmStudio:
-                applyPositiveInteger(settings.lmStudioOpenAICompatibleMaxTokens, key: "max_tokens", to: &requestBody)
-                applyLMStudioOpenAICompatibleSamplingConfiguration(settings.lmStudioOpenAICompatibleSampling, to: &requestBody)
-            case .llamaCpp:
-                applyPositiveInteger(settings.llamaCppMaxTokens, key: "max_tokens", to: &requestBody)
-                applyLlamaCppSamplingConfiguration(settings.llamaCppSampling, to: &requestBody)
-            case .openAICompatible, .unknown, .anthropic:
-                applyPositiveInteger(settings.openAICompatibleMaxTokens, key: "max_tokens", to: &requestBody)
-                applyOpenAIChatSamplingConfiguration(settings.openAICompatibleSampling, to: &requestBody)
+            case .anthropic:
+                break
             }
 
-        case .lmStudioRESTV1, .lmStudioRESTV1LegacyMessage:
+        case .lmStudioRESTV1:
             applyPositiveInteger(settings.lmStudioMaxTokens, key: "max_output_tokens", to: &requestBody)
             applyLMStudioRESTSamplingConfiguration(settings.lmStudioSampling, to: &requestBody)
 
@@ -62,6 +44,16 @@ struct ChatRequestAdvancedConfigurationApplier: Sendable {
     private func applyPositiveInteger(_ value: Int, key: String, to requestBody: inout [String: Any]) {
         guard value > 0 else { return }
         requestBody[key] = value
+    }
+
+    private func openAIChatTokenLimitKey(for endpoint: ChatAPIEndpointCandidate) -> String {
+        let host = (endpoint.chatURL.host ?? "").lowercased()
+        if ChatEndpointBaseURL.hostMatchesOfficialDomain(host, domain: "openai.com") ||
+            ChatEndpointBaseURL.hostMatchesOfficialDomain(host, domain: "openrouter.ai") ||
+            ChatEndpointBaseURL.hostMatchesOfficialDomain(host, domain: "openai.azure.com") {
+            return "max_completion_tokens"
+        }
+        return "max_tokens"
     }
 
     private func applyIntegerOverride(_ isEnabled: Bool, _ value: Int, key: String, to requestBody: inout [String: Any]) {
@@ -154,71 +146,6 @@ struct ChatRequestAdvancedConfigurationApplier: Sendable {
         }
     }
 
-    private func applyGeminiSamplingConfiguration(
-        _ sampling: APIAdvancedSamplingSettings,
-        to requestBody: inout [String: Any]
-    ) {
-        if sampling.temperatureEnabled {
-            requestBody["temperature"] = sampling.temperature
-        }
-        if sampling.topPEnabled {
-            requestBody["top_p"] = sampling.topP
-        }
-    }
-
-    private func applyDeepSeekSamplingConfiguration(
-        _ sampling: APIAdvancedSamplingSettings,
-        model: String,
-        to requestBody: inout [String: Any]
-    ) {
-        let normalizedModel = model.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        let isReasoner = normalizedModel.contains("reasoner")
-        if !isReasoner {
-            if sampling.temperatureEnabled {
-                requestBody["temperature"] = sampling.temperature
-            }
-            if sampling.topPEnabled {
-                requestBody["top_p"] = sampling.topP
-            }
-            if sampling.presencePenaltyEnabled {
-                requestBody["presence_penalty"] = sampling.presencePenalty
-            }
-            if sampling.frequencyPenaltyEnabled {
-                requestBody["frequency_penalty"] = sampling.frequencyPenalty
-            }
-            if sampling.logprobsEnabled {
-                requestBody["logprobs"] = true
-                applyIntegerOverride(sampling.topLogprobsEnabled, sampling.topLogprobs, key: "top_logprobs", to: &requestBody)
-            }
-        }
-        if sampling.jsonModeEnabled {
-            requestBody["response_format"] = ["type": "json_object"]
-        }
-    }
-
-    private func applyOpenRouterSamplingConfiguration(
-        _ sampling: APIAdvancedSamplingSettings,
-        to requestBody: inout [String: Any]
-    ) {
-        applyOpenAIChatSamplingConfiguration(sampling, to: &requestBody)
-        applyIntegerOverride(sampling.topKEnabled, sampling.topK, key: "top_k", to: &requestBody)
-        if sampling.minPEnabled {
-            requestBody["min_p"] = sampling.minP
-        }
-        if sampling.topAEnabled {
-            requestBody["top_a"] = sampling.topA
-        }
-        if sampling.repetitionPenaltyEnabled {
-            requestBody["repetition_penalty"] = sampling.repetitionPenalty
-        }
-        if sampling.structuredOutputsEnabled {
-            requestBody["structured_outputs"] = true
-        }
-        if sampling.verbosityEnabled {
-            requestBody["verbosity"] = sampling.verbosity
-        }
-    }
-
     private func applyLMStudioRESTSamplingConfiguration(
         _ sampling: APIAdvancedSamplingSettings,
         to requestBody: inout [String: Any]
@@ -239,28 +166,4 @@ struct ChatRequestAdvancedConfigurationApplier: Sendable {
         applyIntegerOverride(sampling.contextLengthEnabled, sampling.contextLength, key: "context_length", to: &requestBody)
     }
 
-    private func applyLMStudioOpenAICompatibleSamplingConfiguration(
-        _ sampling: APIAdvancedSamplingSettings,
-        to requestBody: inout [String: Any]
-    ) {
-        applyOpenAIChatSamplingConfiguration(sampling, to: &requestBody, includeLogprobs: false)
-        applyIntegerOverride(sampling.topKEnabled, sampling.topK, key: "top_k", to: &requestBody)
-        if sampling.repetitionPenaltyEnabled {
-            requestBody["repeat_penalty"] = sampling.repetitionPenalty
-        }
-    }
-
-    private func applyLlamaCppSamplingConfiguration(
-        _ sampling: APIAdvancedSamplingSettings,
-        to requestBody: inout [String: Any]
-    ) {
-        applyOpenAIChatSamplingConfiguration(sampling, to: &requestBody)
-        applyIntegerOverride(sampling.topKEnabled, sampling.topK, key: "top_k", to: &requestBody)
-        if sampling.minPEnabled {
-            requestBody["min_p"] = sampling.minP
-        }
-        if sampling.repetitionPenaltyEnabled {
-            requestBody["repeat_penalty"] = sampling.repetitionPenalty
-        }
-    }
 }

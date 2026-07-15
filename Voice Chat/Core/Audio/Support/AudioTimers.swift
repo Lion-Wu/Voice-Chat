@@ -131,7 +131,7 @@ extension GlobalAudioManager {
         let segStart = startTime(forSegment: currentPlayingIndex)
         let newTime = segStart + p.currentTime
 
-        if allChunksLoaded() && newTime >= (totalDuration - endEpsilon) {
+        if playbackFinished(at: newTime) {
             currentTime = totalDuration
             finishPlayback()
             return
@@ -190,7 +190,7 @@ extension GlobalAudioManager {
                     if (isNotPlaying || isNotAdvancing) && elapsedNoProgress > 2 {
                         let segStart = self.startTime(forSegment: self.currentPlayingIndex)
                         let projectedGlobal = segStart + p.currentTime
-                        if self.allChunksLoaded() && projectedGlobal >= (self.totalDuration - self.endEpsilon) {
+                        if self.playbackFinished(at: projectedGlobal) {
                             self.finishPlayback()
                             return
                         }

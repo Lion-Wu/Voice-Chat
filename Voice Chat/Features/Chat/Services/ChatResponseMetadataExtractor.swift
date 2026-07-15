@@ -20,7 +20,7 @@ struct ChatResponseMetadataExtractor: ChatResponseMetadataExtracting, Sendable {
 
     func extractResponseMetadata(from dictionary: [String: Any], style: ChatRequestStyle) -> ChatResponseMetadata {
         switch style {
-        case .openAIChatCompletions:
+        case .openAIResponses, .openAIChatCompletions:
             var metadata = ChatResponseMetadata.empty
             if let responseID = dictionary["id"] as? String,
                !responseID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -116,11 +116,13 @@ struct ChatResponseMetadataExtractor: ChatResponseMetadataExtracting, Sendable {
                 if let output = usage["output_tokens"] as? NSNumber {
                     metadata.outputTokenCount = output.intValue
                 }
+                metadata.reasoningOutputTokenCount = anthropicThinkingTokens(from: usage)
             } else if let message = dictionary["message"] as? [String: Any],
                       let usage = message["usage"] as? [String: Any] {
                 if let output = usage["output_tokens"] as? NSNumber {
                     metadata.outputTokenCount = output.intValue
                 }
+                metadata.reasoningOutputTokenCount = anthropicThinkingTokens(from: usage)
             }
             if let stopReason = dictionary["stop_reason"] as? String,
                !stopReason.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -132,7 +134,7 @@ struct ChatResponseMetadataExtractor: ChatResponseMetadataExtracting, Sendable {
             }
             return metadata
 
-        case .lmStudioRESTV1, .lmStudioRESTV1LegacyMessage:
+        case .lmStudioRESTV1:
             var metadata = ChatResponseMetadata.empty
             if let responseID = dictionary["response_id"] as? String,
                !responseID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -199,5 +201,16 @@ struct ChatResponseMetadataExtractor: ChatResponseMetadataExtracting, Sendable {
             }
             return metadata
         }
+    }
+
+    private func anthropicThinkingTokens(from usage: [String: Any]) -> Int? {
+        guard let details = usage["output_tokens_details"] as? [String: Any] else { return nil }
+        if let thinking = details["thinking_tokens"] as? NSNumber {
+            return thinking.intValue
+        }
+        if let reasoning = details["reasoning_tokens"] as? NSNumber {
+            return reasoning.intValue
+        }
+        return nil
     }
 }

@@ -25,7 +25,8 @@ struct ChatRuntimeConfigurationResolver {
             requestStyleHint: settingsManager.chatModelCapabilities.resolvedRequestStyle(for: settings.apiURL),
             thinkingCapability: settingsManager.chatModelCapabilities.thinkingCapability(for: settings.selectedModel),
             thinkingOption: settingsManager.chatModelCapabilities.selectedThinkingOption(for: settings.selectedModel),
-            apiAdvancedSettings: settingsManager.activeAPIAdvancedSettings
+            apiAdvancedSettings: settingsManager.activeAPIAdvancedSettings,
+            toolUseSettings: settingsManager.activeToolUseSettings
         )
     }
 

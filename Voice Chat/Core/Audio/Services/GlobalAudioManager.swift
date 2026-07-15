@@ -140,7 +140,7 @@ final class GlobalAudioManager: NSObject, ObservableObject, AVAudioPlayerDelegat
     var currentChunkIndex: Int = 0
     var currentPlayingIndex: Int = 0
 
-    var dataTasks: [URLSessionDataTask] = []
+    var activeDataTasks: [UUID: URLSessionDataTask] = [:]
     var inFlightIndexes: Set<Int> = []
     var ttsRetryTasks: [Int: Task<Void, Never>] = [:]
     var ttsRetryState = TTSRequestRetryState()
@@ -247,6 +247,12 @@ final class GlobalAudioManager: NSObject, ObservableObject, AVAudioPlayerDelegat
         !inFlightIndexes.isEmpty || !ttsRetryTasks.isEmpty
     }
 
+    func hasPendingTTSSynthesisWork() -> Bool {
+        !inFlightIndexes.isEmpty ||
+            !ttsRetryTasks.isEmpty ||
+            (isRealtimeMode && !realtimeRequestQueue.isEmpty)
+    }
+
     func clearRealtimeRequestQueue() {
         realtimeRequestQueue.removeAll()
         refreshPlaybackLoadState()
@@ -284,7 +290,7 @@ final class GlobalAudioManager: NSObject, ObservableObject, AVAudioPlayerDelegat
     /// Ends realtime mode cleanly when no audio was produced or all work finished.
     func concludeRealtimeIfIdle() {
         guard isRealtimeMode, realtimeFinalized else { return }
-        let noPending = inFlightIndexes.isEmpty && ttsRetryTasks.isEmpty && realtimeRequestQueue.isEmpty
+        let noPending = !hasPendingTTSSynthesisWork()
         let hasAnyAudio = audioChunks.contains { $0 != nil }
         guard noPending else { return }
 

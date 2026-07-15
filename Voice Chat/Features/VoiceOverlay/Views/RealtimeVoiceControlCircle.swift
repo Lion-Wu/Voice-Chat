@@ -19,8 +19,6 @@ struct RealtimeVoiceControlCircle: View {
     @State private var displayedCircleDiameter: CGFloat = 0
     @State private var displayedCircleLevelScale: CGFloat = 1
     @State private var errorCutoutProgress: CGFloat = 0
-    @State private var loadingBreath: CGFloat = 0
-    @State private var isLoadingBreathing: Bool = false
     @State private var isCirclePressed: Bool = false
     @State private var isCircleHoldActive: Bool = false
     @State private var didTriggerCircleLongPress: Bool = false
@@ -129,21 +127,23 @@ struct RealtimeVoiceControlCircle: View {
     }
 
     var body: some View {
-        ZStack {
-            let diameter = currentCircleDiameter
-            let cutoutProgress = circleCutoutProgress
-            VoiceControlCircleShape(
-                cutoutProgress: cutoutProgress,
-                ringThickness: activeCircleErrorRingWidth
-            )
-            .fill(circleVisualColor, style: FillStyle(eoFill: true))
-            .frame(width: diameter, height: diameter)
-            .scaleEffect(currentCircleScale * interactionPulse * circlePressScale)
-            .shadow(color: .black.opacity(isCirclePressed ? 0.28 : 0.25), radius: isCirclePressed ? 22 : 16, x: 0, y: isCirclePressed ? 8 : 6)
-            .contentShape(Circle())
-            .highPriorityGesture(circlePressGesture)
+        TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: viewModel.state != .loading)) { context in
+            ZStack {
+                let diameter = currentCircleDiameter
+                let cutoutProgress = circleCutoutProgress
+                VoiceControlCircleShape(
+                    cutoutProgress: cutoutProgress,
+                    ringThickness: activeCircleErrorRingWidth
+                )
+                .fill(circleVisualColor, style: FillStyle(eoFill: true))
+                .frame(width: diameter, height: diameter)
+                .scaleEffect(currentCircleScale(at: context.date) * interactionPulse * circlePressScale)
+                .shadow(color: .black.opacity(isCirclePressed ? 0.28 : 0.25), radius: isCirclePressed ? 22 : 16, x: 0, y: isCirclePressed ? 8 : 6)
+                .contentShape(Circle())
+                .highPriorityGesture(circlePressGesture)
+            }
+            .frame(width: circleControlFrameSize, height: circleControlFrameSize)
         }
-        .frame(width: circleControlFrameSize, height: circleControlFrameSize)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Realtime voice control")
         .accessibilityValue(accessibilityValue)
@@ -184,14 +184,10 @@ struct RealtimeVoiceControlCircle: View {
         displayedCircleDiameter = circleTargetDiameter(for: viewModel.state)
         displayedCircleLevelScale = circleTargetLevelScale(for: viewModel.state)
         errorCutoutProgress = circleTargetCutoutProgress(for: viewModel.state)
-        if viewModel.state == .loading {
-            startLoadingBreathIfNeeded()
-        }
     }
 
     private func teardown() {
         cancelPendingLongPressTrigger()
-        stopLoadingBreath()
         resetInteractionState()
     }
 
@@ -214,13 +210,18 @@ struct RealtimeVoiceControlCircle: View {
         return circleTargetDiameter(for: viewModel.state)
     }
 
-    private var currentCircleScale: CGFloat {
+    private func currentCircleScale(at date: Date) -> CGFloat {
         if let pressedCircleScale { return pressedCircleScale }
-        return displayedCircleLevelScale * loadingBreathScale
+        return displayedCircleLevelScale * loadingBreathScale(at: date)
     }
 
-    private var loadingBreathScale: CGFloat {
-        1.0 + (0.055 * loadingBreath)
+    private func loadingBreathScale(at date: Date) -> CGFloat {
+        guard viewModel.state == .loading else { return 1 }
+        let period = 1.84
+        let phase = date.timeIntervalSinceReferenceDate
+            .truncatingRemainder(dividingBy: period) / period
+        let wave = (1 - cos(phase * 2 * Double.pi)) / 2
+        return 1 + (0.055 * CGFloat(wave))
     }
 
     private var circlePressGesture: some Gesture {
@@ -279,7 +280,7 @@ struct RealtimeVoiceControlCircle: View {
     private func beginCirclePress(at start: CGPoint) {
         circlePressOrigin = start
         pressedCircleBaseSize = currentCircleDiameter
-        pressedCircleScale = currentCircleScale
+        pressedCircleScale = currentCircleScale(at: Date())
         circleGestureCancelled = false
         didTriggerCircleLongPress = false
         isCircleHoldActive = false
@@ -406,12 +407,6 @@ struct RealtimeVoiceControlCircle: View {
             }
         }
 
-        if newState == .loading {
-            startLoadingBreathIfNeeded()
-        } else {
-            stopLoadingBreath()
-        }
-
         switch newState {
         case .listening:
             smoothedOutputLevel *= 0.35
@@ -468,23 +463,6 @@ struct RealtimeVoiceControlCircle: View {
         guard abs(scale - displayedCircleLevelScale) >= scaleUpdateEpsilon else { return }
         withAnimation(levelScaleAnimation) {
             displayedCircleLevelScale = scale
-        }
-    }
-
-    private func startLoadingBreathIfNeeded() {
-        guard !isLoadingBreathing else { return }
-        isLoadingBreathing = true
-        loadingBreath = 0
-        withAnimation(.easeInOut(duration: 0.92).repeatForever(autoreverses: true)) {
-            loadingBreath = 1
-        }
-    }
-
-    private func stopLoadingBreath() {
-        guard isLoadingBreathing || loadingBreath != 0 else { return }
-        isLoadingBreathing = false
-        withAnimation(.easeOut(duration: 0.18)) {
-            loadingBreath = 0
         }
     }
 

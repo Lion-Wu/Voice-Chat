@@ -62,20 +62,83 @@ struct AssistantAlignedLoadingBubble: View {
     var maxBubbleWidth: CGFloat? = nil
 
     var body: some View {
+        AssistantAlignedStatusRow(maxBubbleWidth: maxBubbleWidth) {
+            AssistantLoadingBubbleContent()
+        }
+    }
+}
+
+struct AssistantAlignedRetryingBubble: View {
+    let attempt: Int
+    let lastError: String?
+    var maxBubbleWidth: CGFloat? = nil
+
+    var body: some View {
+        AssistantAlignedStatusRow(maxBubbleWidth: maxBubbleWidth) {
+            AssistantRetryingBubbleContent(attempt: attempt, lastError: lastError)
+        }
+    }
+}
+
+struct AssistantLoadingBubbleContent: View {
+    var body: some View {
+        LoadingIndicatorView()
+            .padding(.vertical, 10)
+            .padding(.horizontal, 12)
+            .background(AssistantStatusBubbleBackground())
+    }
+}
+
+struct AssistantRetryingBubbleContent: View {
+    let attempt: Int
+    let lastError: String?
+
+    private var title: String {
+        String(format: NSLocalizedString("Retrying (attempt %d)...", comment: "Shown while auto retry is waiting to reconnect"), max(1, attempt))
+    }
+
+    private var detail: String? {
+        let trimmed = (lastError ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 8) {
+                LoadingIndicatorView()
+                Text(title)
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+
+            if let detail {
+                Text(detail)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+            }
+        }
+        .padding(.vertical, 10)
+        .padding(.horizontal, 12)
+        .background(AssistantStatusBubbleBackground())
+    }
+}
+
+private struct AssistantAlignedStatusRow<Content: View>: View {
+    let maxBubbleWidth: CGFloat?
+    let content: Content
+
+    init(maxBubbleWidth: CGFloat?, @ViewBuilder content: () -> Content) {
+        self.maxBubbleWidth = maxBubbleWidth
+        self.content = content()
+    }
+
+    var body: some View {
         HStack {
             VStack(alignment: .leading) {
                 HStack {
-                    LoadingIndicatorView()
-                        .padding(.vertical, 10)
-                        .padding(.horizontal, 12)
-                        .background(
-                            RoundedRectangle(cornerRadius: ChatTheme.bubbleRadius, style: .continuous)
-                                .fill(PlatformColor.secondaryBackground.opacity(0.72))
-                                .overlay {
-                                    RoundedRectangle(cornerRadius: ChatTheme.bubbleRadius, style: .continuous)
-                                        .strokeBorder(.white.opacity(0.06))
-                                }
-                        )
+                    content
                     Spacer(minLength: 0)
                 }
                 .frame(maxWidth: contentMaxWidthForAssistant(availableWidth: maxBubbleWidth), alignment: .leading)
@@ -91,56 +154,14 @@ struct AssistantAlignedLoadingBubble: View {
     }
 }
 
-struct AssistantAlignedRetryingBubble: View {
-    let attempt: Int
-    let lastError: String?
-    var maxBubbleWidth: CGFloat? = nil
-
-    private var title: String {
-        String(format: NSLocalizedString("Retrying (attempt %d)...", comment: "Shown while auto retry is waiting to reconnect"), max(1, attempt))
-    }
-
-    private var detail: String? {
-        let trimmed = (lastError ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? nil : trimmed
-    }
-
+private struct AssistantStatusBubbleBackground: View {
     var body: some View {
-        HStack {
-            VStack(alignment: .leading) {
-                HStack {
-                    VStack(alignment: .leading, spacing: 6) {
-                        HStack(spacing: 8) {
-                            LoadingIndicatorView()
-                            Text(title)
-                                .font(.footnote.weight(.semibold))
-                                .foregroundStyle(.secondary)
-                                .lineLimit(1)
-                        }
-
-                        if let detail {
-                            Text(detail)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                                .lineLimit(2)
-                        }
-                    }
-                    .padding(.vertical, 10)
-                    .padding(.horizontal, 12)
-                    .background(PlatformColor.secondaryBackground.opacity(0.6), in: RoundedRectangle(cornerRadius: ChatTheme.bubbleRadius, style: .continuous))
-
-                    Spacer(minLength: 0)
-                }
-                .frame(maxWidth: contentMaxWidthForAssistant(availableWidth: maxBubbleWidth), alignment: .leading)
+        RoundedRectangle(cornerRadius: ChatTheme.bubbleRadius, style: .continuous)
+            .fill(PlatformColor.secondaryBackground)
+            .overlay {
+                RoundedRectangle(cornerRadius: ChatTheme.bubbleRadius, style: .continuous)
+                    .strokeBorder(ChatTheme.subtleStroke.opacity(0.8))
             }
-            .frame(maxWidth: .infinity, alignment: .center)
-        }
-        .padding(.vertical, 6)
-        #if os(macOS)
-        .padding(.horizontal)
-        #else
-        .padding(.horizontal, 2)
-        #endif
     }
 }
 

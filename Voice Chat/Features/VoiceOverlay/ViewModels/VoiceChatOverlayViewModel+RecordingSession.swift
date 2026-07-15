@@ -131,6 +131,7 @@ extension VoiceChatOverlayViewModel {
         resetVisionCaptureSamples()
         showErrorBanner = false
         errorMessage = nil
+        realtimeAssistantSnapshot = nil
         state = .loading
         startLoadingWatchdog()
         onRecognizedFinal?(trimmed, visionAttachments)
@@ -147,6 +148,7 @@ extension VoiceChatOverlayViewModel {
         stopLoadingWatchdog()
         cancelConnectivityTask()
         dismissVisionCapture()
+        realtimeAssistantSnapshot = nil
         cleanupRecordingOnly()
         sessionCancellables.removeAll()
     }
@@ -199,6 +201,7 @@ extension VoiceChatOverlayViewModel {
         isSendSuppressed = false
         showErrorBanner = false
         errorMessage = nil
+        realtimeAssistantSnapshot = nil
 
         closeAudioIfVoiceWorkIsActive()
 
@@ -219,22 +222,30 @@ extension VoiceChatOverlayViewModel {
         }
     }
 
-    func handleAudioPlayingChange(_ playing: Bool) {
-        if case .error = state { return }
-        if playing {
-            stopLoadingWatchdog()
-            state = .speaking
-        } else {
-            resumeListeningIfIdle()
-        }
+    func handleAudioActivityChange() {
+        reconcileVoiceWorkPresentation()
     }
 
-    func handleAudioLoadingChange(_ loading: Bool) {
+    func handleChatLoadingStateChange(_: Bool) {
+        reconcileVoiceWorkPresentation()
+    }
+
+    private func reconcileVoiceWorkPresentation() {
+        guard isPresented else { return }
         if case .error = state { return }
-        if loading, !audioManager.isAudioPlaying {
+        guard !speechInputManager.isRecording else { return }
+
+        let snapshot = currentVoiceWorkSnapshot()
+        switch snapshot.presentationPhase {
+        case .speaking:
+            stopLoadingWatchdog()
+            state = .speaking
+        case .loading:
             state = .loading
-            startLoadingWatchdog()
-        } else {
+            if !loadingWatchdog.isRunning {
+                startLoadingWatchdog()
+            }
+        case .idle:
             stopLoadingWatchdog()
             resumeListeningIfIdle()
         }

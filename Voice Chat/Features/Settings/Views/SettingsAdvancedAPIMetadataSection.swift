@@ -60,7 +60,14 @@ private struct SettingsAdvancedAPISelectedModelMetadataDisclosure: View {
             SettingsAdvancedAPIMetadataRow("Object", metadata.object ?? context.localizedUnknown)
             SettingsAdvancedAPIMetadataRow("Owner", metadata.owned_by ?? context.localizedUnknown)
             SettingsAdvancedAPIMetadataRow("Type", metadata.type ?? metadata.arch ?? context.localizedUnknown)
-            SettingsAdvancedAPIMetadataRow("Input Modalities", context.joined(metadata.input_modalities ?? metadata.capabilities?.input_modalities))
+            SettingsAdvancedAPIMetadataRow(
+                "Input Modalities",
+                context.joined(
+                    metadata.architecture?.input_modalities ??
+                        metadata.input_modalities ??
+                        metadata.capabilities?.input_modalities
+                )
+            )
             SettingsAdvancedAPIMetadataRow("Modalities", context.joined(metadata.modalities ?? metadata.capabilities?.modalities))
             SettingsAdvancedAPIMetadataRow("Supported Parameters", context.joined(metadata.supported_parameters ?? metadata.capabilities?.supported_parameters))
             SettingsAdvancedAPIMetadataRow("Image Input", context.optionalBool(metadata.supportsImageInputHint))
@@ -106,6 +113,14 @@ private struct SettingsAdvancedAPIFetchedModelMetadataDisclosure: View {
             SettingsAdvancedAPIMetadataRow("Object", model.object ?? context.localizedUnknown)
             SettingsAdvancedAPIMetadataRow("Owner", model.owned_by ?? context.localizedUnknown)
             SettingsAdvancedAPIMetadataRow("Type", model.type ?? model.arch ?? context.localizedUnknown)
+            SettingsAdvancedAPIMetadataRow(
+                "Input Modalities",
+                context.joined(
+                    model.architecture?.input_modalities ??
+                        model.input_modalities ??
+                        model.capabilities?.input_modalities
+                )
+            )
             SettingsAdvancedAPIMetadataRow("Supported Parameters", context.joined(model.supported_parameters ?? model.capabilities?.supported_parameters))
             SettingsAdvancedAPIMetadataRow("Image Input", context.optionalBool(model.supportsImageInputHint))
             SettingsAdvancedAPIRawJSONBlock(

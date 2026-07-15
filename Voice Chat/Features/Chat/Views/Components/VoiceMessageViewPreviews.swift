@@ -37,7 +37,7 @@ import SwiftUI
         onRetry: { _ in }
     )
     .environmentObject(audio)
-    .modelContainer(for: [ChatSession.self, ChatMessage.self, AppSettings.self], inMemory: true)
+    .modelContainer(for: [ChatSession.self, ChatMessage.self, ChatRequestContextMetadata.self, AppSettings.self], inMemory: true)
     .padding()
     .background(AppBackgroundView())
 }

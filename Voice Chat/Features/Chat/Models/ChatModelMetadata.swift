@@ -10,16 +10,25 @@ import Foundation
 struct ModelListResponse: Decodable {
     let object: String?
     let data: [ModelInfo]
+    let hasMore: Bool?
+    let firstID: String?
+    let lastID: String?
 
     private enum CodingKeys: String, CodingKey {
         case object
         case data
         case models
+        case hasMore = "has_more"
+        case firstID = "first_id"
+        case lastID = "last_id"
     }
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         object = try container.decodeIfPresent(String.self, forKey: .object)
+        hasMore = try container.decodeIfPresent(Bool.self, forKey: .hasMore)
+        firstID = try container.decodeIfPresent(String.self, forKey: .firstID)
+        lastID = try container.decodeIfPresent(String.self, forKey: .lastID)
 
         if let standardData = try? container.decode([ModelInfo].self, forKey: .data) {
             data = standardData
@@ -143,6 +152,14 @@ private struct LMStudioRESTLoadedInstance: Decodable {
     let identifier: String?
 }
 
+struct ModelArchitectureMetadata: Codable, Equatable, Sendable {
+    let modality: String?
+    let input_modalities: [String]?
+    let output_modalities: [String]?
+    let tokenizer: String?
+    let instruct_type: String?
+}
+
 struct ModelInfo: Codable {
     let id: String
     let object: String?
@@ -150,6 +167,7 @@ struct ModelInfo: Codable {
     let owned_by: String?
     let type: String?
     let arch: String?
+    let architecture: ModelArchitectureMetadata?
     let input_modalities: [String]?
     let modalities: [String]?
     let vision: Bool?
@@ -170,6 +188,7 @@ struct ModelInfo: Codable {
         case owned_by
         case type
         case arch
+        case architecture
         case input_modalities
         case modalities
         case vision
@@ -202,7 +221,8 @@ struct ModelInfo: Codable {
         model_info: ModelCapabilityFlags?,
         reasoning: ModelThinkingCapabilityDescriptor?,
         supported_parameters: [String]?,
-        rawMetadata: JSONValue? = nil
+        rawMetadata: JSONValue? = nil,
+        architecture: ModelArchitectureMetadata? = nil
     ) {
         self.id = id
         self.object = object
@@ -210,6 +230,7 @@ struct ModelInfo: Codable {
         self.owned_by = owned_by
         self.type = type
         self.arch = arch
+        self.architecture = architecture
         self.input_modalities = input_modalities
         self.modalities = modalities
         self.vision = vision
@@ -232,6 +253,7 @@ struct ModelInfo: Codable {
         owned_by = try container.decodeIfPresent(String.self, forKey: .owned_by)
         type = try container.decodeIfPresent(String.self, forKey: .type)
         arch = try container.decodeIfPresent(String.self, forKey: .arch)
+        architecture = try? container.decode(ModelArchitectureMetadata.self, forKey: .architecture)
         input_modalities = try container.decodeIfPresent([String].self, forKey: .input_modalities)
         modalities = try container.decodeIfPresent([String].self, forKey: .modalities)
         vision = try container.decodeIfPresent(Bool.self, forKey: .vision)
@@ -255,6 +277,7 @@ struct ModelInfo: Codable {
         }
 
         let modalityCandidates: [[String]?] = [
+            architecture?.input_modalities,
             input_modalities,
             modalities,
             capabilities?.input_modalities,
@@ -384,7 +407,10 @@ struct ModelInfo: Codable {
         provider: ChatProvider?,
         requestStyle: ChatRequestStyle?
     ) -> Bool {
-        requestStyle == .openAIChatCompletions && provider == .openRouter
+        guard requestStyle == .openAIResponses || requestStyle == .openAIChatCompletions else {
+            return false
+        }
+        return provider != .anthropic && provider != .lmStudio
     }
 
     private func normalizedTokens(_ values: [String]?) -> Set<String> {

@@ -24,7 +24,7 @@ struct ChatRequestThinkingConfigurationApplier: Sendable {
         let requestParameter = thinkingCapability?.requestParameter
 
         switch endpoint.style {
-        case .lmStudioRESTV1, .lmStudioRESTV1LegacyMessage:
+        case .lmStudioRESTV1:
             requestBody["reasoning"] = lmStudioReasoningValue(for: option)
 
         case .anthropicMessages:
@@ -37,6 +37,7 @@ struct ChatRequestThinkingConfigurationApplier: Sendable {
                 requestBody["output_config"] = [
                     "effort": anthropicAdaptiveEffort(for: option, model: model)
                 ]
+                removeAnthropicThinkingSamplingConflicts(from: &requestBody)
                 return
             }
 
@@ -47,24 +48,43 @@ struct ChatRequestThinkingConfigurationApplier: Sendable {
             ]
             let currentMaxTokens = (requestBody["max_tokens"] as? Int) ?? settings.anthropicMaxTokens
             requestBody["max_tokens"] = max(currentMaxTokens, budget + settings.anthropicThinkingResponseReserve)
+            removeAnthropicThinkingSamplingConflicts(from: &requestBody)
+
+        case .openAIResponses:
+            requestBody["reasoning"] = [
+                "effort": openAIReasoningEffort(for: option, capability: thinkingCapability)
+            ]
 
         case .openAIChatCompletions:
-            if endpoint.provider == .deepSeek {
-                applyDeepSeekThinkingConfiguration(to: &requestBody, option: option)
-                return
-            }
-
-            if ChatRequestBodyEndpointClassifier.isOpenAIResponsesEndpoint(endpoint.chatURL) {
-                requestBody["reasoning"] = ["effort": openAIReasoningEffort(for: option)]
+            if ChatEndpointBaseURL.hostMatchesOfficialDomain(
+                endpoint.chatURL.host ?? "",
+                domain: "deepseek.com"
+            ) {
+                requestBody["thinking"] = ["type": option.isDisabled ? "disabled" : "enabled"]
+                if option.isDisabled {
+                    requestBody.removeValue(forKey: "reasoning_effort")
+                } else {
+                    requestBody["reasoning_effort"] = deepSeekReasoningEffort(for: option)
+                }
                 return
             }
 
             if let requestParameter {
                 switch requestParameter {
                 case .reasoningEffort:
-                    requestBody["reasoning_effort"] = reasoningEffortValue(for: option, endpoint: endpoint)
+                    requestBody["reasoning_effort"] = reasoningEffortValue(
+                        for: option,
+                        endpoint: endpoint,
+                        capability: thinkingCapability
+                    )
                 case .reasoning:
-                    requestBody["reasoning"] = ["effort": reasoningEffortValue(for: option, endpoint: endpoint)]
+                    requestBody["reasoning"] = [
+                        "effort": reasoningEffortValue(
+                            for: option,
+                            endpoint: endpoint,
+                            capability: thinkingCapability
+                        )
+                    ]
                 case .thinking:
                     requestBody["thinking"] = ["type": option.isDisabled ? "disabled" : "enabled"]
                 }
@@ -72,112 +92,83 @@ struct ChatRequestThinkingConfigurationApplier: Sendable {
             }
 
             switch endpoint.provider {
-            case .deepSeek:
-                if !option.isDisabled {
-                    requestBody["thinking"] = ["type": "enabled"]
-                }
-            case .gemini:
-                requestBody["reasoning_effort"] = geminiReasoningEffort(for: option)
-            case .openRouter:
-                requestBody["reasoning"] = ["effort": openRouterReasoningEffort(for: option)]
-            case .openAI, .lmStudio, .openAICompatible, .llamaCpp, .unknown:
-                requestBody["reasoning_effort"] = openAIReasoningEffort(for: option)
-            case .xAI, .anthropic:
+            case .openAI, .lmStudio, .unknown:
+                requestBody["reasoning_effort"] = openAIReasoningEffort(
+                    for: option,
+                    capability: thinkingCapability
+                )
+            case .anthropic:
                 break
             }
         }
     }
 
-    private func reasoningEffortValue(for option: ModelThinkingOption, endpoint: ChatAPIEndpointCandidate) -> String {
+    private func reasoningEffortValue(
+        for option: ModelThinkingOption,
+        endpoint: ChatAPIEndpointCandidate,
+        capability: ModelThinkingCapability?
+    ) -> String {
         switch endpoint.provider {
-        case .gemini:
-            return geminiReasoningEffort(for: option)
-        case .openRouter:
-            return openRouterReasoningEffort(for: option)
-        case .openAI, .lmStudio, .openAICompatible, .llamaCpp, .unknown, .deepSeek, .anthropic, .xAI:
-            return openAIReasoningEffort(for: option)
+        case .openAI, .lmStudio, .unknown, .anthropic:
+            return openAIReasoningEffort(for: option, capability: capability)
         }
     }
 
     private func lmStudioReasoningValue(for option: ModelThinkingOption) -> String {
-        switch option {
-        case .none:
+        if option == .none {
             return "off"
-        case .minimal:
+        }
+        if option == .minimal {
             return "low"
-        case .xhigh, .max:
+        }
+        if option == .xhigh || option == .max {
             return "high"
-        default:
-            return option.rawValue
         }
+        return option.rawValue
     }
 
-    private func openAIReasoningEffort(for option: ModelThinkingOption) -> String {
-        switch option {
-        case .off:
+    private func openAIReasoningEffort(
+        for option: ModelThinkingOption,
+        capability: ModelThinkingCapability?
+    ) -> String {
+        if option == .off {
             return "none"
-        case .on:
+        }
+        if option == .on {
             return "medium"
-        case .max:
+        }
+        if option == .max, capability?.options.contains(.max) != true {
             return "xhigh"
-        default:
-            return option.rawValue
         }
-    }
-
-    private func geminiReasoningEffort(for option: ModelThinkingOption) -> String {
-        switch option {
-        case .off:
-            return "none"
-        case .on:
-            return "medium"
-        case .xhigh, .max:
-            return "high"
-        default:
-            return option.rawValue
-        }
-    }
-
-    private func openRouterReasoningEffort(for option: ModelThinkingOption) -> String {
-        switch option {
-        case .off:
-            return "none"
-        case .on:
-            return "medium"
-        case .max:
-            return "xhigh"
-        default:
-            return option.rawValue
-        }
-    }
-
-    private func applyDeepSeekThinkingConfiguration(to requestBody: inout [String: Any], option: ModelThinkingOption) {
-        requestBody["thinking"] = ["type": option.isDisabled ? "disabled" : "enabled"]
-        guard !option.isDisabled else { return }
-        requestBody["reasoning_effort"] = deepSeekReasoningEffort(for: option)
+        return option.rawValue
     }
 
     private func deepSeekReasoningEffort(for option: ModelThinkingOption) -> String {
-        switch option {
-        case .xhigh, .max:
-            return "max"
-        case .off, .none:
-            return "high"
-        case .minimal, .low, .medium, .high, .on:
-            return "high"
-        }
+        option == .max || option == .xhigh ? "max" : "high"
     }
 
     private func anthropicThinkingBudget(for option: ModelThinkingOption, settings: APIAdvancedSettings) -> Int {
-        switch option {
-        case .minimal, .low, .on:
+        if option == .minimal || option == .low || option == .on {
             return settings.anthropicLowThinkingBudget
-        case .medium:
+        }
+        if option == .medium {
             return settings.anthropicMediumThinkingBudget
-        case .high, .xhigh, .max:
+        }
+        if option == .high || option == .xhigh || option == .max || option == .ultra {
             return settings.anthropicHighThinkingBudget
-        case .off, .none:
+        }
+        if option == .off || option == .none {
             return 0
+        }
+        return settings.anthropicMediumThinkingBudget
+    }
+
+    private func removeAnthropicThinkingSamplingConflicts(from requestBody: inout [String: Any]) {
+        requestBody.removeValue(forKey: "temperature")
+        requestBody.removeValue(forKey: "top_k")
+        if let topP = requestBody["top_p"] as? Double,
+           !(0.95...1).contains(topP) {
+            requestBody.removeValue(forKey: "top_p")
         }
     }
 
@@ -190,20 +181,25 @@ struct ChatRequestThinkingConfigurationApplier: Sendable {
     }
 
     private func anthropicAdaptiveEffort(for option: ModelThinkingOption, model: String) -> String {
-        switch option {
-        case .xhigh:
+        if option == .xhigh {
             let normalized = model.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
             return normalized.contains("claude-opus-4-7") ? "xhigh" : "max"
-        case .max:
+        }
+        if option == .max {
             return "max"
-        case .minimal, .low, .on:
-            return "low"
-        case .medium:
-            return "medium"
-        case .high:
-            return "high"
-        case .off, .none:
+        }
+        if option == .minimal || option == .low || option == .on {
             return "low"
         }
+        if option == .medium {
+            return "medium"
+        }
+        if option == .high {
+            return "high"
+        }
+        if option == .off || option == .none {
+            return "low"
+        }
+        return option.rawValue
     }
 }

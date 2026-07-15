@@ -57,10 +57,15 @@ struct SettingsAdvancedAPIDefaultsSection: View {
 
     var body: some View {
         Section {
-            Button(role: .destructive) {
-                showingResetConfirmation = true
-            } label: {
-                Label("Restore Defaults", systemImage: "arrow.counterclockwise")
+            HStack {
+                Spacer()
+                Button(role: .destructive) {
+                    showingResetConfirmation = true
+                } label: {
+                    Label("Restore Defaults", systemImage: "arrow.counterclockwise")
+                }
+                .settingsActionButtonStyle()
+                .tint(.red)
             }
             .confirmationDialog(
                 "Restore defaults?",
@@ -76,6 +81,35 @@ struct SettingsAdvancedAPIDefaultsSection: View {
             }
         } header: {
             SettingsAdvancedAPISectionHeader(title: "Defaults")
+        }
+    }
+}
+
+struct SettingsDeveloperDefaultsSection: View {
+    @ObservedObject var viewModel: SettingsViewModel
+    @Binding var showingResetConfirmation: Bool
+
+    var body: some View {
+        Section {
+            Button(role: .destructive) {
+                showingResetConfirmation = true
+            } label: {
+                Label("Restore Developer Defaults", systemImage: "arrow.counterclockwise")
+            }
+            .confirmationDialog(
+                "Restore developer defaults?",
+                isPresented: $showingResetConfirmation,
+                titleVisibility: .visible
+            ) {
+                Button("Restore Developer Defaults", role: .destructive) {
+                    viewModel.resetDeveloperSettingsToDefaults()
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("This will reset all developer options to their default values.")
+            }
+        } header: {
+            SettingsAdvancedAPISectionHeader(title: "Developer Defaults")
         }
     }
 }

@@ -16,6 +16,9 @@ struct ChatTextRequestErrorCompletion {
 
 struct ChatTextRequestCancellationCompletion {
     let assistantMessageIDForBranchRestore: UUID?
+    let interruptedMessage: ChatMessage?
+    let pendingParentMessageID: UUID?
+    let errorMessage: ChatMessage
 }
 
 @MainActor
@@ -73,15 +76,23 @@ final class ChatTextRequestRuntime {
 
     func bindStreamingHandlers(
         onDelta: @escaping (String) -> Void,
+        onSegment: @escaping (AssistantStreamSegment) -> Void,
+        onOpenAIResponsesConversationItems: @escaping ([JSONValue]) -> Void,
         onError: @escaping (Error) -> Void,
+        onResponseMetadata: @escaping (ChatResponseMetadata) -> Void,
+        onToolActivity: @escaping (ChatToolActivity) -> Void,
         onStreamFinished: @escaping () -> Void
     ) {
         streamingSession.bindHandlers(
             onDelta: onDelta,
+            onSegment: onSegment,
+            onOpenAIResponsesConversationItems: onOpenAIResponsesConversationItems,
             onError: onError,
             onResponseMetadata: { [weak self] metadata in
                 self?.streamTelemetryCoordinator.mergeServerMetadata(metadata)
+                onResponseMetadata(metadata)
             },
+            onToolActivity: onToolActivity,
             onStreamFinished: onStreamFinished
         )
     }
@@ -89,6 +100,10 @@ final class ChatTextRequestRuntime {
     func bindActivityState(_ onChange: @escaping (ChatRequestActivityController.PublishedState) -> Void) {
         requestActivityController.onPublishedStateChange = onChange
         requestActivityController.publishCurrentState()
+    }
+
+    func mergeRecoveredResponseMetadata(_ metadata: ChatResponseMetadata) {
+        streamTelemetryCoordinator.mergeServerMetadata(metadata)
     }
 
     func bindRetryState(_ onChange: @escaping (ChatStreamRetryStatusController.PublishedState) -> Void) {
@@ -119,8 +134,16 @@ final class ChatTextRequestRuntime {
         )
     }
 
+    func retryLastFailedStreamRequest() -> Bool {
+        streamingSession.retryLastFailedStreamRequest()
+    }
+
     func cancelStreaming() {
         streamingSession.cancelStreaming()
+    }
+
+    func resolveToolAuthorization(requestID: String, allowed: Bool) {
+        streamingSession.resolveToolAuthorization(requestID: requestID, allowed: allowed)
     }
 
     func markActive(pendingParentMessageID: UUID?) {
@@ -177,6 +200,14 @@ final class ChatTextRequestRuntime {
 
     func resetStreamingPersistenceState() {
         streamTelemetryCoordinator.resetStreamingPersistenceState()
+    }
+
+    func makeTelemetryRetryCheckpoint() -> ChatAssistantStreamTelemetryRetryCheckpoint {
+        streamTelemetryCoordinator.makeRetryCheckpoint()
+    }
+
+    func restoreTelemetryRetryCheckpoint(_ checkpoint: ChatAssistantStreamTelemetryRetryCheckpoint) {
+        streamTelemetryCoordinator.restoreRetryCheckpoint(checkpoint)
     }
 
     func recordStreamStart(
@@ -271,6 +302,13 @@ final class ChatTextRequestRuntime {
         markInactive()
         resetRetryState()
 
+        let errorMessage = makeErrorMessage(
+            errorText: errorText,
+            fallbackErrorDescription: error.localizedDescription,
+            createdAt: now,
+            telemetry: telemetry,
+            session: session
+        )
         let interrupted = finalizeActiveAssistantMessage(
             in: session,
             reason: "error",
@@ -282,13 +320,6 @@ final class ChatTextRequestRuntime {
         resetStreamingPersistenceState()
 
         let pendingParentID = pendingAssistantParentMessageID
-        let errorMessage = makeErrorMessage(
-            errorText: errorText,
-            fallbackErrorDescription: error.localizedDescription,
-            createdAt: now,
-            telemetry: telemetry,
-            session: session
-        )
         pendingAssistantParentMessageID = nil
 
         return ChatTextRequestErrorCompletion(
@@ -321,13 +352,36 @@ final class ChatTextRequestRuntime {
         in session: ChatSession,
         finishedAt: Date = Date()
     ) -> ChatTextRequestCancellationCompletion {
+        let telemetry = activeTelemetry
+        let messageBeforeCancel: ChatMessage? = {
+            if let id = currentAssistantMessageID ?? interruptedAssistantMessageID {
+                return session.messages.first { $0.id == id }
+            }
+            return nil
+        }()
+        let didStartOutput = messageBeforeCancel?.hasAssistantOutput ?? false
+        let finishReason = didStartOutput ? "stopped" : "cancelled"
+        let displayText = didStartOutput
+            ? NSLocalizedString("Stopped.", comment: "Shown when the user stops an in-progress assistant response")
+            : NSLocalizedString("Cancelled.", comment: "Shown when the user cancels a request before output starts")
+        let pendingParentID = pendingAssistantParentMessageID
+
         cancelScheduledRetry()
         cancelStreaming()
-        finalizeActiveAssistantMessage(
+        let errorMessage = makeErrorMessage(
+            errorText: displayText,
+            fallbackErrorDescription: displayText,
+            createdAt: finishedAt,
+            telemetry: telemetry,
+            session: session
+        )
+        errorMessage.finishReason = finishReason
+        errorMessage.finishReasonSource = ChatStreamMetricValueSource.local.rawValue
+        let interrupted = finalizeActiveAssistantMessage(
             in: session,
-            reason: "cancelled",
+            reason: finishReason,
             finishedAt: finishedAt,
-            errorDescription: nil
+            errorDescription: displayText
         )
         let assistantIDForBranchRestore = currentAssistantMessageID
         clearAssistantTracking()
@@ -336,7 +390,10 @@ final class ChatTextRequestRuntime {
         resetRetryState()
 
         return ChatTextRequestCancellationCompletion(
-            assistantMessageIDForBranchRestore: assistantIDForBranchRestore
+            assistantMessageIDForBranchRestore: didStartOutput ? nil : assistantIDForBranchRestore,
+            interruptedMessage: interrupted,
+            pendingParentMessageID: pendingParentID,
+            errorMessage: errorMessage
         )
     }
 
@@ -355,4 +412,5 @@ final class ChatTextRequestRuntime {
         )
         clearAssistantTracking()
     }
+
 }

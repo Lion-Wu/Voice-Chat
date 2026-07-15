@@ -1,3 +1,10 @@
+"NSCalendarsFullAccessUsageDescription" = "アシスタントに予定の操作を依頼したときに、カレンダーの予定を読み取り、作成するために使用します。";
+"NSCalendarsUsageDescription" = "アシスタントに予定の操作を依頼したときに、カレンダーの予定を読み取り、作成するために使用します。";
 "NSCameraUsageDescription" = "写真を撮影してチャットメッセージに追加するために使用します。";
+"NSLocationUsageDescription" = "アシスタントに位置情報の使用を依頼したときに、現在地を読み取るために使用します。";
+"NSLocationWhenInUseUsageDescription" = "アシスタントに位置情報の使用を依頼したときに、現在地を読み取るために使用します。";
 "NSMicrophoneUsageDescription" = "音声モードに対応するために声を録音します。";
+"NSMotionUsageDescription" = "アシスタントにデバイスのモーション情報の使用を依頼したときに、短時間のモーションデータを取得するために使用します。";
+"NSRemindersFullAccessUsageDescription" = "アシスタントにリマインダーの操作を依頼したときに、リマインダーを読み取り、作成するために使用します。";
+"NSRemindersUsageDescription" = "アシスタントにリマインダーの操作を依頼したときに、リマインダーを読み取り、作成するために使用します。";
 "NSSpeechRecognitionUsageDescription" = "音声モードに対応するために話した内容をテキストに変換します。";

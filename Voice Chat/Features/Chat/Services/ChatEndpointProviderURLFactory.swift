@@ -10,22 +10,35 @@ import Foundation
 enum ChatEndpointProviderURLFactory {
     static func openAICompatibleURLs(from base: URLComponents) -> (chat: URL, models: URL)? {
         let path = ChatEndpointBaseURL.canonicalPath(base.path)
-
+        let host = (base.host ?? "").lowercased()
+        guard !ChatEndpointOfficialProviderDetector.isChatCompletionsOnlyOpenAICompatibleHost(host) ||
+            path.hasSuffix("/responses") else {
+            return nil
+        }
         let chatPath: String
         let modelsPath: String
 
-        if path.hasSuffix("/chat/completions") {
-            chatPath = path
-            modelsPath = String(path.dropLast("/chat/completions".count)) + "/models"
+        if let providerBasePath = officialOpenAICompatibleBasePath(for: host, path: path),
+           path == providerBasePath || path.isEmpty {
+            chatPath = providerBasePath + "/responses"
+            modelsPath = providerBasePath + "/models"
+        } else if path.hasSuffix("/chat/completions") {
+            let basePath = String(path.dropLast("/chat/completions".count))
+            chatPath = basePath + "/responses"
+            modelsPath = basePath + "/models"
         } else if path.hasSuffix("/responses") {
             chatPath = path
             modelsPath = String(path.dropLast("/responses".count)) + "/models"
+        } else if path.hasSuffix("/messages") {
+            let basePath = String(path.dropLast("/messages".count))
+            chatPath = basePath + "/responses"
+            modelsPath = basePath + "/models"
         } else if path.hasSuffix("/models") {
             modelsPath = path
             chatPath = String(path.dropLast("/models".count)) + "/responses"
         } else if path.hasSuffix("/chat") {
-            chatPath = path + "/completions"
             modelsPath = String(path.dropLast("/chat".count)) + "/models"
+            chatPath = String(path.dropLast("/chat".count)) + "/responses"
         } else if path.hasSuffix("/v1") || path.hasSuffix("/api/v0") {
             chatPath = path + "/responses"
             modelsPath = path + "/models"
@@ -39,13 +52,30 @@ enum ChatEndpointProviderURLFactory {
 
     static func chatCompletionsCompatibleURLs(from base: URLComponents) -> (chat: URL, models: URL)? {
         let path = ChatEndpointBaseURL.canonicalPath(base.path)
+        let host = (base.host ?? "").lowercased()
+
+        if ChatEndpointBaseURL.hostMatchesOfficialDomain(host, domain: "googleapis.com") {
+            return googleOpenAICompatibleChatCompletionsURLs(from: base, path: path)
+        }
 
         let chatPath: String
         let modelsPath: String
 
-        if path.hasSuffix("/chat/completions") {
+        if let providerBasePath = officialOpenAICompatibleBasePath(for: host, path: path),
+           path == providerBasePath || path.isEmpty {
+            chatPath = providerBasePath + "/chat/completions"
+            modelsPath = providerBasePath + "/models"
+        } else if path.hasSuffix("/chat/completions") {
             chatPath = path
             modelsPath = String(path.dropLast("/chat/completions".count)) + "/models"
+        } else if path.hasSuffix("/messages") {
+            let basePath = String(path.dropLast("/messages".count))
+            chatPath = basePath + "/chat/completions"
+            modelsPath = basePath + "/models"
+        } else if path.isEmpty,
+                  ChatEndpointBaseURL.hostMatchesOfficialDomain(host, domain: "deepseek.com") {
+            chatPath = "/chat/completions"
+            modelsPath = "/models"
         } else if path.hasSuffix("/models") {
             modelsPath = path
             chatPath = String(path.dropLast("/models".count)) + "/chat/completions"
@@ -63,26 +93,38 @@ enum ChatEndpointProviderURLFactory {
         return urls(from: base, chatPath: chatPath, modelsPath: modelsPath)
     }
 
-    static func geminiOpenAICompatibleURLs(from base: URLComponents) -> (chat: URL, models: URL)? {
-        let path = ChatEndpointBaseURL.canonicalPath(base.path)
-
-        func geminiCompatibilityBase(from candidate: String) -> String {
-            if candidate.hasSuffix("/openai") {
-                return candidate
-            }
-            if candidate.hasSuffix("/v1beta") || candidate.hasSuffix("/v1") {
-                return candidate + "/openai"
-            }
-            return ChatEndpointBaseURL.joinPath(candidate, "/v1beta/openai")
+    private static func officialOpenAICompatibleBasePath(for host: String, path: String) -> String? {
+        if ChatEndpointBaseURL.hostMatchesOfficialDomain(host, domain: "openai.azure.com") {
+            return officialBasePath(path: path, defaultBasePath: "/openai/v1")
         }
+        return nil
+    }
 
+    private static func officialBasePath(path: String, defaultBasePath: String) -> String? {
+        if path.isEmpty {
+            return defaultBasePath
+        }
+        if path.hasSuffix(defaultBasePath) {
+            return path
+        }
+        return nil
+    }
+
+    private static func googleOpenAICompatibleChatCompletionsURLs(
+        from base: URLComponents,
+        path: String
+    ) -> (chat: URL, models: URL)? {
         let compatibilityBase: String
         if path.hasSuffix("/chat/completions") {
             compatibilityBase = String(path.dropLast("/chat/completions".count))
         } else if path.hasSuffix("/models") {
-            compatibilityBase = geminiCompatibilityBase(from: String(path.dropLast("/models".count)))
+            compatibilityBase = String(path.dropLast("/models".count))
+        } else if path.hasSuffix("/openai") {
+            compatibilityBase = path
+        } else if path.hasSuffix("/v1beta") || path.hasSuffix("/v1") {
+            compatibilityBase = path + "/openai"
         } else {
-            compatibilityBase = geminiCompatibilityBase(from: path)
+            compatibilityBase = ChatEndpointBaseURL.joinPath(path, "/v1beta/openai")
         }
 
         return urls(
@@ -137,7 +179,7 @@ enum ChatEndpointProviderURLFactory {
         let chatPath: String
         let modelsPath: String
 
-        if path.hasSuffix("/v1/messages") {
+        if path.hasSuffix("/messages") {
             chatPath = path
             modelsPath = String(path.dropLast("/messages".count)) + "/models"
         } else if path.hasSuffix("/v1/models") {
@@ -166,4 +208,5 @@ enum ChatEndpointProviderURLFactory {
         guard let modelsURL = comps.url else { return nil }
         return (chatURL, modelsURL)
     }
+
 }

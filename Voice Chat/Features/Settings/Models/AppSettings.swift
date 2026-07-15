@@ -35,6 +35,7 @@ final class AppSettings {
     var selectedVoiceSystemPromptPresetID: UUID?
     var modelImageInputOverrideJSON: String?
     var apiAdvancedSettingsJSON: String?
+    var toolUseSettingsJSON: String?
 
     init(
         serverAddress: String = "http://localhost:9880",
@@ -53,7 +54,8 @@ final class AppSettings {
         selectedNormalSystemPromptPresetID: UUID? = nil,
         selectedVoiceSystemPromptPresetID: UUID? = nil,
         modelImageInputOverrideJSON: String? = nil,
-        apiAdvancedSettingsJSON: String? = nil
+        apiAdvancedSettingsJSON: String? = nil,
+        toolUseSettingsJSON: String? = nil
     ) {
         self.id = UUID()
         self.serverAddress = serverAddress
@@ -73,5 +75,6 @@ final class AppSettings {
         self.selectedVoiceSystemPromptPresetID = selectedVoiceSystemPromptPresetID
         self.modelImageInputOverrideJSON = modelImageInputOverrideJSON
         self.apiAdvancedSettingsJSON = apiAdvancedSettingsJSON
+        self.toolUseSettingsJSON = toolUseSettingsJSON
     }
 }

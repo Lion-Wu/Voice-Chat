@@ -122,9 +122,9 @@ struct ChatModelCapabilityStore: Equatable {
         detectedRequestStyleHints[key] = style
     }
 
-    mutating func noteDetectedEndpoint(_ endpoint: ChatAPIEndpointCandidate, for apiBaseURL: String) {
-        noteDetectedProvider(endpoint.provider, for: apiBaseURL)
-        noteDetectedRequestStyle(endpoint.style, for: apiBaseURL)
+    mutating func clearDetectedRequestStyle(for apiBaseURL: String) {
+        guard let key = ChatAPIEndpointResolver.normalizedAPIBaseKey(apiBaseURL) else { return }
+        detectedRequestStyleHints.removeValue(forKey: key)
     }
 
     func detectedProvider(for apiBaseURL: String) -> ChatProvider? {

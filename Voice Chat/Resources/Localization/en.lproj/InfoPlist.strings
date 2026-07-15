@@ -1,3 +1,10 @@
+"NSCalendarsFullAccessUsageDescription" = "Read and create calendar events when you ask the assistant to work with your schedule.";
+"NSCalendarsUsageDescription" = "Read and create calendar events when you ask the assistant to work with your schedule.";
 "NSCameraUsageDescription" = "Take photos and add them to chat messages.";
+"NSLocationUsageDescription" = "Read your current location when you ask the assistant to use location context.";
+"NSLocationWhenInUseUsageDescription" = "Read your current location when you ask the assistant to use location context.";
 "NSMicrophoneUsageDescription" = "Record your voice to support voice mode.";
+"NSMotionUsageDescription" = "Read a short motion snapshot when you ask the assistant to use device motion context.";
+"NSRemindersFullAccessUsageDescription" = "Read and create reminders when you ask the assistant to work with reminders.";
+"NSRemindersUsageDescription" = "Read and create reminders when you ask the assistant to work with reminders.";
 "NSSpeechRecognitionUsageDescription" = "Convert your speech into text to support voice mode.";

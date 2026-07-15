@@ -103,6 +103,17 @@ extension ChatView {
                 onContinueUnsupportedImageSend: {
                     sendCoordinator.performSend(ignoringUnsupportedImageInputs: true)
                 },
+                onContinueUnsupportedImageBranchRestart: { confirmation in
+                    handleBranchRestartResult(
+                        viewModel.continueBranchRestart(confirmation.intent)
+                    )
+                    triggerTextHaptic(.lightTap)
+                },
+                onEditUnsupportedImageBranchRestart: { userMessageID in
+                    if viewModel.beginEditUserMessage(id: userMessageID) {
+                        isInputFocused = true
+                    }
+                },
                 onEditUnsupportedQueuedDraft: { draftID in
                     viewModel.editQueuedDraft(id: draftID)
                     isInputFocused = true
@@ -121,9 +132,6 @@ extension ChatView {
         layoutDecoratedChatView
             .modifier(ChatViewLifecycleModifier(
                 editingBannerHeight: $editingBannerHeight,
-                errorNoticeStackHeight: $errorNoticeStackHeight,
-                measuredFloatingInputPanelHeight: $measuredFloatingInputPanelHeight,
-                noticesAreEmpty: errorCenter.notices.isEmpty,
                 onAppear: handleChatViewAppear,
                 onDisappear: handleChatViewDisappear
             ))
@@ -132,7 +140,6 @@ extension ChatView {
     var layoutDecoratedChatView: some View {
         mainChatLayout
             .modifier(ChatViewChromeModifier(
-                title: viewModel.chatSession.title,
                 layoutMetrics: layoutMetrics,
                 availableMessageWidth: availableMessageWidth,
                 showScrollToBottomButton: scrollState.showScrollToBottomButton,
@@ -141,7 +148,7 @@ extension ChatView {
                 composer: { floatingInputPanel },
                 scrollToBottomButton: { scrollToBottomButton },
                 shadowShelf: {
-                    ChatComposerShadowShelf(bottomPadding: layoutMetrics.composerBottomPadding)
+                    ChatComposerShadowShelf()
                 }
             ))
     }
@@ -149,6 +156,7 @@ extension ChatView {
     var mainChatLayout: some View {
         ChatConversationLayout(
             audioManager: audioManager,
+            navigationTitle: viewModel.chatSession.title,
             isHydratingSession: isHydratingSession,
             isVoiceOverlayPresented: voiceOverlayVM.isPresented,
             shouldDisplayAudioPlayer: shouldDisplayAudioPlayer,
@@ -208,10 +216,13 @@ extension ChatView {
             branchRenderEpoch: branchRenderEpoch,
             isLoading: viewModel.isLoading,
             isPriming: viewModel.isPriming,
+            isToolContinuationLoading: viewModel.isToolContinuationLoading,
             isRetrying: viewModel.isRetrying,
             retryAttempt: viewModel.retryAttempt,
             retryLastError: viewModel.retryLastError,
-            branchControlsEnabled: !(viewModel.isLoading || viewModel.isPriming || viewModel.isEditing),
+            messageToolActivities: viewModel.messageToolActivities,
+            messageToolActivityPlacements: viewModel.messageToolActivityPlacements,
+            branchControlsEnabled: !(viewModel.isLoading || viewModel.isPriming || viewModel.isToolContinuationLoading || viewModel.isEditing),
             developerModeEnabled: settingsManager.developerModeEnabled,
             activeSearchHighlightTargetID: scrollInteractionState.activeSearchHighlightTargetID,
             availableMessageWidth: availableMessageWidth,
@@ -222,9 +233,7 @@ extension ChatView {
             searchHighlightQuery: searchHighlightQuery(for:),
             onSelectText: showSelectTextSheet(with:),
             onRegenerate: { message in
-                expectAssistantResponseHaptics = true
-                didTriggerResponseStartHaptic = false
-                viewModel.regenerateSystemMessage(message)
+                handleBranchRestartResult(viewModel.regenerateSystemMessage(message))
                 triggerTextHaptic(.lightTap)
             },
             onEditUserMessage: { message in
@@ -233,10 +242,11 @@ extension ChatView {
             },
             onSwitchVersion: viewModel.switchToMessageVersion,
             onRetry: { message in
-                expectAssistantResponseHaptics = true
-                didTriggerResponseStartHaptic = false
-                viewModel.retry(afterErrorMessage: message)
+                handleBranchRestartResult(viewModel.retry(afterErrorMessage: message))
                 triggerTextHaptic(.lightTap)
+            },
+            onAuthorizeTool: { requestID, allowed in
+                viewModel.resolveToolAuthorization(requestID: requestID, allowed: allowed)
             }
         )
     }
@@ -247,6 +257,19 @@ extension ChatView {
             DispatchQueue.main.async {
                 inputOverflow = shouldShowEditorExpander
             }
+        }
+    }
+
+    func handleBranchRestartResult(_ result: ChatBranchRestartRequestResult) {
+        didTriggerResponseStartHaptic = false
+        switch result {
+        case .started:
+            expectAssistantResponseHaptics = true
+        case .requiresUnsupportedImageConfirmation(let confirmation):
+            expectAssistantResponseHaptics = false
+            activeAlert = .unsupportedImageBranchRestart(confirmation)
+        case .unavailable:
+            expectAssistantResponseHaptics = false
         }
     }
 

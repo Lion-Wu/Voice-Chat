@@ -26,7 +26,10 @@ final class ChatResponseParsingTests: XCTestCase {
             from: [
                 "message": [
                     "id": "msg_123",
-                    "usage": ["output_tokens": 12],
+                    "usage": [
+                        "output_tokens": 12,
+                        "output_tokens_details": ["thinking_tokens": 4]
+                    ],
                     "stop_reason": "end_turn"
                 ]
             ],
@@ -35,6 +38,7 @@ final class ChatResponseParsingTests: XCTestCase {
 
         XCTAssertEqual(metadata.providerResponseID, "msg_123")
         XCTAssertEqual(metadata.outputTokenCount, 12)
+        XCTAssertEqual(metadata.reasoningOutputTokenCount, 4)
         XCTAssertEqual(metadata.finishReason, "end_turn")
     }
 
@@ -112,12 +116,24 @@ final class ChatResponseParsingTests: XCTestCase {
         XCTAssertEqual(extractor.openAICompatibleStreamErrorMessage(from: [
             "error": ["message": " failed "]
         ]), "failed")
+        XCTAssertEqual(extractor.openAICompatibleStreamErrorMessage(from: [
+            "type": "response.failed",
+            "response": [
+                "error": ["message": " The operation was aborted "]
+            ]
+        ]), "The operation was aborted")
 
         let sseData = """
         event: error
         data: {"type":"server_error","message":" streamed failure "}
         """.data(using: .utf8)!
         XCTAssertEqual(extractor.sseStreamErrorMessage(from: sseData), "streamed failure")
+
+        let failedResponseSSE = """
+        data: {"type":"response.failed","response":{"error":{"message":" nested failure "}}}
+        data: [DONE]
+        """.data(using: .utf8)!
+        XCTAssertEqual(extractor.sseStreamErrorMessage(from: failedResponseSSE), "nested failure")
     }
 
     func testSSEStreamParserKeepsPartialLinesAndEventTypes() {
@@ -142,6 +158,26 @@ final class ChatResponseParsingTests: XCTestCase {
                 ChatSSEStreamFrame(payload: "[DONE]", eventType: nil)
             ])
         )
+    }
+
+    func testSSEStreamParserPreservesUTF8ScalarsSplitAcrossNetworkChunks() {
+        var parser = ChatSSEStreamParser(maxBufferedBytes: 512)
+        let stream = "event: response.output_text.delta\ndata: {\"delta\":\"你🙂\"}\n\n"
+        var frames: [ChatSSEStreamFrame] = []
+
+        for byte in Data(stream.utf8) {
+            guard case let .frames(newFrames) = parser.append(Data([byte])) else {
+                return XCTFail("Unexpected buffer limit")
+            }
+            frames.append(contentsOf: newFrames)
+        }
+
+        XCTAssertEqual(frames, [
+            ChatSSEStreamFrame(
+                payload: "{\"delta\":\"你🙂\"}",
+                eventType: "response.output_text.delta"
+            )
+        ])
     }
 
     func testSSEStreamParserReportsBufferLimit() {

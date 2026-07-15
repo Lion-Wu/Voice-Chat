@@ -53,6 +53,12 @@ final class SettingsViewModel: ObservableObject {
             saveAPIAdvancedSettings()
         }
     }
+    @Published var toolUseSettings: ToolUseSettings {
+        didSet {
+            guard !suppression.isActive(.autoSaves) else { return }
+            saveToolUseSettings()
+        }
+    }
 
     // MARK: - Model List (Networking)
 
@@ -187,6 +193,7 @@ final class SettingsViewModel: ObservableObject {
         language = "auto"
         hapticFeedbackEnabled = true
         apiAdvancedSettings = .defaults
+        toolUseSettings = .defaults
 
         refreshFromSettingsManager()
         bindInitialStoreSync()
@@ -196,6 +203,60 @@ final class SettingsViewModel: ObservableObject {
         let model = selectedModel.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !model.isEmpty else { return false }
         return settingsManager.chatModelCapabilities.isImageInputSupportUnknown(for: model)
+    }
+
+    var toolUseStatusMessage: String? {
+        nil
+    }
+
+    var openAIResponsesStatefulEndpoint: ChatAPIEndpointCandidate? {
+        let trimmedAPIURL = apiURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedAPIURL.isEmpty else { return nil }
+        let providerHint = selectedChatAPIFormatPreference.providerHint
+            ?? settingsManager.chatModelCapabilities.detectedProvider(for: trimmedAPIURL)
+            ?? ChatAPIEndpointResolver.officialProviderHint(for: trimmedAPIURL)
+        let styleHint = selectedChatAPIFormatPreference.requestStyleHint
+            ?? settingsManager.chatModelCapabilities.detectedRequestStyle(for: trimmedAPIURL)
+        return DefaultChatEndpointResolver()
+            .streamingCandidates(
+                for: trimmedAPIURL,
+                providerHint: providerHint,
+                styleHint: styleHint
+            )
+            .first(where: ToolUseSettings.supportsProviderContinuationIDPreference)
+    }
+
+    var isOpenAIResponsesStatefulEndpointAvailable: Bool {
+        openAIResponsesStatefulEndpoint != nil
+    }
+
+    var currentOpenAIResponsesStatefulEndpointURL: String? {
+        guard let endpoint = openAIResponsesStatefulEndpoint else { return nil }
+        return ToolUseSettings.providerContinuationIDPreferenceKey(for: endpoint)
+    }
+
+    var isCurrentOpenAIResponsesStatefulEndpointEnabled: Bool {
+        guard let endpoint = openAIResponsesStatefulEndpoint else { return false }
+        return toolUseSettings.isOpenAIResponsesStatefulChatEnabled(for: endpoint)
+    }
+
+    var openAIResponsesStatefulEndpointURLs: [String] {
+        ToolUseSettings.normalizedOpenAIResponsesStatefulEndpointURLs(
+            toolUseSettings.openAIResponsesStatefulEndpointURLs
+        )
+    }
+
+    func enableStatefulChatForCurrentOpenAIResponsesEndpoint() {
+        guard let endpoint = openAIResponsesStatefulEndpoint else { return }
+        var next = toolUseSettings
+        next.enableOpenAIResponsesStatefulChat(for: endpoint)
+        toolUseSettings = next
+    }
+
+    func removeOpenAIResponsesStatefulEndpointURL(_ endpointURL: String) {
+        var next = toolUseSettings
+        next.removeOpenAIResponsesStatefulEndpointURL(endpointURL)
+        toolUseSettings = next
     }
 
     var isSelectedUnknownModelImageInputEnabled: Bool {
@@ -285,6 +346,7 @@ final class SettingsViewModel: ObservableObject {
             enableStreaming = v.enableStreaming
             hapticFeedbackEnabled = settingsManager.hapticFeedbackEnabled
             apiAdvancedSettings = settingsManager.apiAdvancedSettings
+            toolUseSettings = settingsManager.toolUseSettings
 
             autoSplit = m.autoSplit
             modelId = m.modelId
@@ -321,6 +383,10 @@ final class SettingsViewModel: ObservableObject {
         )
     }
 
+    func saveToolUseSettings() {
+        settingsManager.updateToolUseSettings(toolUseSettings)
+    }
+
     func saveChatSettings() {
         settingsManager.updateChatSettings(
             apiURL: apiURL,
@@ -351,6 +417,14 @@ final class SettingsViewModel: ObservableObject {
             apiAdvancedSettings = .defaults
         }
         settingsManager.resetAPIAdvancedSettingsToDefaults()
+    }
+
+    func resetDeveloperSettingsToDefaults() {
+        withSuppressed(.autoSaves) {
+            apiAdvancedSettings = .defaults
+            toolUseSettings = toolUseSettings.resettingDeveloperRequestPolicyToDefaults()
+        }
+        settingsManager.resetDeveloperSettingsToDefaults()
     }
 
     func saveModelSettings() {

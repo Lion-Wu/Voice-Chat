@@ -10,6 +10,7 @@ final class ChatStreamCompletionRecoveryTests: XCTestCase {
             errorResponseData: Data("  upstream exploded  ".utf8),
             successResponseData: Data(),
             sawAnyPrimaryAssistantToken: false,
+            hasPendingToolCalls: false,
             activeStyle: .openAIChatCompletions,
             pendingLMStudioStreamErrorMessage: nil,
             bufferedResponseParser: StubBufferedResponseParser(),
@@ -48,6 +49,7 @@ final class ChatStreamCompletionRecoveryTests: XCTestCase {
             errorResponseData: Data(),
             successResponseData: Data("{}".utf8),
             sawAnyPrimaryAssistantToken: false,
+            hasPendingToolCalls: false,
             activeStyle: .openAIChatCompletions,
             pendingLMStudioStreamErrorMessage: nil,
             bufferedResponseParser: parser,
@@ -71,6 +73,7 @@ final class ChatStreamCompletionRecoveryTests: XCTestCase {
             errorResponseData: Data(),
             successResponseData: Data("data: {\"error\":{\"message\":\"stream failed\"}}\n".utf8),
             sawAnyPrimaryAssistantToken: false,
+            hasPendingToolCalls: false,
             activeStyle: .openAIChatCompletions,
             pendingLMStudioStreamErrorMessage: nil,
             bufferedResponseParser: StubBufferedResponseParser(),
@@ -97,6 +100,7 @@ final class ChatStreamCompletionRecoveryTests: XCTestCase {
             errorResponseData: Data(),
             successResponseData: Data("ignored".utf8),
             sawAnyPrimaryAssistantToken: true,
+            hasPendingToolCalls: false,
             activeStyle: .openAIChatCompletions,
             pendingLMStudioStreamErrorMessage: nil,
             bufferedResponseParser: parser,
@@ -119,6 +123,7 @@ final class ChatStreamCompletionRecoveryTests: XCTestCase {
             errorResponseData: Data(),
             successResponseData: Data(),
             sawAnyPrimaryAssistantToken: false,
+            hasPendingToolCalls: false,
             activeStyle: .openAIChatCompletions,
             pendingLMStudioStreamErrorMessage: nil,
             bufferedResponseParser: StubBufferedResponseParser(),
@@ -127,6 +132,31 @@ final class ChatStreamCompletionRecoveryTests: XCTestCase {
 
         guard case .ignore = decision.outcome else {
             return XCTFail("expected ignore")
+        }
+    }
+
+    func testCleanCompletionWithPendingToolsContinuesBeforeEmptyResponseRecovery() {
+        let parser = StubBufferedResponseParser { _, _ in
+            XCTFail("tool-only completion should continue before buffered text recovery")
+            return ChatBufferedResponseParseResult(text: nil, errorMessage: nil, metadata: .empty)
+        }
+
+        let decision = ChatStreamCompletionRecovery.decide(
+            isCancelled: false,
+            httpStatusCode: 200,
+            error: nil,
+            errorResponseData: Data(),
+            successResponseData: Data(),
+            sawAnyPrimaryAssistantToken: false,
+            hasPendingToolCalls: true,
+            activeStyle: .openAIChatCompletions,
+            pendingLMStudioStreamErrorMessage: nil,
+            bufferedResponseParser: parser,
+            streamPayloadExtractor: StubStreamPayloadExtractor()
+        )
+
+        guard case .continueWithPendingTools = decision.outcome else {
+            return XCTFail("expected pending tool continuation")
         }
     }
 }

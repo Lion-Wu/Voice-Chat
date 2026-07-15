@@ -5,7 +5,6 @@ import SwiftUI
 struct VoiceVisionCameraView: View {
     @ObservedObject var viewModel: VoiceChatOverlayViewModel
     var isCompactLayout = false
-    var topTrailingReservedWidth: CGFloat = 0
     @StateObject private var controller = VoiceVisionCameraController()
 
     var body: some View {
@@ -76,21 +75,30 @@ struct VoiceVisionCameraView: View {
     }
 
     private var topBar: some View {
-        HStack {
-            Button {
-                viewModel.dismissVisionCapture()
-            } label: {
-                Image(systemName: "xmark")
-                    .font(.system(size: 17, weight: .bold))
-                    .frame(width: controlButtonSize, height: controlButtonSize)
-                    .background(.ultraThinMaterial, in: Circle())
-            }
-            .buttonStyle(.plain)
-            .foregroundStyle(.white)
-            .accessibilityLabel("Close camera")
-
+        HStack(spacing: 8) {
+            dismissCameraButton
+            cameraAdjustmentControls
             Spacer()
+        }
+    }
 
+    private var dismissCameraButton: some View {
+        Button {
+            viewModel.dismissVisionCapture()
+        } label: {
+            Image(systemName: "xmark")
+                .font(.system(size: 15, weight: .semibold))
+                .frame(width: cameraControlHitSize, height: cameraControlHitSize)
+                .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(.white)
+        .background(.ultraThinMaterial, in: Circle())
+        .accessibilityLabel("Close camera")
+    }
+
+    private var cameraAdjustmentControls: some View {
+        HStack(spacing: 2) {
             #if os(macOS)
             if controller.cameraOptions.count > 1 {
                 Menu {
@@ -101,9 +109,9 @@ struct VoiceVisionCameraView: View {
                     }
                 } label: {
                     Image(systemName: "video.fill")
-                        .font(.system(size: 17, weight: .bold))
-                        .frame(width: controlButtonSize, height: controlButtonSize)
-                        .background(.ultraThinMaterial, in: Circle())
+                        .font(.system(size: 15, weight: .semibold))
+                        .frame(width: cameraControlHitSize, height: cameraControlHitSize)
+                        .contentShape(Rectangle())
                 }
                 .menuStyle(.button)
                 .buttonStyle(.plain)
@@ -115,9 +123,9 @@ struct VoiceVisionCameraView: View {
                 controller.flipCamera()
             } label: {
                 Image(systemName: "arrow.triangle.2.circlepath.camera.fill")
-                    .font(.system(size: 17, weight: .bold))
-                    .frame(width: controlButtonSize, height: controlButtonSize)
-                    .background(.ultraThinMaterial, in: Circle())
+                    .font(.system(size: 15, weight: .semibold))
+                    .frame(width: cameraControlHitSize, height: cameraControlHitSize)
+                    .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .foregroundStyle(controller.canFlipCamera ? .white : .white.opacity(0.35))
@@ -129,31 +137,30 @@ struct VoiceVisionCameraView: View {
                 controller.toggleFlash()
             } label: {
                 Image(systemName: controller.isFlashEnabled ? "bolt.fill" : "bolt.slash.fill")
-                    .font(.system(size: 17, weight: .bold))
-                    .frame(width: controlButtonSize, height: controlButtonSize)
-                    .background(.ultraThinMaterial, in: Circle())
+                    .font(.system(size: 15, weight: .semibold))
+                    .frame(width: cameraControlHitSize, height: cameraControlHitSize)
+                    .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .foregroundStyle(controller.canUseFlash ? .white : .white.opacity(0.35))
             .disabled(!controller.canUseFlash)
-            .accessibilityLabel(controller.isFlashEnabled ? "Turn flash off" : "Turn flash on")
+            .accessibilityLabel(Text(controller.isFlashEnabled
+                ? LocalizedStringKey("Turn flash off")
+                : LocalizedStringKey("Turn flash on")))
             #endif
             #endif
-
-            if topTrailingReservedWidth > 0 {
-                Color.clear
-                    .frame(width: topTrailingReservedWidth, height: controlButtonSize)
-                    .accessibilityHidden(true)
-            }
         }
+        .padding(.horizontal, 3)
+        .padding(.vertical, 2)
+        .background(.ultraThinMaterial, in: Capsule(style: .continuous))
     }
 
     private var cornerRadius: CGFloat {
         isCompactLayout ? 18 : 28
     }
 
-    private var controlButtonSize: CGFloat {
-        isCompactLayout ? 38 : 44
+    private var cameraControlHitSize: CGFloat {
+        isCompactLayout ? 36 : 40
     }
 
     private var topBarHorizontalPadding: CGFloat {

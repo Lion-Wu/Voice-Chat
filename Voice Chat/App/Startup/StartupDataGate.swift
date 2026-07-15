@@ -83,6 +83,7 @@ final class StartupDataCoordinator: ObservableObject {
     private nonisolated static let persistentSchema = Schema([
         ChatSession.self,
         ChatMessage.self,
+        ChatRequestContextMetadata.self,
         AppSettings.self,
         ChatServerPreset.self,
         VoiceServerPreset.self,
@@ -293,7 +294,9 @@ struct StartupDataErrorView: View {
                                 ProgressView()
                                     .controlSize(.small)
                             }
-                            Text(isResetting ? "Resetting..." : "Reset Data and Continue")
+                            Text(isResetting
+                                ? LocalizedStringKey("Resetting...")
+                                : LocalizedStringKey("Reset Data and Continue"))
                         }
                     }
                     .buttonStyle(.borderedProminent)

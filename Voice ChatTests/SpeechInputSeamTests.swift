@@ -14,4 +14,28 @@ final class SpeechInputSeamTests: XCTestCase {
         XCTAssertEqual(SpeechTranscriptMerger.merge("  ", " next "), "next")
         XCTAssertEqual(SpeechTranscriptMerger.merge(" first ", "  "), "first")
     }
+
+    func testRecognitionTaskErrorDisposition() {
+        let noSpeech = NSError(domain: "kAFAssistantErrorDomain", code: 1110)
+        let interrupted = NSError(domain: "kAFAssistantErrorDomain", code: 1107)
+        let cases: [(Error, Bool, Bool, Bool, SpeechRecognitionTaskErrorDisposition)] = [
+            (noSpeech, false, false, false, .restart),
+            (noSpeech, true, false, false, .finish),
+            (noSpeech, false, true, true, .restart),
+            (noSpeech, false, true, false, .finish),
+            (interrupted, false, false, false, .fail)
+        ]
+
+        for (error, endedForSilence, taskHasText, continuesListening, expected) in cases {
+            XCTAssertEqual(
+                SpeechRecognitionTaskErrorPolicy.disposition(
+                    for: error,
+                    didEndAudioForSilence: endedForSilence,
+                    currentTaskHasRecognizedText: taskHasText,
+                    continuesListeningAfterRecognizedText: continuesListening
+                ),
+                expected
+            )
+        }
+    }
 }

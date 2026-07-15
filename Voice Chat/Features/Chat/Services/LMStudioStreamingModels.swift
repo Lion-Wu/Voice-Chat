@@ -14,6 +14,10 @@ struct LMStudioChatStreamEvent: Decodable {
     let delta: String?
     let text: String?
     let output_text: String?
+    let tool: String?
+    let output: String?
+    let reason: String?
+    let metadata: LMStudioChatStreamToolFailureMetadata?
     let stats: LMStudioChatStreamStats?
     let response_id: String?
     let error: LMStudioChatStreamErrorPayload?
@@ -26,6 +30,10 @@ struct LMStudioChatStreamEvent: Decodable {
         case delta
         case text
         case output_text
+        case tool
+        case output
+        case reason
+        case metadata
         case stats
         case response_id
         case error
@@ -41,8 +49,12 @@ struct LMStudioChatStreamEvent: Decodable {
         delta = Self.decodeLooseText(from: container, forKey: .delta)
         text = Self.decodeLooseText(from: container, forKey: .text)
         output_text = Self.decodeLooseText(from: container, forKey: .output_text)
+        tool = Self.decodeLooseText(from: container, forKey: .tool)
+        output = Self.decodeLooseText(from: container, forKey: .output)
+        reason = Self.decodeLooseText(from: container, forKey: .reason)
         response_id = Self.decodeLooseText(from: container, forKey: .response_id)
 
+        metadata = try? container.decodeIfPresent(LMStudioChatStreamToolFailureMetadata.self, forKey: .metadata)
         stats = try? container.decodeIfPresent(LMStudioChatStreamStats.self, forKey: .stats)
         error = try? container.decodeIfPresent(LMStudioChatStreamErrorPayload.self, forKey: .error)
         result = try? container.decodeIfPresent(LMStudioChatStreamResult.self, forKey: .result)
@@ -91,7 +103,45 @@ struct LMStudioChatStreamEvent: Decodable {
 }
 
 struct LMStudioChatStreamErrorPayload: Decodable {
+    let type: String?
     let message: String?
+    let code: String?
+    let param: String?
+
+    private enum CodingKeys: String, CodingKey {
+        case type
+        case message
+        case code
+        case param
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        type = try? container.decodeIfPresent(String.self, forKey: .type)
+        message = try? container.decodeIfPresent(String.self, forKey: .message)
+        param = try? container.decodeIfPresent(String.self, forKey: .param)
+        if let text = try? container.decodeIfPresent(String.self, forKey: .code) {
+            code = text
+        } else if let number = try? container.decodeIfPresent(Int.self, forKey: .code) {
+            code = String(number)
+        } else {
+            code = nil
+        }
+    }
+
+    var retryableStatusCode: Int? {
+        if let code,
+           let statusCode = Int(code.trimmingCharacters(in: .whitespacesAndNewlines)),
+           NetworkRetryability.shouldRetry(statusCode: statusCode) {
+            return statusCode
+        }
+        return ChatStreamErrorRetryClassifier.statusCode(for: [code, type])
+    }
+}
+
+struct LMStudioChatStreamToolFailureMetadata: Decodable {
+    let type: String?
+    let tool_name: String?
 }
 
 struct LMStudioChatStreamResult: Decodable {
@@ -103,7 +153,7 @@ struct LMStudioChatStreamResult: Decodable {
     var primaryMessageText: String {
         guard let output else { return "" }
         for item in output {
-            let normalizedType = item.type?.lowercased()
+            let normalizedType = item.normalizedType
             if normalizedType == "reasoning" || normalizedType == "tool_call" || normalizedType == "invalid_tool_call" {
                 continue
             }
@@ -114,6 +164,15 @@ struct LMStudioChatStreamResult: Decodable {
             }
         }
         return ""
+    }
+
+    var reasoningText: String {
+        guard let output else { return "" }
+        return output
+            .filter { $0.normalizedType == "reasoning" }
+            .map(\.contentText)
+            .joined(separator: "\n")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }
 
@@ -137,7 +196,7 @@ struct LMStudioChatStreamCompletedResponse: Decodable {
         }
         guard let output else { return "" }
         for item in output {
-            let normalizedType = item.type?.lowercased()
+            let normalizedType = item.normalizedType
             if normalizedType == "reasoning" || normalizedType == "tool_call" || normalizedType == "invalid_tool_call" {
                 continue
             }
@@ -148,6 +207,15 @@ struct LMStudioChatStreamCompletedResponse: Decodable {
             }
         }
         return ""
+    }
+
+    var reasoningText: String {
+        guard let output else { return "" }
+        return output
+            .filter { $0.normalizedType == "reasoning" }
+            .map(\.contentText)
+            .joined(separator: "\n")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }
 
@@ -161,6 +229,12 @@ struct LMStudioChatStreamStats: Decodable {
 struct LMStudioChatStreamOutputItem: Decodable {
     let type: String?
     let contentText: String
+
+    var normalizedType: String {
+        type?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased() ?? ""
+    }
 
     private enum CodingKeys: String, CodingKey {
         case type

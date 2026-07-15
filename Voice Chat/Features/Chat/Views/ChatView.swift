@@ -26,8 +26,6 @@ struct ChatView: View {
     @State var showFullScreenComposer: Bool = false
 
     @State var scrollState = ChatScrollState()
-    @State var errorNoticeStackHeight: CGFloat = 0
-    @State var measuredFloatingInputPanelHeight: CGFloat = 0
     @State var scrollProxy: ScrollViewProxy?
     @State var branchRenderEpoch: Int = 0
     @State var scrollInteractionState = ChatScrollInteractionState()

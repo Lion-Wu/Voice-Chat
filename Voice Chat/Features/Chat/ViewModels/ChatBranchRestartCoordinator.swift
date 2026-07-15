@@ -16,6 +16,32 @@ struct ChatBranchRestoreResult {
     let didRestoreBranch: Bool
 }
 
+enum ChatBranchRestartIntent: Equatable, Sendable {
+    case regenerate(messageID: UUID)
+    case retry(errorMessageID: UUID)
+
+    var messageID: UUID {
+        switch self {
+        case .regenerate(let messageID):
+            return messageID
+        case .retry(let errorMessageID):
+            return errorMessageID
+        }
+    }
+}
+
+struct ChatBranchRestartConfirmation: Equatable, Sendable {
+    let intent: ChatBranchRestartIntent
+    let userMessageID: UUID
+    let canContinueTextOnly: Bool
+}
+
+enum ChatBranchRestartRequestResult: Equatable, Sendable {
+    case started
+    case requiresUnsupportedImageConfirmation(ChatBranchRestartConfirmation)
+    case unavailable
+}
+
 @MainActor
 final class ChatBranchRestartCoordinator {
     private enum PendingRestore {

@@ -52,7 +52,8 @@ struct SettingsView: View {
 #if os(macOS)
     @State private var measuredContentSize: CGSize = .zero
     @State private var macSelectedSettingsTab: MacSettingsTab = .servers
-    @State private var macShowsAdvancedSettings = false
+    @State private var macShowingAdvancedAPIResetConfirmation = false
+    @State private var macShowingDeveloperDefaultsConfirmation = false
 #endif
 
     init(settingsManager: SettingsManager = .shared) {
@@ -62,14 +63,34 @@ struct SettingsView: View {
 
     private var detectedChatAPIFormatName: String {
         let base = viewModel.apiURL.trimmingCharacters(in: .whitespacesAndNewlines)
-        if let detected = settingsManager.chatModelCapabilities.detectedProvider(for: base),
-           detected != .unknown {
-            return detected.displayName
+        let detectedProvider = settingsManager.chatModelCapabilities.detectedProvider(for: base)
+            ?? ChatAPIEndpointResolver.officialProviderHint(for: base)
+        let detectedStyle = settingsManager.chatModelCapabilities.detectedRequestStyle(for: base)
+            ?? SettingsAPIRequestStyleResolver.inferredStyle(
+                for: base,
+                providerHint: detectedProvider
+            )
+        return detectedAPIFormatName(provider: detectedProvider, requestStyle: detectedStyle)
+    }
+
+    private func detectedAPIFormatName(provider: ChatProvider?, requestStyle: ChatRequestStyle?) -> String {
+        switch requestStyle {
+        case .openAIResponses:
+            return provider == .unknown
+                ? NSLocalizedString("Unknown, using OpenAI Responses", comment: "Detected API format name")
+                : NSLocalizedString("OpenAI Responses", comment: "Detected API format name")
+        case .openAIChatCompletions:
+            return NSLocalizedString("OpenAI Chat Completions", comment: "Detected API format name")
+        case .anthropicMessages:
+            return ChatProvider.anthropic.displayName
+        case .lmStudioRESTV1:
+            return ChatProvider.lmStudio.displayName
+        case nil:
+            if let provider, provider != .unknown {
+                return provider.displayName
+            }
+            return NSLocalizedString("Unknown", comment: "Provider display name")
         }
-        if let official = ChatAPIEndpointResolver.officialProviderHint(for: base) {
-            return official.displayName
-        }
-        return NSLocalizedString("Unknown", comment: "Provider display name")
     }
 
     var body: some View {
@@ -81,9 +102,6 @@ struct SettingsView: View {
         .onPreferenceChange(WindowSizePreferenceKey.self) { newSize in
             updateWindowSizeIfNeeded(newSize)
         }
-        .onChange(of: macShowsAdvancedSettings) { _, _ in
-            updateWindowSizeIfNeeded(measuredContentSize)
-        }
         #else
         applyCommonModifiers(
             NavigationStack {
@@ -91,6 +109,7 @@ struct SettingsView: View {
                     chatSection()
                     serverSection()
                     chatModelSection()
+                    toolUseSection()
                     systemPromptSection()
                     presetSection()
                     voiceOutputSection()
@@ -192,11 +211,6 @@ struct SettingsView: View {
                 .tag(MacSettingsTab.developer)
         }
         .scenePadding()
-        .onChange(of: macSelectedSettingsTab) { _, newTab in
-            if newTab != .developer {
-                macShowsAdvancedSettings = false
-            }
-        }
     }
 
     private var macServersTab: some View {
@@ -224,6 +238,7 @@ struct SettingsView: View {
     private var macChatTab: some View {
         Form {
             chatModelSection()
+            toolUseSection()
             systemPromptSection()
         }
         .formStyle(.grouped)
@@ -233,13 +248,7 @@ struct SettingsView: View {
     }
 
     private var macDeveloperTab: some View {
-        Group {
-            if macShowsAdvancedSettings {
-                macAdvancedSettingsPage
-            } else {
-                macDeveloperSettingsPage
-            }
-        }
+        macDeveloperSettingsPage
         .tabItem {
             Label("Developer", systemImage: "ladybug")
         }
@@ -250,37 +259,6 @@ struct SettingsView: View {
             developerSection()
         }
         .formStyle(.grouped)
-    }
-
-    private var macAdvancedSettingsPage: some View {
-        VStack(spacing: 0) {
-            HStack {
-                Button {
-                    macShowsAdvancedSettings = false
-                    macSelectedSettingsTab = .developer
-                } label: {
-                    Label("Developer", systemImage: "chevron.left")
-                }
-                .buttonStyle(.borderless)
-                .controlSize(.small)
-                .help("Back to Developer settings")
-
-                Spacer()
-
-                Text("Advanced Options")
-                    .font(.headline)
-
-                Spacer()
-
-                Label("Developer", systemImage: "chevron.left")
-                    .hidden()
-            }
-            .padding(.horizontal, 24)
-            .padding(.top, 16)
-            .padding(.bottom, 8)
-
-            advancedAPISettingsView
-        }
     }
 #endif
 
@@ -365,7 +343,7 @@ struct SettingsView: View {
 
             LabeledTextField(
                 label: "Preset Name",
-                placeholder: "Preset name",
+                placeholder: "Enter preset name",
                 text: $viewModel.voiceServerPresetName
             )
 
@@ -453,6 +431,11 @@ struct SettingsView: View {
     }
 
     @ViewBuilder
+    private func toolUseSection(hideHeader: Bool = false) -> some View {
+        SettingsToolUseSection(viewModel: viewModel, hideHeader: hideHeader)
+    }
+
+    @ViewBuilder
     private func developerSection(hideHeader: Bool = false) -> some View {
         Section {
             #if !os(macOS)
@@ -473,32 +456,43 @@ struct SettingsView: View {
             }
         }
 
+        #if os(macOS)
+        if settingsManager.developerModeEnabled {
+            SettingsDeveloperRequestPolicySection(viewModel: viewModel)
+            SettingsDeveloperToolUseSection(viewModel: viewModel)
+            SettingsAdvancedAPISectionsContent(
+                viewModel: viewModel,
+                settingsManager: settingsManager,
+                showingResetConfirmation: $macShowingAdvancedAPIResetConfirmation,
+                includeDefaultsSection: false
+            )
+            SettingsDeveloperDefaultsSection(
+                viewModel: viewModel,
+                showingResetConfirmation: $macShowingDeveloperDefaultsConfirmation
+            )
+        }
+        #else
         advancedAPIEntrySection()
+        #endif
     }
 
     @ViewBuilder
     private func advancedAPIEntrySection() -> some View {
         if settingsManager.developerModeEnabled {
             Section {
-                #if os(macOS)
-                Button {
-                    macShowsAdvancedSettings = true
-                    macSelectedSettingsTab = .developer
-                } label: {
-                    Label("Advanced Options", systemImage: "slider.horizontal.3")
-                }
-                .buttonStyle(.plain)
-                #else
                 NavigationLink(value: SettingsNavigationDestination.advancedAPISettings) {
                     Label("Advanced Options", systemImage: "slider.horizontal.3")
                 }
-                #endif
             }
         }
     }
 
     private var advancedAPISettingsView: some View {
-        SettingsAdvancedAPIView(viewModel: viewModel, settingsManager: settingsManager)
+        SettingsAdvancedAPIView(
+            viewModel: viewModel,
+            settingsManager: settingsManager,
+            includeDeveloperSections: settingsManager.developerModeEnabled
+        )
     }
 
     private func systemPromptSection() -> some View {

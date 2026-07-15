@@ -37,28 +37,18 @@ enum ChatEndpointProviderOrder {
             if let preferred, preferred != .unknown {
                 append(preferred)
             }
-            append(.lmStudio)
-            append(.llamaCpp)
-            append(.openAICompatible)
-            if !context.isLocal {
-                append(.openAI)
-                append(.anthropic)
-                append(.gemini)
-                append(.deepSeek)
-                append(.xAI)
-                append(.openRouter)
-            }
+            append(.unknown)
+            append(.openAI)
         }
 
-        append(.lmStudio)
-        append(.llamaCpp)
-        append(.openAICompatible)
+        append(.unknown)
+        if context.isLocal || preferred == .lmStudio || heuristicOrder.contains(.lmStudio) {
+            append(.lmStudio)
+        }
         append(.openAI)
-        append(.anthropic)
-        append(.gemini)
-        append(.deepSeek)
-        append(.xAI)
-        append(.openRouter)
+        if preferred == .anthropic || heuristicOrder.contains(.anthropic) {
+            append(.anthropic)
+        }
 
         return order
     }
@@ -71,29 +61,16 @@ enum ChatEndpointProviderOrder {
             providers.append(provider)
         }
 
-        if context.host.contains("anthropic.com") || context.path.hasSuffix("/v1/messages") {
+        if ChatEndpointBaseURL.hostMatchesOfficialDomain(context.host, domain: "anthropic.com") {
             append(.anthropic)
         }
-        if context.host.contains("googleapis.com") || context.path.contains("/v1beta/openai") {
-            append(.gemini)
-        }
-        if context.host.contains("deepseek.com") {
-            append(.deepSeek)
-        }
-        if context.host.contains("x.ai") {
-            append(.xAI)
-        }
-        if context.host.contains("openrouter.ai") {
-            append(.openRouter)
-        }
-        if context.host.contains("lmstudio") || context.path.contains("/api/v1") || context.path.contains("/api/v0") || (context.isLocal && context.port == 1234) {
-            append(.lmStudio)
-        }
-        if context.host.contains("openai.com") {
+        if ChatEndpointOfficialProviderDetector.isKnownOpenAICompatibleHost(context.host) ||
+            context.path.contains("/v1beta/openai") {
             append(.openAI)
         }
-        if context.host.contains("llama") || context.path.contains("llama.cpp") || (context.isLocal && (context.port == 8080 || context.port == 8081)) {
-            append(.llamaCpp)
+        if context.host.contains("lmstudio") ||
+            (context.isLocal && (context.port == 1234 || context.path.contains("/api/v1") || context.path.contains("/api/v0"))) {
+            append(.lmStudio)
         }
 
         return providers

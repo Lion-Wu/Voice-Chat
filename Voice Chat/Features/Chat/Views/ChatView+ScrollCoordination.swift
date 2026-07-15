@@ -27,7 +27,7 @@ extension ChatView {
     }
 
     func visibleSearchText(for message: ChatMessage) -> String {
-        message.content.extractThinkParts().body
+        message.assistantText
     }
 
     func visibleSearchSnapshots() -> [ChatSearchScrollMessageSnapshot] {

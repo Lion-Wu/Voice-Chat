@@ -1,3 +1,10 @@
+"NSCalendarsFullAccessUsageDescription" = "用於在你要求助理處理行程時讀取和建立行事曆事件。";
+"NSCalendarsUsageDescription" = "用於在你要求助理處理行程時讀取和建立行事曆事件。";
 "NSCameraUsageDescription" = "用於拍攝照片並加入聊天訊息中。";
+"NSLocationUsageDescription" = "用於在你要求助理使用位置資訊時讀取你的目前位置。";
+"NSLocationWhenInUseUsageDescription" = "用於在你要求助理使用位置資訊時讀取你的目前位置。";
 "NSMicrophoneUsageDescription" = "用於錄製你的語音，以支援語音模式。";
+"NSMotionUsageDescription" = "用於在你要求助理使用裝置動態資訊時讀取短暫的動態資料。";
+"NSRemindersFullAccessUsageDescription" = "用於在你要求助理處理提醒事項時讀取和建立提醒事項。";
+"NSRemindersUsageDescription" = "用於在你要求助理處理提醒事項時讀取和建立提醒事項。";
 "NSSpeechRecognitionUsageDescription" = "用於將你的語音轉換為文字，以支援語音模式。";

@@ -34,7 +34,8 @@ struct ChatStreamRetryCoordinator: Sendable {
 
     init(
         retryPolicy: NetworkRetryPolicy = NetworkRetryPolicy(
-            maxAttempts: 2,
+            // NetworkRetryPolicy counts the initial request, so 4 means 3 automatic retries.
+            maxAttempts: 4,
             baseDelay: 0.8,
             maxDelay: 18.0,
             backoffFactor: 1.6,
@@ -49,7 +50,7 @@ struct ChatStreamRetryCoordinator: Sendable {
         if NetworkRetryability.isCancellation(error) { return false }
         if let err = error as? ChatNetworkError {
             switch err {
-            case .invalidURL:
+            case .invalidURL, .invalidRequestHistory:
                 return false
             case .timeout:
                 return true
@@ -71,7 +72,7 @@ struct ChatStreamRetryCoordinator: Sendable {
         currentState: ChatStreamRetryState,
         hasAssistantMessage: Bool
     ) -> ChatStreamRetryPlan {
-        let currentAttempt = currentState.isRetrying ? max(0, currentState.retryAttempt) : 0
+        let currentAttempt = max(0, currentState.retryAttempt)
         let retryAttempt = currentAttempt + 1
         let state = ChatStreamRetryState(
             isRetrying: true,
@@ -87,6 +88,10 @@ struct ChatStreamRetryCoordinator: Sendable {
 
     func clearedAfterProgress(from state: ChatStreamRetryState) -> ChatStreamRetryState {
         guard state.isRetrying else { return state }
-        return ChatStreamRetryState()
+        return ChatStreamRetryState(
+            isRetrying: false,
+            retryAttempt: state.retryAttempt,
+            retryLastError: nil
+        )
     }
 }

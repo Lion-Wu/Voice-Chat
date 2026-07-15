@@ -10,6 +10,7 @@ import Foundation
 enum ChatStreamCompletionRecovery {
     enum Outcome {
         case ignore
+        case continueWithPendingTools
         case finish
         case recoveredText(String)
         case serverError(statusCode: Int?, message: String)
@@ -29,6 +30,7 @@ enum ChatStreamCompletionRecovery {
         errorResponseData: Data,
         successResponseData: Data,
         sawAnyPrimaryAssistantToken: Bool,
+        hasPendingToolCalls: Bool,
         activeStyle: ChatRequestStyle,
         pendingLMStudioStreamErrorMessage: String?,
         bufferedResponseParser: ChatBufferedResponseParsing,
@@ -56,6 +58,10 @@ enum ChatStreamCompletionRecovery {
 
         if let error {
             return Decision(metadata: nil, outcome: .networkError(error))
+        }
+
+        if hasPendingToolCalls {
+            return Decision(metadata: nil, outcome: .continueWithPendingTools)
         }
 
         if sawAnyPrimaryAssistantToken {
