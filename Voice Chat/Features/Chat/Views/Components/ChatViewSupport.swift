@@ -52,6 +52,7 @@ struct TextSelectionSheetItem: Identifiable {
 enum ChatAlert: Identifiable {
     case startVoiceModeInterrupt
     case unsupportedImageSend
+    case unsupportedImageBranchRestart(ChatBranchRestartConfirmation)
     case deleteQueuedDraft(UUID)
 
     var id: String {
@@ -60,6 +61,8 @@ enum ChatAlert: Identifiable {
             return "startVoiceModeInterrupt"
         case .unsupportedImageSend:
             return "unsupportedImageSend"
+        case .unsupportedImageBranchRestart(let confirmation):
+            return "unsupportedImageBranchRestart-\(confirmation.intent.messageID.uuidString)"
         case .deleteQueuedDraft(let draftID):
             return "deleteQueuedDraft-\(draftID.uuidString)"
         }

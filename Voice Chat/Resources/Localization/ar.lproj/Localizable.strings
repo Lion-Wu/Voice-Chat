@@ -458,6 +458,7 @@
 "This device does not support photo capture." = "هذا الجهاز لا يدعم التقاط الصور.";
 "This endpoint will no longer continue chats from an OpenAI Responses response ID." = "لن تتمكن نقطة النهاية هذه بعد الحذف من متابعة المحادثات باستخدام معرّف استجابة OpenAI Responses.";
 "This message can include %lld additional image attachments. Extra images were ignored." = "يمكن أن تتضمن هذه الرسالة %lld مرفق صورة إضافيًا. تم تجاهل الصور الزائدة.";
+"This message contains only images. Edit it before retrying with this model." = "تحتوي هذه الرسالة على صور فقط. عدّلها قبل إعادة المحاولة باستخدام هذا النموذج.";
 "This message contains only images. Edit it or delete it." = "تحتوي هذه الرسالة على صور فقط. عدّلها أو احذفها.";
 "This message will be deleted." = "سيتم حذف هذه الرسالة.";
 "This model's metadata does not clearly report image-input capability. Turn this on only if you are sure the backend can accept image content for this model." = "لا توضّح البيانات الوصفية لهذا النموذج بشكل صريح ما إذا كان يدعم إدخال الصور. فعّل هذا الخيار فقط إذا كنت متأكدًا من أن الواجهة الخلفية يمكنها قبول محتوى الصور لهذا النموذج.";

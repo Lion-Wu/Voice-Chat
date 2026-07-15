@@ -32,6 +32,8 @@ struct ChatViewPresentationModifier: ViewModifier {
     let onPickedPhotoItemsChanged: ([PhotosPickerItem]) -> Void
     let onContinueVoiceInterrupt: () -> Void
     let onContinueUnsupportedImageSend: () -> Bool
+    let onContinueUnsupportedImageBranchRestart: (ChatBranchRestartConfirmation) -> Void
+    let onEditUnsupportedImageBranchRestart: (UUID) -> Void
     let onEditUnsupportedQueuedDraft: (UUID) -> Void
     let onContinueUnsupportedQueuedDraftTextOnly: (UUID) -> Bool
     let onDeleteUnsupportedQueuedDraft: (UUID) -> Void
@@ -198,6 +200,25 @@ struct ChatViewPresentationModifier: ViewModifier {
                     if !onContinueUnsupportedImageSend() {
                         onNothingToSendAfterDroppingImages()
                     }
+                },
+                secondaryButton: .cancel()
+            )
+        case .unsupportedImageBranchRestart(let confirmation):
+            if confirmation.canContinueTextOnly {
+                return Alert(
+                    title: Text("Current model does not support image input"),
+                    message: Text("Continue with text only and ignore all images?"),
+                    primaryButton: .destructive(Text("Continue")) {
+                        onContinueUnsupportedImageBranchRestart(confirmation)
+                    },
+                    secondaryButton: .cancel()
+                )
+            }
+            return Alert(
+                title: Text("Current model does not support image input"),
+                message: Text("This message contains only images. Edit it before retrying with this model."),
+                primaryButton: .default(Text("Edit Message")) {
+                    onEditUnsupportedImageBranchRestart(confirmation.userMessageID)
                 },
                 secondaryButton: .cancel()
             )

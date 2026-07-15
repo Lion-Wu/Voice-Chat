@@ -458,6 +458,7 @@
 "This device does not support photo capture." = "Cet appareil ne prend pas en charge la prise de photos.";
 "This endpoint will no longer continue chats from an OpenAI Responses response ID." = "Ce point de terminaison ne pourra plus poursuivre les discussions à partir d’un identifiant de réponse OpenAI Responses.";
 "This message can include %lld additional image attachments. Extra images were ignored." = "Ce message peut inclure %lld pièces jointes image supplémentaires. Les images en trop ont été ignorées.";
+"This message contains only images. Edit it before retrying with this model." = "Ce message contient uniquement des images. Modifiez-le avant de réessayer avec ce modèle.";
 "This message contains only images. Edit it or delete it." = "Ce message contient uniquement des images. Modifiez-le ou supprimez-le.";
 "This message will be deleted." = "Ce message sera supprimé.";
 "This model's metadata does not clearly report image-input capability. Turn this on only if you are sure the backend can accept image content for this model." = "Les métadonnées de ce modèle n’indiquent pas clairement s’il prend en charge l’entrée d’images. Activez cette option uniquement si vous êtes certain que le backend peut accepter du contenu image pour ce modèle.";

@@ -31,6 +31,13 @@ final class ChatViewModel: ObservableObject {
         let telemetry: ChatAssistantStreamTelemetryRetryCheckpoint
     }
 
+    private struct BranchRestartContext {
+        let intent: ChatBranchRestartIntent
+        let targetUserMessage: ChatMessage
+        let requestMessages: [ChatMessage]
+        let reason: String
+    }
+
     // MARK: - Published State
     @Published var userMessage: String = ""
     @Published var pendingImageAttachments: [ChatImageAttachment] = []
@@ -1136,49 +1143,123 @@ final class ChatViewModel: ObservableObject {
         streamingAssistantMessageID != nil
     }
 
-    func regenerateSystemMessage(_ message: ChatMessage) {
-        guard !sending else { return }
+    @discardableResult
+    func regenerateSystemMessage(
+        _ message: ChatMessage,
+        ignoringUnsupportedImageInputs: Bool = false
+    ) -> ChatBranchRestartRequestResult {
+        guard !sending else { return .unavailable }
         syncChatConfigurationFromSettingsIfNeeded()
         ensureMessageTreeInitializedIfNeeded()
         guard !message.isUser,
               let parent = message.parentMessage,
               let requestMessages = requestMessages(through: parent) else {
-            return
+            return .unavailable
         }
 
-        textRequestRuntime.prepareForBranchRestart(in: chatSession, reason: "regenerate")
-        persistSession(reason: .immediate)
-
-        prepareBranchRestart(from: parent)
-        createPendingAssistantBranchPlaceholder(parent: parent)
-        startStreaming(
-            messages: requestMessages,
-            isVoiceMode: audioManager.isRealtimeMode,
-            includeImagesInUserContent: currentModelSupportsImageInput()
+        return startBranchRestart(
+            BranchRestartContext(
+                intent: .regenerate(messageID: message.id),
+                targetUserMessage: parent,
+                requestMessages: requestMessages,
+                reason: "regenerate"
+            ),
+            ignoringUnsupportedImageInputs: ignoringUnsupportedImageInputs
         )
     }
 
-    func retry(afterErrorMessage errorMessage: ChatMessage) {
-        guard !sending else { return }
+    @discardableResult
+    func retry(
+        afterErrorMessage errorMessage: ChatMessage,
+        ignoringUnsupportedImageInputs: Bool = false
+    ) -> ChatBranchRestartRequestResult {
+        guard !sending else { return .unavailable }
         syncChatConfigurationFromSettingsIfNeeded()
         ensureMessageTreeInitializedIfNeeded()
         guard !errorMessage.isUser,
               let errorLineage = sessionMutationController.messagesThrough(errorMessage, in: chatSession),
               let precedingUser = errorLineage.dropLast().last(where: \.isUser),
               let requestMessages = requestMessages(through: precedingUser) else {
-            return
+            return .unavailable
         }
 
-        textRequestRuntime.prepareForBranchRestart(in: chatSession, reason: "retry")
+        return startBranchRestart(
+            BranchRestartContext(
+                intent: .retry(errorMessageID: errorMessage.id),
+                targetUserMessage: precedingUser,
+                requestMessages: requestMessages,
+                reason: "retry"
+            ),
+            ignoringUnsupportedImageInputs: ignoringUnsupportedImageInputs
+        )
+    }
+
+    @discardableResult
+    func continueBranchRestart(_ intent: ChatBranchRestartIntent) -> ChatBranchRestartRequestResult {
+        guard let message = messageLookup()[intent.messageID] else {
+            return .unavailable
+        }
+
+        switch intent {
+        case .regenerate:
+            return regenerateSystemMessage(message, ignoringUnsupportedImageInputs: true)
+        case .retry:
+            return retry(afterErrorMessage: message, ignoringUnsupportedImageInputs: true)
+        }
+    }
+
+    @discardableResult
+    func beginEditUserMessage(id: UUID) -> Bool {
+        guard let message = messageLookup()[id], message.isUser else { return false }
+        beginEditUserMessage(message)
+        return editingBaseMessageID == id
+    }
+
+    private func startBranchRestart(
+        _ context: BranchRestartContext,
+        ignoringUnsupportedImageInputs: Bool
+    ) -> ChatBranchRestartRequestResult {
+        let supportsImageInputs = currentModelSupportsImageInput()
+        let restartDraft = QueuedChatDraft(
+            id: context.targetUserMessage.id,
+            text: context.targetUserMessage.content,
+            imageAttachments: context.targetUserMessage.imageAttachments,
+            createdAt: context.targetUserMessage.createdAt
+        )
+        let plan = ChatTurnDraftPlanner.plan(
+            draft: restartDraft,
+            hasActiveTextRequest: false,
+            supportsImageInputs: supportsImageInputs,
+            hasImageInputContext: context.requestMessages.contains(where: {
+                $0.isUser && $0.hasImageAttachments
+            }),
+            ignoringUnsupportedImageInputs: ignoringUnsupportedImageInputs,
+            clearComposerAfterSend: false
+        )
+        switch plan {
+        case .rejected(.unsupportedImageInputContext):
+            return .requiresUnsupportedImageConfirmation(ChatBranchRestartConfirmation(
+                intent: context.intent,
+                userMessageID: context.targetUserMessage.id,
+                canContinueTextOnly: !restartDraft.trimmedText.isEmpty
+            ))
+        case .rejected:
+            return .unavailable
+        case .accepted:
+            break
+        }
+
+        textRequestRuntime.prepareForBranchRestart(in: chatSession, reason: context.reason)
         persistSession(reason: .immediate)
 
-        prepareBranchRestart(from: precedingUser)
-        createPendingAssistantBranchPlaceholder(parent: precedingUser)
+        prepareBranchRestart(from: context.targetUserMessage)
+        createPendingAssistantBranchPlaceholder(parent: context.targetUserMessage)
         startStreaming(
-            messages: requestMessages,
+            messages: context.requestMessages,
             isVoiceMode: audioManager.isRealtimeMode,
-            includeImagesInUserContent: currentModelSupportsImageInput()
+            includeImagesInUserContent: supportsImageInputs
         )
+        return .started
     }
 
     func switchToMessageVersion(_ message: ChatMessage) {

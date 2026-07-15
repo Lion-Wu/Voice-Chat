@@ -458,6 +458,7 @@
 "This device does not support photo capture." = "当前设备不支持拍照。";
 "This endpoint will no longer continue chats from an OpenAI Responses response ID." = "删除后，此端点将不能再通过 OpenAI Responses 响应 ID 继续对话。";
 "This message can include %lld additional image attachments. Extra images were ignored." = "当前消息还可添加 %lld 个图片附件，超出的图片已被忽略。";
+"This message contains only images. Edit it before retrying with this model." = "此消息仅包含图像。请先编辑，再使用此模型重试。";
 "This message contains only images. Edit it or delete it." = "此消息仅包含图像。请编辑或删除它。";
 "This message will be deleted." = "这条消息将被删除。";
 "This model's metadata does not clearly report image-input capability. Turn this on only if you are sure the backend can accept image content for this model." = "此模型的元数据未明确标注是否支持图像输入。仅在你确认当前后端可接收该模型的图像内容时启用。";

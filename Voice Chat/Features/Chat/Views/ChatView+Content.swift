@@ -103,6 +103,17 @@ extension ChatView {
                 onContinueUnsupportedImageSend: {
                     sendCoordinator.performSend(ignoringUnsupportedImageInputs: true)
                 },
+                onContinueUnsupportedImageBranchRestart: { confirmation in
+                    handleBranchRestartResult(
+                        viewModel.continueBranchRestart(confirmation.intent)
+                    )
+                    triggerTextHaptic(.lightTap)
+                },
+                onEditUnsupportedImageBranchRestart: { userMessageID in
+                    if viewModel.beginEditUserMessage(id: userMessageID) {
+                        isInputFocused = true
+                    }
+                },
                 onEditUnsupportedQueuedDraft: { draftID in
                     viewModel.editQueuedDraft(id: draftID)
                     isInputFocused = true
@@ -222,9 +233,7 @@ extension ChatView {
             searchHighlightQuery: searchHighlightQuery(for:),
             onSelectText: showSelectTextSheet(with:),
             onRegenerate: { message in
-                expectAssistantResponseHaptics = true
-                didTriggerResponseStartHaptic = false
-                viewModel.regenerateSystemMessage(message)
+                handleBranchRestartResult(viewModel.regenerateSystemMessage(message))
                 triggerTextHaptic(.lightTap)
             },
             onEditUserMessage: { message in
@@ -233,9 +242,7 @@ extension ChatView {
             },
             onSwitchVersion: viewModel.switchToMessageVersion,
             onRetry: { message in
-                expectAssistantResponseHaptics = true
-                didTriggerResponseStartHaptic = false
-                viewModel.retry(afterErrorMessage: message)
+                handleBranchRestartResult(viewModel.retry(afterErrorMessage: message))
                 triggerTextHaptic(.lightTap)
             },
             onAuthorizeTool: { requestID, allowed in
@@ -250,6 +257,19 @@ extension ChatView {
             DispatchQueue.main.async {
                 inputOverflow = shouldShowEditorExpander
             }
+        }
+    }
+
+    func handleBranchRestartResult(_ result: ChatBranchRestartRequestResult) {
+        didTriggerResponseStartHaptic = false
+        switch result {
+        case .started:
+            expectAssistantResponseHaptics = true
+        case .requiresUnsupportedImageConfirmation(let confirmation):
+            expectAssistantResponseHaptics = false
+            activeAlert = .unsupportedImageBranchRestart(confirmation)
+        case .unavailable:
+            expectAssistantResponseHaptics = false
         }
     }
 

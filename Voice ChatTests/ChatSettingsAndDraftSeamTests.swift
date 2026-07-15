@@ -641,6 +641,18 @@ final class ChatSettingsAndDraftSeamTests: XCTestCase {
             .rejected(.emptyAfterFilteringUnsupportedImages)
         )
 
+        XCTAssertEqual(
+            ChatTurnDraftPlanner.plan(
+                draft: QueuedChatDraft(text: "follow-up"),
+                hasActiveTextRequest: false,
+                supportsImageInputs: false,
+                hasImageInputContext: true,
+                ignoringUnsupportedImageInputs: false,
+                clearComposerAfterSend: false
+            ),
+            .rejected(.unsupportedImageInputContext)
+        )
+
         let textAndImageDraft = QueuedChatDraft(text: " keep text ", imageAttachments: [attachment])
         let ignoredResult = ChatTurnDraftPlanner.plan(
             draft: textAndImageDraft,

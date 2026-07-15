@@ -458,6 +458,7 @@
 "This device does not support photo capture." = "This device does not support photo capture.";
 "This endpoint will no longer continue chats from an OpenAI Responses response ID." = "This endpoint will no longer continue chats from an OpenAI Responses response ID.";
 "This message can include %lld additional image attachments. Extra images were ignored." = "This message can include %lld additional image attachments. Extra images were ignored.";
+"This message contains only images. Edit it before retrying with this model." = "This message contains only images. Edit it before retrying with this model.";
 "This message contains only images. Edit it or delete it." = "This message contains only images. Edit it or delete it.";
 "This message will be deleted." = "This message will be deleted.";
 "This model's metadata does not clearly report image-input capability. Turn this on only if you are sure the backend can accept image content for this model." = "This model's metadata does not clearly report image-input capability. Turn this on only if you are sure the backend can accept image content for this model.";

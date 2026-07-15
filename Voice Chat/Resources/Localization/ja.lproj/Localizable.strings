@@ -458,6 +458,7 @@
 "This device does not support photo capture." = "このデバイスでは写真を撮影できません。";
 "This endpoint will no longer continue chats from an OpenAI Responses response ID." = "削除すると、このエンドポイントでは OpenAI Responses のレスポンス ID からチャットを継続できなくなります。";
 "This message can include %lld additional image attachments. Extra images were ignored." = "このメッセージにはあと %lld 個の画像添付を追加できます。超過した画像は無視されました。";
+"This message contains only images. Edit it before retrying with this model." = "このメッセージには画像しか含まれていません。このモデルで再試行する前に編集してください。";
 "This message contains only images. Edit it or delete it." = "このメッセージには画像しか含まれていません。編集するか削除してください。";
 "This message will be deleted." = "このメッセージは削除されます。";
 "This model's metadata does not clearly report image-input capability. Turn this on only if you are sure the backend can accept image content for this model." = "このモデルのメタデータでは画像入力対応が明確ではありません。バックエンドがこのモデルの画像入力を受け付けると確信できる場合のみ有効にしてください。";
