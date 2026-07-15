@@ -350,7 +350,9 @@ struct SettingsDeveloperToolUseSection: View {
     var body: some View {
         Section {
             LabeledContent("Global State") {
-                Text(viewModel.toolUseSettings.isEnabled ? "Enabled" : "Disabled")
+                Text(viewModel.toolUseSettings.isEnabled
+                    ? LocalizedStringKey("Enabled")
+                    : LocalizedStringKey("Disabled"))
                     .foregroundStyle(viewModel.toolUseSettings.isEnabled ? .green : .secondary)
             }
 
@@ -372,7 +374,9 @@ struct SettingsDeveloperToolUseSection: View {
                     .textSelection(.enabled)
             }
             LabeledContent("Automatic High-Risk Tools") {
-                Text(viewModel.toolUseSettings.allowHighRiskToolAutoExecution ? "Enabled" : "Disabled")
+                Text(viewModel.toolUseSettings.allowHighRiskToolAutoExecution
+                    ? LocalizedStringKey("Enabled")
+                    : LocalizedStringKey("Disabled"))
                     .font(.system(.footnote, design: .monospaced))
                     .foregroundStyle(viewModel.toolUseSettings.allowHighRiskToolAutoExecution ? .red : .secondary)
                     .textSelection(.enabled)
@@ -476,7 +480,9 @@ struct SettingsDeveloperToolUseSection: View {
                             Text(field.name)
                                 .font(.system(.footnote, design: .monospaced).weight(.semibold))
                                 .textSelection(.enabled)
-                            Text(field.required ? "required" : "optional")
+                            Text(field.required
+                                ? LocalizedStringKey("required")
+                                : LocalizedStringKey("optional"))
                                 .font(.caption2.weight(.semibold))
                                 .foregroundStyle(.secondary)
                                 .padding(.horizontal, 6)

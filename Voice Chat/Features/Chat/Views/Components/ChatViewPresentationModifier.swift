@@ -174,9 +174,9 @@ struct ChatViewPresentationModifier: ViewModifier {
         Group {
             if let draftID = viewModel.pendingUnsupportedImageQueuedDraftID,
                viewModel.queuedDraftCanSendAsTextOnly(id: draftID) {
-                Text("This message contains images, but the selected model only accepts text. Continue to ignore all images in this request and send text only.")
+                Text("Continue with text only and ignore all images?")
             } else {
-                Text("This message only contains images, but the selected model only accepts text. Edit it or delete it.")
+                Text("This message contains only images. Edit it or delete it.")
             }
         }
     }
@@ -193,7 +193,7 @@ struct ChatViewPresentationModifier: ViewModifier {
         case .unsupportedImageSend:
             return Alert(
                 title: Text("Current model does not support image input"),
-                message: Text("This conversation contains images, but the selected model only accepts text. Continue to ignore all images in this request and send text only."),
+                message: Text("Continue with text only and ignore all images?"),
                 primaryButton: .destructive(Text("Continue")) {
                     if !onContinueUnsupportedImageSend() {
                         onNothingToSendAfterDroppingImages()

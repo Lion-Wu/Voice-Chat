@@ -1,3 +1,10 @@
+"NSCalendarsFullAccessUsageDescription" = "Leer y crear eventos del calendario cuando le pidas al asistente que gestione tu agenda.";
+"NSCalendarsUsageDescription" = "Leer y crear eventos del calendario cuando le pidas al asistente que gestione tu agenda.";
 "NSCameraUsageDescription" = "Tomar fotos y agregarlas a los mensajes de chat.";
+"NSLocationUsageDescription" = "Leer tu ubicación actual cuando le pidas al asistente que use el contexto de ubicación.";
+"NSLocationWhenInUseUsageDescription" = "Leer tu ubicación actual cuando le pidas al asistente que use el contexto de ubicación.";
 "NSMicrophoneUsageDescription" = "Grabar tu voz para admitir el modo de voz.";
+"NSMotionUsageDescription" = "Leer una muestra breve del movimiento del dispositivo cuando le pidas al asistente que use ese contexto.";
+"NSRemindersFullAccessUsageDescription" = "Leer y crear recordatorios cuando le pidas al asistente que gestione tus recordatorios.";
+"NSRemindersUsageDescription" = "Leer y crear recordatorios cuando le pidas al asistente que gestione tus recordatorios.";
 "NSSpeechRecognitionUsageDescription" = "Convertir tu voz en texto para admitir el modo de voz.";

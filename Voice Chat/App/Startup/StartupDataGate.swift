@@ -294,7 +294,9 @@ struct StartupDataErrorView: View {
                                 ProgressView()
                                     .controlSize(.small)
                             }
-                            Text(isResetting ? "Resetting..." : "Reset Data and Continue")
+                            Text(isResetting
+                                ? LocalizedStringKey("Resetting...")
+                                : LocalizedStringKey("Reset Data and Continue"))
                         }
                     }
                     .buttonStyle(.borderedProminent)

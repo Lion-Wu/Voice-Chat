@@ -434,7 +434,9 @@ struct RealtimeVoiceOverlayView: View {
                     }
                     .buttonStyle(.plain)
                     .foregroundStyle(ChatTheme.accent)
-                    .accessibilityLabel(viewModel.isVisionCapturePresented ? "Close voice vision camera" : "Open voice vision camera")
+                    .accessibilityLabel(Text(viewModel.isVisionCapturePresented
+                        ? LocalizedStringKey("Close voice vision camera")
+                        : LocalizedStringKey("Open voice vision camera")))
                 }
 #endif
             }

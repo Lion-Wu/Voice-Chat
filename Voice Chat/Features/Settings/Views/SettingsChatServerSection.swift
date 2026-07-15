@@ -82,7 +82,7 @@ struct SettingsChatServerSection: View {
 
             LabeledTextField(
                 label: "Preset Name",
-                placeholder: "Preset name",
+                placeholder: "Enter preset name",
                 text: $viewModel.chatServerPresetName
             )
 

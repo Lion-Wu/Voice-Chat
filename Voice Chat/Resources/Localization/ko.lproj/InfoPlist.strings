@@ -1,3 +1,10 @@
+"NSCalendarsFullAccessUsageDescription" = "어시스턴트에게 일정 작업을 요청할 때 캘린더 이벤트를 읽고 생성하는 데 사용합니다.";
+"NSCalendarsUsageDescription" = "어시스턴트에게 일정 작업을 요청할 때 캘린더 이벤트를 읽고 생성하는 데 사용합니다.";
 "NSCameraUsageDescription" = "사진을 촬영해 채팅 메시지에 추가하는 데 사용합니다.";
+"NSLocationUsageDescription" = "어시스턴트에게 위치 정보 사용을 요청할 때 현재 위치를 읽는 데 사용합니다.";
+"NSLocationWhenInUseUsageDescription" = "어시스턴트에게 위치 정보 사용을 요청할 때 현재 위치를 읽는 데 사용합니다.";
 "NSMicrophoneUsageDescription" = "음성 모드를 지원하기 위해 목소리를 녹음합니다.";
+"NSMotionUsageDescription" = "어시스턴트에게 기기 동작 정보 사용을 요청할 때 짧은 동작 데이터 스냅샷을 읽는 데 사용합니다.";
+"NSRemindersFullAccessUsageDescription" = "어시스턴트에게 미리 알림 작업을 요청할 때 미리 알림을 읽고 생성하는 데 사용합니다.";
+"NSRemindersUsageDescription" = "어시스턴트에게 미리 알림 작업을 요청할 때 미리 알림을 읽고 생성하는 데 사용합니다.";
 "NSSpeechRecognitionUsageDescription" = "음성 모드를 지원하기 위해 말한 내용을 텍스트로 변환합니다.";

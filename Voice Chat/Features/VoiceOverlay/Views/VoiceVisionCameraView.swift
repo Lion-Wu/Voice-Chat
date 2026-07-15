@@ -144,7 +144,9 @@ struct VoiceVisionCameraView: View {
             .buttonStyle(.plain)
             .foregroundStyle(controller.canUseFlash ? .white : .white.opacity(0.35))
             .disabled(!controller.canUseFlash)
-            .accessibilityLabel(controller.isFlashEnabled ? "Turn flash off" : "Turn flash on")
+            .accessibilityLabel(Text(controller.isFlashEnabled
+                ? LocalizedStringKey("Turn flash off")
+                : LocalizedStringKey("Turn flash on")))
             #endif
             #endif
         }

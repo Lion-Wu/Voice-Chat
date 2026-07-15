@@ -1,3 +1,10 @@
+"NSCalendarsFullAccessUsageDescription" = "قراءة أحداث التقويم وإنشاؤها عندما تطلب من المساعد إدارة جدولك.";
+"NSCalendarsUsageDescription" = "قراءة أحداث التقويم وإنشاؤها عندما تطلب من المساعد إدارة جدولك.";
 "NSCameraUsageDescription" = "التقاط صور وإضافتها إلى رسائل الدردشة.";
+"NSLocationUsageDescription" = "قراءة موقعك الحالي عندما تطلب من المساعد استخدام سياق الموقع.";
+"NSLocationWhenInUseUsageDescription" = "قراءة موقعك الحالي عندما تطلب من المساعد استخدام سياق الموقع.";
 "NSMicrophoneUsageDescription" = "تسجيل صوتك لدعم وضع الصوت.";
+"NSMotionUsageDescription" = "قراءة لقطة قصيرة لحركة الجهاز عندما تطلب من المساعد استخدام سياق حركة الجهاز.";
+"NSRemindersFullAccessUsageDescription" = "قراءة التذكيرات وإنشاؤها عندما تطلب من المساعد إدارة التذكيرات.";
+"NSRemindersUsageDescription" = "قراءة التذكيرات وإنشاؤها عندما تطلب من المساعد إدارة التذكيرات.";
 "NSSpeechRecognitionUsageDescription" = "تحويل صوتك إلى نص لدعم وضع الصوت.";

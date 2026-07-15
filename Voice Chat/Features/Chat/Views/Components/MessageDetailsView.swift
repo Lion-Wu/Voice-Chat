@@ -88,7 +88,7 @@ struct MessageDetailsView: View {
                         branchingSection
                         sessionSection
                         contentSection
-                        MessageDetailsRequestContextSection(rows: requestContextRows)
+                        requestContextSection
 
                         if !message.isUser {
                             assistantGenerationSection
@@ -168,6 +168,29 @@ struct MessageDetailsView: View {
     }
 
     @ViewBuilder
+    private var requestContextSection: some View {
+        sectionBox("Request Context", systemImage: "doc.text.magnifyingglass") {
+            ForEach(requestContextRows) { row in
+                requestContextRow(row)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func requestContextRow(_ row: MessageDetailsRequestContextRow) -> some View {
+        detailRow(row.title, fieldKey: row.fieldKey, source: .local) {
+            switch row.value {
+            case .text(let value):
+                valueText(value)
+            case .code(let value):
+                valueCode(value)
+            case .date(let value):
+                valueDate(value)
+            }
+        }
+    }
+
+    @ViewBuilder
     private var assistantGenerationSection: some View {
         sectionBox("Generation", systemImage: "chart.xyaxis.line") {
             detailRow("Model Identifier", fieldKey: "modelIdentifier", source: .local) { valueCode(message.modelIdentifier) }
@@ -213,6 +236,7 @@ struct MessageDetailsView: View {
         VStack(alignment: .leading, spacing: 14) {
             Label(title, systemImage: systemImage)
                 .font(.headline)
+                .labelStyle(.titleAndIcon)
 
             VStack(alignment: .leading, spacing: 12) {
                 content()
@@ -678,42 +702,56 @@ struct MessageDetailsView: View {
             in: message.modelContext
         )
         if let metadata {
-            rows.append(contentsOf: [
-                .text("Version", fieldKey: "requestContext.version", value: "\(metadata.version)"),
-                .code("Model", fieldKey: "requestContext.modelIdentifier", value: metadata.modelIdentifier),
-                .text("Provider", fieldKey: "requestContext.providerRawValue", value: metadata.providerRawValue),
-                .text("Request Style", fieldKey: "requestContext.requestStyleRawValue", value: metadata.requestStyleRawValue),
-                .code("Endpoint URL Hash", fieldKey: "requestContext.endpointURLHash", value: metadata.endpointURLHash),
-                .code("Developer Prompt Hash", fieldKey: "requestContext.developerPromptHash", value: metadata.developerPromptHash),
-                .text(
-                    "Developer Prompt Characters",
-                    fieldKey: "requestContext.developerPromptCharacterCount",
-                    value: "\(metadata.developerPromptCharacterCount)"
-                ),
-                .text(
-                    "Thinking Setting",
-                    fieldKey: "requestContext.thinkingOptionRawValue",
-                    value: Self.formatThinkingOptionValue(metadata.thinkingOptionRawValue)
-                ),
-                .text("Tool Use Enabled", fieldKey: "requestContext.toolUseEnabled", value: Self.formatBoolValue(metadata.toolUseEnabled)),
-                .code("Enabled Tools", fieldKey: "requestContext.enabledToolIDs", value: metadata.enabledToolIDs.joined(separator: "\n")),
-                .code("Tool Schema Digest", fieldKey: "requestContext.toolSchemaDigest", value: metadata.toolSchemaDigest),
-                .code("Tool Schema Metadata", fieldKey: "requestContext.toolSchemaSummaryJSON", value: metadata.toolSchemaSummaryJSON),
-                .text("Authorization Mode", fieldKey: "requestContext.toolAuthorizationModeRawValue", value: metadata.toolAuthorizationModeRawValue),
-                .text(
-                    "Automatic High-Risk Tools",
-                    fieldKey: "requestContext.allowHighRiskToolAutoExecution",
-                    value: Self.formatOptionalBoolValue(metadata.allowHighRiskToolAutoExecution)
-                ),
-                .text(
-                    "Use Provider Continuation IDs",
-                    fieldKey: "requestContext.useProviderContinuationIDs",
-                    value: Self.formatOptionalBoolValue(metadata.useProviderContinuationIDs)
-                ),
-                .text("Reference Count", fieldKey: "requestContext.referenceCount", value: "\(metadata.referenceCount)"),
-                .date("Created At", fieldKey: "requestContext.createdAt", value: metadata.createdAt),
-                .date("Last Seen At", fieldKey: "requestContext.lastSeenAt", value: metadata.lastSeenAt)
-            ])
+            rows.append(.text("Version", fieldKey: "requestContext.version", value: "\(metadata.version)"))
+            rows.append(.code("Model", fieldKey: "requestContext.modelIdentifier", value: metadata.modelIdentifier))
+            rows.append(.text("Provider", fieldKey: "requestContext.providerRawValue", value: metadata.providerRawValue))
+            rows.append(.text("Request Style", fieldKey: "requestContext.requestStyleRawValue", value: metadata.requestStyleRawValue))
+            rows.append(.code("Endpoint URL Hash", fieldKey: "requestContext.endpointURLHash", value: metadata.endpointURLHash))
+            rows.append(.code("Developer Prompt Hash", fieldKey: "requestContext.developerPromptHash", value: metadata.developerPromptHash))
+            rows.append(.text(
+                "Developer Prompt Characters",
+                fieldKey: "requestContext.developerPromptCharacterCount",
+                value: "\(metadata.developerPromptCharacterCount)"
+            ))
+            rows.append(.text(
+                "Thinking Setting",
+                fieldKey: "requestContext.thinkingOptionRawValue",
+                value: Self.formatThinkingOptionValue(metadata.thinkingOptionRawValue)
+            ))
+            rows.append(.text(
+                "Tool Use Enabled",
+                fieldKey: "requestContext.toolUseEnabled",
+                value: Self.formatBoolValue(metadata.toolUseEnabled)
+            ))
+            rows.append(.code(
+                "Enabled Tools",
+                fieldKey: "requestContext.enabledToolIDs",
+                value: metadata.enabledToolIDs.joined(separator: "\n")
+            ))
+            rows.append(.code("Tool Schema Digest", fieldKey: "requestContext.toolSchemaDigest", value: metadata.toolSchemaDigest))
+            rows.append(.code(
+                "Tool Schema Metadata",
+                fieldKey: "requestContext.toolSchemaSummaryJSON",
+                value: metadata.toolSchemaSummaryJSON
+            ))
+            rows.append(.text(
+                "Authorization Mode",
+                fieldKey: "requestContext.toolAuthorizationModeRawValue",
+                value: metadata.toolAuthorizationModeRawValue
+            ))
+            rows.append(.text(
+                "Automatic High-Risk Tools",
+                fieldKey: "requestContext.allowHighRiskToolAutoExecution",
+                value: Self.formatOptionalBoolValue(metadata.allowHighRiskToolAutoExecution)
+            ))
+            rows.append(.text(
+                "Use Provider Continuation IDs",
+                fieldKey: "requestContext.useProviderContinuationIDs",
+                value: Self.formatOptionalBoolValue(metadata.useProviderContinuationIDs)
+            ))
+            rows.append(.text("Reference Count", fieldKey: "requestContext.referenceCount", value: "\(metadata.referenceCount)"))
+            rows.append(.date("Created At", fieldKey: "requestContext.createdAt", value: metadata.createdAt))
+            rows.append(.date("Last Seen At", fieldKey: "requestContext.lastSeenAt", value: metadata.lastSeenAt))
         } else if !(message.requestContextFingerprint?.isEmpty ?? true) {
             rows.append(.text("Metadata", fieldKey: "requestContext.metadata", value: String(localized: "Not Available")))
         }
@@ -750,19 +788,19 @@ private struct MessageDetailsRequestContextRow: Identifiable {
     }
 
     let id: String
-    let title: String
+    let title: LocalizedStringKey
     let fieldKey: String
     let value: Value
 
-    static func text(_ title: String, fieldKey: String, value: String?) -> Self {
+    static func text(_ title: LocalizedStringKey, fieldKey: String, value: String?) -> Self {
         Self(id: fieldKey, title: title, fieldKey: fieldKey, value: .text(value))
     }
 
-    static func code(_ title: String, fieldKey: String, value: String?) -> Self {
+    static func code(_ title: LocalizedStringKey, fieldKey: String, value: String?) -> Self {
         Self(id: fieldKey, title: title, fieldKey: fieldKey, value: .code(value))
     }
 
-    static func date(_ title: String, fieldKey: String, value: Date?) -> Self {
+    static func date(_ title: LocalizedStringKey, fieldKey: String, value: Date?) -> Self {
         Self(id: fieldKey, title: title, fieldKey: fieldKey, value: .date(value))
     }
 }
@@ -774,210 +812,6 @@ private enum MessageDetailsChrome {
 
     static var sectionBorder: Color {
         Color.primary.opacity(0.08)
-    }
-}
-
-private struct MessageDetailsRequestContextSection: View {
-    let rows: [MessageDetailsRequestContextRow]
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            Label("Request Context", systemImage: "fingerprint")
-                .font(.headline)
-
-            VStack(alignment: .leading, spacing: 12) {
-                ForEach(rows) { row in
-                    MessageDetailsRequestContextRowView(row: row)
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-        }
-        .padding(12)
-        .background(MessageDetailsChrome.sectionFill, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .stroke(MessageDetailsChrome.sectionBorder, lineWidth: 1)
-        )
-    }
-}
-
-private struct MessageDetailsRequestContextRowView: View {
-    let row: MessageDetailsRequestContextRow
-
-    var body: some View {
-        #if os(macOS)
-        HStack(alignment: .top, spacing: 14) {
-            label
-                .frame(width: 240, alignment: .leading)
-            value
-                .frame(maxWidth: .infinity, alignment: .leading)
-        }
-        #else
-        VStack(alignment: .leading, spacing: 8) {
-            label
-            value
-        }
-        #endif
-    }
-
-    private var label: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            HStack(alignment: .firstTextBaseline, spacing: 6) {
-                Text(row.title)
-                    .font(.subheadline.weight(.semibold))
-                Image(systemName: "laptopcomputer")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-            }
-            Text(row.fieldKey)
-                .font(.caption2)
-                .foregroundStyle(.secondary)
-                .monospaced()
-        }
-    }
-
-    @ViewBuilder
-    private var value: some View {
-        switch row.value {
-        case .text(let text):
-            MessageDetailsRequestContextValueText(text)
-        case .code(let text):
-            MessageDetailsRequestContextValueCode(text)
-        case .date(let date):
-            MessageDetailsRequestContextValueDate(date)
-        }
-    }
-}
-
-private struct MessageDetailsRequestContextValueText: View {
-    let value: String?
-
-    init(_ value: String?) {
-        self.value = value
-    }
-
-    var body: some View {
-        MessageDetailsRequestContextValueCard {
-            Text(display)
-                .font(.body)
-                .foregroundStyle(isPlaceholder ? .secondary : .primary)
-                .textSelection(.enabled)
-        }
-    }
-
-    private var raw: String {
-        value ?? ""
-    }
-
-    private var isPlaceholder: Bool {
-        raw.isEmpty
-    }
-
-    private var display: String {
-        isPlaceholder ? String(localized: "Not Available") : raw
-    }
-}
-
-private struct MessageDetailsRequestContextValueCode: View {
-    let value: String?
-
-    init(_ value: String?) {
-        self.value = value
-    }
-
-    var body: some View {
-        MessageDetailsRequestContextValueCard {
-            ScrollView(.horizontal, showsIndicators: horizontalValueIndicators) {
-                Text(display)
-                    .font(.system(.footnote, design: .monospaced))
-                    .foregroundStyle(isPlaceholder ? .secondary : .primary)
-                    .textSelection(.enabled)
-                    .fixedSize(horizontal: true, vertical: true)
-                    .padding(.vertical, 1)
-            }
-        }
-    }
-
-    private var raw: String {
-        value ?? ""
-    }
-
-    private var isPlaceholder: Bool {
-        raw.isEmpty
-    }
-
-    private var display: String {
-        isPlaceholder ? String(localized: "Not Available") : raw
-    }
-
-    private var horizontalValueIndicators: Bool {
-        #if os(macOS)
-        true
-        #else
-        false
-        #endif
-    }
-}
-
-private struct MessageDetailsRequestContextValueDate: View {
-    let date: Date?
-
-    init(_ date: Date?) {
-        self.date = date
-    }
-
-    var body: some View {
-        if let date {
-            let localized = DateFormatter.localizedString(from: date, dateStyle: .medium, timeStyle: .medium)
-            let iso = Self.isoFormatter.string(from: date)
-
-            MessageDetailsRequestContextValueCard {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(localized)
-                        .font(.body)
-                    ScrollView(.horizontal, showsIndicators: horizontalValueIndicators) {
-                        Text(iso)
-                            .font(.system(.footnote, design: .monospaced))
-                            .foregroundStyle(.secondary)
-                            .textSelection(.enabled)
-                            .fixedSize(horizontal: true, vertical: true)
-                            .padding(.vertical, 1)
-                    }
-                }
-            }
-        } else {
-            MessageDetailsRequestContextValueText(nil)
-        }
-    }
-
-    private static let isoFormatter: ISO8601DateFormatter = {
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        return formatter
-    }()
-
-    private var horizontalValueIndicators: Bool {
-        #if os(macOS)
-        true
-        #else
-        false
-        #endif
-    }
-}
-
-private struct MessageDetailsRequestContextValueCard<Content: View>: View {
-    @ViewBuilder let content: () -> Content
-
-    var body: some View {
-        content()
-            .padding(.horizontal, 10)
-            .padding(.vertical, 8)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(PlatformColor.tertiaryGroupedBackground, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .stroke(ChatTheme.chromeBorder, lineWidth: 1)
-            )
     }
 }
 
