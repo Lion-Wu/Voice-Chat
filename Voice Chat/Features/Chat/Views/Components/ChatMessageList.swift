@@ -28,6 +28,7 @@ struct ChatMessageList: View {
     let horizontalPadding: CGFloat
     let topPadding: CGFloat
     let scrollTargetsEnabled: Bool
+    let isInitialContentReady: Bool
     let searchHighlightQuery: (ChatMessage) -> String?
     let onSelectText: (String) -> Void
     let onRegenerate: (ChatMessage) -> Void
@@ -62,7 +63,7 @@ struct ChatMessageList: View {
             ForEach(displayMessages, id: \.id) { message in
                 messageRow(for: message, inlineStatusHostID: statusHostID)
                     .id(message.id)
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                    .transition(ChatScrollContentMotion.transition)
             }
 
             if statusHostID == nil, isRetrying {
@@ -71,8 +72,10 @@ struct ChatMessageList: View {
                     lastError: retryLastError,
                     maxBubbleWidth: availableMessageWidth
                 )
+                .transition(ChatScrollContentMotion.transition)
             } else if statusHostID == nil, isPriming || isToolContinuationLoading {
                 AssistantAlignedLoadingBubble(maxBubbleWidth: availableMessageWidth)
+                    .transition(ChatScrollContentMotion.transition)
             }
 
             Color.clear
@@ -92,7 +95,26 @@ struct ChatMessageList: View {
                 Color.clear.preference(key: ContentHeightKey.self, value: contentGeo.size.height)
             }
         )
-        .animation(.spring(response: 0.35, dampingFraction: 0.85), value: displayMessageIDs)
+        .animation(
+            isInitialContentReady
+                ? ChatScrollContentMotion.animation
+                : nil,
+            value: displayMessageIDs
+        )
+        .animation(
+            isInitialContentReady
+                ? ChatScrollContentMotion.animation
+                : nil,
+            value: standaloneStatusAnimationKey(statusHostID: statusHostID)
+        )
+    }
+
+    private func standaloneStatusAnimationKey(statusHostID: UUID?) -> String {
+        guard statusHostID == nil else { return "inline" }
+        if isRetrying {
+            return "retry-\(retryAttempt)-\(retryLastError ?? "")"
+        }
+        return isPriming || isToolContinuationLoading ? "loading" : "none"
     }
 
     private func messageRow(for message: ChatMessage, inlineStatusHostID: UUID?) -> some View {
@@ -156,18 +178,10 @@ struct ChatMessageList: View {
     }
 
     private func inlineStatusHostMessageID(in messages: [ChatMessage]) -> UUID? {
-        guard isRetrying || isPriming || isToolContinuationLoading else { return nil }
-        if let activeAssistant = messages.last(where: { message in
-            !message.isUser && message.isActive && !message.content.hasPrefix("!error:")
-        }) {
-            return activeAssistant.id
-        }
-        if isToolContinuationLoading || isRetrying {
-            return messages.last(where: { message in
-                !message.isUser && !message.content.hasPrefix("!error:")
-            })?.id
-        }
-        return nil
+        ChatInlineStatusHostResolver.resolve(
+            in: messages,
+            hasTransientStatus: isRetrying || isPriming || isToolContinuationLoading
+        )
     }
 
     private func shouldInlineErrorMessage(_ message: ChatMessage, visibleMessageIDs: Set<UUID>) -> Bool {
@@ -229,5 +243,17 @@ struct ChatMessageList: View {
             }
             return lhs < rhs
         }
+    }
+}
+
+enum ChatInlineStatusHostResolver {
+    static func resolve(
+        in messages: [ChatMessage],
+        hasTransientStatus: Bool
+    ) -> UUID? {
+        guard hasTransientStatus else { return nil }
+        return messages.last(where: {
+            !$0.isUser && $0.isActive && !$0.content.hasPrefix("!error:")
+        })?.id
     }
 }

@@ -3,10 +3,10 @@
 //  Licensed under the MIT License. See LICENSE in the project root for license information.
 //
 
-#if os(macOS)
-import AppKit
-#else
+#if canImport(UIKit)
 import UIKit
+#elseif canImport(AppKit)
+import AppKit
 #endif
 
 /// A single tappable item shown inside a `TextContextMenuGroup`.
@@ -19,14 +19,14 @@ public struct TextContextMenuItem: Identifiable, Hashable, Sendable {
   /// Optional secondary label rendered beneath `title`.
   public let subtitle: String?
   /// Optional leading icon.
-  public let image: UIImage?
+  public let image: MDImage?
 
   /// Create a menu item with the supplied id, title, and optional metadata.
   public init(
     id: String,
     title: String,
     subtitle: String? = nil,
-    image: UIImage? = nil
+    image: MDImage? = nil
   ) {
     self.id = id
     self.title = title

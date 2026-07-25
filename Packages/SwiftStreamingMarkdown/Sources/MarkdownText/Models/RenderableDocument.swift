@@ -6,6 +6,11 @@
 import Foundation
 import Markdown
 import SwiftUI
+#if canImport(UIKit)
+import UIKit
+#elseif canImport(AppKit)
+import AppKit
+#endif
 
 /// A `MarkdownRenderConfig`-aware snapshot of a parsed markdown `Document`,
 /// ready to be handed to a `MarkdownView` for rendering. Producing one is
@@ -39,7 +44,7 @@ public struct RenderableDocument: Equatable, Sendable {
   public init(plainText: String, config: MarkdownRenderConfig) {
     var attributes: [NSAttributedString.Key: Any] = [
       .font: config.paragraphStyle.textFonts.normal,
-      .foregroundColor: config.paragraphStyle.textColor
+      .foregroundColor: MDColor(config.paragraphStyle.textColor)
     ]
     if let kern = config.paragraphStyle.textFonts.preferredLetterSpacing {
       attributes[.kern] = kern
@@ -60,6 +65,64 @@ public struct RenderableDocument: Equatable, Sendable {
 extension RenderableDocument {
   var attributedStrings: [NSAttributedString] {
     return renderables.flatMap { $0.extractAttributedStrings() }
+  }
+
+  /// The full document rendered as plain text, across every block kind
+  /// (headings, paragraphs, lists, code blocks, tables, block quotes). Used to
+  /// populate the "Select more text" modal.
+  var plainText: String {
+    renderables
+      .compactMap { $0.plainText }
+      .joined(separator: "\n\n")
+  }
+}
+
+extension MarkdownRenderable {
+  /// A plain-text representation of this block, or `nil` for blocks that carry
+  /// no selectable text (e.g. thematic breaks).
+  var plainText: String? {
+    switch self {
+    case .paragraph(_, let content), .heading(_, _, let content):
+      return content.string
+    case .latex(_, let content):
+      return content
+    case .orderedList(_, let items):
+      return items.plainText(separator: "\n")
+    case .unorderedList(_, let items, _):
+      return items.plainText(separator: "\n")
+    case .codeBlock(_, _, let code):
+      return code
+    case .table(_, let headers, let rows, _):
+      let headerLine = headers.map { $0.string }.joined(separator: "\t")
+      let rowLines = rows.map { row in row.map { $0.string }.joined(separator: "\t") }
+      return ([headerLine] + rowLines).joined(separator: "\n")
+    case .blockQuote(_, let item):
+      return item.quoteType.plainText
+    case .thematicBreak:
+      return nil
+    case .image(_, let data):
+      return data.alt.isEmpty ? nil : data.alt
+    }
+  }
+}
+
+private extension Array where Element == MarkdownListItem {
+  func plainText(separator: String) -> String? {
+    let lines = flatMap { item in
+      item.children.compactMap { $0.plainText }
+    }
+    return lines.isEmpty ? nil : lines.joined(separator: separator)
+  }
+}
+
+private extension BlockQuoteType {
+  var plainText: String {
+    switch self {
+    case .text(let text):
+      return text
+    case .nested(let items):
+      return items.map { $0.plainText }.joined(separator: "\n")
+    }
   }
 }
 

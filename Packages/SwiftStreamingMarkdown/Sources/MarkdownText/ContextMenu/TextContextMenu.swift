@@ -3,10 +3,10 @@
 //  Licensed under the MIT License. See LICENSE in the project root for license information.
 //
 
-#if os(macOS)
+#if canImport(UIKit)
+import UIKit
+#elseif canImport(AppKit)
 import AppKit
-#else
-@preconcurrency import UIKit
 #endif
 
 /// Configuration for the edit menu that appears on text selection.
@@ -19,6 +19,7 @@ public struct TextContextMenu: Hashable, Sendable {
     self.menuGroups = menuGroups
   }
 
+  #if canImport(UIKit)
   /// Build the `UIMenu` to present on text selection by merging the standard
   /// system edit actions with the configured custom groups. Used by
   /// `MarkdownViewController` and is rarely called directly by consumers.
@@ -28,7 +29,6 @@ public struct TextContextMenu: Hashable, Sendable {
   ///   - suggestedActions: System-suggested actions from UIKit.
   ///   - markdownController: Optional controller used to forward item taps.
   /// - Returns: The composed `UIMenu` to display.
-  #if !os(macOS)
   @MainActor
   public func buildUIMenu(textView: UITextView, selectedRange: NSRange, suggestedActions: [UIMenuElement], markdownController: MarkdownController?) -> UIMenu {
     var customMenu: [UIMenu] = []
@@ -43,7 +43,11 @@ public struct TextContextMenu: Hashable, Sendable {
           subtitle: item.subtitle,
           image: item.image?.withRenderingMode(.alwaysTemplate),
         ) { _ in
-          markdownController?.onContextMenuTap(id: item.id, selectedContent: selectedText)
+          if item.id == TextSelectionConfig.selectMoreItemID {
+            markdownController?.requestTextSelection()
+          } else {
+            markdownController?.onContextMenuTap(id: item.id, selectedContent: selectedText)
+          }
         }
         groupActions.append(uiAction)
       }
@@ -56,14 +60,16 @@ public struct TextContextMenu: Hashable, Sendable {
       customMenu.append(submenu)
     }
 
-    // Combine: system suggested actions first, then custom actions
-    let filteredSuggestedActions = suggestedActions.filter { menuItem in
-      if let menuItem = menuItem as? UIMenu {
-        return menuItem.identifier == .standardEdit
-      }
-      return false
+    // Layout: the system standard-edit group (Copy, …) first, then the custom
+    // groups, then any remaining system suggestions (Look Up, Translate, Share,
+    // …) so the consumer's actions stay prominent and system extras trail.
+    let standardEditActions = suggestedActions.filter {
+      ($0 as? UIMenu)?.identifier == .standardEdit
     }
-    return UIMenu(children: filteredSuggestedActions + customMenu)
+    let otherSuggestedActions = suggestedActions.filter {
+      ($0 as? UIMenu)?.identifier != .standardEdit
+    }
+    return UIMenu(children: standardEditActions + customMenu + otherSuggestedActions)
   }
   #endif
 }

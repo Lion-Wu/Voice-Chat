@@ -33,6 +33,7 @@ struct ChatView: View {
     @State var expectAssistantResponseHaptics: Bool = false
     @State var didTriggerResponseStartHaptic: Bool = false
     @StateObject var visibleMessageController = ChatVisibleMessageController()
+    @StateObject var initialRenderCoordinator = ChatInitialRenderCoordinator()
 #if os(iOS) || os(macOS) || os(visionOS)
     @StateObject var imageImportDriver = ChatImageAttachmentImportDriver()
 #endif

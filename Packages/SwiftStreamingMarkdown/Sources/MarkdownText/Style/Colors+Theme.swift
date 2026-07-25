@@ -10,13 +10,13 @@ import SwiftUI
 extension Color {
   enum Theme {
     enum Accent {
-      static let Accent600 = Color.markdownDynamic(light: 0x006DCC, dark: 0x58A6FF)
+      static let Accent600 = Color("Colors/Copilot/Theme/Accent/600", bundle: .module)
     }
 
     enum Background {
       enum Page {
         enum Chat {
-          static let Flat = Color.markdownDynamic(light: 0xFFFFFF, dark: 0x111113)
+          static let Flat = Color("Colors/Copilot/Theme/Background/Page/Chat/flat", bundle: .module)
         }
       }
     }
@@ -24,83 +24,54 @@ extension Color {
     enum Component {
       enum Button {
         enum Foreground {
-          static let Pressed = Color.markdownDynamic(light: 0x2F3337, dark: 0xF2F2F3)
-          static let Rest = Color.markdownDynamic(light: 0x555B61, dark: 0xC9CDD2)
+          static let Pressed = Color("Colors/Copilot/Theme/Component/Button/Foreground/pressed", bundle: .module)
+          static let Rest = Color("Colors/Copilot/Theme/Component/Button/Foreground/rest", bundle: .module)
         }
       }
 
       enum CodeBlock {
         enum Background {
-          static let Background750 = Color.markdownDynamic(light: 0xE0E3E8, dark: 0x24262A)
+          static let Background750 = Color("Colors/Copilot/Theme/Component/CodeBlock/Background/750", bundle: .module)
         }
 
         enum Foreground {
-          static let FunctionParameter = Color.markdownDynamic(light: 0x5F6368, dark: 0xD1D5DB)
-          static let Header = Color.markdownDynamic(light: 0x8A8F98, dark: 0x9CA3AF)
+          static let FunctionParameter = Color("Colors/Copilot/Theme/Component/CodeBlock/Foreground/functionparameter", bundle: .module)
+          static let Header = Color("Colors/Copilot/Theme/Component/CodeBlock/Foreground/header", bundle: .module)
         }
       }
 
       enum Table {
         enum Background {
-          static let Header = Color.markdownDynamic(light: 0xF4F5F7, dark: 0x2A2C30)
+          static let Header = Color("Colors/Copilot/Theme/Component/Table/Background/header", bundle: .module)
         }
       }
     }
 
     enum Foreground {
       enum Primary {
-        static let Primary450 = Color.markdownDynamic(light: 0x5F6368, dark: 0xBFC5CF)
-        static let Primary550 = Color.markdownDynamic(light: 0x4B5056, dark: 0xD1D5DB)
-        static let Primary650 = Color.markdownDynamic(light: 0x343941, dark: 0xE5E7EB)
-        static let Primary750 = Color.primary
-        static let Primary800 = Color.primary
+        static let Primary450 = Color("Colors/Copilot/Theme/Foreground/Primary/450", bundle: .module)
+        static let Primary550 = Color("Colors/Copilot/Theme/Foreground/Primary/550", bundle: .module)
+        static let Primary650 = Color("Colors/Copilot/Theme/Foreground/Primary/650", bundle: .module)
+        static let Primary750 = Color("Colors/Copilot/Theme/Foreground/Primary/750", bundle: .module)
+        static let Primary800 = Color("Colors/Copilot/Theme/Foreground/Primary/800", bundle: .module)
       }
     }
 
     enum Overlay {
       enum Black {
-        static let Black5 = Color.markdownDynamic(light: 0x000000, dark: 0xFFFFFF, lightAlpha: 0.05, darkAlpha: 0.08)
+        static let Black5 = Color("Colors/Copilot/Theme/Overlay/Black/5", bundle: .module)
       }
     }
 
     enum Stroke {
       enum Default {
-        static let Default250 = Color.markdownDynamic(light: 0xDADDE3, dark: 0x3A3D42)
-        static let Default300 = Color.markdownDynamic(light: 0xC9CDD4, dark: 0x464A50)
+        static let Default250 = Color("Colors/Copilot/Theme/Stroke/Default/250", bundle: .module)
+        static let Default300 = Color("Colors/Copilot/Theme/Stroke/Default/300", bundle: .module)
       }
 
       enum Muted {
-        static let Muted300 = Color.markdownDynamic(light: 0xE1E4E8, dark: 0x383B40)
+        static let Muted300 = Color("Colors/Copilot/Theme/Stroke/Muted/300", bundle: .module)
       }
     }
-  }
-}
-
-extension Color {
-  static func markdownDynamic(light: UInt32, dark: UInt32, lightAlpha: CGFloat = 1, darkAlpha: CGFloat = 1) -> Color {
-    #if os(macOS)
-    return Color(UIColor(name: nil) { appearance in
-      let isDark = appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
-      return UIColor.markdownColor(hex: isDark ? dark : light, alpha: isDark ? darkAlpha : lightAlpha)
-    })
-    #else
-    return Color(UIColor { traitCollection in
-      let isDark = traitCollection.userInterfaceStyle == .dark
-      return UIColor.markdownColor(hex: isDark ? dark : light, alpha: isDark ? darkAlpha : lightAlpha)
-    })
-    #endif
-  }
-}
-
-private extension UIColor {
-  static func markdownColor(hex: UInt32, alpha: CGFloat = 1) -> UIColor {
-    let red = CGFloat((hex >> 16) & 0xFF) / 255
-    let green = CGFloat((hex >> 8) & 0xFF) / 255
-    let blue = CGFloat(hex & 0xFF) / 255
-    #if os(macOS)
-    return UIColor(srgbRed: red, green: green, blue: blue, alpha: alpha)
-    #else
-    return UIColor(red: red, green: green, blue: blue, alpha: alpha)
-    #endif
   }
 }

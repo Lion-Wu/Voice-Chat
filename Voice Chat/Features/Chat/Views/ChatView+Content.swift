@@ -40,6 +40,7 @@ extension ChatView {
                 textHapticsEnabled: textHapticsEnabled,
                 searchNavigationTarget: chatSessionsViewModel.searchNavigationTarget,
                 visibleMessageCount: visibleMessages.count,
+                isInitialContentReady: initialRenderCoordinator.isReady,
                 triggerTextHaptic: triggerTextHaptic,
                 onMessageContentUpdate: { update in
                     visibleMessageController.applyContentFingerprintUpdate(
@@ -49,8 +50,10 @@ extension ChatView {
                 },
                 onVisibleMessagesNeedRefresh: { refreshVisibleMessages() },
                 onSessionTransition: handleSessionTransition,
+                onBranchTransition: handleBranchTransition,
                 onSearchNavigationTargetChange: scheduleSearchNavigationIfNeeded(_:),
-                onVisibleMessageCountChange: handleVisibleMessageCountChange
+                onVisibleMessageCountChange: handleVisibleMessageCountChange,
+                onInitialContentReady: handleInitialContentReady
             ))
     }
 
@@ -157,10 +160,9 @@ extension ChatView {
         ChatConversationLayout(
             audioManager: audioManager,
             navigationTitle: viewModel.chatSession.title,
-            isHydratingSession: isHydratingSession,
+            isInitialContentReady: initialRenderCoordinator.isReady,
             isVoiceOverlayPresented: voiceOverlayVM.isPresented,
             shouldDisplayAudioPlayer: shouldDisplayAudioPlayer,
-            shouldUseBottomScrollAnchor: shouldUseBottomScrollAnchor,
             messageList: { chatMessageList(scrollTargetsEnabled: true) },
             hydrationMask: { hydrationMaskView },
             onContentHeightChange: updateContentHeightIfNeeded(_:),
@@ -170,6 +172,13 @@ extension ChatView {
             onWidthChange: updateAvailableMessageWidth(_:),
             onScrollProxyReady: handleScrollProxyReady(_:availableWidth:)
         )
+        .environment(\.chatInitialRenderCoordinator, initialRenderCoordinator)
+        .task(id: isHydratingSession) {
+            guard !isHydratingSession else { return }
+            await Task.yield()
+            guard !Task.isCancelled else { return }
+            initialRenderCoordinator.finishCollecting()
+        }
     }
 
     var floatingInputPanel: some View {
@@ -230,6 +239,7 @@ extension ChatView {
             horizontalPadding: layoutMetrics.messageListHorizontalPadding,
             topPadding: layoutMetrics.messageListTopPadding,
             scrollTargetsEnabled: scrollTargetsEnabled,
+            isInitialContentReady: initialRenderCoordinator.isReady,
             searchHighlightQuery: searchHighlightQuery(for:),
             onSelectText: showSelectTextSheet(with:),
             onRegenerate: { message in

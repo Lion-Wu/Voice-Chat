@@ -10,7 +10,7 @@ import SwiftUI
 extension Color {
   enum Static {
     enum Stone {
-      static let Stone350 = Color.markdownDynamic(light: 0x6B7280, dark: 0xA0A7B2)
+      static let Stone350 = Color("Colors/Copilot/Static/Stone/350", bundle: .module)
     }
   }
 }

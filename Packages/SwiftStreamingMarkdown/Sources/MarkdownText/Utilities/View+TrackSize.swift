@@ -13,19 +13,32 @@ struct TrackSizeModifier: ViewModifier {
     content
       .background(
         GeometryReader { proxy in
-          Color.clear
-            .preference(key: TrackedSizePreferenceKey.self, value: proxy.size)
+          sizeObserver(for: proxy.size)
         }
       )
-      .onPreferenceChange(TrackedSizePreferenceKey.self, perform: onChange)
   }
-}
 
-private struct TrackedSizePreferenceKey: PreferenceKey {
-  static let defaultValue: CGSize = .zero
-
-  static func reduce(value: inout CGSize, nextValue: () -> CGSize) {
-    value = nextValue()
+  @ViewBuilder
+  private func sizeObserver(for size: CGSize) -> some View {
+    if #available(iOS 17, *) {
+      Color.clear
+        .hidden()
+        .onAppear {
+          onChange(size)
+        }
+        .onChange(of: size) { _, newSize in
+          onChange(newSize)
+        }
+    } else {
+      Color.clear
+        .hidden()
+        .onAppear {
+          onChange(size)
+        }
+        .onChange(of: size) { newSize in
+          onChange(newSize)
+        }
+    }
   }
 }
 

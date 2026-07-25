@@ -10,13 +10,13 @@ final class PartialEmphasisRewriter: MarkupRewriter {
   /// The text node we are trying to rewrite
   private let targetNode: Text
 
-  nonisolated(unsafe) static let partialStrong: Regex? = {
-    return try? Regex("(?:\\*\\*|__).*$")
-  }()
+  static func partialStrong() -> Regex<AnyRegexOutput>? {
+    try? Regex("(?:\\*\\*|__).*$")
+  }
 
-  nonisolated(unsafe) static let partialItalic: Regex? = {
-    return try? Regex("(?:\\*|_).*$")
-  }()
+  static func partialItalic() -> Regex<AnyRegexOutput>? {
+    try? Regex("(?:\\*|_).*$")
+  }
 
   init(targetNode: Text) {
     self.targetNode = targetNode
@@ -116,7 +116,7 @@ final class PartialEmphasisRewriter: MarkupRewriter {
 extension Text {
 
   func matchesPartialStrong() -> Range<String.Index>? {
-    guard let regex = PartialEmphasisRewriter.partialStrong else {
+    guard let regex = PartialEmphasisRewriter.partialStrong() else {
       return nil
     }
     let ranges = self.string.ranges(of: regex)
@@ -127,7 +127,7 @@ extension Text {
   }
 
   func matchesPartialItalic() -> Range<String.Index>? {
-    guard let regex = PartialEmphasisRewriter.partialItalic else {
+    guard let regex = PartialEmphasisRewriter.partialItalic() else {
       return nil
     }
     let ranges = self.string.ranges(of: regex)

@@ -18,15 +18,6 @@ struct ChatSearchScrollDecision: Equatable, Sendable {
     let anchorY: Double
 }
 
-struct ChatSearchScrollLock: Equatable, Sendable {
-    let targetID: UUID
-    let messageID: UUID
-    let anchorY: Double
-    let generation: UUID
-    let hardDeadline: Date
-    var settleDeadline: Date
-}
-
 enum ChatSearchScrollCoordinator {
     static func normalizedSearchText(_ text: String) -> String {
         text
@@ -76,44 +67,6 @@ enum ChatSearchScrollCoordinator {
             return nil
         }
         return target.query
-    }
-
-    static func makeLock(
-        targetID: UUID,
-        messageID: UUID,
-        anchorY: Double,
-        now: Date = Date(),
-        generation: UUID = UUID(),
-        hardDuration: TimeInterval = 3.0,
-        settleDuration: TimeInterval = 0.45
-    ) -> ChatSearchScrollLock {
-        ChatSearchScrollLock(
-            targetID: targetID,
-            messageID: messageID,
-            anchorY: anchorY,
-            generation: generation,
-            hardDeadline: now.addingTimeInterval(hardDuration),
-            settleDeadline: now.addingTimeInterval(settleDuration)
-        )
-    }
-
-    static func extendedLockForLayoutChange(
-        _ lock: ChatSearchScrollLock,
-        now: Date = Date(),
-        settleDuration: TimeInterval = 0.45
-    ) -> ChatSearchScrollLock? {
-        guard now < lock.hardDeadline else { return nil }
-
-        var next = lock
-        let nextSettleDeadline = min(now.addingTimeInterval(settleDuration), lock.hardDeadline)
-        if nextSettleDeadline > lock.settleDeadline {
-            next.settleDeadline = nextSettleDeadline
-        }
-        return next
-    }
-
-    static func shouldContinueReanchoring(_ lock: ChatSearchScrollLock, now: Date = Date()) -> Bool {
-        now < lock.settleDeadline
     }
 
     static func searchAnchorY(in text: String, query: String) -> Double {

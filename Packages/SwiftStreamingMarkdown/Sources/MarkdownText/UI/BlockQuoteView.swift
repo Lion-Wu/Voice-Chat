@@ -39,8 +39,8 @@ private struct InternalBlockQuoteView: View {
           }
           .fixedSize(horizontal: false, vertical: true)
         case .nested(let subItems):
-          ForEach(subItems, id: \.self) { subItem in
-            InternalBlockQuoteView(item: subItem)
+          ForEach(subItems.indices, id: \.self) { index in
+            InternalBlockQuoteView(item: subItems[index])
               .fixedSize(horizontal: false, vertical: true)
           }
           .fixedSize(horizontal: false, vertical: true)
@@ -61,7 +61,7 @@ struct QuoteTextView: View {
   var body: some View {
     Text(text)
       .font(config.blockQuoteStyle.textFonts)
-      .foregroundStyle(Color(config.blockQuoteStyle.textColor))
+      .foregroundStyle(config.blockQuoteStyle.textColor)
       .padding(.vertical, 4.0)
       .fixedSize(horizontal: false, vertical: true)
   }

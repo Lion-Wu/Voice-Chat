@@ -8,6 +8,8 @@ import SwiftUI
 
 struct BlockView: View {
 
+  @Environment(\.markdownConfig) var config: MarkdownRenderConfig
+
   let renderables: [MarkdownRenderable]
 
   init(renderables: [MarkdownRenderable]) {
@@ -15,7 +17,7 @@ struct BlockView: View {
   }
 
   var body: some View {
-    VStack(alignment: .leading, spacing: 30) {
+    VStack(alignment: .leading, spacing: config.blockSpacing) {
       ForEach(renderables) { renderable in
         SingleBlockView(renderable: renderable)
       }
@@ -55,8 +57,8 @@ struct SingleBlockView: View {
           HStack(spacing: 0) {
             BlockMathView(
               latex: latexString,
-              color: Color(config.paragraphStyle.textColor),
-              pointSize: config.paragraphStyle.textFonts.normal.pointSize
+              color: config.paragraphStyle.textColor,
+              colorScheme: config.colorScheme
             )
             Spacer()
           }
@@ -67,8 +69,7 @@ struct SingleBlockView: View {
         UnorderedListView(items: items, nestedLevel: nestedLevel)
       case .codeBlock(_, let language, let code):
         CodeBlockView(language: language ?? "",
-                      code: code,
-                      searchHighlightQuery: config.searchHighlightQuery)
+                      code: code)
       case .thematicBreak:
         ThematicBreakView()
       case .table(_, let headers, let rows, let rawMarkdown):
@@ -77,6 +78,9 @@ struct SingleBlockView: View {
                   rawMarkdown: rawMarkdown)
       case .blockQuote(_, let item):
         BlockQuoteView(item: item)
+      case .image(let id, let data):
+        BlockImageView(data: data)
+          .id(id)
       }
     }
   }

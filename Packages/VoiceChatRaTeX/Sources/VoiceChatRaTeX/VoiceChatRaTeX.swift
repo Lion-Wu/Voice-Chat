@@ -1,10 +1,6 @@
 import CoreGraphics
 import Foundation
 
-#if os(iOS) && canImport(RaTeXFFI)
-import RaTeXFFI
-#endif
-
 #if canImport(JavaScriptCore)
 import JavaScriptCore
 #endif
@@ -26,7 +22,8 @@ public struct VoiceChatRaTeXColor: Hashable, Sendable {
         let r = Int((red * 255).rounded())
         let g = Int((green * 255).rounded())
         let b = Int((blue * 255).rounded())
-        return String(format: "#%02X%02X%02X", r, g, b)
+        let a = Int((alpha * 255).rounded())
+        return String(format: "#%02X%02X%02X%02X", r, g, b, a)
     }
 
     var displayListColor: RaTeXDisplayColor {
@@ -39,7 +36,30 @@ public struct VoiceChatRaTeXColor: Hashable, Sendable {
     }
 }
 
-public final class VoiceChatRaTeXFormula: @unchecked Sendable {
+public enum VoiceChatRaTeXVersion {
+    public static let upstream = "0.1.13"
+}
+
+public struct VoiceChatRaTeXRenderConfiguration: Hashable, Sendable {
+    public let latex: String
+    public let displayMode: Bool
+    public let fontSize: CGFloat
+    public let color: VoiceChatRaTeXColor
+
+    public init(
+        latex: String,
+        displayMode: Bool,
+        fontSize: CGFloat,
+        color: VoiceChatRaTeXColor
+    ) {
+        self.latex = latex
+        self.displayMode = displayMode
+        self.fontSize = fontSize
+        self.color = color
+    }
+}
+
+public final class VoiceChatRaTeXFormula: Sendable {
     private let renderer: RaTeXDisplayListRenderer
 
     public var width: CGFloat {
@@ -65,12 +85,16 @@ public final class VoiceChatRaTeXFormula: @unchecked Sendable {
     public func draw(in context: CGContext) {
         renderer.draw(in: context)
     }
+
+    fileprivate var cacheCost: Int {
+        renderer.displayList.items.count + renderer.displayList.pathCommandCount
+    }
 }
 
-public final class VoiceChatRaTeXEngine: @unchecked Sendable {
+public final class VoiceChatRaTeXEngine: Sendable {
     public static let shared = VoiceChatRaTeXEngine()
 
-    private let nativeLock = NSLock()
+    private let renderPipeline = VoiceChatRaTeXRenderPipeline()
 
     private init() {}
 
@@ -80,24 +104,63 @@ public final class VoiceChatRaTeXEngine: @unchecked Sendable {
         fontSize: CGFloat,
         color: VoiceChatRaTeXColor
     ) -> VoiceChatRaTeXFormula? {
-        guard fontSize.isFinite, fontSize > 0 else { return nil }
-        guard latex.utf8.count <= VoiceChatRaTeXRenderLimits.maxLatexUTF8Bytes else { return nil }
+        render(
+            VoiceChatRaTeXRenderConfiguration(
+                latex: latex,
+                displayMode: displayMode,
+                fontSize: fontSize,
+                color: color
+            )
+        )
+    }
+
+    public func render(
+        _ configuration: VoiceChatRaTeXRenderConfiguration
+    ) -> VoiceChatRaTeXFormula? {
+        Self.renderUncached(configuration)
+    }
+
+    public func renderAsynchronously(
+        _ configuration: VoiceChatRaTeXRenderConfiguration
+    ) async -> VoiceChatRaTeXFormula? {
+        await renderPipeline.render(configuration)
+    }
+
+    fileprivate static func renderUncached(
+        _ configuration: VoiceChatRaTeXRenderConfiguration
+    ) -> VoiceChatRaTeXFormula? {
+        guard configuration.fontSize.isFinite, configuration.fontSize > 0 else {
+            return nil
+        }
+        guard configuration.latex.utf8.count <= VoiceChatRaTeXRenderLimits.maxLatexUTF8Bytes else {
+            return nil
+        }
         guard let displayList = parseDisplayList(
-            latex: latex,
-            displayMode: displayMode,
-            color: color
+            latex: configuration.latex,
+            displayMode: configuration.displayMode,
+            color: configuration.color
         ) else {
             return nil
         }
-        guard Self.isSafeDisplayList(displayList, fontSize: fontSize) else { return nil }
-        let normalizedDisplayList = Self.normalizedDefaultFrameColorIfNeeded(
+        guard isSafeDisplayList(displayList, fontSize: configuration.fontSize) else {
+            return nil
+        }
+        let normalizedDisplayList = normalizedDefaultFrameColorIfNeeded(
             in: displayList,
-            latex: latex,
-            color: color
+            latex: configuration.latex,
+            color: configuration.color
         )
-        guard Self.isSafeDisplayList(normalizedDisplayList, fontSize: fontSize) else { return nil }
+        guard isSafeDisplayList(
+            normalizedDisplayList,
+            fontSize: configuration.fontSize
+        ) else {
+            return nil
+        }
         RaTeXFontLoader.ensureLoaded()
-        return VoiceChatRaTeXFormula(displayList: normalizedDisplayList, fontSize: fontSize)
+        return VoiceChatRaTeXFormula(
+            displayList: normalizedDisplayList,
+            fontSize: configuration.fontSize
+        )
     }
 
     private static func normalizedDefaultFrameColorIfNeeded(
@@ -139,21 +202,11 @@ public final class VoiceChatRaTeXEngine: @unchecked Sendable {
         )
     }
 
-    private func parseDisplayList(
+    private static func parseDisplayList(
         latex: String,
         displayMode: Bool,
         color: VoiceChatRaTeXColor
     ) -> RaTeXDisplayList? {
-        #if os(iOS) && canImport(RaTeXFFI)
-        if let displayList = try? parseNativeDisplayList(
-            latex: latex,
-            displayMode: displayMode,
-            color: color
-        ) {
-            return displayList
-        }
-        #endif
-
         #if canImport(JavaScriptCore)
         let wasmLatex = displayMode ? latex : #"\textstyle{\#(latex)}"#
         return try? RaTeXWasmRuntime.shared.parseDisplayList(
@@ -165,54 +218,8 @@ public final class VoiceChatRaTeXEngine: @unchecked Sendable {
         #endif
     }
 
-    #if os(iOS) && canImport(RaTeXFFI)
-    private func parseNativeDisplayList(
-        latex: String,
-        displayMode: Bool,
-        color: VoiceChatRaTeXColor
-    ) throws -> RaTeXDisplayList {
-        nativeLock.lock()
-        defer { nativeLock.unlock() }
-
-        var ffiColor = RatexColor(
-            r: Float(color.red),
-            g: Float(color.green),
-            b: Float(color.blue),
-            a: Float(color.alpha)
-        )
-        let result = withUnsafePointer(to: &ffiColor) { colorPointer in
-            var options = RatexOptions(
-                struct_size: MemoryLayout<RatexOptions>.size,
-                display_mode: displayMode ? 1 : 0,
-                color: colorPointer
-            )
-            return ratex_parse_and_layout(latex, &options)
-        }
-
-        guard result.error_code == 0, let pointer = result.data else {
-            if let errorPointer = ratex_get_last_error() {
-                throw VoiceChatRaTeXError.parse(String(cString: errorPointer))
-            }
-            throw VoiceChatRaTeXError.parse("RaTeX returned no display list")
-        }
-        defer { ratex_free_display_list(pointer) }
-
-        return try Self.decodeDisplayList(fromCString: pointer)
-    }
-    #endif
-
     fileprivate static func decodeDisplayList(from json: String) throws -> RaTeXDisplayList {
         try decodeDisplayList(from: Data(json.utf8))
-    }
-
-    private static func decodeDisplayList(fromCString pointer: UnsafePointer<CChar>) throws -> RaTeXDisplayList {
-        guard let byteCount = boundedCStringUTF8ByteCount(
-            pointer,
-            maxBytes: VoiceChatRaTeXRenderLimits.maxDisplayListJSONBytes
-        ) else {
-            throw VoiceChatRaTeXError.parse("RaTeX display list exceeded the maximum allowed size")
-        }
-        return try decodeDisplayList(from: Data(bytes: pointer, count: byteCount))
     }
 
     private static func decodeDisplayList(from data: Data) throws -> RaTeXDisplayList {
@@ -220,17 +227,6 @@ public final class VoiceChatRaTeXEngine: @unchecked Sendable {
             throw VoiceChatRaTeXError.parse("RaTeX display list exceeded the maximum allowed size")
         }
         return try JSONDecoder().decode(RaTeXDisplayList.self, from: data)
-    }
-
-    private static func boundedCStringUTF8ByteCount(_ pointer: UnsafePointer<CChar>, maxBytes: Int) -> Int? {
-        var count = 0
-        while count <= maxBytes {
-            if pointer[count] == 0 {
-                return count
-            }
-            count += 1
-        }
-        return nil
     }
 
     private static func isSafeDisplayList(_ displayList: RaTeXDisplayList, fontSize: CGFloat) -> Bool {
@@ -259,6 +255,67 @@ public final class VoiceChatRaTeXEngine: @unchecked Sendable {
             totalHeight.isFinite &&
             width <= VoiceChatRaTeXRenderLimits.maxRenderedWidth &&
             totalHeight <= VoiceChatRaTeXRenderLimits.maxRenderedHeight
+    }
+}
+
+private final class VoiceChatRaTeXRenderCacheKey: NSObject {
+    let configuration: VoiceChatRaTeXRenderConfiguration
+
+    init(_ configuration: VoiceChatRaTeXRenderConfiguration) {
+        self.configuration = configuration
+    }
+
+    override var hash: Int {
+        configuration.hashValue
+    }
+
+    override func isEqual(_ object: Any?) -> Bool {
+        guard let other = object as? VoiceChatRaTeXRenderCacheKey else {
+            return false
+        }
+        return configuration == other.configuration
+    }
+}
+
+private final class VoiceChatRaTeXCachedFormula: NSObject {
+    let formula: VoiceChatRaTeXFormula
+
+    init(_ formula: VoiceChatRaTeXFormula) {
+        self.formula = formula
+    }
+}
+
+private actor VoiceChatRaTeXRenderPipeline {
+    private let cache: NSCache<
+        VoiceChatRaTeXRenderCacheKey,
+        VoiceChatRaTeXCachedFormula
+    >
+
+    init() {
+        cache = NSCache()
+        cache.countLimit = 256
+        cache.totalCostLimit = 65_536
+    }
+
+    func render(
+        _ configuration: VoiceChatRaTeXRenderConfiguration
+    ) -> VoiceChatRaTeXFormula? {
+        guard !Task.isCancelled else { return nil }
+
+        let key = VoiceChatRaTeXRenderCacheKey(configuration)
+        if let cached = cache.object(forKey: key) {
+            return cached.formula
+        }
+
+        let formula = VoiceChatRaTeXEngine.renderUncached(configuration)
+        guard !Task.isCancelled, let formula else { return nil }
+
+        cache.setObject(
+            VoiceChatRaTeXCachedFormula(formula),
+            forKey: key,
+            cost: max(1, formula.cacheCost)
+        )
+        return formula
     }
 }
 

@@ -181,42 +181,13 @@ final class ChatViewStateSeamTests: XCTestCase {
         XCTAssertEqual(decision.anchorY, 0.375, accuracy: 0.0001)
     }
 
-    func testChatSearchScrollCoordinatorExtendsLockUntilHardDeadline() throws {
-        let now = TestDate.reference
-        let generation = try XCTUnwrap(UUID(uuidString: "00000000-0000-0000-0000-000000000100"))
-        let lock = ChatSearchScrollCoordinator.makeLock(
-            targetID: UUID(),
-            messageID: UUID(),
-            anchorY: 0.5,
-            now: now,
-            generation: generation,
-            hardDuration: 1.0,
-            settleDuration: 0.2
-        )
+    @MainActor
+    func testVisibleSearchTextUsesStructuredAssistantSegments() {
+        let message = chatMessage(content: "", isUser: false)
+        message.appendAssistantSegment(.reasoning(id: nil, text: "hidden reasoning"))
+        message.appendAssistantSegment(.text(id: nil, text: "visible answer"))
 
-        XCTAssertFalse(ChatSearchScrollCoordinator.shouldContinueReanchoring(
-            lock,
-            now: now.addingTimeInterval(0.25)
-        ))
-
-        let extended = try XCTUnwrap(ChatSearchScrollCoordinator.extendedLockForLayoutChange(
-            lock,
-            now: now.addingTimeInterval(0.3),
-            settleDuration: 0.45
-        ))
-        XCTAssertEqual(extended.settleDeadline, now.addingTimeInterval(0.75))
-        XCTAssertTrue(ChatSearchScrollCoordinator.shouldContinueReanchoring(
-            extended,
-            now: now.addingTimeInterval(0.7)
-        ))
-
-        let capped = try XCTUnwrap(ChatSearchScrollCoordinator.extendedLockForLayoutChange(
-            lock,
-            now: now.addingTimeInterval(0.8),
-            settleDuration: 0.45
-        ))
-        XCTAssertEqual(capped.settleDeadline, lock.hardDeadline)
-        XCTAssertNil(ChatSearchScrollCoordinator.extendedLockForLayoutChange(lock, now: lock.hardDeadline))
+        XCTAssertEqual(ChatView.visibleSearchText(for: message), "visible answer")
     }
 
     func testChatScrollInteractionStateSchedulesAndClearsNavigation() {
@@ -242,7 +213,7 @@ final class ChatViewStateSeamTests: XCTestCase {
         XCTAssertFalse(state.hasSearchInterruption(currentTarget: nil))
     }
 
-    func testChatScrollInteractionStateAppliesDecisionAndClearsForSend() throws {
+    func testChatScrollInteractionStateAppliesDecisionAndClearsForSend() {
         let sessionID = UUID()
         let messageID = UUID()
         let target = ChatSearchNavigationTarget(
@@ -263,22 +234,9 @@ final class ChatViewStateSeamTests: XCTestCase {
         XCTAssertNil(state.pendingSearchScrollTarget)
         XCTAssertEqual(state.activeSearchHighlightMessageID, messageID)
         XCTAssertEqual(state.activeSearchHighlightTargetID, target.id)
-        XCTAssertEqual(state.searchScrollLock?.targetID, target.id)
-        XCTAssertEqual(state.searchScrollLock?.messageID, messageID)
-        XCTAssertEqual(state.searchScrollLock?.anchorY, 0.7)
-        XCTAssertTrue(state.canReanchorSearchScroll(
-            try XCTUnwrap(state.searchScrollLock),
-            visibleMessageIDs: Set([messageID])
-        ))
-        XCTAssertFalse(state.canReanchorSearchScroll(
-            try XCTUnwrap(state.searchScrollLock),
-            visibleMessageIDs: []
-        ))
-
         state.prepareScrollToBottomAfterSend()
 
         XCTAssertNil(state.pendingSearchScrollTarget)
-        XCTAssertNil(state.searchScrollLock)
         XCTAssertEqual(state.activeSearchHighlightTargetID, target.id)
     }
 
@@ -442,6 +400,26 @@ final class ChatViewStateSeamTests: XCTestCase {
         XCTAssertTrue(metrics.shouldTriggerComposerOverflowScroll)
         XCTAssertTrue(metrics.shouldAnchorBottom)
         XCTAssertTrue(state.shouldUseBottomScrollAnchor(messageListBottomInset: 40, threshold: 24))
+    }
+
+    func testTransientStatusNeverAttachesToACompletedHistoricalAssistant() {
+        let historicalAssistant = chatMessage(content: "Earlier answer", isUser: false)
+        historicalAssistant.isActive = false
+        let currentUser = chatMessage(content: "New question")
+
+        XCTAssertNil(ChatInlineStatusHostResolver.resolve(
+            in: [historicalAssistant, currentUser],
+            hasTransientStatus: true
+        ))
+
+        let currentAssistant = chatMessage(content: "", isUser: false)
+        XCTAssertEqual(
+            ChatInlineStatusHostResolver.resolve(
+                in: [historicalAssistant, currentUser, currentAssistant],
+                hasTransientStatus: true
+            ),
+            currentAssistant.id
+        )
     }
 
     func testChatScrollStateSendAfterScrollWaitsForNewVisibleBottomAndProxy() {

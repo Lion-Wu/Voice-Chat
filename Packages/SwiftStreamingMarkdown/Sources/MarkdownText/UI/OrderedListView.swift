@@ -17,7 +17,7 @@ struct OrderedListView: View {
         HStack(alignment: .centerOfFirstLine, spacing: 11) {
           Text(verbatim: "\(idx+1).")
             .font(config.orderedListStyle.textFonts, bold: true)
-            .foregroundStyle(Color(config.orderedListStyle.textColor))
+            .foregroundStyle(config.orderedListStyle.textColor)
             .transition(.opacity)
           if let firstChild = items[idx].children.first {
             if case .paragraph(_, let contents) = firstChild {
@@ -59,7 +59,7 @@ struct ListItemContentWrapper<Content: View>: View {
       }
   }
 
-  private func extractFirstFont() -> UIFont {
+  private func extractFirstFont() -> MDFont {
     // First check if the first character is a citation attachment - use its
     // own font so the alignment guide matches the actual rendered glyph,
     // not a stale default.
@@ -67,10 +67,10 @@ struct ListItemContentWrapper<Content: View>: View {
       return citation.font
     }
     // Otherwise, look for regular font attributes
-    if let font = firstUIFont(in: paragraphContents) {
+    if let font = firstFont(in: paragraphContents) {
       return font
     }
-    return Typography.base.uiFont
+    return Typography.base.mdFont
   }
 
   private func firstCharacterCitationAttachment(in attributedString: NSAttributedString) -> InlineCitationAttachment? {
@@ -78,17 +78,17 @@ struct ListItemContentWrapper<Content: View>: View {
     return attributedString.attribute(.attachment, at: 0, effectiveRange: nil) as? InlineCitationAttachment
   }
 
-  private func firstUIFont(in attributedString: NSAttributedString) -> UIFont? {
+  private func firstFont(in attributedString: NSAttributedString) -> MDFont? {
     guard attributedString.length > 0 else { return nil }
 
     // Fast path: attribute at location 0
-    if let font = attributedString.attribute(.font, at: 0, effectiveRange: nil) as? UIFont {
+    if let font = attributedString.attribute(.font, at: 0, effectiveRange: nil) as? MDFont {
       return font
     }
 
-    var found: UIFont?
+    var found: MDFont?
     attributedString.enumerateAttribute(.font, in: NSRange(location: 0, length: attributedString.length)) { value, _, stop in
-      if let font = value as? UIFont {
+      if let font = value as? MDFont {
         found = font
         stop.pointee = true
       }

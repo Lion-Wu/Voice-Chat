@@ -66,6 +66,7 @@ extension ChatService {
         openAIChatCompletionsReasoningDetails.removeAll(keepingCapacity: true)
         openAIChatCompletionsReasoningText = ""
         pendingToolCalls.removeAll(keepingCapacity: true)
+        generatingToolActivities.removeAll(keepingCapacity: true)
         isToolContinuationStarting = false
         Task { await toolAuthorizationCoordinator.cancelAll() }
         resetPromptToolGate()

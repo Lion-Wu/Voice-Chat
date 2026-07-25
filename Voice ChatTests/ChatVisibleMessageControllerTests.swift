@@ -65,6 +65,73 @@ final class ChatVisibleMessageControllerTests: XCTestCase {
 }
 
 @MainActor
+final class ChatInitialRenderCoordinatorTests: XCTestCase {
+    func testWaitsForEveryRegisteredMarkdownView() {
+        let coordinator = ChatInitialRenderCoordinator()
+        let first = NSObject()
+        let second = NSObject()
+
+        coordinator.begin()
+        coordinator.register(first)
+        coordinator.register(second)
+        coordinator.finishCollecting()
+
+        coordinator.markRendered(first)
+        XCTAssertFalse(coordinator.isReady)
+
+        coordinator.markRendered(second)
+        XCTAssertFalse(coordinator.isReady)
+
+        coordinator.contentDidLayout()
+        XCTAssertTrue(coordinator.isReady)
+    }
+
+    func testCanFinishAfterMarkdownWasLaidOutDuringHydration() {
+        let coordinator = ChatInitialRenderCoordinator()
+        let renderer = NSObject()
+
+        coordinator.begin()
+        coordinator.register(renderer)
+        coordinator.markRendered(renderer)
+        coordinator.contentDidLayout()
+        XCTAssertFalse(coordinator.isReady)
+
+        coordinator.finishCollecting()
+        XCTAssertTrue(coordinator.isReady)
+    }
+
+    func testDoesNotTrackMessagesAddedAfterPresentation() {
+        let coordinator = ChatInitialRenderCoordinator()
+        let streamingRenderer = NSObject()
+
+        coordinator.begin()
+        coordinator.finishCollecting()
+        XCTAssertTrue(coordinator.isReady)
+
+        coordinator.register(streamingRenderer)
+        XCTAssertTrue(coordinator.isReady)
+    }
+
+    func testCanWaitForMarkdownAgainAfterBranchTransition() {
+        let coordinator = ChatInitialRenderCoordinator()
+        let renderer = NSObject()
+
+        coordinator.begin()
+        coordinator.finishCollecting()
+        XCTAssertTrue(coordinator.isReady)
+
+        coordinator.begin()
+        coordinator.register(renderer)
+        coordinator.finishCollecting()
+        coordinator.markRendered(renderer)
+        XCTAssertFalse(coordinator.isReady)
+
+        coordinator.contentDidLayout()
+        XCTAssertTrue(coordinator.isReady)
+    }
+}
+
+@MainActor
 private final class VisibleMessageCountReporter {
     private(set) var counts: [Int] = []
 

@@ -5,50 +5,284 @@
 //  Created by Lion Wu on 2025/9/21.
 //
 
-import SwiftUI
 import SwiftStreamingMarkdown
+import SwiftUI
 
 struct RichMarkdownView: View {
     let markdown: String
     var searchHighlightQuery: String? = nil
-    var animateNewText: Bool = false
-    @StateObject private var source = RichMarkdownSnapshotSource()
-    @Environment(\.sizeCategory) private var sizeCategory
+    var animateNewText = false
 
-    private func renderConfig(sizeCategory: ContentSizeCategory) -> MarkdownRenderConfig {
-        MarkdownRenderConfig.defaultConfig(sizeCategory: sizeCategory)
-            .withShouldAnimateText(value: animateNewText)
-            .withSpeculativeRewrite(value: animateNewText)
-            .withSearchHighlightQuery(value: searchHighlightQuery)
-    }
+    @StateObject private var source = RichMarkdownSnapshotSource()
+    @Environment(\.chatInitialRenderCoordinator) private var initialRenderCoordinator
+    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
-        let renderConfig = renderConfig(sizeCategory: sizeCategory)
-        StreamedMarkdownView(source: source, config: renderConfig)
-            .fixedSize(horizontal: false, vertical: true)
-            .task(id: RenderKey(markdown: markdown, searchHighlightQuery: searchHighlightQuery, animateNewText: animateNewText, sizeCategory: sizeCategory)) {
-                source.send(markdown)
-            }
+        StreamedMarkdownView(
+            source: source,
+            config: renderConfig,
+            onFirstRender: reportInitialRender
+        )
+        .fixedSize(horizontal: false, vertical: true)
+        .onAppear {
+            initialRenderCoordinator?.register(source)
+        }
+        .onDisappear {
+            initialRenderCoordinator?.unregister(source)
+        }
+        .task(id: markdown) {
+            source.send(markdown)
+        }
     }
-}
 
-private struct RenderKey: Hashable {
-    let markdown: String
-    let searchHighlightQuery: String?
-    let animateNewText: Bool
-    let sizeCategory: ContentSizeCategory
+    @MainActor
+    private func reportInitialRender() {
+        initialRenderCoordinator?.markRendered(source)
+    }
+
+    private var renderConfig: MarkdownRenderConfig {
+        let defaults = MarkdownRenderConfig.default
+        let primaryForegroundColor = platformPrimaryForegroundColor
+        return MarkdownRenderConfig(
+            shouldAnimateText: animateNewText,
+            colorScheme: colorScheme,
+            blockQuoteStyle: .init(
+                textFonts: defaults.blockQuoteStyle.textFonts,
+                textColor: primaryForegroundColor
+            ),
+            headingStyle: .init(
+                h1Font: defaults.headingStyle.h1Font,
+                h2Font: defaults.headingStyle.h2Font,
+                h3Font: defaults.headingStyle.h3Font,
+                h4Font: defaults.headingStyle.h4Font,
+                h5Font: defaults.headingStyle.h5Font,
+                h6Font: defaults.headingStyle.h6Font,
+                textColor: primaryForegroundColor
+            ),
+            orderedListStyle: .init(
+                textFonts: defaults.orderedListStyle.textFonts,
+                textColor: primaryForegroundColor
+            ),
+            paragraphStyle: .init(
+                textFonts: defaults.paragraphStyle.textFonts,
+                textColor: primaryForegroundColor
+            ),
+            tableStyle: .init(
+                textFonts: defaults.tableStyle.textFonts,
+                headerTextColor: primaryForegroundColor,
+                regularTextColor: primaryForegroundColor,
+                headerBackgroundColor: tableHeaderBackgroundColor,
+                borderColor: borderColor,
+                actionButtonColor: secondaryForegroundColor
+            ),
+            inlineStyle: .init(
+                boldTextColor: primaryForegroundColor,
+                linkTextFont: defaults.inlineStyle.linkTextFont,
+                linkTextColor: linkColor,
+                codeTextFont: defaults.inlineStyle.codeTextFont,
+                codeTextColor: primaryForegroundColor,
+                codeBackgroundColor: tableHeaderBackgroundColor,
+                codeUnderlineColor: codeHeaderForegroundColor
+            ),
+            citationConfig: .init(
+                coder: defaults.citationConfig.coder,
+                font: defaults.citationConfig.font,
+                textColor: primaryForegroundColor,
+                backgroundColor: citationBackgroundColor
+            ),
+            codeBlockConfig: CodeBlockConfig(
+                theme: .xcode,
+                backgroundColor: codeBlockBackgroundColor,
+                foregroundColor: codeHeaderForegroundColor
+            ),
+            blockSpacing: MarkdownRenderConfig.defaultBlockSpacing,
+            textSelectionConfig: TextSelectionConfig(isEnabled: true),
+            thematicBreakColor: thematicBreakColor,
+            searchHighlightQuery: searchHighlightQuery
+        )
+    }
+
+    /// Keep attachment colors static at the render boundary. Dynamic platform
+    /// colors can lose their appearance when bridged through SwiftUI and back.
+    private var platformPrimaryForegroundColor: Color {
+        colorScheme == .dark ? .white : .black
+    }
+
+    private var linkColor: Color {
+        color(
+            light: (0, 109, 204),
+            dark: (88, 166, 255)
+        )
+    }
+
+    private var tableHeaderBackgroundColor: Color {
+        color(
+            light: (244, 245, 247),
+            dark: (42, 44, 48)
+        )
+    }
+
+    private var borderColor: Color {
+        color(
+            light: (218, 221, 227),
+            dark: (58, 61, 66)
+        )
+    }
+
+    private var thematicBreakColor: Color {
+        color(
+            light: (201, 205, 212),
+            dark: (70, 74, 80)
+        )
+    }
+
+    private var secondaryForegroundColor: Color {
+        color(
+            light: (85, 91, 97),
+            dark: (201, 205, 210)
+        )
+    }
+
+    private var codeBlockBackgroundColor: Color {
+        color(
+            light: (224, 227, 232),
+            dark: (36, 38, 42)
+        )
+    }
+
+    private var codeHeaderForegroundColor: Color {
+        color(
+            light: (138, 143, 152),
+            dark: (156, 163, 175)
+        )
+    }
+
+    private var citationBackgroundColor: Color {
+        Color.primary.opacity(colorScheme == .dark ? 0.08 : 0.05)
+    }
+
+    private func color(
+        light: (Double, Double, Double),
+        dark: (Double, Double, Double)
+    ) -> Color {
+        let components = colorScheme == .dark ? dark : light
+        return Color(
+            red: components.0 / 255,
+            green: components.1 / 255,
+            blue: components.2 / 255
+        )
+    }
 }
 
 @MainActor
-private final class RichMarkdownSnapshotSource: ObservableObject, @preconcurrency StreamedMarkdownSource {
-    private static let coalescingDelayNanoseconds: UInt64 = 16_000_000
+final class ChatInitialRenderCoordinator: ObservableObject {
+    @Published private(set) var isReady = false
+
+    private var isCollecting = false
+    private var renderers: Set<ObjectIdentifier> = []
+    private var rendered: Set<ObjectIdentifier> = []
+    private var layoutRevision: UInt64 = 0
+    private var requiredLayoutRevision: UInt64?
+
+    func begin() {
+        isCollecting = true
+        renderers.removeAll(keepingCapacity: true)
+        rendered.removeAll(keepingCapacity: true)
+        requiredLayoutRevision = nil
+        isReady = false
+    }
+
+    func register(_ renderer: AnyObject) {
+        guard !isReady else { return }
+        if renderers.insert(ObjectIdentifier(renderer)).inserted {
+            requiredLayoutRevision = nil
+        }
+    }
+
+    func unregister(_ renderer: AnyObject) {
+        guard !isReady else { return }
+        let identifier = ObjectIdentifier(renderer)
+        renderers.remove(identifier)
+        rendered.remove(identifier)
+        requiredLayoutRevision = nil
+        resolveIfReady()
+    }
+
+    func markRendered(_ renderer: AnyObject) {
+        guard !isReady else { return }
+        let identifier = ObjectIdentifier(renderer)
+        renderers.insert(identifier)
+        rendered.insert(identifier)
+        requiredLayoutRevision = nil
+        resolveIfReady()
+    }
+
+    func finishCollecting() {
+        guard isCollecting else { return }
+        isCollecting = false
+        resolveIfReady()
+    }
+
+    func contentDidLayout() {
+        guard !isReady else { return }
+        layoutRevision &+= 1
+        resolveIfReady()
+    }
+
+    private func resolveIfReady() {
+        guard rendered.isSuperset(of: renderers) else {
+            return
+        }
+        if renderers.isEmpty {
+            if !isCollecting {
+                complete()
+            }
+            return
+        }
+        if requiredLayoutRevision == nil {
+            requiredLayoutRevision = layoutRevision &+ 1
+        }
+        guard !isCollecting,
+              let requiredLayoutRevision,
+              layoutRevision >= requiredLayoutRevision else {
+            return
+        }
+        complete()
+    }
+
+    private func complete() {
+        isReady = true
+        renderers.removeAll(keepingCapacity: true)
+        rendered.removeAll(keepingCapacity: true)
+        requiredLayoutRevision = nil
+    }
+}
+
+private struct ChatInitialRenderCoordinatorKey: EnvironmentKey {
+    static let defaultValue: ChatInitialRenderCoordinator? = nil
+}
+
+extension EnvironmentValues {
+    var chatInitialRenderCoordinator: ChatInitialRenderCoordinator? {
+        get { self[ChatInitialRenderCoordinatorKey.self] }
+        set { self[ChatInitialRenderCoordinatorKey.self] = newValue }
+    }
+}
+
+@MainActor
+private final class RichMarkdownSnapshotSource:
+    ObservableObject,
+    StreamedMarkdownSource
+{
     private var latestMarkdown: String?
-    private var pendingMarkdown: String?
-    private var flushTask: Task<Void, Never>?
-    private var continuations: [UUID: AsyncStream<String>.Continuation] = [:]
+    private var continuations: [
+        UUID: AsyncStream<String>.Continuation
+    ] = [:]
 
     var text: AsyncStream<String> {
-        AsyncStream(bufferingPolicy: .bufferingNewest(1)) { continuation in
+        AsyncStream(
+            bufferingPolicy: .bufferingNewest(1)
+        ) { continuation in
             let id = UUID()
             continuations[id] = continuation
             if let latestMarkdown {
@@ -63,276 +297,12 @@ private final class RichMarkdownSnapshotSource: ObservableObject, @preconcurrenc
     }
 
     deinit {
-        flushTask?.cancel()
         continuations.values.forEach { $0.finish() }
     }
 
     func send(_ markdown: String) {
-        guard markdown != latestMarkdown else {
-            return
-        }
-        let shouldYieldImmediately = latestMarkdown == nil
+        guard markdown != latestMarkdown else { return }
         latestMarkdown = markdown
-        if shouldYieldImmediately {
-            yield(markdown)
-            return
-        }
-
-        pendingMarkdown = markdown
-        guard flushTask == nil else {
-            return
-        }
-        flushTask = Task { @MainActor in
-            try? await Task.sleep(nanoseconds: Self.coalescingDelayNanoseconds)
-            guard !Task.isCancelled else { return }
-            let markdown = pendingMarkdown
-            pendingMarkdown = nil
-            flushTask = nil
-            if let markdown {
-                yield(markdown)
-            }
-        }
-    }
-
-    private func yield(_ markdown: String) {
         continuations.values.forEach { $0.yield(markdown) }
     }
 }
-
-#if DEBUG
-private enum RichMarkdownPreviewSamples {
-    static let smoke = #"""
-    Inline: $\dfrac{a}{b}$, $\sqrt{1+x^2}$, $\sqrt[3]{1+x^2}$, $\left\{x \middle| x>0\right\}$, $\binom{n}{k}$.
-
-    \[
-    \begin{align}
-    y&=\frac{1}{1+x}\\
-    z&=\sum_{\begin{subarray}{c}1\le i\le n\\i\text{ odd}\end{subarray}} i
-    \end{align}
-    \]
-
-    \[
-    \sqrt[n]{a^2+b^2}
-    \]
-
-    \[
-    A=\begin{pmatrix}
-    1 & 2 \\
-    3 & 4
-    \end{pmatrix},
-    \qquad
-    f(x)=\begin{cases}
-    x^2, & x\ge 0 \\
-    -x, & x<0
-    \end{cases}
-    \]
-
-    \[
-    \begin{array}{|r|c|l|}
-    \hline
-    \alpha & \beta & \gamma \\
-    \hline
-    1 & 0 & -1 \\
-    \hline
-    \end{array}
-    \]
-
-    \[
-    \overbrace{a+b+\cdots+z}^{26\text{ terms}}
-    \xrightarrow[\ n\to\infty\ ]{\text{dominated}}
-    \underline{\limsup_{n\to\infty} x_n}
-    \]
-
-    \[
-    \begin{gathered}
-    \operatorname*{argmax}_{x\in\mathbb{R}^n}\mathcal{L}(x)\\
-    \left\|Ax-b\right\|_2 \le \varepsilon,\quad \mathfrak{g}\subset\mathbb{C}
-    \end{gathered}
-    \]
-
-    \[
-    \begin{multline}
-    a_1+\cdots+a_n+b_1+\cdots+b_n\\
-    = c_1+\cdots+c_n
-    \end{multline}
-    \]
-    """#
-
-    static let alignmentGallery = #"""
-    Alignment environments:
-
-    \[
-    \begin{align}
-    f(x)&=x^3+2x^2-1\\
-    f'(x)&=3x^2+4x\\
-    \int_0^1 f(x)\,dx&=\frac{11}{6}
-    \end{align}
-    \]
-
-    \[
-    \begin{alignedat}{2}
-    x_1&=a+b+c, &\qquad y_1&=\sqrt{1+t^2}\\
-    x_2&=\frac{1}{1+t}, & y_2&=\sum_{k=1}^{n} k
-    \end{alignedat}
-    \]
-
-    \[
-    \begin{split}
-    \mathcal{L}(x)
-    &= \sum_{i=1}^{n} (Ax-b)_i^2 \\
-    &= \left\|Ax-b\right\|_2^2 + \lambda \left\|x\right\|_1
-    \end{split}
-    \]
-
-    \[
-    \begin{gathered}
-    \lim_{n\to\infty} a_n = 0\\
-    \operatorname*{argmax}_{x\in\mathbb{R}^m}\mathcal{J}(x)
-    \end{gathered}
-    \]
-
-    \[
-    \begin{multline}
-    a_1+a_2+\cdots+a_n+b_1+b_2+\cdots+b_n+c_1+c_2+\cdots+c_n\\
-    = d_1+d_2+\cdots+d_n
-    \end{multline}
-    \]
-    """#
-
-    static let delimiterAndMatrixGallery = #"""
-    Delimiters, matrices, and piecewise forms:
-
-    Inline:
-    $\langle x,y\rangle$,
-    $\lvert x\rvert \le \lVert A\rVert$,
-    $\lceil \frac{n}{2} \rceil$,
-    $\lfloor \frac{n-1}{2} \rfloor$,
-    $\lbrace a,b,c \rbrace$,
-    $\sqrt{x^2+y^2}$.
-
-    \[
-    \left\langle \frac{x+y}{2}, z \right\rangle
-    = \left\lVert \begin{bmatrix}x\\y\end{bmatrix} \right\rVert_2
-    \]
-
-    \[
-    A=\begin{pmatrix}
-    1 & 2 & 3 \\
-    4 & 5 & 6 \\
-    7 & 8 & 9
-    \end{pmatrix},
-    \quad
-    B=\begin{Bmatrix}
-    a & b \\
-    c & d
-    \end{Bmatrix}
-    \]
-
-    \[
-    C=\begin{array}{|r|c|l|}
-    \hline
-    \alpha & \beta & \gamma \\
-    \hline
-    1 & 0 & -1 \\
-    10 & 20 & 300 \\
-    \hline
-    \end{array}
-    \]
-
-    \[
-    f(x)=\begin{cases}
-    \dfrac{x^2-1}{x-1}, & x\ne 1 \\
-    2, & x=1
-    \end{cases}
-    \]
-    """#
-
-    static let markdownLayoutGallery = #"""
-    Mixed Markdown layout:
-
-    Here is an inline formula: when $\sum_{k=1}^{n} k = \frac{n(n+1)}{2}$, write
-    $\overbrace{x_1+\cdots+x_n}^{n\text{ terms}}$,
-    $\underbrace{a_1+\cdots+a_m}_{m\text{ terms}}$,
-    and also allow a wider annotated arrow like $\xrightarrow[\ n\to\infty\ ]{\text{dominated}}$.
-
-    - Block formulas inside lists should keep reasonable scaling and centering:
-
-      \[
-      \begin{aligned}
-      p(x)&=\prod_{i=1}^{m}(x-\lambda_i)\\
-      p'(x)&=\sum_{j=1}^{m}\prod_{i\ne j}(x-\lambda_i)
-      \end{aligned}
-      \]
-
-    - The second item tests matrices and braces:
-
-      \[
-      \left\{
-      \begin{aligned}
-      u_t-\Delta u &= 0\\
-      u|_{\partial\Omega} &= 0
-      \end{aligned}
-      \right.
-      \]
-
-    Also test a long formula block in a narrow layout:
-
-    \[
-    \begin{gathered}
-    \int_{\Omega} \nabla u \cdot \nabla v \, dx = \lambda \int_{\Omega} uv \, dx\\
-    \Pr(X\mid Y) = \frac{\Pr(Y\mid X)\Pr(X)}{\Pr(Y)}
-    \end{gathered}
-    \]
-
-    Regular text after the table should not inherit the centered formula styling, and this final sentence should return to natural left alignment.
-    """#
-}
-
-#Preview {
-    RichMarkdownView(markdown: """
-    # Rich Markdown
-
-    This view renders **Markdown** with inline `code`, lists, and tables.
-
-    - Item 1
-    - Item 2
-
-    > Block quote
-
-    ```swift
-    struct Hello { let value = 42 }
-    ```
-    """)
-    .padding()
-    .background(AppBackgroundView())
-    .frame(maxWidth: 520)
-}
-
-#Preview("Markdown Smoke", traits: .sizeThatFitsLayout) {
-    RichMarkdownView(markdown: RichMarkdownPreviewSamples.smoke)
-        .padding(20)
-        .background(AppBackgroundView())
-        .frame(width: 520, alignment: .leading)
-}
-
-#Preview("Math Alignment Gallery", traits: .fixedLayout(width: 560, height: 780)) {
-    RichMarkdownView(markdown: RichMarkdownPreviewSamples.alignmentGallery)
-        .padding(20)
-        .background(AppBackgroundView())
-        .frame(width: 560, alignment: .leading)
-}
-
-#Preview("Delimiters And Matrices", traits: .fixedLayout(width: 560, height: 880)) {
-    RichMarkdownView(markdown: RichMarkdownPreviewSamples.delimiterAndMatrixGallery)
-        .padding(20)
-        .background(AppBackgroundView())
-        .frame(width: 560, alignment: .leading)
-}
-
-#Preview("Markdown Math Layout Narrow", traits: .fixedLayout(width: 420, height: 820)) {
-    RichMarkdownView(markdown: RichMarkdownPreviewSamples.markdownLayoutGallery)
-        .padding(20)
-        .background(AppBackgroundView())
-        .frame(width: 420, alignment: .leading)
-}
-#endif

@@ -7,106 +7,48 @@ import Foundation
 import HighlightSwift
 import SwiftUI
 
-#if os(macOS)
-import AppKit
-#else
-import UIKit
-#endif
-
-private actor HighlightTaskManager {
-  private var latestRequest: CodeHighlightRequest?
-  private var isProcessing = false
-
-  func enqueue(
-    _ request: CodeHighlightRequest,
-    completion: @escaping @MainActor (CodeHighlightRequest, AttributedString) -> Void
-  ) {
-    latestRequest = request
-
-    guard !isProcessing else {
-      return
-    }
-
-    Task {
-      await processQueue(completion: completion)
-    }
-  }
-
-  private func processQueue(
-    completion: @escaping @MainActor (CodeHighlightRequest, AttributedString) -> Void
-  ) async {
-    guard !isProcessing else { return }
-
-    isProcessing = true
-
-    while let request = latestRequest {
-      latestRequest = nil
-
-      let highlighted = await SharedHighlightRenderer.shared.highlight(request)
-      let result = (highlighted?.sanitizedForMarkdownDrawing() ?? AttributedString(request.code))
-        .applyingSearchHighlight(query: request.searchHighlightQuery)
-
-      await MainActor.run {
-        completion(request, result)
-      }
-    }
-
-    isProcessing = false
-  }
-}
-
-private actor SharedHighlightRenderer {
-  static let shared = SharedHighlightRenderer()
-
-  /// Shared Highlight instance to avoid creating multiple JSContext/HLJS instances.
-  /// Each Highlight() creates its own JSContext and evaluates highlight.min.js (~600KB).
-  /// All calls are serialized through this actor because the underlying JSContext
-  /// should not be driven concurrently by multiple code block views.
-  private let highlighter = Highlight()
-
-  func highlight(_ request: CodeHighlightRequest) async -> AttributedString? {
-    try? await highlighter.attributedText(
-      request.code,
-      colors: .custom(css: request.css, background: "")
-    )
-  }
-}
-
 struct CodeBlockView: View {
+
+  @Environment(\.markdownConfig) private var config: MarkdownRenderConfig
   @Environment(\.colorScheme) private var colorScheme
-  @Environment(\.markdownConfig) private var config
 
   let language: String
   let code: String
-  let searchHighlightQuery: String?
   let onCodeCopied: (() -> Void)?
 
-  @State var copied: Bool = false
-  @State var attributedString: AttributedString?
-  @State private var taskManager = HighlightTaskManager()
+  @State private var copied = false
+  @State private var highlightedCode: HighlightedCode?
+
+  init(language: String, code: String, onCodeCopied: (() -> Void)? = nil) {
+    self.language = language
+    self.code = code
+    self.onCodeCopied = onCodeCopied
+  }
 
   private var highlightRequest: CodeHighlightRequest {
     CodeHighlightRequest(
       code: code,
-      css: Self.syntaxHighlightingCss(for: colorScheme),
-      searchHighlightQuery: searchHighlightQuery
+      colors: config.codeBlockConfig.theme.highlightColors(for: colorScheme),
+      searchHighlightQuery: config.searchHighlightQuery
     )
   }
 
-  init(language: String, code: String, searchHighlightQuery: String? = nil, onCodeCopied: (() -> Void)? = nil) {
-    self.language = language
-    self.code = code
-    self.searchHighlightQuery = searchHighlightQuery
-    self.onCodeCopied = onCodeCopied
+  private var displayedCode: AttributedString {
+    let request = highlightRequest
+    if highlightedCode?.request == request {
+      return highlightedCode?.content ?? AttributedString(code)
+    }
+    return AttributedString(code).applyingSearchHighlight(
+      query: request.searchHighlightQuery
+    )
   }
 
-  private func updateAttributedString(for request: CodeHighlightRequest) async {
-    await taskManager.enqueue(request) { completedRequest, newAttributedString in
-      guard completedRequest == self.highlightRequest else {
-        return
-      }
-      self.attributedString = newAttributedString
-    }
+  private var backgroundColor: Color? {
+    config.codeBlockConfig.backgroundColor
+  }
+
+  private var foregroundColor: Color {
+    config.codeBlockConfig.foregroundColor ?? Color.Static.Stone.Stone350
   }
 
   @ViewBuilder
@@ -114,13 +56,13 @@ struct CodeBlockView: View {
     ScrollView(.horizontal) {
       HStack(alignment: .top) {
         if #available(iOS 16.1, *) {  // Minimum version for HighlightSwift
-          Text(attributedString ?? AttributedString(code))
-            .font(Font(config.inlineStyle.codeTextFont))
+          Text(displayedCode)
+            .font(Typography.codeTextFonts)
             .transition(.opacity)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
           Text(code)
-            .font(Font(config.inlineStyle.codeTextFont))
+            .font(Typography.codeTextFonts)
             .foregroundStyle(Color.Theme.Component.CodeBlock.Foreground.FunctionParameter)
             .transition(.opacity)
         }
@@ -138,19 +80,25 @@ struct CodeBlockView: View {
     VStack(spacing: 0) {
       HStack(alignment: .top) {
         Text(language)
-          .font(Typography.smallTextFonts(sizeCategory: config.sizeCategory))
-          .foregroundStyle(Color.Static.Stone.Stone350)
+          .font(Typography.smallTextFonts)
+          .foregroundStyle(foregroundColor)
         Spacer()
         HStack(alignment: .firstTextBaseline, spacing: 6.0) {
-          Image(systemName: copied ? "checkmark" : "doc.on.doc")
-            .foregroundStyle(Color.Static.Stone.Stone350)
+          Image("copyIcon14", bundle: .module)
+            .renderingMode(.template)
+            .foregroundStyle(foregroundColor)
           Text(copied ? String.codeCopiedLabel : String.codeCopyLabel)
             .accessibilityAddTraits(.isButton)
-            .font(Typography.smallTextFonts(sizeCategory: config.sizeCategory))
-            .foregroundStyle(Color.Static.Stone.Stone350)
+            .font(Typography.smallTextFonts)
+            .foregroundStyle(foregroundColor)
             .onTapGesture {
               copied = true
-              writeCodeToPasteboard(code)
+              #if canImport(UIKit)
+              UIPasteboard.general.string = code
+              #elseif canImport(AppKit)
+              NSPasteboard.general.clearContents()
+              NSPasteboard.general.setString(code, forType: .string)
+              #endif
               if let onCodeCopied {
                 onCodeCopied()
               }
@@ -160,7 +108,7 @@ struct CodeBlockView: View {
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
         .background(
-          Color.Theme.Component.CodeBlock.Background.Background750
+          backgroundColor
             .clipShape(.rect(
               topLeadingRadius: 20,
               bottomLeadingRadius: 0,
@@ -171,43 +119,50 @@ struct CodeBlockView: View {
       codeblock
         .fixedSize(horizontal: false, vertical: true)
         .scrollIndicators(.automatic)
-        .background(Color.Theme.Component.CodeBlock.Background.Background750
-          .clipShape(.rect(
-            topLeadingRadius: 0,
-            bottomLeadingRadius: 20,
-            bottomTrailingRadius: 20,
-            topTrailingRadius: 0
-          ))
-        )
-    }
-    .task(id: copied) {
-      guard copied else {
-        return
-      }
-      do {
-        try await Task.sleep(seconds: 3)
-        copied = false
-      } catch {}
+        .if(backgroundColor != nil, content: { view in
+          let color = backgroundColor ?? Color.clear
+          return view.background(color
+            .clipShape(.rect(
+              topLeadingRadius: 0,
+              bottomLeadingRadius: 20,
+              bottomTrailingRadius: 20,
+              topTrailingRadius: 0
+            ))
+          )
+        })
     }
     .task(id: highlightRequest) {
-      await updateAttributedString(for: highlightRequest)
+      guard #available(iOS 16.1, *) else { return }
+      let request = highlightRequest
+      guard let highlighted = try? await HighlightTaskManager.shared.highlight(
+        code: request.code,
+        colors: request.colors
+      ), !Task.isCancelled else { return }
+      highlightedCode = HighlightedCode(
+        request: request,
+        content: highlighted.applyingSearchHighlight(
+          query: request.searchHighlightQuery
+        )
+      )
+    }
+    .task(id: copied) {
+      guard copied else { return }
+      try? await Task.sleep(for: .seconds(3))
+      guard !Task.isCancelled else { return }
+      copied = false
     }
   }
 }
 
 private struct CodeHighlightRequest: Hashable, Sendable {
   let code: String
-  let css: String
+  let colors: HighlightColors
   let searchHighlightQuery: String?
 }
 
-private func writeCodeToPasteboard(_ code: String) {
-  #if os(macOS)
-  NSPasteboard.general.clearContents()
-  NSPasteboard.general.setString(code, forType: .string)
-  #else
-  UIPasteboard.general.string = code
-  #endif
+private struct HighlightedCode {
+  let request: CodeHighlightRequest
+  let content: AttributedString
 }
 
 #if DEBUG

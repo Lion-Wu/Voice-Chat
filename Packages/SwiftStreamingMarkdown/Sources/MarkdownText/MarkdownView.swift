@@ -5,15 +5,16 @@
 
 import Foundation
 import SwiftUI
+import Equatable
 
 /// This is a view that is able to both parse and render markdown with default configuration.
 /// Use this view instead of `DocumentView` if you don't want to perform the parsing yourself.
+@Equatable
 public struct MarkdownView: View {
 
   private let text: String
   private let config: MarkdownRenderConfig
   @StateObject var controller: MarkdownViewController
-  @Environment(\.colorScheme) private var colorScheme
 
   /// Create a `MarkdownView`.
   /// - Parameters:
@@ -31,23 +32,17 @@ public struct MarkdownView: View {
   }
 
   public var body: some View {
-    let resolvedConfig = config.withColorScheme(value: colorScheme)
     Group {
       if let renderable = controller.renderable {
-        DocumentView(renderableDocument: renderable, config: resolvedConfig, listener: controller.listener)
+        DocumentView(renderableDocument: renderable, config: config, listener: controller.listener)
       } else {
-        DocumentView(renderableDocument: .empty, config: resolvedConfig, listener: controller.listener)
+        DocumentView(renderableDocument: .empty, config: config, listener: controller.listener)
       }
     }
-    .task(id: MarkdownViewRenderKey(text: text, colorScheme: colorScheme)) {
-      await controller.parse(text: text, config: resolvedConfig)
+    .task(id: text) {
+      await controller.parse(text: text)
     }
   }
-}
-
-private struct MarkdownViewRenderKey: Hashable {
-  let text: String
-  let colorScheme: ColorScheme
 }
 
 @MainActor
@@ -55,15 +50,19 @@ final class MarkdownViewController: ObservableObject {
 
   @Published var renderable: RenderableDocument?
 
+  private let config: MarkdownRenderConfig
+  private let parser = MarkdownParserImpl()
+
   let listener: MarkdownListener?
 
   init(config: MarkdownRenderConfig = .default, listener: MarkdownListener? = nil) {
+    self.config = config
     self.listener = listener
   }
 
-  func parse(text: String, config: MarkdownRenderConfig) async {
-    let parser = MarkdownParserImpl()
+  func parse(text: String) async {
     let renderable = await parser.parse(text: text, config: config)
+    guard !Task.isCancelled else { return }
     self.renderable = renderable
   }
 }

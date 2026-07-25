@@ -39,13 +39,6 @@ struct ThinkingPreviewBubble: View {
         !isShowingFullText && !toolActivityPlacements.isEmpty
     }
 
-    private var previewTransition: AnyTransition {
-        .asymmetric(
-            insertion: .opacity.combined(with: .move(edge: .top)),
-            removal: .opacity.combined(with: .scale(scale: 0.96, anchor: .top))
-        )
-    }
-
     var body: some View {
         VStack(
             alignment: .leading,
@@ -79,9 +72,10 @@ struct ThinkingPreviewBubble: View {
                     onOpenDetail: openDetail
                 )
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .transition(previewTransition)
+                .transition(ChatScrollContentMotion.transition)
             } else if shouldShowToolPreview {
                 toolPreviews(toolActivityPlacements)
+                    .transition(ChatScrollContentMotion.transition)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -108,18 +102,23 @@ struct ThinkingPreviewBubble: View {
             developerModeEnabled: developerModeEnabled,
             onAuthorizeTool: onAuthorizeTool
         )
-        .animation(.easeInOut(duration: 0.2), value: shouldShowTextPreview)
+        .animation(
+            ChatScrollContentMotion.animation,
+            value: shouldShowTextPreview
+        )
     }
 
     private func openDetail() {
-        withAnimation(.easeInOut(duration: 0.2)) {
+        withAnimation(ChatScrollContentMotion.animation) {
             isShowingFullText = true
         }
     }
 
     @ViewBuilder
     private func toolPreviews(_ placements: [ChatToolActivityPlacement]) -> some View {
-        ForEach(ChatToolActivityPlacementGrouper.groups(placements)) { group in
+        let groups = ChatToolActivityPlacementGrouper.groups(placements)
+
+        ForEach(groups) { group in
             ToolActivityBubble(
                 activities: group.placements.map(\.activity),
                 maxBubbleWidth: maxBubbleWidth,
@@ -128,7 +127,12 @@ struct ThinkingPreviewBubble: View {
                 onAuthorize: onAuthorizeTool
             )
             .frame(maxWidth: .infinity, alignment: .leading)
+            .transition(ChatScrollContentMotion.transition)
         }
+        .animation(
+            ChatScrollContentMotion.animation,
+            value: groups.map(\.id)
+        )
     }
 }
 

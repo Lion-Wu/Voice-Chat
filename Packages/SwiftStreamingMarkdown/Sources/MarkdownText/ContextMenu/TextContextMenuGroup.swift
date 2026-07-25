@@ -3,10 +3,10 @@
 //  Licensed under the MIT License. See LICENSE in the project root for license information.
 //
 
-#if os(macOS)
-import AppKit
-#else
+#if canImport(UIKit)
 import UIKit
+#elseif canImport(AppKit)
+import AppKit
 #endif
 
 /// A grouping of related `TextContextMenuItem`s rendered as either a submenu
@@ -15,7 +15,7 @@ public struct TextContextMenuGroup: Hashable, Sendable {
   /// Submenu title, or `nil` for an inline/untitled group.
   public let title: String?
   /// Optional icon shown next to the title.
-  public let image: UIImage?
+  public let image: MDImage?
   /// When `true`, the group renders inline rather than as a submenu.
   public let displayInline: Bool
   /// Ordered items that belong to this group.
@@ -24,7 +24,7 @@ public struct TextContextMenuGroup: Hashable, Sendable {
   /// Create a group from the supplied title, icon, layout flag, and items.
   public init(
     title: String?,
-    image: UIImage?,
+    image: MDImage?,
     displayInline: Bool,
     items: [TextContextMenuItem]
   ) {

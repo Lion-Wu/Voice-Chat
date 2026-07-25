@@ -149,6 +149,39 @@ final class ChatTextRequestRuntimeTests: XCTestCase {
         XCTAssertEqual(assistant.finishReason, "retry")
     }
 
+    func testNewRequestRetryScopeStartsAtFirstRetryAfterEarlierRequestRecovered() {
+        let runtime = makeRuntime()
+        var states: [ChatStreamRetryStatusController.PublishedState] = []
+        runtime.bindRetryState { states.append($0) }
+
+        _ = runtime.planRetry(
+            after: URLError(.timedOut),
+            errorText: "first request failed",
+            hasAssistantMessage: false
+        )
+        runtime.clearRetryStateAfterProgressIfNeeded()
+        _ = runtime.planRetry(
+            after: URLError(.timedOut),
+            errorText: "first request failed again",
+            hasAssistantMessage: true
+        )
+
+        runtime.beginRequestRetryScope()
+
+        XCTAssertEqual(
+            states.last,
+            .init(isRetrying: false, retryAttempt: 0, retryLastError: nil)
+        )
+
+        let continuationRetry = runtime.planRetry(
+            after: URLError(.timedOut),
+            errorText: "continuation failed",
+            hasAssistantMessage: true
+        )
+        XCTAssertEqual(continuationRetry.state.retryAttempt, 1)
+        XCTAssertEqual(continuationRetry.state.retryLastError, "continuation failed")
+    }
+
     private func makeRuntime(configuration: ChatServiceConfiguration? = nil) -> ChatTextRequestRuntime {
         ChatTextRequestRuntime(
             configuration: configuration ?? chatConfig(model: "runtime"),

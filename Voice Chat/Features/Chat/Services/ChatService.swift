@@ -93,6 +93,7 @@ final class ChatService: NSObject, @unchecked Sendable {
     var openAIChatCompletionsReasoningDetails: [JSONValue] = []
     var openAIChatCompletionsReasoningText = ""
     var pendingToolCalls: [ChatToolCallEnvelope] = []
+    var generatingToolActivities: [String: ChatToolActivity] = [:]
     var activeToolLoopContext: ChatToolLoopContext?
     var activeToolExecutionID: UUID?
     var activeToolExecutionTask: Task<Void, Never>?

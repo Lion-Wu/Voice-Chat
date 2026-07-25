@@ -5,6 +5,11 @@
 
 import Foundation
 import SwiftUI
+#if canImport(UIKit)
+import UIKit
+#elseif canImport(AppKit)
+import AppKit
+#endif
 
 enum RowContent: Equatable {
   case text(string: AttributedString)
@@ -15,12 +20,11 @@ struct TableView: View {
   @Environment(\.markdownConfig) var config: MarkdownRenderConfig
   @Environment(\.markdownController) var controller: MarkdownController?
 
-  let headings: [RowContent]
+  let headings: [AttributedString]
   let rows: [[RowContent]]
   let columnMaxWidths: [Int: CGFloat]
 
   private let defaultMaxColumnWidth: CGFloat = 200
-  @State private var scrollWidth: CGFloat = 0
   @State private var isExpanded: Bool = false
   @State private var isCopyPressed: Bool = false
   @State private var isCopyScaled: Bool = false
@@ -28,9 +32,15 @@ struct TableView: View {
   private let rawMarkdown: String
 
   init(headings: [NSMutableAttributedString], rows: [[NSMutableAttributedString]], columnMaxWidths: [Int: CGFloat] = [:], rawMarkdown: String = "") {
-    self.headings = headings.map(Self.rowContent)
+    self.headings = headings.map { AttributedString($0) }
     self.rows = rows.map { row in
-      row.map(Self.rowContent)
+      row.map { content in
+        if content.containsAttachments(in: NSRange(location: 0, length: content.length)) {
+          return .containsAttachment(string: content)
+        } else {
+          return .text(string: AttributedString(content))
+        }
+      }
     }
 
     self.columnMaxWidths = columnMaxWidths
@@ -42,37 +52,22 @@ struct TableView: View {
   }
 
   private func headerView(colIdx: Int) -> some View {
-    let content = headings[colIdx]
-    return HStack(spacing: 0) {
-      switch content {
-      case .containsAttachment(let nsAttributedString):
-        ParagraphView(contents: applyTypographyThemingAndGetContent(nsAttributedString, textColor: config.tableStyle.headerTextColor))
-          .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
-          .accessibilityValue(String.itemPositionInTable(rowIndex: 1, totalRow: numOfRows + 1, columnIndex: colIdx + 1, totalColumn: headings.count))
-      case .text(let attributedString):
-        Text(attributedString)
-          .foregroundStyle(Color(config.tableStyle.headerTextColor))
-          .lineLimit(nil)
-          .multilineTextAlignment(.leading)
-          .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
-          .if(config.shouldAnimateText) { view in
-            view.fadeInTextTransition(attributedString: attributedString)
-          }
-          .accessibilityValue(String.itemPositionInTable(rowIndex: 1, totalRow: numOfRows + 1, columnIndex: colIdx + 1, totalColumn: headings.count))
-      }
+    HStack(spacing: 0) {
+      Text(headings[colIdx])
+        .foregroundStyle(config.tableStyle.headerTextColor)
+        .lineLimit(nil)
+        .multilineTextAlignment(.leading)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+        .if(config.shouldAnimateText) { view in
+          view.fadeInTextTransition(attributedString: headings[colIdx])
+        }
+        .accessibilityValue(String.itemPositionInTable(rowIndex: 1, totalRow: numOfRows + 1, columnIndex: colIdx + 1, totalColumn: headings.count))
       Spacer()
     }
     .padding(12)
     .id("\(colIdx)-heading")
-    .background(Color(config.tableStyle.headerBackgroundColor))
-    .applyHeaderBorder(colIndex: colIdx, colCount: headings.count, color: Color(config.tableStyle.borderColor))
-  }
-
-  private static func rowContent(_ content: NSMutableAttributedString) -> RowContent {
-    if content.containsAttachments(in: NSRange(location: 0, length: content.length)) {
-      return .containsAttachment(string: content)
-    }
-    return .text(string: AttributedString(content))
+    .background(config.tableStyle.headerBackgroundColor)
+    .applyHeaderBorder(colIndex: colIdx, colCount: headings.count, color: config.tableStyle.borderColor)
   }
 
   @ViewBuilder
@@ -93,14 +88,7 @@ struct TableView: View {
   }
 
   private func actualColumnMaxWidths() -> [CGFloat] {
-    let averageWidth = scrollWidth / CGFloat(headings.count)
-    var actualColumnMaxWidths = Array(repeating: CGFloat(0), count: headings.count)
-    for idx in 0..<headings.count {
-      let maxColumnWidth = columnMaxWidths[idx] ?? defaultMaxColumnWidth
-      actualColumnMaxWidths[idx] = max(averageWidth, maxColumnWidth)
-    }
-
-    return actualColumnMaxWidths
+    (0..<headings.count).map { columnMaxWidths[$0] ?? defaultMaxColumnWidth }
   }
 
   @ViewBuilder
@@ -109,7 +97,7 @@ struct TableView: View {
     switch content {
     case .containsAttachment(let nsAttributedString):
       HStack(spacing: 0) {
-        ParagraphView(contents: applyTypographyThemingAndGetContent(nsAttributedString, textColor: config.tableStyle.regularTextColor))
+        ParagraphView(contents: applyTypographyThemingAndGetContent(nsAttributedString))
           .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
           .accessibilityValue(String.itemPositionInTable(rowIndex: rowIdx + 2, totalRow: numOfRows + 1, columnIndex: colIdx + 1, totalColumn: headings.count))
         Spacer()
@@ -117,11 +105,11 @@ struct TableView: View {
       .frame(maxHeight: .infinity)
       .padding(12)
       .id("\(colIdx)-\(rowIdx)")
-      .applyCellBorder(colIndex: colIdx, colCount: headings.count, rowIndex: rowIdx, rowCount: numOfRows, color: Color(config.tableStyle.borderColor))
+      .applyCellBorder(colIndex: colIdx, colCount: headings.count, rowIndex: rowIdx, rowCount: numOfRows, color: config.tableStyle.borderColor)
     case .text(let attributedString):
       HStack(spacing: 0) {
         Text(attributedString)
-          .foregroundStyle(Color(config.tableStyle.regularTextColor))
+          .foregroundStyle(config.tableStyle.regularTextColor)
           .lineLimit(nil)
           .multilineTextAlignment(.leading)
           .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -134,13 +122,13 @@ struct TableView: View {
       .frame(maxHeight: .infinity)
       .padding(12)
       .id("\(colIdx)-\(rowIdx)")
-      .applyCellBorder(colIndex: colIdx, colCount: headings.count, rowIndex: rowIdx, rowCount: numOfRows, color: Color(config.tableStyle.borderColor))
+      .applyCellBorder(colIndex: colIdx, colCount: headings.count, rowIndex: rowIdx, rowCount: numOfRows, color: config.tableStyle.borderColor)
     }
   }
 
   var body: some View {
     VStack(alignment: .leading, spacing: 0) {
-      if controller?.hasListener == true {
+      if controller != nil {
         scrollView.onTapGesture {
           withAnimation(.easeInOut(duration: 0.2)) {
             isExpanded.toggle()
@@ -168,23 +156,9 @@ struct TableView: View {
         .overlay(
           RoundedRectangle(cornerRadius: 12)
             .inset(by: 0.5)
-            .stroke(Color(config.tableStyle.borderColor), lineWidth: 1)
+            .stroke(config.tableStyle.borderColor, lineWidth: 1)
         )
         .cornerRadius(12)
-        .onWidthChange { newWidth in
-          scrollWidth = newWidth
-        }
-    }
-    .background {
-      GeometryReader { geo in
-        Color.clear
-          .onAppear {
-            scrollWidth = geo.size.width
-          }
-          .onWidthChange { newWidth in
-            scrollWidth = newWidth
-          }
-      }
     }
     .scrollIndicators(.hidden)
     .contentShape(Rectangle())
@@ -206,13 +180,15 @@ struct TableView: View {
       }
     }, label: {
       ZStack {
-        Image(systemName: "doc.on.doc")
-          .foregroundStyle(Color(config.tableStyle.actionButtonColor))
+        Image("Copy", bundle: .module)
+          .renderingMode(.template)
+          .foregroundStyle(config.tableStyle.actionButtonColor)
           .frame(width: 20, height: 20)
           .opacity(isCopyPressed ? 0.0 : 1.0)
 
-        Image(systemName: "checkmark")
-          .foregroundStyle(Color(config.tableStyle.actionButtonColor))
+        Image("CopyFilled", bundle: .module)
+          .renderingMode(.template)
+          .foregroundStyle(config.tableStyle.actionButtonColor)
           .frame(width: 20, height: 20)
           .opacity(isCopyPressed ? 1.0 : 0.0)
       }
@@ -226,8 +202,9 @@ struct TableView: View {
     Button(action: {
       controller?.onTableDownloadTap(content: rawMarkdown)
     }, label: {
-      Image(systemName: "arrow.down")
-        .foregroundStyle(Color(config.tableStyle.actionButtonColor))
+      Image("downloadArrow", bundle: .module)
+        .renderingMode(.template)
+        .foregroundStyle(config.tableStyle.actionButtonColor)
         .frame(width: 20, height: 20)
         .padding(2)
     })
@@ -336,15 +313,16 @@ struct TableLayout: Layout {
 // MARK: - Helper Functions
 extension TableView {
   /// Apply typography theming and return themed content for use with ParagraphView
-  private func applyTypographyThemingAndGetContent(_ attributedString: NSAttributedString, textColor: UIColor) -> NSMutableAttributedString {
+  private func applyTypographyThemingAndGetContent(_ attributedString: NSAttributedString) -> NSMutableAttributedString {
     // Apply typography theming for table cells
     let mutableAttributedString = NSMutableAttributedString(attributedString: attributedString)
     let fullRange = NSRange(location: 0, length: mutableAttributedString.length)
+    let themeColor = MDColor(config.tableStyle.regularTextColor)
 
     // Apply theme color to text that doesn't already have a foreground color
     mutableAttributedString.enumerateAttribute(.foregroundColor, in: fullRange, options: []) { existingColor, range, _ in
       if existingColor == nil {
-        mutableAttributedString.addAttribute(.foregroundColor, value: textColor, range: range)
+        mutableAttributedString.addAttribute(.foregroundColor, value: themeColor, range: range)
       }
     }
 
@@ -378,7 +356,7 @@ extension TableView {
     // Apply baseline offset only when we have both citations and non-attachment content
     let shouldApplyBaselineOffset = containsCitationAttachments && containsNonAttachmentContent
     if shouldApplyBaselineOffset {
-      let baselineOffsetValue = Typography.base.uiFont.descender
+      let baselineOffsetValue = Typography.base.mdFont.descender
       for range in citationRanges {
         mutableAttributedString.addAttribute(.baselineOffset, value: baselineOffsetValue, range: range)
       }
@@ -569,7 +547,7 @@ extension TableView {
 })
 
 #Preview("Table with Mixed Content", body: {
-  // Keep the table preview focused on text, citations, and links.
+  // Create citation safely (NO LaTeX to avoid iosMath bundle issues)
   guard let citationData = CitationCoder.default.decode(
     linkDestination: "http://example.com?citationMarker=9F742443&citationTitle=Source&citationA11yValue=Primary%20Source"
   ),
@@ -577,22 +555,22 @@ extension TableView {
     return Text(verbatim: "Preview unavailable: Citation creation failed")
   }
 
-  // Create content with citation, bold text, and links.
+  // Create content with citation, bold text, and links (NO LaTeX)
   let complexContent = NSMutableAttributedString(string: "Results from ")
   complexContent.append(NSAttributedString(attachment: citation))
   complexContent.append(NSAttributedString(string: " show "))
 
   let boldText = NSAttributedString(string: "significant improvement", attributes: [
-    .font: UIFont.boldSystemFont(ofSize: 14)
+    .font: MDFont.boldSystemFont(ofSize: 14)
   ])
   complexContent.append(boldText)
 
-  // Add a regular link.
+  // Add regular link instead of LaTeX
   if let docURL = URL(string: "https://example.com") {
     complexContent.append(NSAttributedString(string: " and see "))
     let linkText = NSAttributedString(string: "documentation", attributes: [
       .link: docURL,
-      .foregroundColor: UIColor.systemBlue
+      .foregroundColor: MDColor.systemBlue
     ])
     complexContent.append(linkText)
     complexContent.append(NSAttributedString(string: " for details."))
@@ -618,7 +596,7 @@ extension TableView {
 })
 
 #Preview("Mixed Content - Dark Mode", body: {
-  // Keep the table preview focused on text, citations, and links.
+  // Create citation safely (NO LaTeX to avoid iosMath bundle issues)
   guard let citationData = CitationCoder.default.decode(
     linkDestination: "http://example.com?citationMarker=9F742443&citationTitle=Source&citationA11yValue=Primary%20Source"
   ),
@@ -627,13 +605,13 @@ extension TableView {
       .preferredColorScheme(.dark)
   }
 
-  // Create content with citation, bold text, and links.
+  // Create content with citation, bold text, and links (NO LaTeX)
   let complexContent = NSMutableAttributedString(string: "Results from ")
   complexContent.append(NSAttributedString(attachment: citation))
   complexContent.append(NSAttributedString(string: " show "))
 
   let boldText = NSAttributedString(string: "significant improvement", attributes: [
-    .font: UIFont.boldSystemFont(ofSize: 14)
+    .font: MDFont.boldSystemFont(ofSize: 14)
   ])
   complexContent.append(boldText)
 
@@ -642,7 +620,7 @@ extension TableView {
     complexContent.append(NSAttributedString(string: " and see "))
     let linkText = NSAttributedString(string: "documentation", attributes: [
       .link: docURL,
-      .foregroundColor: UIColor.systemBlue
+      .foregroundColor: MDColor.systemBlue
     ])
     complexContent.append(linkText)
     complexContent.append(NSAttributedString(string: " for details."))

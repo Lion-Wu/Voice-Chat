@@ -39,6 +39,7 @@ In the app’s Settings:
 - [RaTeX](https://github.com/erweixin/RaTeX)
 - [swift-markdown](https://github.com/swiftlang/swift-markdown)
 - [swift-cmark](https://github.com/swiftlang/swift-cmark)
+- [KaTeX fonts](https://github.com/KaTeX/KaTeX)
 
 ## License
-MIT — see `LICENSE`. Third-party notices are listed in `THIRD_PARTY_NOTICES.md`.
+MIT — see `LICENSE`.
