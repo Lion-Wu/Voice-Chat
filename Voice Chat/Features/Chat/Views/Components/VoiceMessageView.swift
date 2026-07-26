@@ -102,12 +102,19 @@ struct VoiceMessageView: View {
                     .frame(maxWidth: .infinity, alignment: .center)
                 }
 
-                messageFooter(showActionControls: false, isUserMessage: false)
+                messageFooter(
+                    showActionControls: false,
+                    isUserMessage: false,
+                    hasBranchControls: hasMessageBranchControls
+                )
             }
             .padding(.vertical, 4)
             .padding(.horizontal, 8)
         } else {
             let userAttachments = message.imageAttachments
+            let hasBranchControls = hasMessageBranchControls
+            let showFooterActions = !message.isUser &&
+                shouldShowAssistantActionControls
             let systemTextBubble = SystemTextBubble(
                 message: message,
                 thinkPreviewLines: thinkPreviewLines,
@@ -135,23 +142,29 @@ struct VoiceMessageView: View {
                                 presentMessageAttachmentPreview(attachment)
                             }
                         )
-                        .transition(.opacity.combined(with: .scale(scale: 0.98)))
-                        messageFooter(showActionControls: false, isUserMessage: true)
+                        messageFooter(
+                            showActionControls: false,
+                            isUserMessage: true,
+                            hasBranchControls: hasBranchControls
+                        )
                     }
                 } else {
                     VStack(alignment: .leading, spacing: 4) {
                         systemTextBubble
-                            .transition(.opacity.combined(with: .scale(scale: 0.98)))
                         inlineErrorBubble
                         inlineStatusBubble
-                        messageFooter(showActionControls: shouldShowAssistantActionControls, isUserMessage: false)
+                        messageFooter(
+                            showActionControls: showFooterActions,
+                            isUserMessage: false,
+                            hasBranchControls: hasBranchControls
+                        )
                     }
                     .animation(
-                        .spring(response: 0.35, dampingFraction: 0.85),
+                        ChatScrollContentMotion.animation,
                         value: inlineErrorMessage?.id
                     )
                     .animation(
-                        .spring(response: 0.35, dampingFraction: 0.85),
+                        ChatScrollContentMotion.animation,
                         value: inlineStatusAnimationKey
                     )
                 }
@@ -159,6 +172,13 @@ struct VoiceMessageView: View {
                 Spacer(minLength: 0)
             }
             .padding(.vertical, 4)
+            .animation(
+                ChatScrollContentMotion.animation,
+                value: messageFooterAnimationKey(
+                    showActionControls: showFooterActions,
+                    hasBranchControls: hasBranchControls
+                )
+            )
             .modifier(UserContextMenuModifier(
                 isUser: message.isUser,
                 message: message,
@@ -232,7 +252,7 @@ struct VoiceMessageView: View {
                 .frame(maxWidth: contentMaxWidthForAssistant(availableWidth: maxBubbleWidth), alignment: .center)
                 .frame(maxWidth: .infinity, alignment: .center)
             }
-            .transition(.move(edge: .bottom).combined(with: .opacity))
+            .transition(ChatScrollContentMotion.transition)
         }
     }
 
@@ -252,7 +272,7 @@ struct VoiceMessageView: View {
             }
             .frame(maxWidth: contentMaxWidthForAssistant(availableWidth: maxBubbleWidth), alignment: .leading)
             .frame(maxWidth: .infinity, alignment: .center)
-            .transition(.move(edge: .bottom).combined(with: .opacity))
+            .transition(ChatScrollContentMotion.transition)
         } else if inlineLoading {
             HStack {
                 AssistantLoadingBubbleContent()
@@ -260,7 +280,7 @@ struct VoiceMessageView: View {
             }
             .frame(maxWidth: contentMaxWidthForAssistant(availableWidth: maxBubbleWidth), alignment: .leading)
             .frame(maxWidth: .infinity, alignment: .center)
-            .transition(.move(edge: .bottom).combined(with: .opacity))
+            .transition(ChatScrollContentMotion.transition)
         }
     }
 
@@ -269,6 +289,17 @@ struct VoiceMessageView: View {
             return "retry-\(inlineRetryAttempt)-\(inlineRetryLastError ?? "")"
         }
         return inlineLoading ? "loading" : "none"
+    }
+
+    private func messageFooterAnimationKey(
+        showActionControls: Bool,
+        hasBranchControls: Bool
+    ) -> String {
+        [
+            showActionControls ? "actions" : "no-actions",
+            hasBranchControls ? "branches" : "no-branches",
+            developerModeEnabled ? "developer" : "standard"
+        ].joined(separator: "-")
     }
 
     private func copyToClipboard(_ text: String) {
@@ -329,12 +360,16 @@ struct VoiceMessageView: View {
     }
 
     @ViewBuilder
-    private func messageFooter(showActionControls: Bool, isUserMessage: Bool) -> some View {
+    private func messageFooter(
+        showActionControls: Bool,
+        isUserMessage: Bool,
+        hasBranchControls: Bool
+    ) -> some View {
         let alignment: Alignment = isUserMessage ? .trailing : .leading
         let maxWidth = isUserMessage
             ? contentMaxWidthForUser(availableWidth: maxBubbleWidth)
             : contentMaxWidthForAssistant(availableWidth: maxBubbleWidth)
-        if showActionControls || hasMessageBranchControls {
+        if showActionControls || hasBranchControls {
             HStack(spacing: 10) {
                 if showActionControls {
                     assistantActionControls
@@ -344,6 +379,7 @@ struct VoiceMessageView: View {
             .frame(maxWidth: maxWidth, alignment: alignment)
             .frame(maxWidth: .infinity, alignment: isUserMessage ? .trailing : .center)
             .padding(.top, 2)
+            .transition(ChatScrollContentMotion.transition)
         }
     }
 
@@ -385,6 +421,7 @@ struct VoiceMessageView: View {
                 }
                 .buttonStyle(.plain)
                 .foregroundStyle(.secondary)
+                .transition(ChatScrollContentMotion.transition)
             }
         }
     }
@@ -426,6 +463,7 @@ struct VoiceMessageView: View {
                     onSwitchVersion(versions[idx + 1])
                 }
             )
+            .transition(ChatScrollContentMotion.transition)
         }
     }
 }

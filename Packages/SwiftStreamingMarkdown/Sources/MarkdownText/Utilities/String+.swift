@@ -15,20 +15,91 @@ extension String {
   }
 
   static func itemPositionInTable(rowIndex: Int, totalRow: Int, columnIndex: Int, totalColumn: Int) -> String {
-    return String(format: "Row %d of %d, Column %d of %d", rowIndex, totalRow, columnIndex, totalColumn)
+    return String(format:
+      NSLocalizedString(
+        "a11y_item_position_in_table",
+        bundle: .module,
+        value: "Row %d of %d, Column %d of %d",
+        comment: "a11y understand their position in the table"
+      ), rowIndex, totalRow, columnIndex, totalColumn)
   }
 
   static func openCitation(citationLabel: String) -> String {
-    return String(format: "Open %@, link", citationLabel)
+    return String(format:
+      NSLocalizedString(
+        "a11y_open_citation",
+        bundle: .module,
+        value: "Open %@, link",
+        comment: "Accessibility action to open a citation link"
+      ), citationLabel)
   }
 
   static func markdownList(length: String) -> String {
-    return String(format: "List with %@ items", length)
+    return String(format:
+      NSLocalizedString(
+        "markdown_list",
+        bundle: .module,
+        value: "List with %@ items",
+        comment: "Description for a list with some items"
+      ),
+      length)
   }
 
-  static let codeCopyLabel = "Copy"
+  static let taskListItemChecked = NSLocalizedString(
+    "a11y_task_list_item_checked",
+    bundle: .module,
+    value: "checked",
+    comment: "Accessibility suffix for a completed task list item"
+  )
 
-  static let codeCopiedLabel = "Copied"
+  static let taskListItemUnchecked = NSLocalizedString(
+    "a11y_task_list_item_unchecked",
+    bundle: .module,
+    value: "unchecked",
+    comment: "Accessibility suffix for an incomplete task list item"
+  )
+
+  static let codeCopyLabel = NSLocalizedString(
+    "code_block_copy",
+    bundle: .module,
+    value: "Copy",
+    comment: "Button label to copy a code block to clipboard"
+  )
+
+  static let codeCopiedLabel = NSLocalizedString(
+    "code_block_copied",
+    bundle: .module,
+    value: "Copied",
+    comment: "Button label shown after a code block has been copied to clipboard"
+  )
+
+  static let selectMoreTextLabel = NSLocalizedString(
+    "select_more_text",
+    bundle: .module,
+    value: "Select more text",
+    comment: "Edit-menu action and modal title for selecting the full document text"
+  )
+
+  static let textSelectionCloseLabel = NSLocalizedString(
+    "a11y_text_selection_close",
+    bundle: .module,
+    value: "Close",
+    comment: "Accessibility label for the button that dismisses the text selection modal"
+  )
+
+  static let imageLabel = NSLocalizedString(
+    "a11y_image",
+    bundle: .module,
+    value: "Image",
+    comment: "Accessibility label for a block image that has no alt text"
+  )
+
+  static let imageViewerCloseLabel = NSLocalizedString(
+    "a11y_image_viewer_close",
+    bundle: .module,
+    value: "Close",
+    comment: "Accessibility label for the button that dismisses the fullscreen image viewer"
+  )
 
 }
 

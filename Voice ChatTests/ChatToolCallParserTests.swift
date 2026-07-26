@@ -20,6 +20,7 @@ final class ChatToolCallParserTests: XCTestCase {
                 ]
             ]]
         ], provider: .openAI)
+        let inProgress = accumulator.inProgressCalls(provider: .openAI)
 
         let second = accumulator.absorbOpenAICompatiblePayload([
             "choices": [[
@@ -36,6 +37,15 @@ final class ChatToolCallParserTests: XCTestCase {
         ], provider: .openAI)
 
         XCTAssertTrue(first.isEmpty)
+        XCTAssertEqual(inProgress, [
+            ChatToolCallEnvelope(
+                callID: "call_1",
+                name: ChatToolID.calendarListEvents.rawValue,
+                argumentsJSON: "{\"start\":\"2001-01-01\"",
+                provider: .openAI
+            )
+        ])
+        XCTAssertTrue(accumulator.inProgressCalls(provider: .openAI).isEmpty)
         XCTAssertEqual(second, [
             ChatToolCallEnvelope(
                 callID: "call_1",
@@ -44,6 +54,62 @@ final class ChatToolCallParserTests: XCTestCase {
                 provider: .openAI
             )
         ])
+    }
+
+    @MainActor
+    func testNativeToolCallPublishesSpecificGeneratingActivityBeforeCompletion() async throws {
+        var toolSettings = ToolUseSettings.defaults
+        toolSettings.isEnabled = true
+        toolSettings.timeEnabled = true
+        let service = ChatService(configurationProvider: ChatServiceConfiguration(
+            apiBaseURL: "https://api.openai.com/v1",
+            modelIdentifier: "model",
+            apiKey: "key",
+            toolUseSettings: toolSettings
+        ))
+        service.activeEndpointCandidate = ChatAPIEndpointCandidate(
+            provider: .openAI,
+            style: .openAIChatCompletions,
+            chatURL: try XCTUnwrap(URL(string: "https://api.openai.com/v1/chat/completions")),
+            modelsURL: try XCTUnwrap(URL(string: "https://api.openai.com/v1/models"))
+        )
+
+        let activityExpectation = expectation(description: "tool activity is visible while arguments stream")
+        var activity: ChatToolActivity?
+        service.onToolActivity = {
+            activity = $0
+            activityExpectation.fulfill()
+        }
+
+        service.collectOpenAIToolCalls(
+            from: Data("""
+            {
+              "choices": [{
+                "delta": {
+                  "tool_calls": [{
+                    "index": 0,
+                    "id": "call_time",
+                    "function": {
+                      "name": "system_get_time",
+                      "arguments": "{"
+                    }
+                  }]
+                }
+              }]
+            }
+            """.utf8),
+            fallbackType: nil
+        )
+
+        await fulfillment(of: [activityExpectation], timeout: 1)
+        XCTAssertEqual(activity?.id, "call_time")
+        XCTAssertEqual(activity?.toolName, ChatToolID.systemGetTime.rawValue)
+        XCTAssertEqual(activity?.phase, .generating)
+        XCTAssertEqual(
+            activity?.title,
+            ChatToolDefinitions.activityTitle(for: ChatToolID.systemGetTime.rawValue)
+        )
+        XCTAssertTrue(service.pendingToolCalls.isEmpty)
     }
 
     func testOpenAICompatibleToolCallDeltasWithReasoningAndDuplicateFinishAreAccumulated() {
@@ -220,6 +286,18 @@ final class ChatToolCallParserTests: XCTestCase {
                 "name": ChatToolID.deviceContext.rawValue
             ]
         ], provider: .openAI).isEmpty)
+        XCTAssertEqual(
+            accumulator.inProgressCalls(provider: .openAI),
+            [
+                ChatToolCallEnvelope(
+                    callID: "call_1",
+                    itemID: "item_1",
+                    name: ChatToolID.deviceContext.rawValue,
+                    argumentsJSON: "{}",
+                    provider: .openAI
+                )
+            ]
+        )
 
         XCTAssertTrue(accumulator.absorbOpenAICompatiblePayload([
             "type": "response.function_call_arguments.delta",
@@ -476,6 +554,17 @@ final class ChatToolCallParserTests: XCTestCase {
         """)
 
         XCTAssertTrue(accumulator.absorbAnthropicEvent(start, provider: .anthropic).isEmpty)
+        XCTAssertEqual(
+            accumulator.inProgressCalls(provider: .anthropic),
+            [
+                ChatToolCallEnvelope(
+                    callID: "toolu_1",
+                    name: ChatToolID.calendarListEvents.rawValue,
+                    argumentsJSON: "{}",
+                    provider: .anthropic
+                )
+            ]
+        )
         XCTAssertTrue(accumulator.absorbAnthropicEvent(delta, provider: .anthropic).isEmpty)
         let completed = accumulator.absorbAnthropicEvent(stop, provider: .anthropic)
 
@@ -808,10 +897,12 @@ final class ChatToolCallParserTests: XCTestCase {
         await fulfillment(of: [activityExpectation], timeout: 1.0)
         XCTAssertTrue(deltas.isEmpty)
         XCTAssertEqual(Set(activities.map(\.id)).count, 1)
-        let expectedTitle = NSLocalizedString("Generating Tool Call", comment: "Tool activity title")
-        XCTAssertTrue(activities.allSatisfy { $0.title == expectedTitle })
-        XCTAssertTrue(activities.allSatisfy { $0.phase == .requested })
-        XCTAssertTrue(activities.last?.summary?.contains(ChatToolID.deviceContext.rawValue) == true)
+        XCTAssertTrue(activities.allSatisfy { $0.phase == .generating })
+        XCTAssertEqual(activities.last?.toolName, ChatToolID.deviceContext.rawValue)
+        XCTAssertEqual(
+            activities.last?.title,
+            ChatToolDefinitions.activityTitle(for: ChatToolID.deviceContext.rawValue)
+        )
         XCTAssertTrue(
             activities.last?.modelRequestPayload?["partial_tool_call"]?.debugPreviewJSONString()
                 .contains(ChatToolID.deviceContext.rawValue) == true

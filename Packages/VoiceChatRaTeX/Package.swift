@@ -1,26 +1,22 @@
 // swift-tools-version: 6.0
 import PackageDescription
 
+// This package is the local visionOS compatibility adapter.
+// SwiftStreamingMarkdown uses the official RaTeX Swift package directly on
+// iOS and macOS.
 let package = Package(
     name: "VoiceChatRaTeX",
     platforms: [
         .iOS(.v14),
-        .macOS(.v15),
+        .macOS(.v14),
         .visionOS(.v2)
     ],
     products: [
         .library(name: "VoiceChatRaTeX", targets: ["VoiceChatRaTeX"])
     ],
     targets: [
-        .binaryTarget(
-            name: "RaTeXFFI",
-            path: "Vendor/RaTeX.xcframework"
-        ),
         .target(
             name: "VoiceChatRaTeX",
-            dependencies: [
-                .target(name: "RaTeXFFI", condition: .when(platforms: [.iOS]))
-            ],
             resources: [
                 .process("Resources")
             ]

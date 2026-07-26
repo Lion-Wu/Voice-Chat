@@ -370,6 +370,11 @@ final class ChatViewModel: ObservableObject {
     }
 
     private func handleToolActivity(_ activity: ChatToolActivity) {
+        if activity.phase == .generating {
+            markRetryProgressIfNeeded()
+        } else if activity.phase == .requested {
+            textRequestRuntime.beginRequestRetryScope()
+        }
         if activity.phase == .processing {
             isToolContinuationLoading = true
             return

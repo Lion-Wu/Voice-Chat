@@ -6,13 +6,13 @@
 import Markdown
 
 /// Parse a given text into a markdown tree, represented by `Document`
-public protocol MarkdownParser {
+public protocol MarkdownParser: Sendable {
 
   /// Perform the parsing
   /// - Parameter text: The incoming text
   /// - Parameter option: The option for parsing
   /// - Returns: The parse result
-  func parse(text: String, option: MarkdownParseOption) async -> MarkdownParseResult
+  func parse(text: String, option: MarkdownParseOption) async -> sending MarkdownParseResult
 }
 
 extension MarkdownParser {
@@ -21,7 +21,7 @@ extension MarkdownParser {
   /// returns only the parsed `Document`.
   /// - Parameter text: The incoming text
   /// - Returns: The parsed markdown `Document` tree
-  public func parse(text: String) async -> Document {
+  public func parse(text: String) async -> sending Document {
     return await parse(text: text, option: .init(speculativeRewrite: false)).document
   }
 
@@ -32,7 +32,10 @@ extension MarkdownParser {
   ///   - config: Render configuration applied when building the renderable.
   /// - Returns: A `RenderableDocument` built from the parsed `Document`.
   public func parse(text: String, config: MarkdownRenderConfig) async -> RenderableDocument {
-    let document = await parse(text: text)
+    let document = await parse(
+      text: text,
+      option: .init(speculativeRewrite: false, imageSupport: config.imageConfig.enabled)
+    ).document
     return await RenderableDocument(document: document, config: config)
   }
 }

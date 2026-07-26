@@ -26,13 +26,13 @@ extension ChatView {
         )
     }
 
-    func visibleSearchText(for message: ChatMessage) -> String {
+    static func visibleSearchText(for message: ChatMessage) -> String {
         message.assistantText
     }
 
     func visibleSearchSnapshots() -> [ChatSearchScrollMessageSnapshot] {
         visibleMessages.map {
-            ChatSearchScrollMessageSnapshot(id: $0.id, searchText: visibleSearchText(for: $0))
+            ChatSearchScrollMessageSnapshot(id: $0.id, searchText: Self.visibleSearchText(for: $0))
         }
     }
 
@@ -58,7 +58,7 @@ extension ChatView {
         ) else { return }
 
         cancelOverflowTransitionScroll()
-        _ = attemptSearchTargetScroll()
+        _ = attemptSearchTargetScroll(animated: initialRenderCoordinator.isReady)
     }
 
     func resetScrollMetricsForSessionTransition() {
@@ -126,7 +126,10 @@ extension ChatView {
     }
 
     @discardableResult
-    func attemptSearchTargetScroll() -> Bool {
+    func attemptSearchTargetScroll(animated: Bool = true) -> Bool {
+        guard initialRenderCoordinator.isReady else {
+            return false
+        }
         guard let decision = ChatSearchScrollCoordinator.resolveScrollTarget(
             pending: scrollInteractionState.pendingSearchScrollTarget,
             sessionID: viewModel.chatSession.id,
@@ -138,70 +141,28 @@ extension ChatView {
 
         scrollInteractionState.applySearchScrollDecision(decision)
         let anchorY = CGFloat(decision.anchorY)
-        withAnimation(.easeInOut(duration: 0.28)) {
+        let action = {
             proxy.scrollTo(decision.messageID, anchor: UnitPoint(x: 0.5, y: anchorY))
         }
-        scheduleSearchScrollReanchor(delayNanoseconds: 90_000_000)
-        return true
-    }
-
-    func clearSearchScrollLock() {
-        scrollInteractionState.clearSearchScrollLock()
-    }
-
-    func reanchorSearchScroll(_ lock: ChatSearchScrollLock, animated: Bool) {
-        guard let proxy = scrollProxy,
-              scrollInteractionState.canReanchorSearchScroll(
-                lock,
-                visibleMessageIDs: Set(visibleMessages.map(\.id))
-              ) else {
-            return
-        }
-
-        let action = {
-            proxy.scrollTo(lock.messageID, anchor: UnitPoint(x: 0.5, y: CGFloat(lock.anchorY)))
-        }
-
         if animated {
-            withAnimation(.easeInOut(duration: 0.18)) {
+            withAnimation(.easeInOut(duration: 0.28)) {
                 action()
             }
         } else {
             action()
         }
-    }
-
-    func scheduleSearchScrollReanchor(delayNanoseconds: UInt64) {
-        scrollInteractionState.replaceSearchScrollReanchorTask(nil)
-        guard let lock = scrollInteractionState.searchScrollLock else { return }
-        let generation = lock.generation
-
-        let task = Task { @MainActor in
-            try? await Task.sleep(nanoseconds: delayNanoseconds)
-            guard let lock = scrollInteractionState.searchScrollLock,
-                  lock.generation == generation,
-                  !Task.isCancelled else {
-                return
-            }
-
-            reanchorSearchScroll(lock, animated: false)
-
-            if ChatSearchScrollCoordinator.shouldContinueReanchoring(lock) {
-                scheduleSearchScrollReanchor(delayNanoseconds: 120_000_000)
-            } else {
-                scrollInteractionState.finishSearchScrollReanchoring()
-            }
-        }
-        scrollInteractionState.replaceSearchScrollReanchorTask(task)
-    }
-
-    func extendSearchScrollLockForLayoutChange() {
-        guard scrollInteractionState.extendSearchScrollLockForLayoutChange() else { return }
-        scheduleSearchScrollReanchor(delayNanoseconds: 16_000_000)
+        return true
     }
 
     func updateContentHeightIfNeeded(_ newHeight: CGFloat) {
         enqueueScrollMetricUpdate(contentHeight: max(0, newHeight))
+        if !initialRenderCoordinator.isReady,
+           !scrollInteractionState.hasSearchInterruption(
+               currentTarget: currentSearchNavigationTarget()
+           ) {
+            scrollToBottom(animated: false)
+        }
+        initialRenderCoordinator.contentDidLayout()
     }
 
     func updateViewportHeightIfNeeded(_ newHeight: CGFloat) {
@@ -234,7 +195,6 @@ extension ChatView {
 
         if update.didUpdate {
             if update.didUpdateScrollableGeometry {
-                extendSearchScrollLockForLayoutChange()
                 scrollToBottomAfterOverflowTransitionIfNeeded(
                     wasPastComposerOverflowThreshold: update.wasPastComposerOverflowThreshold
                 )

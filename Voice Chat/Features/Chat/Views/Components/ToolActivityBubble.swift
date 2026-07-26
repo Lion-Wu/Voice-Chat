@@ -153,7 +153,7 @@ struct ToolActivityBubble: View {
     @ViewBuilder
     private func icon(for activity: ChatToolActivity) -> some View {
         switch activity.phase {
-        case .requested, .authorizing, .running, .processing:
+        case .generating, .requested, .authorizing, .running, .processing:
             if reduceMotion {
                 Image(systemName: "dot.radiowaves.left.and.right")
                     .font(.caption2.weight(.semibold))
@@ -182,7 +182,7 @@ struct ToolActivityBubble: View {
 
     private func phaseTint(for activity: ChatToolActivity) -> Color {
         switch activity.phase {
-        case .requested, .authorizing, .running, .processing:
+        case .generating, .requested, .authorizing, .running, .processing:
             return ChatTheme.accent.opacity(0.9)
         case .succeeded:
             return .green
@@ -356,7 +356,7 @@ private struct ToolActivityDetailView: View {
     @ViewBuilder
     private var phaseIcon: some View {
         switch activity.phase {
-        case .requested, .authorizing, .running, .processing:
+        case .generating, .requested, .authorizing, .running, .processing:
             Image(systemName: "dot.radiowaves.left.and.right")
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(phaseTint)
@@ -440,6 +440,8 @@ private struct ToolActivityDetailView: View {
 
     private var phaseText: String {
         switch activity.phase {
+        case .generating:
+            return String(localized: "Generating")
         case .requested:
             return String(localized: "Requested")
         case .authorizing:
@@ -461,7 +463,7 @@ private struct ToolActivityDetailView: View {
 
     private var phaseTint: Color {
         switch activity.phase {
-        case .requested, .authorizing, .running, .processing:
+        case .generating, .requested, .authorizing, .running, .processing:
             return ChatTheme.accent.opacity(0.9)
         case .succeeded:
             return .green

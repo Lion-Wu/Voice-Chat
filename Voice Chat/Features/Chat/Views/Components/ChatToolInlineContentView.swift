@@ -17,30 +17,40 @@ struct ChatToolInlineContentView: View {
     var onAuthorizeTool: ((String, Bool) -> Void)? = nil
 
     var body: some View {
+        let contentSegments = placements.isEmpty ? [] : segments
+
         VStack(alignment: .leading, spacing: 8) {
             if placements.isEmpty {
                 if !text.isEmpty {
                     textView(text)
+                        .transition(ChatScrollContentMotion.transition)
                 }
             } else {
-                ForEach(segments) { segment in
-                    switch segment.kind {
-                    case let .text(value):
-                        textView(value)
-                    case let .tools(placements):
-                        ToolActivityBubble(
-                            activities: placements.map(\.activity),
-                            maxBubbleWidth: maxBubbleWidth,
-                            isEmbeddedInMessage: true,
-                            developerModeEnabled: developerModeEnabled,
-                            onAuthorize: onAuthorizeTool
-                        )
-                        .frame(maxWidth: .infinity, alignment: .leading)
+                ForEach(contentSegments) { segment in
+                    Group {
+                        switch segment.kind {
+                        case let .text(value):
+                            textView(value)
+                        case let .tools(placements):
+                            ToolActivityBubble(
+                                activities: placements.map(\.activity),
+                                maxBubbleWidth: maxBubbleWidth,
+                                isEmbeddedInMessage: true,
+                                developerModeEnabled: developerModeEnabled,
+                                onAuthorize: onAuthorizeTool
+                            )
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        }
                     }
+                    .transition(ChatScrollContentMotion.transition)
                 }
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+        .animation(
+            ChatScrollContentMotion.animation,
+            value: componentIDs(contentSegments)
+        )
     }
 
     @ViewBuilder
@@ -55,6 +65,14 @@ struct ChatToolInlineContentView: View {
 
     private var segments: [ChatToolInlineSegment] {
         ChatToolInlineSegmentBuilder.segments(text: text, placements: placements)
+    }
+
+    private func componentIDs(
+        _ contentSegments: [ChatToolInlineSegment]
+    ) -> [String] {
+        placements.isEmpty
+            ? (text.isEmpty ? [] : ["markdown"])
+            : contentSegments.map(\.id)
     }
 }
 

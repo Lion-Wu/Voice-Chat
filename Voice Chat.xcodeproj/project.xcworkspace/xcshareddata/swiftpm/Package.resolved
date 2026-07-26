@@ -1,12 +1,30 @@
 {
-  "originHash" : "0391a77f240438d3244d094aa4533d77f4ce5916ab96b1c4f6b33b846d24390d",
+  "originHash" : "ba89adf61f4972723a59571071dda322360bc7b1e5f3f9972b97b2598d47c6ef",
   "pins" : [
+    {
+      "identity" : "equatable",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/ordo-one/equatable",
+      "state" : {
+        "revision" : "63e597c07e1e0622e6c8f2b33c972525a444c8eb",
+        "version" : "1.0.10"
+      }
+    },
     {
       "identity" : "highlightswift",
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/appstefan/highlightswift",
       "state" : {
         "revision" : "99c431b38a1444a5fd6a4978307fbbefe3a7af53"
+      }
+    },
+    {
+      "identity" : "ratex",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/erweixin/RaTeX.git",
+      "state" : {
+        "revision" : "d7d1bf2818a74ed227f00566c578ee4502b8c48c",
+        "version" : "0.1.13"
       }
     },
     {
@@ -21,10 +39,28 @@
     {
       "identity" : "swift-markdown",
       "kind" : "remoteSourceControl",
-      "location" : "https://github.com/swiftlang/swift-markdown",
+      "location" : "https://github.com/swiftlang/swift-markdown.git",
       "state" : {
         "revision" : "7d9a5ce307528578dfa777d505496bd5f544ad94",
         "version" : "0.7.3"
+      }
+    },
+    {
+      "identity" : "swift-syntax",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/swiftlang/swift-syntax.git",
+      "state" : {
+        "revision" : "f99ae8aa18f0cf0d53481901f88a0991dc3bd4a2",
+        "version" : "601.0.1"
+      }
+    },
+    {
+      "identity" : "swiftui-shimmer",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/markiv/SwiftUI-Shimmer",
+      "state" : {
+        "revision" : "0226e21f9bf355d40e07e5f5e1c33679d50e167f",
+        "version" : "1.5.1"
       }
     }
   ],

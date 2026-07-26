@@ -158,6 +158,7 @@ struct ChatToolResultEnvelope: Equatable, Sendable {
 }
 
 enum ChatToolActivityPhase: String, Codable, Sendable {
+    case generating
     case requested
     case authorizing
     case running
@@ -173,7 +174,7 @@ extension ChatToolActivityPhase {
         switch self {
         case .succeeded, .failed, .denied, .unsupported:
             return true
-        case .requested, .authorizing, .running, .processing:
+        case .generating, .requested, .authorizing, .running, .processing:
             return false
         }
     }

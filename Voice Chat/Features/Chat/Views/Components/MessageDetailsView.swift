@@ -628,6 +628,8 @@ struct MessageDetailsView: View {
 
     private func formatToolPhase(_ phase: ChatToolActivityPhase) -> String {
         switch phase {
+        case .generating:
+            return String(localized: "Generating")
         case .requested:
             return String(localized: "Requested")
         case .authorizing:
@@ -674,7 +676,7 @@ struct MessageDetailsView: View {
 
     private func color(for phase: ChatToolActivityPhase) -> Color {
         switch phase {
-        case .requested, .authorizing, .running, .processing:
+        case .generating, .requested, .authorizing, .running, .processing:
             return .secondary
         case .succeeded:
             return .green

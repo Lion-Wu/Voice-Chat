@@ -147,12 +147,25 @@ extension ChatService {
     private func emitPromptToolPreviewActivity() {
         let activityID = promptToolPreviewActivityID ?? "prompt-tool-\(UUID().uuidString)"
         promptToolPreviewActivityID = activityID
+        let call = ChatPromptToolProtocol.parseToolCalls(
+            from: promptToolPrimaryText,
+            provider: activeEndpointCandidate?.provider
+        ).first
+        let toolName = call?.name ?? "tool_call"
+        let title = call.map { ChatToolDefinitions.activityTitle(for: $0.name) }
+            ?? NSLocalizedString("Generating Tool Call", comment: "Tool activity title")
+        let summary: String?
+        if let call {
+            summary = ChatToolDefinitions.activitySummary(for: call)
+        } else {
+            summary = promptToolPreviewSummary()
+        }
         emitToolActivity(.init(
             id: activityID,
-            toolName: "tool_call",
-            title: NSLocalizedString("Generating Tool Call", comment: "Tool activity title"),
-            phase: .requested,
-            summary: promptToolPreviewSummary(),
+            toolName: toolName,
+            title: title,
+            phase: .generating,
+            summary: summary,
             modelRequestPayload: [
                 "partial_tool_call": .string(promptToolPrimaryText)
             ]

@@ -5,11 +5,6 @@
 
 import Foundation
 import SwiftUI
-#if os(macOS)
-import AppKit
-#else
-import UIKit
-#endif
 
 /// Aggregate styling and behavior configuration applied to a `MarkdownView`.
 ///
@@ -20,11 +15,7 @@ import UIKit
 public struct MarkdownRenderConfig: Hashable, Sendable {
   /// When `true`, newly appended text fades in instead of appearing instantly.
   public let shouldAnimateText: Bool
-  /// When `true`, incomplete trailing Markdown is cleaned up for in-flight streamed snapshots.
-  public let speculativeRewrite: Bool
-  /// Dynamic Type size used when resolving fonts into attributed strings.
-  public let sizeCategory: ContentSizeCategory
-  /// Appearance used when resolving dynamic colors during parse-time rendering.
+  /// Appearance used when resolving semantic colors for rendered attachments.
   public let colorScheme: ColorScheme
   /// Styling applied to block-quote content.
   public let blockQuoteStyle: MarkdownTextStyle
@@ -43,18 +34,39 @@ public struct MarkdownRenderConfig: Hashable, Sendable {
   public let textContextMenu: TextContextMenu?
   /// Configuration that controls inline citation parsing and rendering.
   public let citationConfig: CitationConfig
-  /// Optional plain-text query to highlight in rendered inline text.
+  /// Configuration that controls code-block syntax-highlighting styling.
+  public let codeBlockConfig: CodeBlockConfig
+  /// Optional plain-text query highlighted in rendered text.
   public let searchHighlightQuery: String?
+  /// Vertical spacing between adjacent blocks (paragraphs, headings,
+  /// code blocks, lists, etc.). Defaults to 30.
+  public let blockSpacing: CGFloat
+  /// Configuration for the built-in "Select more text" edit-menu action and the
+  /// modal it presents. Enabled by default.
+  public let textSelectionConfig: TextSelectionConfig
+  /// Color of the horizontal rule rendered for a thematic break (`---`).
+  public let thematicBreakColor: Color
+
+  /// Configuration controlling whether and how Markdown images are rendered as
+  /// block-level content.
+  ///
+  /// When enabled, image-only paragraphs are rendered as block images (loaded
+  /// asynchronously). Pair with `MarkdownParseOption.imageSupport` so that
+  /// images embedded alongside text are split out into their own blocks.
+  ///
+  /// - Important: Image support is **experimental**. The behavior, API, and
+  ///   rendering output may change in future releases. Defaults to `.disabled`.
+  public let imageConfig: ImageConfig
 
   /// Font and color style for a uniformly-styled run of markdown text.
   public struct MarkdownTextStyle: Hashable, Sendable {
     /// Font set used for normal, bold, and italic variants.
     public let textFonts: TextFonts
     /// Foreground color applied to the text.
-    public let textColor: UIColor
+    public let textColor: Color
 
     /// Create a text style with the given fonts and foreground color.
-    public init(textFonts: TextFonts, textColor: UIColor) {
+    public init(textFonts: TextFonts, textColor: Color) {
       self.textFonts = textFonts
       self.textColor = textColor
     }
@@ -66,18 +78,18 @@ public struct MarkdownRenderConfig: Hashable, Sendable {
     /// Font set used in both header and body cells.
     public let textFonts: TextFonts
     /// Foreground color applied to header cell text.
-    public let headerTextColor: UIColor
+    public let headerTextColor: Color
     /// Foreground color applied to body cell text.
-    public let regularTextColor: UIColor
+    public let regularTextColor: Color
     /// Background color of the header row.
-    public let headerBackgroundColor: UIColor
+    public let headerBackgroundColor: Color
     /// Color used for table borders and dividers.
-    public let borderColor: UIColor
+    public let borderColor: Color
     /// Tint color of the action button shown in the table footer.
-    public let actionButtonColor: UIColor
+    public let actionButtonColor: Color
 
     /// Create a table style with the supplied fonts and color palette.
-    public init(textFonts: TextFonts, headerTextColor: UIColor, regularTextColor: UIColor, headerBackgroundColor: UIColor, borderColor: UIColor, actionButtonColor: UIColor) {
+    public init(textFonts: TextFonts, headerTextColor: Color, regularTextColor: Color, headerBackgroundColor: Color, borderColor: Color, actionButtonColor: Color) {
       self.textFonts = textFonts
       self.headerTextColor = headerTextColor
       self.regularTextColor = regularTextColor
@@ -102,10 +114,10 @@ public struct MarkdownRenderConfig: Hashable, Sendable {
     /// Font set for level-6 headings.
     public let h6Font: TextFonts
     /// Foreground color shared by every heading level.
-    public let textColor: UIColor
+    public let textColor: Color
 
     /// Create a heading style with explicit fonts per level and a shared color.
-    public init(h1Font: TextFonts, h2Font: TextFonts, h3Font: TextFonts, h4Font: TextFonts, h5Font: TextFonts, h6Font: TextFonts, textColor: UIColor) {
+    public init(h1Font: TextFonts, h2Font: TextFonts, h3Font: TextFonts, h4Font: TextFonts, h5Font: TextFonts, h6Font: TextFonts, textColor: Color) {
       self.h1Font = h1Font
       self.h2Font = h2Font
       self.h3Font = h3Font
@@ -119,22 +131,22 @@ public struct MarkdownRenderConfig: Hashable, Sendable {
   /// Styling for inline runs: bold emphasis, links, and inline code spans.
   public struct MarkdownInlineTextStyle: Hashable, Sendable {
     /// Foreground color applied to bold-emphasis runs.
-    public let boldTextColor: UIColor
+    public let boldTextColor: Color
     /// Font used for link runs.
-    public let linkTextFont: UIFont
+    public let linkTextFont: MDFont
     /// Foreground color applied to link runs.
-    public let linkTextColor: UIColor
+    public let linkTextColor: Color
     /// Font used for inline code spans.
-    public let codeTextFont: UIFont
+    public let codeTextFont: MDFont
     /// Foreground color applied to inline code spans.
-    public let codeTextColor: UIColor
+    public let codeTextColor: Color
     /// Background fill behind inline code spans.
-    public let codeBackgroundColor: UIColor
+    public let codeBackgroundColor: Color
     /// Underline color drawn beneath inline code spans.
-    public let codeUnderlineColor: UIColor
+    public let codeUnderlineColor: Color
 
     /// Create an inline text style with the supplied fonts and color palette.
-    public init(boldTextColor: UIColor, linkTextFont: UIFont, linkTextColor: UIColor, codeTextFont: UIFont, codeTextColor: UIColor, codeBackgroundColor: UIColor, codeUnderlineColor: UIColor) {
+    public init(boldTextColor: Color, linkTextFont: MDFont, linkTextColor: Color, codeTextFont: MDFont, codeTextColor: Color, codeBackgroundColor: Color, codeUnderlineColor: Color) {
       self.boldTextColor = boldTextColor
       self.linkTextFont = linkTextFont
       self.linkTextColor = linkTextColor
@@ -152,11 +164,11 @@ public struct MarkdownRenderConfig: Hashable, Sendable {
     /// Encoder/decoder used to embed citation payloads into the markdown.
     public let coder: CitationCoder
     /// Font applied to the rendered citation chip.
-    public let font: UIFont
+    public let font: MDFont
     /// Foreground color of the citation chip text.
-    public let textColor: UIColor
+    public let textColor: Color
     /// Background fill of the citation chip.
-    public let backgroundColor: UIColor
+    public let backgroundColor: Color
 
     /// Create a citation configuration.
     /// - Parameters:
@@ -168,9 +180,9 @@ public struct MarkdownRenderConfig: Hashable, Sendable {
     public init(
       isEnabled: Bool = true,
       coder: CitationCoder = .default,
-      font: UIFont,
-      textColor: UIColor,
-      backgroundColor: UIColor
+      font: MDFont,
+      textColor: Color,
+      backgroundColor: Color
     ) {
       self.isEnabled = isEnabled
       self.coder = coder
@@ -179,125 +191,74 @@ public struct MarkdownRenderConfig: Hashable, Sendable {
       self.backgroundColor = backgroundColor
     }
 
-    /// Default citation styling derived from the bundled `Typography` and system text palette.
-    public static var `default`: CitationConfig {
-      defaultConfig(sizeCategory: .large)
-    }
-
-    public static func defaultConfig(sizeCategory: ContentSizeCategory) -> CitationConfig {
-      CitationConfig(
-        font: Typography.tripleExtraSmallCustom450.uiFont(sizeCategory: sizeCategory),
-        textColor: MarkdownRenderConfig.defaultPrimaryTextColor,
-        backgroundColor: UIColor(Color.Theme.Overlay.Black.Black5)
-      )
-    }
-  }
-
-  /// Platform-native primary text color. This intentionally uses system label
-  /// colors instead of the bundled Copilot primary palette so chat text renders
-  /// as true black in light mode and true white in dark mode.
-  public static var defaultPrimaryTextColor: UIColor {
-    #if os(macOS)
-    return .labelColor
-    #else
-    return .label
-    #endif
-  }
-
-  /// Default styling for `blockQuoteStyle`.
-  public static var defaultBlockQuoteStyle: MarkdownTextStyle {
-    defaultBlockQuoteStyle(sizeCategory: .large)
-  }
-
-  public static func defaultBlockQuoteStyle(sizeCategory: ContentSizeCategory) -> MarkdownTextStyle {
-    MarkdownTextStyle(
-      textFonts: Typography.baseTextFonts(sizeCategory: sizeCategory),
-      textColor: MarkdownRenderConfig.defaultPrimaryTextColor
+    /// Default citation styling derived from the bundled `Typography` and `Color.Theme` palette.
+    public static let `default` = CitationConfig(
+      font: Typography.tripleExtraSmallCustom450.mdFont,
+      textColor: Color.Theme.Foreground.Primary.Primary750,
+      backgroundColor: Color.Theme.Overlay.Black.Black5
     )
   }
+
+  /// Default inter-block spacing.
+  public static let defaultBlockSpacing: CGFloat = 30
+  /// Default color for `thematicBreakColor`.
+  public static let defaultThematicBreakColor: Color = Color.Theme.Stroke.Default.Default300
+  /// Default styling for `blockQuoteStyle`.
+  public static let defaultBlockQuoteStyle = MarkdownTextStyle(
+    textFonts: Typography.baseTextFonts,
+    textColor: Color.Theme.Foreground.Primary.Primary750
+  )
 
   /// Default styling for `headingStyle`.
-  public static var defaultHeadingStyle: MarkdownHeadingTextStyle {
-    defaultHeadingStyle(sizeCategory: .large)
-  }
-
-  public static func defaultHeadingStyle(sizeCategory: ContentSizeCategory) -> MarkdownHeadingTextStyle {
-    MarkdownHeadingTextStyle(
-      h1Font: Typography.extraLargeTextFonts(sizeCategory: sizeCategory),
-      h2Font: Typography.largeTextFonts(sizeCategory: sizeCategory),
-      h3Font: Typography.mediumTextFonts(sizeCategory: sizeCategory),
-      h4Font: Typography.mediumTextFonts(sizeCategory: sizeCategory),
-      h5Font: Typography.mediumTextFonts(sizeCategory: sizeCategory),
-      h6Font: Typography.mediumTextFonts(sizeCategory: sizeCategory),
-      textColor: MarkdownRenderConfig.defaultPrimaryTextColor
-    )
-  }
+  public static let defaultHeadingStyle = MarkdownHeadingTextStyle(
+    h1Font: Typography.extraLargeTextFonts,
+    h2Font: Typography.largeTextFonts,
+    h3Font: Typography.mediumTextFonts,
+    h4Font: Typography.mediumTextFonts,
+    h5Font: Typography.mediumTextFonts,
+    h6Font: Typography.mediumTextFonts,
+    textColor: Color.Theme.Foreground.Primary.Primary750
+  )
 
   /// Default styling for `orderedListStyle`.
-  public static var defaultOrderedListStyle: MarkdownTextStyle {
-    defaultOrderedListStyle(sizeCategory: .large)
-  }
-
-  public static func defaultOrderedListStyle(sizeCategory: ContentSizeCategory) -> MarkdownTextStyle {
-    MarkdownTextStyle(
-      textFonts: Typography.baseTextFonts(sizeCategory: sizeCategory),
-      textColor: MarkdownRenderConfig.defaultPrimaryTextColor
-    )
-  }
+  public static let defaultOrderedListStyle = MarkdownTextStyle(
+    textFonts: Typography.baseTextFonts,
+    textColor: Color.Theme.Foreground.Primary.Primary450
+  )
 
   /// Default styling for `paragraphStyle`.
-  public static var defaultParagraphStyle: MarkdownTextStyle {
-    defaultParagraphStyle(sizeCategory: .large)
-  }
-
-  public static func defaultParagraphStyle(sizeCategory: ContentSizeCategory) -> MarkdownTextStyle {
-    MarkdownTextStyle(
-      textFonts: Typography.baseTextFonts(sizeCategory: sizeCategory),
-      textColor: MarkdownRenderConfig.defaultPrimaryTextColor
-    )
-  }
+  public static let defaultParagraphStyle = MarkdownTextStyle(
+    textFonts: Typography.baseTextFonts,
+    textColor: Color.Theme.Foreground.Primary.Primary750
+  )
 
   /// Default styling for `tableStyle`.
-  public static var defaultTableStyle: MarkdownTableTextStyle {
-    defaultTableStyle(sizeCategory: .large)
-  }
-
-  public static func defaultTableStyle(sizeCategory: ContentSizeCategory) -> MarkdownTableTextStyle {
-    MarkdownTableTextStyle(
-      textFonts: Typography.smallTextFonts(sizeCategory: sizeCategory),
-      headerTextColor: MarkdownRenderConfig.defaultPrimaryTextColor,
-      regularTextColor: MarkdownRenderConfig.defaultPrimaryTextColor,
-      headerBackgroundColor: UIColor(Color.Theme.Component.Table.Background.Header),
-      borderColor: UIColor(Color.Theme.Stroke.Default.Default250),
-      actionButtonColor: UIColor(Color.Theme.Component.Button.Foreground.Rest)
-    )
-  }
+  public static let defaultTableStyle = MarkdownTableTextStyle(
+    textFonts: Typography.smallTextFonts,
+    headerTextColor: Color.Theme.Foreground.Primary.Primary750,
+    regularTextColor: Color.Theme.Foreground.Primary.Primary800,
+    headerBackgroundColor: Color.Theme.Component.Table.Background.Header,
+    borderColor: Color.Theme.Stroke.Default.Default250,
+    actionButtonColor: Color.Theme.Component.Button.Foreground.Rest
+  )
 
   /// Default styling for `inlineStyle`.
-  public static var defaultInlineStyle: MarkdownInlineTextStyle {
-    defaultInlineStyle(sizeCategory: .large)
-  }
-
-  public static func defaultInlineStyle(sizeCategory: ContentSizeCategory) -> MarkdownInlineTextStyle {
-    MarkdownInlineTextStyle(
-      boldTextColor: MarkdownRenderConfig.defaultPrimaryTextColor,
-      linkTextFont: Typography.baseTextFonts(sizeCategory: sizeCategory).normal,
-      linkTextColor: UIColor(Color.Theme.Accent.Accent600),
-      codeTextFont: Typography.codeTextFonts(sizeCategory: sizeCategory).normal,
-      codeTextColor: MarkdownRenderConfig.defaultPrimaryTextColor,
-      codeBackgroundColor: UIColor(Color.Theme.Component.Table.Background.Header),
-      codeUnderlineColor: UIColor(Color.Theme.Component.CodeBlock.Foreground.Header)
-    )
-  }
+  public static let defaultInlineStyle = MarkdownInlineTextStyle(
+    boldTextColor: Color.Theme.Foreground.Primary.Primary750,
+    linkTextFont: Typography.baseTextFonts.normal,
+    linkTextColor: Color.Theme.Accent.Accent600,
+    codeTextFont: Typography.codeTextFonts.normal,
+    codeTextColor: Color.Theme.Foreground.Primary.Primary750,
+    codeBackgroundColor: Color.Theme.Component.Table.Background.Header,
+    codeUnderlineColor: Color.Theme.Component.CodeBlock.Foreground.Header
+  )
 
   /// Create a render config. Every parameter has a sensible default that
   /// matches the bundled `Typography`/`Color.Theme` palette, so callers can
   /// override only the fields they care about.
   public init(
     shouldAnimateText: Bool = false,
-    speculativeRewrite: Bool = false,
-    sizeCategory: ContentSizeCategory = .large,
-    colorScheme: ColorScheme = .dark,
+    colorScheme: ColorScheme = .light,
     blockQuoteStyle: MarkdownTextStyle = MarkdownRenderConfig.defaultBlockQuoteStyle,
     headingStyle: MarkdownHeadingTextStyle = MarkdownRenderConfig.defaultHeadingStyle,
     orderedListStyle: MarkdownTextStyle = MarkdownRenderConfig.defaultOrderedListStyle,
@@ -306,11 +267,14 @@ public struct MarkdownRenderConfig: Hashable, Sendable {
     inlineStyle: MarkdownInlineTextStyle = MarkdownRenderConfig.defaultInlineStyle,
     textContextMenu: TextContextMenu? = nil,
     citationConfig: CitationConfig = .default,
+    codeBlockConfig: CodeBlockConfig = .default,
+    blockSpacing: CGFloat = MarkdownRenderConfig.defaultBlockSpacing,
+    textSelectionConfig: TextSelectionConfig = .default,
+    thematicBreakColor: Color = MarkdownRenderConfig.defaultThematicBreakColor,
+    imageConfig: ImageConfig = .disabled,
     searchHighlightQuery: String? = nil
   ) {
     self.shouldAnimateText = shouldAnimateText
-    self.speculativeRewrite = speculativeRewrite
-    self.sizeCategory = sizeCategory
     self.colorScheme = colorScheme
     self.blockQuoteStyle = blockQuoteStyle
     self.headingStyle = headingStyle
@@ -320,58 +284,36 @@ public struct MarkdownRenderConfig: Hashable, Sendable {
     self.inlineStyle = inlineStyle
     self.textContextMenu = textContextMenu
     self.citationConfig = citationConfig
+    self.codeBlockConfig = codeBlockConfig
+    self.blockSpacing = blockSpacing
+    self.textSelectionConfig = textSelectionConfig
+    self.thematicBreakColor = thematicBreakColor
+    self.imageConfig = imageConfig
     self.searchHighlightQuery = searchHighlightQuery
   }
 
   /// The default render config, equivalent to calling `init()` with no
   /// arguments.
-  public static var `default`: MarkdownRenderConfig {
-    MarkdownRenderConfig(shouldAnimateText: false)
-  }
+  public static let `default` = MarkdownRenderConfig(shouldAnimateText: false)
 
-  public static func defaultConfig(sizeCategory: ContentSizeCategory) -> MarkdownRenderConfig {
-    MarkdownRenderConfig(
-      shouldAnimateText: false,
-      sizeCategory: sizeCategory,
-      blockQuoteStyle: defaultBlockQuoteStyle(sizeCategory: sizeCategory),
-      headingStyle: defaultHeadingStyle(sizeCategory: sizeCategory),
-      orderedListStyle: defaultOrderedListStyle(sizeCategory: sizeCategory),
-      paragraphStyle: defaultParagraphStyle(sizeCategory: sizeCategory),
-      tableStyle: defaultTableStyle(sizeCategory: sizeCategory),
-      inlineStyle: defaultInlineStyle(sizeCategory: sizeCategory),
-      citationConfig: .defaultConfig(sizeCategory: sizeCategory)
+  /// The context menu actually rendered on text selection: the consumer-supplied
+  /// `textContextMenu` with the built-in "Select more text" group prepended (so
+  /// it sits right after the system Copy group) when
+  /// `textSelectionConfig.isEnabled` is `true`. Returns the raw `textContextMenu`
+  /// unchanged when text selection is disabled.
+  var resolvedTextContextMenu: TextContextMenu? {
+    guard textSelectionConfig.isEnabled else { return textContextMenu }
+    let selectMoreGroup = TextContextMenuGroup(
+      title: nil,
+      image: nil,
+      displayInline: true,
+      items: [
+        TextContextMenuItem(
+          id: TextSelectionConfig.selectMoreItemID,
+          title: String.selectMoreTextLabel
+        )
+      ]
     )
-  }
-}
-
-struct MarkdownRenderConfigParseKey: Hashable, Sendable {
-  let speculativeRewrite: Bool
-  let sizeCategory: ContentSizeCategory
-  let colorScheme: ColorScheme
-  let blockQuoteStyle: MarkdownRenderConfig.MarkdownTextStyle
-  let headingStyle: MarkdownRenderConfig.MarkdownHeadingTextStyle
-  let orderedListStyle: MarkdownRenderConfig.MarkdownTextStyle
-  let paragraphStyle: MarkdownRenderConfig.MarkdownTextStyle
-  let tableStyle: MarkdownRenderConfig.MarkdownTableTextStyle
-  let inlineStyle: MarkdownRenderConfig.MarkdownInlineTextStyle
-  let citationConfig: MarkdownRenderConfig.CitationConfig
-  let searchHighlightQuery: String?
-}
-
-extension MarkdownRenderConfig {
-  var parseAffectingKey: MarkdownRenderConfigParseKey {
-    MarkdownRenderConfigParseKey(
-      speculativeRewrite: speculativeRewrite,
-      sizeCategory: sizeCategory,
-      colorScheme: colorScheme,
-      blockQuoteStyle: blockQuoteStyle,
-      headingStyle: headingStyle,
-      orderedListStyle: orderedListStyle,
-      paragraphStyle: paragraphStyle,
-      tableStyle: tableStyle,
-      inlineStyle: inlineStyle,
-      citationConfig: citationConfig,
-      searchHighlightQuery: searchHighlightQuery
-    )
+    return TextContextMenu(menuGroups: [selectMoreGroup] + (textContextMenu?.menuGroups ?? []))
   }
 }

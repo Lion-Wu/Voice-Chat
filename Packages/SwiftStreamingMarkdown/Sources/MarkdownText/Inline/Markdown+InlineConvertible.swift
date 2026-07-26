@@ -24,7 +24,7 @@ extension Markdown.Emphasis: InlineConvertible {
     var newContainer = attributeContainer
 
     if let currentTextFonts = attributeContainer[.typography] as? TextFonts {
-      let currentFont = attributeContainer[.font] as? UIFont
+      let currentFont = attributeContainer[.font] as? MDFont
       newContainer[.font] = currentFont.map { currentTextFonts.italicize(font: $0) } ?? currentTextFonts.italic
     } else {
       newContainer[.font] = config.paragraphStyle.textFonts.italic ?? config.paragraphStyle.textFonts.normal
@@ -42,13 +42,13 @@ extension Markdown.Strong: InlineConvertible {
     let str = NSMutableAttributedString()
     var newContainer = attributeContainer
     if let currentTextFonts = attributeContainer[.typography] as? TextFonts {
-      let currentFont = attributeContainer[.font] as? UIFont
+      let currentFont = attributeContainer[.font] as? MDFont
       newContainer[.font] = currentFont.map { currentTextFonts.bold(font: $0) } ?? currentTextFonts.bold
     } else {
       newContainer[.font] = config.paragraphStyle.textFonts.bold ?? config.paragraphStyle.textFonts.normal
     }
     if self.parent is Paragraph && self.indexInParent == 0 && self.parent?.parent is ListItem && parent?.indexInParent == 0 {
-      newContainer[.foregroundColor] = config.inlineStyle.boldTextColor
+      newContainer[.foregroundColor] = MDColor(config.inlineStyle.boldTextColor)
     }
     self.inlineConvertibleChildren.forEach { convertible in
       str.append(convertible.convert(attributeContainer: newContainer, config: config))
@@ -124,43 +124,10 @@ extension Markdown.Link: InlineConvertible {
       // Is a real link, provided as markdown
       container[.link] = url
       container[.font] = config.inlineStyle.linkTextFont
-      container[.foregroundColor] = config.inlineStyle.linkTextColor
-      container[.underlineStyle] = NSUnderlineStyle(rawValue: 0).rawValue
+      container[.foregroundColor] = MDColor(config.inlineStyle.linkTextColor)
+      container[.underlineStyle] = NSUnderlineStyle([]).rawValue
       return buildAttributedString()
     }
-  }
-}
-
-extension Markdown.Image: InlineConvertible {
-  private func createURL(from string: String) -> URL? {
-    return URL.fromMixedEncodingString(string)
-  }
-
-  func convert(attributeContainer: NSAttributeContainer, config: MarkdownRenderConfig) -> NSMutableAttributedString {
-    var container = attributeContainer
-    let str = NSMutableAttributedString()
-    self.inlineConvertibleChildren.forEach { convertible in
-      str.append(convertible.convert(attributeContainer: container, config: config))
-    }
-
-    let trimmedAltText = str.string.trimmingCharacters(in: .whitespacesAndNewlines)
-    let attributedText: NSMutableAttributedString
-    if trimmedAltText.isEmpty, let source {
-      attributedText = NSMutableAttributedString(string: source).mergingAttributes(container)
-    } else {
-      attributedText = str
-    }
-
-    if let source,
-       let url = createURL(from: source) {
-      container[.link] = url
-      container[.font] = config.inlineStyle.linkTextFont
-      container[.foregroundColor] = config.inlineStyle.linkTextColor
-      container[.underlineStyle] = NSUnderlineStyle(rawValue: 0).rawValue
-      attributedText.addAttributes(container, range: NSRange(location: 0, length: attributedText.length))
-    }
-
-    return attributedText
   }
 }
 
@@ -191,22 +158,37 @@ extension Markdown.InlineCode: InlineConvertible {
         .code
         .dropFirst(LaTexPreProcessorImpl.inlineCodePrefix.count)
         .dropLast(LaTexPreProcessorImpl.inlineCodeSuffix.count))
-      let font = attributeContainer[NSAttributedString.Key.font] as? UIFont ?? config.paragraphStyle.textFonts.normal
-      if let attachment = RaTeXMathRendering.attachment(
+      let font = attributeContainer[NSAttributedString.Key.font] as? MDFont ?? config.paragraphStyle.textFonts.normal
+      let textColor = MDColor(config.paragraphStyle.textColor)
+      #if canImport(UIKit)
+      let traits = UITraitCollection(
+        userInterfaceStyle: config.colorScheme == .dark ? .dark : .light
+      )
+      let resolvedHex = textColor.resolvedColor(with: traits).toHexString()
+      #elseif canImport(AppKit)
+      let appearance: NSAppearance.Name = config.colorScheme == .dark
+        ? .darkAqua
+        : .aqua
+      let resolvedHex = textColor.resolvedForAppearance(appearance).toHexString()
+      #endif
+      let attachmentData = LatexAttachmentData(
         latex: codeContent,
-        pointSize: font.pointSize,
-        color: config.paragraphStyle.textColor,
-        colorScheme: config.colorScheme
-      ) {
+        fontSize: font.pointSize,
+        lightTextColor: resolvedHex,
+        darkTextColor: resolvedHex
+      )
+      let encoder = JSONEncoder()
+      if let payload = try? encoder.encode(attachmentData) {
+        let attachment = LatexTextAttachment(contents: payload)
         return NSMutableAttributedString(attachment: attachment)
       }
     }
     var container = attributeContainer
     container[.font] = config.inlineStyle.codeTextFont
-    container[.foregroundColor] = config.inlineStyle.codeTextColor
-    container[.backgroundColor] = config.inlineStyle.codeBackgroundColor
+    container[.foregroundColor] = MDColor(config.inlineStyle.codeTextColor)
+    container[.backgroundColor] = MDColor(config.inlineStyle.codeBackgroundColor)
     container[.underlineStyle] =  NSUnderlineStyle.patternDot.rawValue
-    container[.underlineColor] = config.inlineStyle.codeUnderlineColor
+    container[.underlineColor] = MDColor(config.inlineStyle.codeUnderlineColor)
     return NSMutableAttributedString(string: codeContent)
       .mergingAttributes(container)
       .applyingSearchHighlight(query: config.searchHighlightQuery)

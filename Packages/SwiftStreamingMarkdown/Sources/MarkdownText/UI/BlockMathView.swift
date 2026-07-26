@@ -4,68 +4,110 @@
 //
 
 import SwiftUI
+
+#if os(visionOS)
 import VoiceChatRaTeX
+#else
+import RaTeX
+#endif
 
-struct BlockMathView: View {
-  @Environment(\.markdownConfig) private var config
+#if canImport(UIKit)
 
+#if os(visionOS)
+struct BlockMathView: UIViewRepresentable {
   let latex: String
   let color: Color
   let pointSize: CGFloat
-  @State private var renderResult: BlockMathRenderResult?
+  let colorScheme: ColorScheme
 
   init(
     latex: String,
-    color: Color = .primary,
-    pointSize: CGFloat = Typography.base.uiFont.pointSize
+    color: Color = Color.Theme.Foreground.Primary.Primary750,
+    pointSize: CGFloat = Typography.base.mdFont.pointSize,
+    colorScheme: ColorScheme = .light
   ) {
     self.latex = latex
     self.color = color
     self.pointSize = pointSize
+    self.colorScheme = colorScheme
   }
 
-  private var renderKey: RaTeXFormulaRenderKey {
-    RaTeXMathRendering.renderKey(
-      latex: latex,
-      displayMode: true,
-      pointSize: pointSize,
-      color: UIColor(color),
-      colorScheme: config.colorScheme
+  func makeUIView(context: Context) -> VoiceChatRaTeXView {
+    let view = VoiceChatRaTeXView()
+    view.setContentHuggingPriority(.required, for: .horizontal)
+    view.setContentHuggingPriority(.required, for: .vertical)
+    configure(view)
+    return view
+  }
+
+  func updateUIView(_ uiView: VoiceChatRaTeXView, context: Context) {
+    configure(uiView)
+  }
+
+  func sizeThatFits(
+    _ proposal: ProposedViewSize,
+    uiView: VoiceChatRaTeXView,
+    context: Context
+  ) -> CGSize? {
+    let size = uiView.intrinsicContentSize
+    return CGSize(width: size.width.rounded(.up), height: size.height.rounded(.up))
+  }
+
+  private func configure(_ view: VoiceChatRaTeXView) {
+    let traits = UITraitCollection(
+      userInterfaceStyle: colorScheme == .dark ? .dark : .light
     )
+    view.fontSize = pointSize
+    view.displayMode = true
+    view.color = UIColor(color).resolvedColor(with: traits)
+    view.latex = latex
+  }
+}
+#endif
+
+#endif
+
+#if !os(visionOS)
+struct BlockMathView: View {
+  let latex: String
+  let color: Color
+  let pointSize: CGFloat
+  let colorScheme: ColorScheme
+
+  init(
+    latex: String,
+    color: Color = Color.Theme.Foreground.Primary.Primary750,
+    pointSize: CGFloat = Typography.base.mdFont.pointSize,
+    colorScheme: ColorScheme = .light
+  ) {
+    self.latex = latex
+    self.color = color
+    self.pointSize = pointSize
+    self.colorScheme = colorScheme
   }
 
   var body: some View {
-    Group {
-      if let renderResult,
-         renderResult.key == renderKey,
-         let formula = renderResult.formula {
-        Canvas { context, _ in
-          context.withCGContext { cgContext in
-            formula.draw(in: cgContext)
-          }
-        }
-        .frame(width: ceil(formula.width), height: ceil(formula.totalHeight))
-      } else {
-        Text(latex)
-          .font(.system(size: pointSize, design: .monospaced))
-          .foregroundStyle(color)
-      }
-    }
+    RaTeXFormula(
+      latex: latex,
+      fontSize: pointSize,
+      displayMode: true,
+      color: resolvedColor
+    )
     .accessibilityLabel(latex)
-    .task(id: renderKey) {
-      let key = renderKey
-      let formula = await Task.detached(priority: .userInitiated) {
-        RaTeXMathRendering.renderFormula(for: key)
-      }.value
-      guard key == renderKey else {
-        return
-      }
-      renderResult = BlockMathRenderResult(key: key, formula: formula)
-    }
+  }
+
+  private var resolvedColor: Color {
+    #if canImport(UIKit)
+    let traits = UITraitCollection(
+      userInterfaceStyle: colorScheme == .dark ? .dark : .light
+    )
+    return Color(uiColor: UIColor(color).resolvedColor(with: traits))
+    #elseif canImport(AppKit)
+    let appearance: NSAppearance.Name = colorScheme == .dark
+      ? .darkAqua
+      : .aqua
+    return Color(nsColor: NSColor(color).resolvedForAppearance(appearance))
+    #endif
   }
 }
-
-private struct BlockMathRenderResult {
-  let key: RaTeXFormulaRenderKey
-  let formula: VoiceChatRaTeXFormula?
-}
+#endif

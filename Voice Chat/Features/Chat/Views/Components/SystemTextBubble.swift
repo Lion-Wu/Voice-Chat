@@ -62,6 +62,7 @@ struct SystemTextBubble: View {
                     maxWidth: contentMaxWidthForAssistant(availableWidth: maxBubbleWidth),
                     alignment: .leading
                 )
+                .transition(ChatScrollContentMotion.transition)
 
             case .text:
                 if !block.text.isEmpty || !block.toolActivityPlacements.isEmpty {
@@ -69,9 +70,14 @@ struct SystemTextBubble: View {
                         text: block.text,
                         placements: block.toolActivityPlacements
                     )
+                    .transition(ChatScrollContentMotion.transition)
                 }
             }
         }
+        .animation(
+            ChatScrollContentMotion.animation,
+            value: blocks.map(\.id)
+        )
     }
 
     @ViewBuilder
@@ -84,28 +90,39 @@ struct SystemTextBubble: View {
         let thinkingPlacements = toolActivityPlacements.filter { $0.scope == .thinking }
         let bodyPlacements = toolActivityPlacements.filter { $0.scope == .body }
 
-        if parts.think != nil || !thinkingPlacements.isEmpty {
-            ThinkingPreviewBubble(
-                think: parts.think ?? "",
-                isComplete: parts.isClosed && (
-                    !isStreamingResponse || thinkingPlacements.isEmpty || !parts.body.isEmpty
-                ),
-                previewLines: thinkPreviewLines,
-                thinkFontSize: thinkFontSize,
-                toolActivityPlacements: thinkingPlacements,
-                maxBubbleWidth: maxBubbleWidth,
-                developerModeEnabled: developerModeEnabled,
-                onAuthorizeTool: onAuthorizeTool
-            )
-            .frame(
-                maxWidth: contentMaxWidthForAssistant(availableWidth: maxBubbleWidth),
-                alignment: .leading
-            )
-        }
+        Group {
+            if parts.think != nil || !thinkingPlacements.isEmpty {
+                ThinkingPreviewBubble(
+                    think: parts.think ?? "",
+                    isComplete: parts.isClosed && (
+                        !isStreamingResponse || thinkingPlacements.isEmpty || !parts.body.isEmpty
+                    ),
+                    previewLines: thinkPreviewLines,
+                    thinkFontSize: thinkFontSize,
+                    toolActivityPlacements: thinkingPlacements,
+                    maxBubbleWidth: maxBubbleWidth,
+                    developerModeEnabled: developerModeEnabled,
+                    onAuthorizeTool: onAuthorizeTool
+                )
+                .frame(
+                    maxWidth: contentMaxWidthForAssistant(availableWidth: maxBubbleWidth),
+                    alignment: .leading
+                )
+                .transition(ChatScrollContentMotion.transition)
+            }
 
-        if !parts.body.isEmpty || !bodyPlacements.isEmpty {
-            bodyContent(text: parts.body, placements: bodyPlacements)
+            if !parts.body.isEmpty || !bodyPlacements.isEmpty {
+                bodyContent(text: parts.body, placements: bodyPlacements)
+                    .transition(ChatScrollContentMotion.transition)
+            }
         }
+        .animation(
+            ChatScrollContentMotion.animation,
+            value: [
+                parts.think != nil || !thinkingPlacements.isEmpty,
+                !parts.body.isEmpty || !bodyPlacements.isEmpty
+            ]
+        )
     }
 
     private func bodyContent(

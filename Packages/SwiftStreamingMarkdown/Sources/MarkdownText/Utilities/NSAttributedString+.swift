@@ -5,10 +5,10 @@
 
 import Foundation
 import SwiftUI
-#if os(macOS)
-import AppKit
-#else
+#if canImport(UIKit)
 import UIKit
+#elseif canImport(AppKit)
+import AppKit
 #endif
 
 extension NSAttributedString {
@@ -67,89 +67,31 @@ extension NSAttributedString {
 
     return words
   }
-
-  #if os(macOS)
-  func sanitizedForMarkdownDrawing() -> NSAttributedString {
-    let result = NSMutableAttributedString(attributedString: self)
-    let fullRange = NSRange(location: 0, length: result.length)
-
-    enumerateAttributes(in: fullRange, options: []) { attributes, range, _ in
-      for (key, value) in attributes {
-        guard let sanitizedValue = sanitizedMarkdownDrawingValue(value, for: key) else {
-          result.removeAttribute(key, range: range)
-          continue
-        }
-        result.addAttribute(key, value: sanitizedValue, range: range)
-      }
-    }
-    return result
-  }
-
-  private func sanitizedMarkdownDrawingValue(_ value: Any, for key: NSAttributedString.Key) -> Any? {
-    switch key {
-    case .attachment:
-      return value is NSTextAttachment ? value : nil
-    case .backgroundColor, .foregroundColor, .strikethroughColor, .underlineColor:
-      guard let color = value as? NSColor else { return nil }
-      return color.usingColorSpace(.deviceRGB) ?? color
-    case .baselineOffset, .kern, .strikethroughStyle, .underlineStyle:
-      return normalizedMarkdownDrawingNumber(value)
-    case .font:
-      return value is NSFont ? value : nil
-    case .link:
-      return (value is URL || value is NSString || value is String) ? value : nil
-    case .paragraphStyle:
-      return value is NSParagraphStyle ? value : nil
-    default:
-      return nil
-    }
-  }
-
-  private func normalizedMarkdownDrawingNumber(_ value: Any) -> NSNumber? {
-    if let number = value as? NSNumber {
-      return number
-    }
-    if let value = value as? CGFloat {
-      return NSNumber(value: Double(value))
-    }
-    if let value = value as? Double {
-      return NSNumber(value: value)
-    }
-    if let value = value as? Float {
-      return NSNumber(value: value)
-    }
-    if let value = value as? Int {
-      return NSNumber(value: value)
-    }
-    return nil
-  }
-  #endif
 }
 
 extension NSMutableAttributedString {
   func applyingSearchHighlight(query: String?) -> NSMutableAttributedString {
-    let cleanedQuery = query?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-    guard !cleanedQuery.isEmpty, !string.isEmpty else {
-      return self
-    }
+    let query = query?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    guard !query.isEmpty, !string.isEmpty else { return self }
 
-    let fullString = string as NSString
-    var searchRange = NSRange(location: 0, length: fullString.length)
-    let highlightColor = UIColor.systemYellow.withAlphaComponent(0.35)
+    let source = string as NSString
+    var searchRange = NSRange(location: 0, length: source.length)
+    let highlightColor = MDColor.systemYellow.withAlphaComponent(0.35)
 
-    while searchRange.location < fullString.length {
-      let matchRange = fullString.range(
-        of: cleanedQuery,
+    while searchRange.length > 0 {
+      let match = source.range(
+        of: query,
         options: [.caseInsensitive, .diacriticInsensitive],
         range: searchRange
       )
-      guard matchRange.location != NSNotFound else {
-        break
-      }
+      guard match.location != NSNotFound else { break }
 
-      addAttribute(.backgroundColor, value: highlightColor, range: matchRange)
-      let nextLocation = NSMaxRange(matchRange)
-      searchRange = NSRange(location: nextLocation, length: fullString.length - nextLocation)
+      addAttribute(.backgroundColor, value: highlightColor, range: match)
+      let nextLocation = NSMaxRange(match)
+      searchRange = NSRange(
+        location: nextLocation,
+        length: source.length - nextLocation
+      )
     }
 
     return self
@@ -157,38 +99,24 @@ extension NSMutableAttributedString {
 }
 
 extension AttributedString {
-  #if os(macOS)
-  func sanitizedForMarkdownDrawing() -> AttributedString {
-    let attributed = NSAttributedString(self).sanitizedForMarkdownDrawing()
-    return (try? AttributedString(attributed, including: \.appKit)) ?? AttributedString(String(characters))
-  }
-  #else
-  func sanitizedForMarkdownDrawing() -> AttributedString {
-    self
-  }
-  #endif
-
   func applyingSearchHighlight(query: String?) -> AttributedString {
-    let cleanedQuery = query?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-    guard !cleanedQuery.isEmpty, !characters.isEmpty else {
-      return self
-    }
+    let query = query?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    guard !query.isEmpty, !characters.isEmpty else { return self }
 
     var result = self
-    let plainString = String(result.characters)
-    var searchStart = plainString.startIndex
-    let highlightColor = Color.yellow.opacity(0.35)
+    let source = String(result.characters)
+    var searchStart = source.startIndex
 
-    while searchStart < plainString.endIndex,
-          let range = plainString.range(
-            of: cleanedQuery,
+    while searchStart < source.endIndex,
+          let match = source.range(
+            of: query,
             options: [.caseInsensitive, .diacriticInsensitive],
-            range: searchStart..<plainString.endIndex
+            range: searchStart..<source.endIndex
           ),
-          let lowerBound = AttributedString.Index(range.lowerBound, within: result),
-          let upperBound = AttributedString.Index(range.upperBound, within: result) {
-      result[lowerBound..<upperBound].backgroundColor = highlightColor
-      searchStart = range.upperBound
+          let lowerBound = AttributedString.Index(match.lowerBound, within: result),
+          let upperBound = AttributedString.Index(match.upperBound, within: result) {
+      result[lowerBound..<upperBound].backgroundColor = Color.yellow.opacity(0.35)
+      searchStart = match.upperBound
     }
 
     return result

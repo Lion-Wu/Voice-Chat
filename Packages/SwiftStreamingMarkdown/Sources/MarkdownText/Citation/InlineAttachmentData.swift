@@ -4,10 +4,10 @@
 //
 
 import Foundation
-#if os(macOS)
-import AppKit
-#else
+#if canImport(UIKit)
 import UIKit
+#elseif canImport(AppKit)
+import AppKit
 #endif
 
 enum AttachmentType: String, Codable {

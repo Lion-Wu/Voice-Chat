@@ -194,6 +194,10 @@ final class ChatTextRequestRuntime {
         streamRetryStatusController.clearStateAfterProgressIfNeeded()
     }
 
+    func beginRequestRetryScope() {
+        streamRetryStatusController.reset()
+    }
+
     func resetRetryState() {
         streamRetryStatusController.reset()
     }

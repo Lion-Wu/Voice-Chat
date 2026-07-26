@@ -4,10 +4,10 @@
 //
 
 import Foundation
-#if os(macOS)
-import AppKit
-#else
+#if canImport(UIKit)
 import UIKit
+#elseif canImport(AppKit)
+import AppKit
 #endif
 
 /// Markdown element representation that is ready to be rendered by a SwiftUI View
@@ -42,6 +42,10 @@ indirect enum MarkdownRenderable: Identifiable, Equatable, @unchecked Sendable {
   /// To be rendered as a block quote
   case blockQuote(id: String, item: BlockQuoteRenderable)
 
+  /// To be rendered as a block-level image. Experimental; see
+  /// `MarkdownRenderConfig.imageConfig`.
+  case image(id: String, data: ImageData)
+
   var id: String {
     switch self {
     case .paragraph(let id, _): return id
@@ -53,6 +57,7 @@ indirect enum MarkdownRenderable: Identifiable, Equatable, @unchecked Sendable {
     case .table(let id, _, _, _): return id
     case .thematicBreak(let id): return id
     case .blockQuote(let id, _): return id
+    case .image(let id, _): return id
     }
   }
 
@@ -72,6 +77,20 @@ indirect enum MarkdownRenderable: Identifiable, Equatable, @unchecked Sendable {
 }
 
 struct MarkdownListItem: Equatable {
+  /// Checkbox state for a GitHub-flavored task list item (`- [ ]` / `- [x]`).
+  enum Checkbox {
+    case checked
+    case unchecked
+  }
+
   let children: [MarkdownRenderable]
   let startsWithBold: Bool
+  /// `nil` for regular list items.
+  let checkbox: Checkbox?
+
+  init(children: [MarkdownRenderable], startsWithBold: Bool, checkbox: Checkbox? = nil) {
+    self.children = children
+    self.startsWithBold = startsWithBold
+    self.checkbox = checkbox
+  }
 }

@@ -33,6 +33,9 @@ extension ChatService {
             fallbackType: fallbackType,
             provider: activeEndpointCandidate?.provider
         )
+        emitGeneratingToolActivities(
+            toolCallAccumulator.inProgressCalls(provider: activeEndpointCandidate?.provider)
+        )
         appendPendingToolCalls(calls)
     }
 
@@ -71,6 +74,9 @@ extension ChatService {
             event,
             provider: activeEndpointCandidate?.provider
         )
+        emitGeneratingToolActivities(
+            toolCallAccumulator.inProgressCalls(provider: activeEndpointCandidate?.provider)
+        )
         appendPendingToolCalls(calls)
     }
 
@@ -87,6 +93,7 @@ extension ChatService {
         guard let context = activeToolLoopContext else { return }
         let calls = pendingToolCalls
         pendingToolCalls.removeAll(keepingCapacity: true)
+        generatingToolActivities.removeAll(keepingCapacity: true)
         toolCallAccumulator.reset()
 
         guard !calls.isEmpty else {
@@ -432,8 +439,26 @@ extension ChatService {
 
     func appendPendingToolCalls(_ calls: [ChatToolCallEnvelope]) {
         guard !calls.isEmpty else { return }
-        for call in calls where !pendingToolCalls.contains(where: { $0.callID == call.callID }) {
-            pendingToolCalls.append(call)
+        for call in calls {
+            generatingToolActivities[call.callID] = nil
+            if !pendingToolCalls.contains(where: { $0.callID == call.callID }) {
+                pendingToolCalls.append(call)
+            }
+        }
+    }
+
+    private func emitGeneratingToolActivities(_ calls: [ChatToolCallEnvelope]) {
+        for call in calls where call.toolID != nil {
+            let activity = ChatToolActivity(
+                id: call.callID,
+                toolName: call.name,
+                title: ChatToolDefinitions.activityTitle(for: call.name),
+                phase: .generating,
+                summary: ChatToolDefinitions.activitySummary(for: call)
+            )
+            guard generatingToolActivities[call.callID] != activity else { continue }
+            generatingToolActivities[call.callID] = activity
+            emitToolActivity(activity)
         }
     }
 

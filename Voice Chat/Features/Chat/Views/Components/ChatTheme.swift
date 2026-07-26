@@ -83,6 +83,27 @@ enum ChatTheme {
     static let chromeBorder = Color.primary.opacity(0.05)
 }
 
+@MainActor
+enum ChatScrollContentMotion {
+    static let hiddenOffset: CGFloat = 16
+    static let hiddenScale: CGFloat = 0.98
+
+    static var transition: AnyTransition {
+        .asymmetric(
+            insertion: .offset(y: hiddenOffset)
+                .combined(with: .scale(scale: hiddenScale, anchor: .bottom))
+                .combined(with: .opacity),
+            removal: .offset(y: hiddenOffset * 0.5)
+                .combined(with: .scale(scale: 0.99, anchor: .bottom))
+                .combined(with: .opacity)
+        )
+    }
+
+    static var animation: Animation {
+        .spring(response: 0.35, dampingFraction: 0.85)
+    }
+}
+
 // MARK: - Input Layout Constants
 
 enum InputMetrics {

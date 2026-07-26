@@ -34,9 +34,15 @@ extension ChatView {
     }
 
     func handleSessionTransition() {
+        initialRenderCoordinator.begin()
         resetScrollMetricsForSessionTransition()
         refreshVisibleMessages(hydrating: true)
         scheduleSearchNavigationIfNeeded(chatSessionsViewModel.searchNavigationTarget)
+    }
+
+    func handleBranchTransition() {
+        initialRenderCoordinator.begin()
+        refreshVisibleMessages(hydrating: true)
     }
 
     func handleVisibleMessageCountChange() {
@@ -46,8 +52,22 @@ extension ChatView {
         if attemptSearchTargetScroll() {
             return
         }
-        if scrollInteractionState.pendingSearchScrollTarget == nil, !scrollState.showScrollToBottomButton {
-            scrollToBottom()
+        if !scrollInteractionState.hasSearchInterruption(
+            currentTarget: currentSearchNavigationTarget()
+        ), !scrollState.showScrollToBottomButton {
+            scrollToBottom(animated: initialRenderCoordinator.isReady)
+        }
+    }
+
+    func handleInitialContentReady() {
+        guard initialRenderCoordinator.isReady else { return }
+        if attemptSearchTargetScroll(animated: false) {
+            return
+        }
+        if !scrollInteractionState.hasSearchInterruption(
+            currentTarget: currentSearchNavigationTarget()
+        ) {
+            scrollToBottom(animated: false)
         }
     }
 
@@ -55,7 +75,14 @@ extension ChatView {
         updateAvailableMessageWidth(availableWidth)
         scrollProxy = proxy
         DispatchQueue.main.async {
-            if !attemptSearchTargetScroll(), scrollInteractionState.pendingSearchScrollTarget == nil {
+            if !attemptSearchTargetScroll(),
+               !scrollInteractionState.hasSearchInterruption(
+                   currentTarget: currentSearchNavigationTarget()
+               ) {
+                if !initialRenderCoordinator.isReady {
+                    scrollToBottom(animated: false)
+                    return
+                }
                 if consumeScrollToBottomAfterSendIfNeeded(animated: false) {
                     return
                 }

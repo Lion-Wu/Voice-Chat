@@ -5,7 +5,7 @@
 
 import SwiftUI
 
-@available(iOS 18.0, *)
+@available(iOS 18.0, macOS 15.0, *)
 struct VariableDurationFadeInTextTransition: Transition {
 
   static var properties: TransitionProperties {
@@ -37,7 +37,7 @@ struct VariableDurationFadeInTextTransition: Transition {
   }
 }
 
-@available(iOS 18.0, *)
+@available(iOS 18.0, macOS 15.0, *)
 struct FixedDurationFadeInTextTransition: Transition {
   static var properties: TransitionProperties {
     TransitionProperties(hasMotion: true)
@@ -71,7 +71,7 @@ struct FixedDurationFadeInTextTransition: Transition {
   }
 }
 
-@available(iOS 18.0, *)
+@available(iOS 18.0, macOS 15.0, *)
 struct VariableDurationFadeInTextRenderer: TextRenderer, Animatable {
 
   var elapsedTime: TimeInterval
@@ -101,7 +101,7 @@ struct VariableDurationFadeInTextRenderer: TextRenderer, Animatable {
   }
 }
 
-@available(iOS 18.0, *)
+@available(iOS 18.0, macOS 15.0, *)
 struct FixedDurationFadeInTextRenderer: TextRenderer, Animatable {
   var elapsedTime: TimeInterval
 
@@ -143,7 +143,7 @@ struct FixedDurationFadeInTextRenderer: TextRenderer, Animatable {
   }
 }
 
-@available(iOS 18.0, *)
+@available(iOS 18.0, macOS 15.0, *)
 extension Text.Layout {
   /// A helper function for easier access to all runs in a layout.
   var flattenedRuns: some RandomAccessCollection<Text.Layout.Run> {

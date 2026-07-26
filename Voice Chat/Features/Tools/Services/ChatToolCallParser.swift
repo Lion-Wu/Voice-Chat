@@ -66,6 +66,20 @@ struct ChatToolCallAccumulator: Equatable {
         anthropicChunks.removeAll()
     }
 
+    func inProgressCalls(provider: ChatProvider?) -> [ChatToolCallEnvelope] {
+        let openAI = openAIChunks
+            .sorted { $0.key < $1.key }
+            .compactMap { _, partial in
+                partial.name.isEmpty ? nil : partial.envelope(provider: provider)
+            }
+        let anthropic = anthropicChunks
+            .sorted { $0.key < $1.key }
+            .compactMap { _, partial in
+                partial.name.isEmpty ? nil : partial.envelope(provider: provider)
+            }
+        return openAI + anthropic
+    }
+
     private mutating func absorbChatCompletionsPayload(_ dictionary: [String: Any], provider: ChatProvider?) -> [ChatToolCallEnvelope] {
         guard let choices = dictionary["choices"] as? [[String: Any]] else { return [] }
         var completed: [ChatToolCallEnvelope] = []

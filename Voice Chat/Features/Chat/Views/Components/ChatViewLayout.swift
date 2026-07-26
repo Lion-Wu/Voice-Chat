@@ -11,10 +11,9 @@ struct ChatConversationLayout<MessageList: View, HydrationMask: View>: View {
     @ObservedObject var audioManager: GlobalAudioManager
 
     let navigationTitle: String
-    let isHydratingSession: Bool
+    let isInitialContentReady: Bool
     let isVoiceOverlayPresented: Bool
     let shouldDisplayAudioPlayer: Bool
-    let shouldUseBottomScrollAnchor: Bool
     let messageList: () -> MessageList
     let hydrationMask: () -> HydrationMask
     let onContentHeightChange: (CGFloat) -> Void
@@ -35,42 +34,69 @@ struct ChatConversationLayout<MessageList: View, HydrationMask: View>: View {
 
     @ViewBuilder
     private var conversationContent: some View {
-        if isHydratingSession {
-            hydrationMask()
-                .modifier(ChatViewPlatformTitleModifier(title: navigationTitle))
-        } else if !isVoiceOverlayPresented {
-            ScrollViewReader { proxy in
-                ScrollView {
-                    messageList()
+        if !isVoiceOverlayPresented {
+            ZStack {
+                scrollView
+                    .opacity(isInitialContentReady ? 1 : 0)
+                    .offset(
+                        y: isInitialContentReady
+                            ? 0
+                            : ChatScrollContentMotion.hiddenOffset
+                    )
+                    .scaleEffect(
+                        isInitialContentReady
+                            ? 1
+                            : ChatScrollContentMotion.hiddenScale,
+                        anchor: .bottom
+                    )
+                    .allowsHitTesting(isInitialContentReady)
+
+                if !isInitialContentReady {
+                    hydrationMask()
+                        .allowsHitTesting(false)
                 }
-                .modifier(ChatViewPlatformTitleModifier(title: navigationTitle))
-                .coordinateSpace(name: "ChatScroll")
-                .background(
-                    GeometryReader { outerGeo in
-                        Color.clear
-                            .preference(key: ViewportHeightKey.self, value: outerGeo.size.height)
-                            .onChange(of: outerGeo.size.width) { _, newWidth in
-                                onWidthChange(newWidth)
-                            }
-                            .onAppear {
-                                onWidthChange(outerGeo.size.width)
-                                onScrollProxyReady(proxy, outerGeo.size.width)
-                            }
-                    }
-                )
-                .onPreferenceChange(ContentHeightKey.self, perform: onContentHeightChange)
-                .onPreferenceChange(ViewportHeightKey.self, perform: onViewportHeightChange)
-                .onPreferenceChange(BottomAnchorKey.self, perform: onBottomAnchorChange)
-                .defaultScrollAnchor(shouldUseBottomScrollAnchor ? .bottom : .top)
-                #if os(iOS) || os(tvOS)
-                .scrollDismissesKeyboard(.interactively)
-                #endif
-                .onTapGesture(perform: onDismissKeyboard)
             }
+            .animation(
+                ChatScrollContentMotion.animation,
+                value: isInitialContentReady
+            )
+            .modifier(ChatViewPlatformTitleModifier(title: navigationTitle))
         } else {
             Color.clear
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .modifier(ChatViewPlatformTitleModifier(title: navigationTitle))
+        }
+    }
+
+    private var scrollView: some View {
+        ScrollViewReader { proxy in
+            ScrollView {
+                messageList()
+            }
+            .coordinateSpace(name: "ChatScroll")
+            .background(
+                GeometryReader { outerGeo in
+                    Color.clear
+                        .preference(key: ViewportHeightKey.self, value: outerGeo.size.height)
+                        .onChange(of: outerGeo.size.width) { _, newWidth in
+                            onWidthChange(newWidth)
+                        }
+                        .onAppear {
+                            onWidthChange(outerGeo.size.width)
+                            onScrollProxyReady(proxy, outerGeo.size.width)
+                        }
+                }
+            )
+            .onPreferenceChange(ContentHeightKey.self, perform: onContentHeightChange)
+            .onPreferenceChange(ViewportHeightKey.self, perform: onViewportHeightChange)
+            .onPreferenceChange(BottomAnchorKey.self, perform: onBottomAnchorChange)
+            .defaultScrollAnchor(.bottom, for: .initialOffset)
+            .defaultScrollAnchor(.bottom, for: .sizeChanges)
+            .defaultScrollAnchor(.top, for: .alignment)
+            #if os(iOS) || os(tvOS)
+            .scrollDismissesKeyboard(.interactively)
+            #endif
+            .onTapGesture(perform: onDismissKeyboard)
         }
     }
 
@@ -264,19 +290,22 @@ struct ChatViewObservationModifier: ViewModifier {
     let textHapticsEnabled: Bool
     let searchNavigationTarget: ChatSearchNavigationTarget?
     let visibleMessageCount: Int
+    let isInitialContentReady: Bool
     let triggerTextHaptic: (AppHapticEvent) -> Void
     let onMessageContentUpdate: (ChatViewModel.MessageContentUpdate) -> Void
     let onVisibleMessagesNeedRefresh: () -> Void
     let onSessionTransition: () -> Void
+    let onBranchTransition: () -> Void
     let onSearchNavigationTargetChange: (ChatSearchNavigationTarget?) -> Void
     let onVisibleMessageCountChange: () -> Void
+    let onInitialContentReady: () -> Void
 
     func body(content: Content) -> some View {
         content
             .onReceive(viewModel.messageContentDidChange, perform: handleMessageContentUpdate)
             .onReceive(viewModel.branchDidChange) {
                 branchRenderEpoch &+= 1
-                onVisibleMessagesNeedRefresh()
+                onBranchTransition()
             }
             .onChange(of: viewModel.isLoading, initial: false, handleLoadingChange)
             .onChange(of: viewModel.chatSession.id) { _, _ in
@@ -297,6 +326,11 @@ struct ChatViewObservationModifier: ViewModifier {
             }
             .onChange(of: visibleMessageCount) { _, _ in
                 onVisibleMessageCountChange()
+            }
+            .onChange(of: isInitialContentReady) { _, isReady in
+                if isReady {
+                    onInitialContentReady()
+                }
             }
     }
 

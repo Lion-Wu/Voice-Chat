@@ -4,15 +4,16 @@
 //
 
 import Foundation
+import Equatable
 import Markdown
 import SwiftUI
 
 /// A SwiftUI view that renders a pre-parsed `RenderableDocument`. Use this
 /// view when you already have a parsed document (e.g. driven by a streaming
 /// pipeline); use `MarkdownView` when you want the package to parse for you.
+@Equatable
 public struct DocumentView: View {
   @StateObject var controller: MarkdownController
-  @State private var lastDeliveredDocument: RenderableDocument?
 
   let renderableDocument: RenderableDocument
   let config: MarkdownRenderConfig
@@ -33,23 +34,37 @@ public struct DocumentView: View {
   }
 
   public var body: some View {
-    BlockView(renderables: renderableDocument.renderables)
+    observedContent
     .environment(\.markdownConfig, config)
     .environment(\.markdownController, controller)
-    .onAppear {
-      lastDeliveredDocument = renderableDocument
+    .task {
       controller.onAppear(markdown: renderableDocument)
-    }
-    .task(id: renderableDocument) {
-      guard let lastDeliveredDocument, lastDeliveredDocument != renderableDocument else {
-        return
-      }
-      self.lastDeliveredDocument = renderableDocument
-      controller.onChange(markdown: renderableDocument)
     }
     .onDisappear {
       controller.onDisappear()
-      lastDeliveredDocument = nil
+    }
+    .sheet(isPresented: $controller.isTextSelectionRequested) {
+      TextSelectionView(
+        text: renderableDocument.plainText,
+        backgroundColor: config.textSelectionConfig.backgroundColor ?? Color.Theme.Background.Page.Chat.Flat
+      ) {
+        controller.isTextSelectionRequested = false
+      }
+    }
+  }
+
+  @ViewBuilder
+  private var observedContent: some View {
+    if #available(iOS 17, *) {
+      BlockView(renderables: renderableDocument.renderables)
+        .onChange(of: renderableDocument) { _, document in
+          controller.onChange(markdown: document)
+        }
+    } else {
+      BlockView(renderables: renderableDocument.renderables)
+        .onChange(of: renderableDocument) { document in
+          controller.onChange(markdown: document)
+        }
     }
   }
 }
