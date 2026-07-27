@@ -74,4 +74,20 @@ enum SidebarSessionGrouping {
             return SidebarSessionGroup(section: section, sessions: sessions)
         }
     }
+
+    static func hasSameLayout(
+        _ current: [SidebarSessionGroup],
+        as proposed: [SidebarSessionGroup]
+    ) -> Bool {
+        guard current.count == proposed.count else { return false }
+        return zip(current, proposed).allSatisfy { currentGroup, proposedGroup in
+            guard currentGroup.section == proposedGroup.section,
+                  currentGroup.sessions.count == proposedGroup.sessions.count else {
+                return false
+            }
+            return zip(currentGroup.sessions, proposedGroup.sessions).allSatisfy {
+                $0.id == $1.id && $0 === $1
+            }
+        }
+    }
 }

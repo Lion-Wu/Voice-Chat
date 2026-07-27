@@ -9,6 +9,18 @@ import Foundation
 import SwiftData
 import Combine
 
+enum ChatSessionListPublicationPolicy {
+    static func needsPublication(
+        current: [ChatSession],
+        proposed: [ChatSession]
+    ) -> Bool {
+        guard current.count == proposed.count else { return true }
+        return zip(current, proposed).contains { currentSession, proposedSession in
+            currentSession.id != proposedSession.id || currentSession !== proposedSession
+        }
+    }
+}
+
 struct ChatSearchNavigationTarget: Equatable, Sendable {
     let id: UUID
     let sessionID: UUID
@@ -44,6 +56,10 @@ final class ChatSessionsViewModel: ObservableObject {
     }
     @Published private(set) var isRealtimeVoiceLocked: Bool = false
     @Published private(set) var hasActiveTextRequests: Bool = false
+    /// Content-only mutations do not need to replace the session array, but
+    /// sidebar search and time grouping still need to recompute their derived
+    /// membership.
+    let sidebarContentDidChange = PassthroughSubject<Void, Never>()
 
     // MARK: - Cached View Models
     private var viewModelCache: [UUID: ChatViewModel] = [:]
@@ -314,7 +330,15 @@ final class ChatSessionsViewModel: ObservableObject {
             updated.append(session)
         }
 
-        chatSessions = orderedSessions(updated)
+        let reordered = orderedSessions(updated)
+        if ChatSessionListPublicationPolicy.needsPublication(
+            current: chatSessions,
+            proposed: reordered
+        ) {
+            chatSessions = reordered
+        } else {
+            sidebarContentDidChange.send(())
+        }
         ensureValidSelection()
     }
 

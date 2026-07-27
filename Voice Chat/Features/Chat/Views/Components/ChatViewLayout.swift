@@ -303,6 +303,9 @@ struct ChatViewObservationModifier: ViewModifier {
     func body(content: Content) -> some View {
         content
             .onReceive(viewModel.messageContentDidChange, perform: handleMessageContentUpdate)
+            .onReceive(viewModel.messageStructureDidChange) {
+                onVisibleMessagesNeedRefresh()
+            }
             .onReceive(viewModel.branchDidChange) {
                 branchRenderEpoch &+= 1
                 onBranchTransition()

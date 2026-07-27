@@ -56,8 +56,13 @@ struct ChatMessageList: View {
         let displayMessages = visibleMessages.filter {
             !shouldInlineErrorMessage($0, visibleMessageIDs: visibleMessageIDs)
         }
-        let displayMessageIDs = displayMessages.map(\.id)
         let statusHostID = inlineStatusHostMessageID(in: displayMessages)
+        let animationKey = ChatMessageListAnimationKey(
+            messageIDs: displayMessages.map(\.id),
+            standaloneStatus: standaloneStatusAnimationKey(
+                statusHostID: statusHostID
+            )
+        )
 
         return VStack(spacing: 12) {
             ForEach(displayMessages, id: \.id) { message in
@@ -99,13 +104,7 @@ struct ChatMessageList: View {
             isInitialContentReady
                 ? ChatScrollContentMotion.animation
                 : nil,
-            value: displayMessageIDs
-        )
-        .animation(
-            isInitialContentReady
-                ? ChatScrollContentMotion.animation
-                : nil,
-            value: standaloneStatusAnimationKey(statusHostID: statusHostID)
+            value: animationKey
         )
     }
 
@@ -244,6 +243,11 @@ struct ChatMessageList: View {
             return lhs < rhs
         }
     }
+}
+
+struct ChatMessageListAnimationKey: Equatable {
+    let messageIDs: [UUID]
+    let standaloneStatus: String
 }
 
 enum ChatInlineStatusHostResolver {

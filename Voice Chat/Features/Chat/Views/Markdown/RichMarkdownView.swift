@@ -14,21 +14,40 @@ struct RichMarkdownView: View {
     var animateNewText = false
 
     @StateObject private var source = RichMarkdownSnapshotSource()
+    @State private var hasRenderedFirstSnapshot = false
+    @State private var registeredPresentationGeneration: UInt64?
+    @State private var layoutAcknowledgementGeneration: UInt64?
     @Environment(\.chatInitialRenderCoordinator) private var initialRenderCoordinator
     @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
+        let presentationGeneration = initialRenderCoordinator?.generation
+
         StreamedMarkdownView(
             source: source,
             config: renderConfig,
             onFirstRender: reportInitialRender
         )
         .fixedSize(horizontal: false, vertical: true)
+        .background {
+            if let generation = layoutAcknowledgementGeneration {
+                GeometryReader { _ in
+                    Color.clear
+                        .onAppear {
+                            reportInitialLayout(for: generation)
+                        }
+                }
+                .id(generation)
+            }
+        }
         .onAppear {
-            initialRenderCoordinator?.register(source)
+            registerForCurrentPresentation()
+        }
+        .onChange(of: presentationGeneration) { _, _ in
+            registerForCurrentPresentation()
         }
         .onDisappear {
-            initialRenderCoordinator?.unregister(source)
+            unregisterFromCurrentPresentation()
         }
         .task(id: markdown) {
             source.send(markdown)
@@ -37,7 +56,63 @@ struct RichMarkdownView: View {
 
     @MainActor
     private func reportInitialRender() {
-        initialRenderCoordinator?.markRendered(source)
+        hasRenderedFirstSnapshot = true
+        registerForCurrentPresentation()
+    }
+
+    @MainActor
+    private func registerForCurrentPresentation() {
+        guard let initialRenderCoordinator else { return }
+        let generation = initialRenderCoordinator.generation
+
+        if registeredPresentationGeneration != generation {
+            if let previousGeneration = registeredPresentationGeneration {
+                initialRenderCoordinator.unregister(
+                    source,
+                    generation: previousGeneration
+                )
+            }
+            guard initialRenderCoordinator.register(
+                source,
+                generation: generation
+            ) else {
+                registeredPresentationGeneration = nil
+                layoutAcknowledgementGeneration = nil
+                return
+            }
+            registeredPresentationGeneration = generation
+        }
+
+        guard hasRenderedFirstSnapshot else { return }
+        initialRenderCoordinator.markRendered(
+            source,
+            generation: generation
+        )
+        // Inserting a generation-keyed GeometryReader only after the parsed
+        // document was published gives this renderer its own post-render
+        // layout acknowledgement. This cannot be deduplicated away like the
+        // aggregate content-height preference used by the scroll view.
+        layoutAcknowledgementGeneration = generation
+    }
+
+    @MainActor
+    private func reportInitialLayout(for generation: UInt64) {
+        guard registeredPresentationGeneration == generation else { return }
+        initialRenderCoordinator?.markLaidOut(
+            source,
+            generation: generation
+        )
+    }
+
+    @MainActor
+    private func unregisterFromCurrentPresentation() {
+        guard let generation = registeredPresentationGeneration else { return }
+        initialRenderCoordinator?.unregister(
+            source,
+            generation: generation
+        )
+        registeredPresentationGeneration = nil
+        layoutAcknowledgementGeneration = nil
     }
 
     private var renderConfig: MarkdownRenderConfig {
@@ -177,74 +252,69 @@ struct RichMarkdownView: View {
 @MainActor
 final class ChatInitialRenderCoordinator: ObservableObject {
     @Published private(set) var isReady = false
+    @Published private(set) var generation: UInt64 = 0
 
-    private var isCollecting = false
+    // Collection starts with the coordinator's lifetime, before SwiftUI is free
+    // to run the hydration task or child onAppear callbacks in either order.
+    private var isCollecting = true
     private var renderers: Set<ObjectIdentifier> = []
     private var rendered: Set<ObjectIdentifier> = []
-    private var layoutRevision: UInt64 = 0
-    private var requiredLayoutRevision: UInt64?
+    private var laidOut: Set<ObjectIdentifier> = []
 
     func begin() {
+        generation &+= 1
         isCollecting = true
         renderers.removeAll(keepingCapacity: true)
         rendered.removeAll(keepingCapacity: true)
-        requiredLayoutRevision = nil
+        laidOut.removeAll(keepingCapacity: true)
         isReady = false
     }
 
-    func register(_ renderer: AnyObject) {
-        guard !isReady else { return }
-        if renderers.insert(ObjectIdentifier(renderer)).inserted {
-            requiredLayoutRevision = nil
-        }
+    @discardableResult
+    func register(_ renderer: AnyObject, generation: UInt64) -> Bool {
+        guard generation == self.generation, !isReady else { return false }
+        renderers.insert(ObjectIdentifier(renderer))
+        return true
     }
 
-    func unregister(_ renderer: AnyObject) {
-        guard !isReady else { return }
+    func unregister(_ renderer: AnyObject, generation: UInt64) {
+        guard generation == self.generation, !isReady else { return }
         let identifier = ObjectIdentifier(renderer)
         renderers.remove(identifier)
         rendered.remove(identifier)
-        requiredLayoutRevision = nil
+        laidOut.remove(identifier)
         resolveIfReady()
     }
 
-    func markRendered(_ renderer: AnyObject) {
-        guard !isReady else { return }
+    func markRendered(_ renderer: AnyObject, generation: UInt64) {
+        guard generation == self.generation, !isReady else { return }
         let identifier = ObjectIdentifier(renderer)
         renderers.insert(identifier)
         rendered.insert(identifier)
-        requiredLayoutRevision = nil
         resolveIfReady()
     }
 
-    func finishCollecting() {
+    func markLaidOut(_ renderer: AnyObject, generation: UInt64) {
+        guard generation == self.generation, !isReady else { return }
+        let identifier = ObjectIdentifier(renderer)
+        renderers.insert(identifier)
+        laidOut.insert(identifier)
+        resolveIfReady()
+    }
+
+    func finishCollecting(generation: UInt64? = nil) {
+        if let generation, generation != self.generation {
+            return
+        }
         guard isCollecting else { return }
         isCollecting = false
         resolveIfReady()
     }
 
-    func contentDidLayout() {
-        guard !isReady else { return }
-        layoutRevision &+= 1
-        resolveIfReady()
-    }
-
     private func resolveIfReady() {
-        guard rendered.isSuperset(of: renderers) else {
-            return
-        }
-        if renderers.isEmpty {
-            if !isCollecting {
-                complete()
-            }
-            return
-        }
-        if requiredLayoutRevision == nil {
-            requiredLayoutRevision = layoutRevision &+ 1
-        }
         guard !isCollecting,
-              let requiredLayoutRevision,
-              layoutRevision >= requiredLayoutRevision else {
+              rendered.isSuperset(of: renderers),
+              laidOut.isSuperset(of: renderers) else {
             return
         }
         complete()
@@ -254,7 +324,7 @@ final class ChatInitialRenderCoordinator: ObservableObject {
         isReady = true
         renderers.removeAll(keepingCapacity: true)
         rendered.removeAll(keepingCapacity: true)
-        requiredLayoutRevision = nil
+        laidOut.removeAll(keepingCapacity: true)
     }
 }
 

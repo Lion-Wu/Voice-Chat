@@ -2,6 +2,52 @@ import XCTest
 @testable import Voice_Chat
 
 final class ChatSidebarPresentationControllerTests: XCTestCase {
+    func testSidebarGroupLayoutIgnoresContentOnlyMutation() {
+        let first = ChatSession(title: "First")
+        let second = ChatSession(title: "Second")
+        let current = [
+            SidebarSessionGroup(section: .today, sessions: [first, second])
+        ]
+
+        first.title = "Updated title"
+
+        XCTAssertTrue(SidebarSessionGrouping.hasSameLayout(
+            current,
+            as: [
+                SidebarSessionGroup(section: .today, sessions: [first, second])
+            ]
+        ))
+        XCTAssertFalse(SidebarSessionGrouping.hasSameLayout(
+            current,
+            as: [
+                SidebarSessionGroup(section: .today, sessions: [second, first])
+            ]
+        ))
+        XCTAssertFalse(SidebarSessionGrouping.hasSameLayout(
+            current,
+            as: [
+                SidebarSessionGroup(section: .yesterday, sessions: [first, second])
+            ]
+        ))
+    }
+
+    func testSessionListPublicationPolicyIgnoresContentOnlyMutation() {
+        let first = ChatSession(title: "First")
+        let second = ChatSession(title: "Second")
+        let current = [first, second]
+
+        first.title = "Updated title"
+
+        XCTAssertFalse(ChatSessionListPublicationPolicy.needsPublication(
+            current: current,
+            proposed: [first, second]
+        ))
+        XCTAssertTrue(ChatSessionListPublicationPolicy.needsPublication(
+            current: current,
+            proposed: [second, first]
+        ))
+    }
+
     func testSearchMatchesFoldedTitleAndActiveMessageBody() {
         var controller = ChatSidebarPresentationController()
         let titleMatch = makeSession(

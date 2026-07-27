@@ -39,11 +39,18 @@ struct SidebarView: View {
     }
 
     private var shouldShowSidebarSearchLoading: Bool {
-        isSidebarSearchLoading && !visibleSearchKeyword.isEmpty
+        isSidebarSearchLoading && !searchKeyword.isEmpty
     }
 
     private var isSidebarSearchActive: Bool {
         !searchKeyword.isEmpty
+    }
+
+    private var macSelectedSessionID: Binding<UUID?> {
+        Binding(
+            get: { chatSessionsViewModel.selectedSessionID },
+            set: selectMacSession(with:)
+        )
     }
 
     private var appDisplayName: String {
@@ -122,6 +129,9 @@ struct SidebarView: View {
         .onReceive(chatSessionsViewModel.$chatSessions) { _ in
             scheduleSidebarSearchRefresh(debounce: !searchKeyword.isEmpty)
         }
+        .onReceive(chatSessionsViewModel.sidebarContentDidChange) {
+            scheduleSidebarSearchRefresh(debounce: !searchKeyword.isEmpty)
+        }
         .onChange(of: searchText) { _, _ in
             scheduleSidebarSearchRefresh(debounce: !searchKeyword.isEmpty)
         }
@@ -144,15 +154,17 @@ struct SidebarView: View {
             let normalizedQuery = chatSessionsViewModel.normalizedSidebarSearchQuery(requestedKeyword)
             if normalizedQuery.isEmpty {
                 isSidebarSearchLoading = false
-                sidebarGroups = SidebarSessionGrouping.groupedSessions(chatSessionsViewModel.chatSessions)
+                publishSidebarGroups(
+                    SidebarSessionGrouping.groupedSessions(
+                        chatSessionsViewModel.chatSessions
+                    )
+                )
                 visibleSearchKeyword = requestedKeyword
                 return
             }
 
             let candidates = chatSessionsViewModel.chatSessions
             var matchedSessions: [ChatSession] = []
-            visibleSearchKeyword = requestedKeyword
-            sidebarGroups = []
             isSidebarSearchLoading = !candidates.isEmpty
 
             var startIndex = 0
@@ -168,7 +180,6 @@ struct SidebarView: View {
 
                 if !newMatches.isEmpty {
                     matchedSessions.append(contentsOf: newMatches)
-                    sidebarGroups = SidebarSessionGrouping.groupedSessions(matchedSessions)
                 }
 
                 startIndex = endIndex
@@ -178,8 +189,21 @@ struct SidebarView: View {
 
             guard !Task.isCancelled else { return }
             isSidebarSearchLoading = false
+            publishSidebarGroups(
+                SidebarSessionGrouping.groupedSessions(matchedSessions)
+            )
             visibleSearchKeyword = requestedKeyword
         }
+    }
+
+    private func publishSidebarGroups(_ proposed: [SidebarSessionGroup]) {
+        guard !SidebarSessionGrouping.hasSameLayout(
+            sidebarGroups,
+            as: proposed
+        ) else {
+            return
+        }
+        sidebarGroups = proposed
     }
 
     // MARK: - Swipe Delete Hook
@@ -291,6 +315,21 @@ struct SidebarView: View {
         onConversationTap(session)
     }
 
+    private func selectMacSession(with sessionID: UUID?) {
+        // A single-selection sidebar always has a valid app-level selection.
+        // AppKit may transiently write nil while List rows are being reconciled;
+        // accepting it would make the detail column fall back to the empty draft.
+        guard let sessionID else { return }
+        if sessionID == chatSessionsViewModel.draftSession.id {
+            chatSessionsViewModel.selectedSession = chatSessionsViewModel.draftSession
+            return
+        }
+        guard let session = chatSessionsViewModel.chatSessions.first(where: { $0.id == sessionID }) else {
+            return
+        }
+        chatSessionsViewModel.selectSession(session, matchingSidebarQuery: visibleSearchKeyword)
+    }
+
     private func sidebarPreview(for session: ChatSession) -> SidebarSessionPreview {
         chatSessionsViewModel.sidebarPreview(for: session, matchingSearchQuery: visibleSearchKeyword)
     }
@@ -321,7 +360,7 @@ struct SidebarView: View {
 
     @ViewBuilder
     private var macSidebar: some View {
-        List(selection: $chatSessionsViewModel.selectedSessionID) {
+        List(selection: macSelectedSessionID) {
             Section {
                 macDraftRow
                     .tag(chatSessionsViewModel.draftSession.id)
@@ -566,7 +605,6 @@ struct SidebarView: View {
         }
         .padding(.vertical, 4)
         .contentShape(Rectangle())
-        .onTapGesture { selectDraftSession() }
     }
 
     private func macSessionRow(_ session: ChatSession) -> some View {
@@ -584,9 +622,6 @@ struct SidebarView: View {
         }
         .padding(.vertical, 4)
         .contentShape(Rectangle())
-        .onTapGesture {
-            selectSessionFromSidebar(session)
-        }
         .popover(isPresented: renamePopoverBinding(for: session), arrowEdge: .trailing) {
             renameSheetView()
         }

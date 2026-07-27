@@ -9,7 +9,7 @@ import SwiftUI
 
 extension ChatView {
     func handleChatViewAppear() {
-        handleSessionTransition()
+        prepareSessionPresentation()
 #if os(macOS)
         returnKeySendMonitor.register(
             isInputFocused: { isInputFocused },
@@ -35,14 +35,21 @@ extension ChatView {
 
     func handleSessionTransition() {
         initialRenderCoordinator.begin()
+        prepareSessionPresentation()
+    }
+
+    private func prepareSessionPresentation() {
         resetScrollMetricsForSessionTransition()
         refreshVisibleMessages(hydrating: true)
         scheduleSearchNavigationIfNeeded(chatSessionsViewModel.searchNavigationTarget)
     }
 
     func handleBranchTransition() {
-        initialRenderCoordinator.begin()
-        refreshVisibleMessages(hydrating: true)
+        // Branch snapshots are replaced atomically by the visible-message
+        // controller. Keep the current snapshot on screen while any missing
+        // fingerprints are prepared instead of restarting the initial
+        // presentation gate and blanking the entire conversation.
+        refreshVisibleMessages()
     }
 
     func handleVisibleMessageCountChange() {

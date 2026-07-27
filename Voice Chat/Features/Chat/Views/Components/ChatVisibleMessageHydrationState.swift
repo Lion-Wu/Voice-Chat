@@ -45,13 +45,17 @@ struct ChatVisibleMessageHydrationState {
         hydrationTask?.cancel()
         refreshGeneration = token
         isHydratingSession = true
+        pendingRefreshAfterHydration = false
         visibleMessages.removeAll(keepingCapacity: true)
         fingerprintCache.removeAll(keepingCapacity: true)
     }
 
-    mutating func finishHydration() {
+    @discardableResult
+    mutating func finishHydration(token: UUID) -> Bool {
+        guard shouldApply(token: token) else { return false }
         isHydratingSession = false
         hydrationTask = nil
+        return true
     }
 
     mutating func cancelHydration() {
@@ -59,6 +63,7 @@ struct ChatVisibleMessageHydrationState {
         hydrationTask = nil
         isHydratingSession = false
         pendingRefreshAfterHydration = false
+        refreshGeneration = UUID()
     }
 
     mutating func consumePendingRefreshAfterHydration() -> Bool {

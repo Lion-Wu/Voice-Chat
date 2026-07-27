@@ -13,13 +13,16 @@ final class ChatSessionMutationController {
     private var branchState = ChatMessageBranchState()
     private weak var sessionPersistence: (any ChatSessionPersisting & ChatSessionActivityPublishing)?
     private let branchDidChange: PassthroughSubject<Void, Never>
+    private let messageStructureDidChange: PassthroughSubject<Void, Never>
 
     init(
         sessionPersistence: (any ChatSessionPersisting & ChatSessionActivityPublishing)?,
-        branchDidChange: PassthroughSubject<Void, Never>
+        branchDidChange: PassthroughSubject<Void, Never>,
+        messageStructureDidChange: PassthroughSubject<Void, Never>
     ) {
         self.sessionPersistence = sessionPersistence
         self.branchDidChange = branchDidChange
+        self.messageStructureDidChange = messageStructureDidChange
     }
 
     func persistSession(_ session: ChatSession, reason: SessionPersistReason = .throttled) {
@@ -69,6 +72,10 @@ final class ChatSessionMutationController {
 
     func publishBranchChange() {
         branchDidChange.send(())
+    }
+
+    func publishMessageStructureChange() {
+        messageStructureDidChange.send(())
     }
 
     @discardableResult
