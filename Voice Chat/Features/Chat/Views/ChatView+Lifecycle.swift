@@ -9,6 +9,7 @@ import SwiftUI
 
 extension ChatView {
     func handleChatViewAppear() {
+        initialRenderCoordinator.begin()
         prepareSessionPresentation()
 #if os(macOS)
         returnKeySendMonitor.register(

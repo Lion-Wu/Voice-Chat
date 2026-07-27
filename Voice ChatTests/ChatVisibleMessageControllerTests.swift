@@ -271,10 +271,38 @@ final class ChatInitialRenderCoordinatorTests: XCTestCase {
         XCTAssertTrue(coordinator.isReady)
     }
 
-    func testCanFinishBeforeViewAppearCallback() {
+    func testViewAppearanceRestartsGateAfterPrematureFinish() {
         let coordinator = ChatInitialRenderCoordinator()
+        let renderer = NSObject()
+        let prematureGeneration = coordinator.generation
 
-        coordinator.finishCollecting()
+        coordinator.finishCollecting(generation: prematureGeneration)
+
+        XCTAssertTrue(coordinator.isReady)
+
+        coordinator.begin()
+        let appearanceGeneration = coordinator.generation
+
+        XCTAssertNotEqual(appearanceGeneration, prematureGeneration)
+        XCTAssertFalse(coordinator.isReady)
+        XCTAssertTrue(coordinator.register(
+            renderer,
+            generation: appearanceGeneration
+        ))
+
+        coordinator.finishCollecting(generation: prematureGeneration)
+
+        XCTAssertFalse(coordinator.isReady)
+
+        coordinator.finishCollecting(generation: appearanceGeneration)
+
+        XCTAssertFalse(coordinator.isReady)
+
+        coordinator.markRendered(renderer, generation: appearanceGeneration)
+
+        XCTAssertFalse(coordinator.isReady)
+
+        coordinator.markLaidOut(renderer, generation: appearanceGeneration)
 
         XCTAssertTrue(coordinator.isReady)
     }
