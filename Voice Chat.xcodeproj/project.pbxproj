@@ -33,6 +33,14 @@
 		FD40D5742CA875CC0064E732 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD40D5732CA875CC0064E732 /* ContentView.swift */; };
 		FD40D5762CA876010064E732 /* GlobalAudioManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD40D5752CA876010064E732 /* GlobalAudioManager.swift */; };
 		FD4240002F3000000016D0B4 /* SwiftStreamingMarkdown in Frameworks */ = {isa = PBXBuildFile; productRef = FD4240022F3000000016D0B4 /* SwiftStreamingMarkdown */; };
+		FD4260002F30000000000001 /* VoiceMotionController.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD4260102F30000000000001 /* VoiceMotionController.swift */; };
+		FD4260022F30000000000001 /* VoiceMotionLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD4260122F30000000000001 /* VoiceMotionLayout.swift */; };
+		FD4260042F30000000000001 /* VoiceMotionMTKView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD4260142F30000000000001 /* VoiceMotionMTKView.swift */; };
+		FD4260062F30000000000001 /* VoiceMotionRenderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD4260162F30000000000001 /* VoiceMotionRenderer.swift */; };
+		FD4260082F30000000000001 /* VoiceMotionState.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD4260182F30000000000001 /* VoiceMotionState.swift */; };
+		FD42600A2F30000000000001 /* VoiceMotionSwiftUI.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD42601A2F30000000000001 /* VoiceMotionSwiftUI.swift */; };
+		FD42600C2F30000000000001 /* VoiceMotion.metal in Sources */ = {isa = PBXBuildFile; fileRef = FD42601C2F30000000000001 /* VoiceMotion.metal */; };
+		FD42600E2F30000000000001 /* VoiceAudioFeatureExtractor.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD42601E2F30000000000001 /* VoiceAudioFeatureExtractor.swift */; };
 		FD6E97252CA92C840086C234 /* SettingsManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD6E97242CA92C840086C234 /* SettingsManager.swift */; };
 		FD7000000000000000000007 /* ChatEndpointResolverTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD7000000000000000000006 /* ChatEndpointResolverTests.swift */; };
 		FD7000000000000000000011 /* ChatQueuedDraftCoordinatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD7000000000000000000010 /* ChatQueuedDraftCoordinatorTests.swift */; };
@@ -547,6 +555,14 @@
 		FD90000000000000000000C7 /* ChatModelCapabilityFacade.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ChatModelCapabilityFacade.swift; path = "Voice Chat/Features/Settings/Models/ChatModelCapabilityFacade.swift"; sourceTree = SOURCE_ROOT; };
 		FD90000000000000000000C9 /* ChatRequestBodyProviderEncoder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ChatRequestBodyProviderEncoder.swift; path = "Voice Chat/Features/Chat/Services/ChatRequestBodyProviderEncoder.swift"; sourceTree = SOURCE_ROOT; };
 		FD90000000000000000000CB /* RealtimeVoiceControlCircle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = RealtimeVoiceControlCircle.swift; path = "Voice Chat/Features/VoiceOverlay/Views/RealtimeVoiceControlCircle.swift"; sourceTree = SOURCE_ROOT; };
+		FD4260102F30000000000001 /* VoiceMotionController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceMotionController.swift; sourceTree = "<group>"; };
+		FD4260122F30000000000001 /* VoiceMotionLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceMotionLayout.swift; sourceTree = "<group>"; };
+		FD4260142F30000000000001 /* VoiceMotionMTKView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceMotionMTKView.swift; sourceTree = "<group>"; };
+		FD4260162F30000000000001 /* VoiceMotionRenderer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceMotionRenderer.swift; sourceTree = "<group>"; };
+		FD4260182F30000000000001 /* VoiceMotionState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceMotionState.swift; sourceTree = "<group>"; };
+		FD42601A2F30000000000001 /* VoiceMotionSwiftUI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceMotionSwiftUI.swift; sourceTree = "<group>"; };
+		FD42601C2F30000000000001 /* VoiceMotion.metal */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.metal; path = VoiceMotion.metal; sourceTree = "<group>"; };
+		FD42601E2F30000000000001 /* VoiceAudioFeatureExtractor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceAudioFeatureExtractor.swift; sourceTree = "<group>"; };
 		FD90000000000000000000CD /* ChatSidebarPresentationController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ChatSidebarPresentationController.swift; path = "Voice Chat/Features/Sessions/ViewModels/ChatSidebarPresentationController.swift"; sourceTree = SOURCE_ROOT; };
 		FD90000000000000000000CF /* SettingsPresetBindingController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = SettingsPresetBindingController.swift; path = "Voice Chat/Features/Settings/ViewModels/SettingsPresetBindingController.swift"; sourceTree = SOURCE_ROOT; };
 		FD90000000000000000000D1 /* SettingsModelCatalogController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = SettingsModelCatalogController.swift; path = "Voice Chat/Features/Settings/ViewModels/SettingsModelCatalogController.swift"; sourceTree = SOURCE_ROOT; };
@@ -1073,8 +1089,32 @@
 				FD9100000000000000000020 /* Controllers */,
 				FD9100000000000000000021 /* ViewModels */,
 				FD9100000000000000000022 /* Views */,
+				FD4260202F30000000000001 /* Rendering */,
 			);
 			path = VoiceOverlay;
+			sourceTree = "<group>";
+		};
+		FD4260202F30000000000001 /* Rendering */ = {
+			isa = PBXGroup;
+			children = (
+				FD4260222F30000000000001 /* VoiceMotion */,
+			);
+			path = Rendering;
+			sourceTree = "<group>";
+		};
+		FD4260222F30000000000001 /* VoiceMotion */ = {
+			isa = PBXGroup;
+			children = (
+				FD42601C2F30000000000001 /* VoiceMotion.metal */,
+				FD42601E2F30000000000001 /* VoiceAudioFeatureExtractor.swift */,
+				FD4260102F30000000000001 /* VoiceMotionController.swift */,
+				FD4260122F30000000000001 /* VoiceMotionLayout.swift */,
+				FD4260142F30000000000001 /* VoiceMotionMTKView.swift */,
+				FD4260162F30000000000001 /* VoiceMotionRenderer.swift */,
+				FD4260182F30000000000001 /* VoiceMotionState.swift */,
+				FD42601A2F30000000000001 /* VoiceMotionSwiftUI.swift */,
+			);
+			path = VoiceMotion;
 			sourceTree = "<group>";
 		};
 		FD9100000000000000000012 /* Features */ = {
@@ -1729,6 +1769,14 @@
 				FDAFF0012F90000000000001 /* ContentFingerprint.swift in Sources */,
 				FDF714C52E7FC59000B62D71 /* RealtimeVoiceOverlayView.swift in Sources */,
 				FD90000000000000000001CC /* RealtimeVoiceControlCircle.swift in Sources */,
+				FD4260002F30000000000001 /* VoiceMotionController.swift in Sources */,
+				FD4260022F30000000000001 /* VoiceMotionLayout.swift in Sources */,
+				FD4260042F30000000000001 /* VoiceMotionMTKView.swift in Sources */,
+				FD4260062F30000000000001 /* VoiceMotionRenderer.swift in Sources */,
+				FD4260082F30000000000001 /* VoiceMotionState.swift in Sources */,
+				FD42600A2F30000000000001 /* VoiceMotionSwiftUI.swift in Sources */,
+				FD42600C2F30000000000001 /* VoiceMotion.metal in Sources */,
+				FD42600E2F30000000000001 /* VoiceAudioFeatureExtractor.swift in Sources */,
 				FDFE0A052F123C0000000001 /* ServerReachabilityMonitor.swift in Sources */,
 				FD90000000000000000001DC /* ServerReachabilitySnapshot.swift in Sources */,
 				FD90000000000000000001E0 /* TTSPlaybackState.swift in Sources */,
@@ -2228,6 +2276,7 @@
 				ENABLE_RESOURCE_ACCESS_PRINTING = NO;
 				ENABLE_RESOURCE_ACCESS_USB = NO;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "Voice Chat/Info.plist";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
 				INFOPLIST_KEY_NSCalendarsFullAccessUsageDescription = "Read and create calendar events when you ask the assistant to work with your schedule.";
 				INFOPLIST_KEY_NSCalendarsUsageDescription = "Read and create calendar events when you ask the assistant to work with your schedule.";
@@ -2290,6 +2339,7 @@
 				ENABLE_RESOURCE_ACCESS_PRINTING = NO;
 				ENABLE_RESOURCE_ACCESS_USB = NO;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "Voice Chat/Info.plist";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
 				INFOPLIST_KEY_NSCalendarsFullAccessUsageDescription = "Read and create calendar events when you ask the assistant to work with your schedule.";
 				INFOPLIST_KEY_NSCalendarsUsageDescription = "Read and create calendar events when you ask the assistant to work with your schedule.";

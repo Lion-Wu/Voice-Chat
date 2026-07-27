@@ -171,6 +171,7 @@ extension GlobalAudioManager {
                     let delta = index - self.audioChunks.count + 1
                     for _ in 0..<delta {
                         self.audioChunks.append(nil)
+                        self.audioMotionTimelines.append(nil)
                         self.chunkDurations.append(0)
                     }
                 }
@@ -181,7 +182,13 @@ extension GlobalAudioManager {
                         self.clearTTSAutoRetry(for: index)
                         self.skippedAudioChunkIndexes.remove(index)
                         self.audioChunks[index] = chunk.data
+                        self.audioMotionTimelines[index] = nil
                         self.chunkDurations[index] = chunk.duration
+                        self.scheduleAudioMotionTimeline(
+                            for: chunk.data,
+                            at: index,
+                            generationID: genAtRequest
+                        )
                     } catch let failure as TTSAudioChunkDecodeFailure {
                         self.handleTTSFailure(
                             failure.disposition,

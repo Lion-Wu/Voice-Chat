@@ -27,6 +27,9 @@ struct RealtimeVoiceOverlayView: View {
 
     @State private var voiceControlPulseToken = UUID()
     @State private var bottomControlHeight: CGFloat = 0
+    @State private var motionController = VoiceMotionController(
+        initialState: .listening
+    )
 
     private let stateAnimation = Animation.spring(response: 0.34, dampingFraction: 0.92, blendDuration: 0.16)
 
@@ -112,6 +115,30 @@ struct RealtimeVoiceOverlayView: View {
         ZStack {
             AppBackgroundView()
             contentLayout
+                .backgroundPreferenceValue(
+                    VoiceMotionControlPlacementPreferenceKey.self
+                ) { placement in
+                    GeometryReader { proxy in
+                        if let placement {
+                            let controlFrame = proxy[placement.bounds]
+                            let viewportLayout = VoiceMotionLayout.viewportLayout(
+                                controlFrame: controlFrame,
+                                viewportSize: proxy.size,
+                                visualScale: placement.visualScale
+                            )
+                            VoiceMotionSurface(
+                                controller: motionController,
+                                viewportLayout: viewportLayout
+                            )
+                            .frame(
+                                width: proxy.size.width,
+                                height: proxy.size.height
+                            )
+                            .allowsHitTesting(false)
+                            .accessibilityHidden(true)
+                        }
+                    }
+                }
         }
         .onDisappear {
             viewModel.handleViewDisappear()
@@ -180,19 +207,24 @@ struct RealtimeVoiceOverlayView: View {
         GeometryReader { proxy in
             let availableWidth = max(0, proxy.size.width - 32)
             let availableHeight = max(0, proxy.size.height - 24)
-            let usesSideBySideLayout = hasAssistantStatusContent
+            let showsAssistantPanel = shouldShowRealtimeAssistantPanel && overlayErrorText == nil
+            let usesSideBySideLayout = showsAssistantPanel
                 && availableWidth >= 700
                 && availableWidth > availableHeight * 1.22
             let sideColumnWidth = min(440, max(300, availableWidth * 0.38))
             let sideColumnHeight = min(360, availableHeight)
             let sideSpacing = min(36, max(24, availableWidth * 0.03))
+            let errorMessageTopOffset = VoiceMotionLayout.errorMessageTopOffset(
+                viewportHeight: proxy.size.height,
+                controlDiameter: RealtimeVoiceControlCircle.standardFrameSize
+            )
 
             Group {
                 if usesSideBySideLayout {
                     HStack(spacing: sideSpacing) {
                         voiceControl
 
-                        assistantStatusColumn(
+                        realtimeAssistantPanel(
                             maxWidth: sideColumnWidth,
                             maxHeight: sideColumnHeight
                         )
@@ -202,8 +234,8 @@ struct RealtimeVoiceOverlayView: View {
                     VStack(spacing: 18) {
                         voiceControl
 
-                        if hasAssistantStatusContent {
-                            assistantStatusColumn(
+                        if showsAssistantPanel {
+                            realtimeAssistantPanel(
                                 maxWidth: min(620, availableWidth),
                                 maxHeight: min(280, max(120, availableHeight * 0.38))
                             )
@@ -214,6 +246,15 @@ struct RealtimeVoiceOverlayView: View {
             .padding(.horizontal, 16)
             .padding(.vertical, 12)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+            .overlay(alignment: .top) {
+                if let message = overlayErrorText {
+                    errorMessage(
+                        message,
+                        maxWidth: min(620, availableWidth)
+                    )
+                    .offset(y: errorMessageTopOffset)
+                }
+            }
         }
         .animation(stateAnimation, value: viewModel.state)
     }
@@ -321,6 +362,7 @@ struct RealtimeVoiceOverlayView: View {
     private var voiceControl: some View {
         RealtimeVoiceControlCircle(
             viewModel: viewModel,
+            motionController: motionController,
             displayStyle: displayStyle,
             externalPulseToken: voiceControlPulseToken
         )
@@ -377,6 +419,16 @@ struct RealtimeVoiceOverlayView: View {
         }
         .buttonStyle(.plain)
         .contentShape(Rectangle())
+    }
+
+    private func errorMessage(
+        _ message: String,
+        maxWidth: CGFloat
+    ) -> some View {
+        reconnectMessage(message)
+            .frame(width: maxWidth)
+            .fixedSize(horizontal: false, vertical: true)
+            .transition(.opacity.combined(with: .move(edge: .bottom)))
     }
 
     private var bottomControlContainer: some View {

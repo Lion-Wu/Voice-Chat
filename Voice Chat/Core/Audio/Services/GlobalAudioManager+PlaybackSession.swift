@@ -29,6 +29,7 @@ extension GlobalAudioManager {
 
         textSegments = []
         audioChunks = []
+        audioMotionTimelines = []
         chunkDurations = []
         totalDuration = 0
         currentChunkIndex = 0
@@ -83,6 +84,7 @@ extension GlobalAudioManager {
 
         textSegments = []
         audioChunks = []
+        audioMotionTimelines = []
         chunkDurations = []
         totalDuration = 0
 
@@ -111,6 +113,7 @@ extension GlobalAudioManager {
         let idx = textSegments.count
         textSegments.append(text)
         audioChunks.append(nil)
+        audioMotionTimelines.append(nil)
         chunkDurations.append(0)
         refreshPlaybackLoadState()
         enqueueRealtimeIndex(idx)
@@ -235,6 +238,7 @@ extension GlobalAudioManager {
         isAudioPlaying = false
         isShowingAudioPlayer = false
         isLoading = false
+        outputAudioLevels = .silent
         outputLevel = 0
         isRealtimeMode = false
         realtimeFinalized = false
@@ -265,6 +269,7 @@ extension GlobalAudioManager {
 
         textSegments.removeAll()
         audioChunks.removeAll()
+        audioMotionTimelines.removeAll()
         chunkDurations.removeAll()
         skippedAudioChunkIndexes.removeAll()
         totalDuration = 0
@@ -280,6 +285,7 @@ extension GlobalAudioManager {
         isPlaybackFullyLoaded = true
         errorMessage = nil
         applyTTSAutoRetryPublishedState(ttsRetryState.reset())
+        outputAudioLevels = .silent
         outputLevel = 0
 
         lastObservedPlaybackTime = 0
@@ -290,6 +296,7 @@ extension GlobalAudioManager {
         textSegments = segments
         let count = segments.count
         audioChunks = Array(repeating: nil, count: count)
+        audioMotionTimelines = Array(repeating: nil, count: count)
         chunkDurations = Array(repeating: 0, count: count)
         skippedAudioChunkIndexes.removeAll()
         totalDuration = 0
