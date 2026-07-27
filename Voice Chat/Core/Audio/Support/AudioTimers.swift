@@ -113,20 +113,28 @@ extension GlobalAudioManager {
     func stopAudioTimer() {
         audioDisplayDriver?.stop()
         audioDisplayDriver = nil
-        // Reset output level when the timer stops updating.
+        outputAudioLevels = .silent
         outputLevel = 0
     }
 
     private func handleAudioTick() {
         guard let p = audioPlayer, !isBuffering else { return }
 
-        // Enable metering and update the output level.
         if !p.isMeteringEnabled { p.isMeteringEnabled = true }
         p.updateMeters()
-        let power = p.averagePower(forChannel: 0) // dB [-160, 0]
-        // Convert the decibel reading into a normalized 0...1 range.
-        let norm = max(0, min(1, pow(10.0, power / 20.0)))
-        if abs(norm - outputLevel) > 0.01 { outputLevel = Float(norm) }
+        let levels: VoiceAudioLevels
+        if let timeline = audioMotionTimelines[
+            safe: currentPlayingIndex
+        ] ?? nil {
+            levels = timeline.levels(at: p.currentTime)
+        } else {
+            let power = p.averagePower(forChannel: 0)
+            let linear = max(0, min(1, pow(10.0, power / 20.0)))
+            let rms = Float(min(1, max(0, (linear - 0.007) * 8.7)))
+            levels = VoiceAudioLevels(rms: rms, low: rms, mid: rms, high: rms)
+        }
+        outputAudioLevels = levels
+        outputLevel = levels.rms
 
         let segStart = startTime(forSegment: currentPlayingIndex)
         let newTime = segStart + p.currentTime
@@ -145,6 +153,28 @@ extension GlobalAudioManager {
 
         lastObservedPlaybackTime = p.currentTime
         lastProgressTimestamp = Date()
+    }
+
+    func scheduleAudioMotionTimeline(
+        for data: Data,
+        at index: Int,
+        generationID: UUID
+    ) {
+        let fileExtension = currentTTSConfiguration?.mediaType ?? mediaType
+        Task.detached(priority: .userInitiated) { [weak self] in
+            let timeline = VoiceAudioTimelineDecoder.decode(
+                data: data,
+                fileExtension: fileExtension
+            )
+            await MainActor.run {
+                guard let self else { return }
+                guard self.currentGenerationID == generationID else { return }
+                guard self.audioMotionTimelines.indices.contains(index) else {
+                    return
+                }
+                self.audioMotionTimelines[index] = timeline
+            }
+        }
     }
 
     func startStallWatchdog() {

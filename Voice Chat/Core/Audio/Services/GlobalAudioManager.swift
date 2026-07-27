@@ -76,10 +76,15 @@ final class GlobalAudioManager: NSObject, ObservableObject, AVAudioPlayerDelegat
     // Realtime output level (0...1) for speaking animations.
     var outputLevel: Float = 0 {
         didSet {
-            guard abs(outputLevel - oldValue) >= 0.0005 else { return }
             outputLevelSubject.send(outputLevel)
         }
     }
+    var outputAudioLevels = VoiceAudioLevels.silent {
+        didSet {
+            outputMotionAudioSource.store(outputAudioLevels)
+        }
+    }
+    let outputMotionAudioSource = VoiceAudioLevelStore()
     private let currentTimeSubject = CurrentValueSubject<TimeInterval, Never>(0)
     private let outputLevelSubject = CurrentValueSubject<Float, Never>(0)
     private let isBufferingSubject = CurrentValueSubject<Bool, Never>(false)
@@ -134,6 +139,7 @@ final class GlobalAudioManager: NSObject, ObservableObject, AVAudioPlayerDelegat
     // MARK: - Segmented Buffer
     var textSegments: [String] = []
     var audioChunks: [Data?] = []
+    var audioMotionTimelines: [VoiceAudioTimeline?] = []
     var chunkDurations: [TimeInterval] = []
     var skippedAudioChunkIndexes: Set<Int> = []
 
@@ -302,6 +308,7 @@ final class GlobalAudioManager: NSObject, ObservableObject, AVAudioPlayerDelegat
             isAudioPlaying = false
             isPlaybackFullyLoaded = true
             isShowingAudioPlayer = false
+            outputAudioLevels = .silent
             outputLevel = 0
             return
         }

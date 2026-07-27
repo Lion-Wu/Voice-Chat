@@ -48,8 +48,7 @@ final class SpeechInputManager: NSObject, ObservableObject {
     @Published private(set) var isRecording: Bool = false
     @Published var lastError: String?
 
-    /// Realtime input loudness (0...1) with exponential smoothing for UI animations.
-    @Published var inputLevel: Double = 0
+    let inputMotionAudioSource = VoiceMicrophoneAudioSource()
 
     /// Currently selected dictation language.
     @Published var currentLanguage: DictationLanguage = .english
@@ -65,10 +64,6 @@ final class SpeechInputManager: NSObject, ObservableObject {
     private var currentSessionID: UUID?
     private var lastStableText: String = ""
     private var currentOnFinal: (@MainActor (String) -> Void)?
-
-    // level smoothing
-    private var levelEMA: Double = 0
-    private let levelAlpha: Double = 0.20  // Smoothing factor.
 
     // All AVAudioEngine/SFSpeech objects are managed serially by the worker actor.
     private let worker = SpeechRecognizerWorker()
@@ -89,8 +84,7 @@ final class SpeechInputManager: NSObject, ObservableObject {
             currentSessionID = nil
             currentOnFinal   = nil
             lastStableText   = ""
-            inputLevel       = 0
-            levelEMA         = 0
+            inputMotionAudioSource.reset()
         }
 
         isRequestingPermissions = true
@@ -110,8 +104,7 @@ final class SpeechInputManager: NSObject, ObservableObject {
         currentSessionID = newID
         lastStableText   = ""
         currentOnFinal   = onFinal
-        levelEMA         = 0
-        inputLevel       = 0
+        inputMotionAudioSource.reset()
 
         let pickLang = language ?? currentLanguage
 
@@ -138,8 +131,7 @@ final class SpeechInputManager: NSObject, ObservableObject {
                 self.isRecording       = false
                 self.currentSessionID  = nil
                 self.currentOnFinal    = nil
-                self.inputLevel        = 0
-                self.levelEMA          = 0
+                self.inputMotionAudioSource.reset()
             }
         }
 
@@ -162,19 +154,7 @@ final class SpeechInputManager: NSObject, ObservableObject {
                 self.currentSessionID  = nil
                 self.currentOnFinal    = nil
                 self.lastStableText    = ""
-                self.inputLevel        = 0
-                self.levelEMA          = 0
-            }
-        }
-
-        // Audio level callback: scale and smooth into a 0...1 range.
-        let levelWrapper: @Sendable (Float) -> Void = { [weak self] raw in
-            Task { @MainActor in
-                guard let self else { return }
-                // Empirically scale RMS energy (typically 0.02-0.2) into 0...1.
-                let scaled = min(1.0, max(0.0, Double(raw) * 8.0))
-                self.levelEMA = self.levelEMA * (1 - self.levelAlpha) + scaled * self.levelAlpha
-                self.inputLevel = self.levelEMA
+                self.inputMotionAudioSource.reset()
             }
         }
 
@@ -186,8 +166,7 @@ final class SpeechInputManager: NSObject, ObservableObject {
                     currentSessionID = nil
                     currentOnFinal   = nil
                     lastStableText   = ""
-                    inputLevel       = 0
-                    levelEMA         = 0
+                    inputMotionAudioSource.reset()
                 }
                 return
             }
@@ -197,7 +176,7 @@ final class SpeechInputManager: NSObject, ObservableObject {
                 onPartial: partialWrapper,
                 onFinal:   finalWrapper,
                 onSpeechActivityStarted: speechActivityStartedWrapper,
-                onLevel:   levelWrapper,
+                motionAudioSource: inputMotionAudioSource,
                 onError:   errorWrapper
             )
             guard !Task.isCancelled, self.currentSessionID == newID else {
@@ -209,8 +188,7 @@ final class SpeechInputManager: NSObject, ObservableObject {
                     currentSessionID = nil
                     currentOnFinal   = nil
                     lastStableText   = ""
-                    inputLevel       = 0
-                    levelEMA         = 0
+                    inputMotionAudioSource.reset()
                 }
                 return
             }
@@ -221,8 +199,7 @@ final class SpeechInputManager: NSObject, ObservableObject {
             isRecording = false
             currentSessionID = nil
             currentOnFinal   = nil
-            inputLevel       = 0
-            levelEMA         = 0
+            inputMotionAudioSource.reset()
         }
     }
 
@@ -261,8 +238,7 @@ final class SpeechInputManager: NSObject, ObservableObject {
             self.currentSessionID = nil
             self.currentOnFinal   = nil
             self.lastStableText   = ""
-            self.inputLevel       = 0
-            self.levelEMA         = 0
+            self.inputMotionAudioSource.reset()
         }
     }
 
@@ -352,7 +328,7 @@ final class SpeechInputManager: ObservableObject {
 
     @Published private(set) var isRecording: Bool = false
     @Published var lastError: String? = NSLocalizedString("Speech input is not supported on this platform.", comment: "Shown when speech input is unavailable")
-    @Published var inputLevel: Double = 0
+    let inputMotionAudioSource = VoiceMicrophoneAudioSource()
     @Published var currentLanguage: DictationLanguage = .english
     @Published private(set) var isHoldToSpeakActive: Bool = false
     @Published private(set) var isRequestingPermissions: Bool = false

@@ -109,11 +109,13 @@ extension GlobalAudioManager {
             let delta = index - audioChunks.count + 1
             for _ in 0..<delta {
                 audioChunks.append(nil)
+                audioMotionTimelines.append(nil)
                 chunkDurations.append(0)
             }
         }
 
         audioChunks[index] = nil
+        audioMotionTimelines[index] = nil
         chunkDurations[index] = 0
         skippedAudioChunkIndexes.insert(index)
         recalcTotalDuration()

@@ -143,8 +143,8 @@ actor SpeechRecognizerWorker {
     private var onPartialHandler: (@Sendable (String) -> Void)?
     private var onFinalHandler: (@Sendable (String) -> Void)?
     private var onSpeechActivityStartedHandler: (@Sendable () -> Void)?
-    private var onLevelHandler: (@Sendable (Float) -> Void)?
     private var onErrorHandler: (@Sendable (String) -> Void)?
+    private var motionAudioSource: VoiceMicrophoneAudioSource?
 
     // MARK: - End-of-speech detection
     /// Timestamp of the most recent detected speech activity; remains nil until speech is detected.
@@ -182,6 +182,7 @@ actor SpeechRecognizerWorker {
     private var isStopping = false
     private var isRestartingRecognitionTask = false
     private var recognitionTaskGeneration = 0
+    private let microphoneTapBufferSize: AVAudioFrameCount = 512
 
     /// When true, the worker will not terminate the session due to silence and will restart
     /// internally if the recognizer produces a final result.
@@ -214,7 +215,7 @@ actor SpeechRecognizerWorker {
                onPartial: @Sendable @escaping (String) -> Void,
                onFinal: @Sendable @escaping (String) -> Void,
                onSpeechActivityStarted: @Sendable @escaping () -> Void,
-               onLevel: @Sendable @escaping (Float) -> Void,
+               motionAudioSource: VoiceMicrophoneAudioSource,
                onError: @Sendable @escaping (String) -> Void) async throws {
         // Stop any existing session before starting a new one.
         if audioEngine.isRunning || tapInstalled || request != nil || task != nil {
@@ -224,8 +225,9 @@ actor SpeechRecognizerWorker {
         onPartialHandler = onPartial
         onFinalHandler = onFinal
         onSpeechActivityStartedHandler = onSpeechActivityStarted
-        onLevelHandler = onLevel
         onErrorHandler = onError
+        self.motionAudioSource = motionAudioSource
+        motionAudioSource.reset()
         lastNonEmptyText = ""
         holdToSpeakAccumulatedText = ""
         didEmitFinal = false
@@ -279,6 +281,7 @@ actor SpeechRecognizerWorker {
         task?.cancel()
         task = nil
 
+        audioTap?.replaceRecognitionRequest(nil)
         request?.endAudio()
         request = nil
 
@@ -298,8 +301,9 @@ actor SpeechRecognizerWorker {
         onPartialHandler = nil
         onFinalHandler = nil
         onSpeechActivityStartedHandler = nil
-        onLevelHandler = nil
         onErrorHandler = nil
+        motionAudioSource?.reset()
+        motionAudioSource = nil
 
         monitorTask?.cancel()
         monitorTask = nil
@@ -317,22 +321,28 @@ actor SpeechRecognizerWorker {
 
     // MARK: - Internal setup helpers
 
-    /// Creates a new request and tap. Reused when empty finals arrive so the session can continue.
     private func makeNewRequestAndTap() async throws {
-        if tapInstalled {
-            audioEngine.inputNode.removeTap(onBus: 0)
-            tapInstalled = false
-            audioTap = nil
-        }
-
         let request = SFSpeechAudioBufferRecognitionRequest()
         request.shouldReportPartialResults = true
         request.taskHint = .dictation
         request.addsPunctuation = true
         self.request = request
 
+        if let audioTap {
+            audioTap.replaceRecognitionRequest(request)
+            return
+        }
+
+        guard let motionAudioSource else {
+            throw SpeechError.engineStartFailed(
+                "Voice Motion audio source is unavailable."
+            )
+        }
         let inputNode = audioEngine.inputNode
-        let tap = SpeechAudioTap(request: request)
+        let tap = SpeechAudioTap(
+            request: request,
+            motionAudioSource: motionAudioSource
+        )
         tap.amplitudeHandler = { [weak self] level in
             guard let self else { return }
             Task { await self.handleAmplitude(level) }
@@ -341,7 +351,11 @@ actor SpeechRecognizerWorker {
         guard recordingFormat.sampleRate > 0, recordingFormat.channelCount > 0 else {
             throw SpeechError.engineStartFailed("Microphone format is unavailable.")
         }
-        inputNode.installTap(onBus: 0, bufferSize: 1024, format: nil) { [tap] buffer, _ in
+        inputNode.installTap(
+            onBus: 0,
+            bufferSize: microphoneTapBufferSize,
+            format: nil
+        ) { [tap] buffer, _ in
             tap.handle(buffer: buffer)
         }
         audioTap = tap
@@ -406,13 +420,9 @@ actor SpeechRecognizerWorker {
         recognitionTaskGeneration &+= 1
         task?.cancel()
         task = nil
+        audioTap?.replaceRecognitionRequest(nil)
         request?.endAudio()
         request = nil
-        if tapInstalled {
-            audioEngine.inputNode.removeTap(onBus: 0)
-            tapInstalled = false
-            audioTap = nil
-        }
 
         currentTaskHasRecognizedText = false
         didEndAudioForSilence = false
@@ -443,9 +453,7 @@ actor SpeechRecognizerWorker {
     }
 
     private func handleAmplitude(_ level: Float) {
-        // Used only for UI level display and tracking the first activity timestamp; silence detection no longer depends on raw energy.
         registerVoiceActivity(level)
-        onLevelHandler?(level)
     }
 
     private func emitPartial(_ text: String) {

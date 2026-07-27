@@ -60,7 +60,7 @@ extension VoiceChatOverlayViewModel {
 
         closeAudioIfVoiceWorkIsActive()
 
-        state = .loading
+        state = .connecting
         beginConnectivityPreflight()
     }
 

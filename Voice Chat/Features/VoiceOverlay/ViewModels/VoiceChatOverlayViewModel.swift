@@ -13,6 +13,7 @@ import SwiftUI
 final class VoiceChatOverlayViewModel: ObservableObject {
 
     enum OverlayState: Equatable {
+        case connecting
         case listening
         case loading
         case speaking
@@ -45,8 +46,6 @@ final class VoiceChatOverlayViewModel: ObservableObject {
     let errorCenter: AppErrorCenter
     let settingsManager: SettingsManager
     let reachabilityMonitor: ServerReachabilityMonitor
-    let inputLevelSubject = CurrentValueSubject<Double, Never>(0)
-    let outputLevelSubject = CurrentValueSubject<Double, Never>(0)
     var cancellables: Set<AnyCancellable> = []
     var sessionCancellables: Set<AnyCancellable> = []
     var onRecognizedFinal: ((String, [ChatImageAttachment]) -> Void)?
@@ -61,12 +60,12 @@ final class VoiceChatOverlayViewModel: ObservableObject {
     var connectivityAttemptID: UUID?
     let overlayAnimation = Animation.spring(response: 0.4, dampingFraction: 0.85)
 
-    var inputLevelPublisher: AnyPublisher<Double, Never> {
-        inputLevelSubject.eraseToAnyPublisher()
+    var inputMotionAudioSource: VoiceMicrophoneAudioSource {
+        speechInputManager.inputMotionAudioSource
     }
 
-    var outputLevelPublisher: AnyPublisher<Double, Never> {
-        outputLevelSubject.eraseToAnyPublisher()
+    var outputMotionAudioSource: VoiceAudioLevelStore {
+        audioManager.outputMotionAudioSource
     }
 
     init(
@@ -93,15 +92,15 @@ final class VoiceChatOverlayViewModel: ObservableObject {
         isSendSuppressed = false
         resetVisionCaptureSamples()
         resetVisionCaptureSpeechActivity()
-        inputLevelSubject.send(0)
-        outputLevelSubject.send(0)
+        inputMotionAudioSource.reset()
+        outputMotionAudioSource.store(.silent)
         showErrorBanner = false
         errorMessage = nil
         realtimeAssistantSnapshot = nil
         withAnimation(overlayAnimation) {
             isPresented = true
         }
-        state = .loading
+        state = .connecting
         beginConnectivityPreflight()
     }
 
@@ -122,8 +121,8 @@ final class VoiceChatOverlayViewModel: ObservableObject {
         realtimeAssistantSnapshot = nil
         dismissVisionCapture()
         resetVisionCaptureSpeechActivity()
-        inputLevelSubject.send(0)
-        outputLevelSubject.send(0)
+        inputMotionAudioSource.reset()
+        outputMotionAudioSource.store(.silent)
         cleanupSession()
         activeChatSession = nil
     }
@@ -140,13 +139,14 @@ final class VoiceChatOverlayViewModel: ObservableObject {
         guard isPresented else { return }
 
         switch state {
+        case .connecting:
+            // Don't let a tap bypass the initial connectivity preflight.
+            return
         case .listening:
             handleListeningTap()
         case .error:
             attemptReconnect()
         case .loading:
-            // Don't let a tap bypass the initial connectivity preflight.
-            guard connectivityAttemptID == nil else { return }
             interruptActiveWorkAndRestartListening()
         case .speaking:
             interruptActiveWorkAndRestartListening()

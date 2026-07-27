@@ -10,24 +10,6 @@ import Foundation
 
 extension VoiceChatOverlayViewModel {
     func bindState() {
-        speechInputManager.$inputLevel
-            .map { min(1.0, max(0.0, $0)) }
-            .removeDuplicates(by: { abs($0 - $1) < 0.003 })
-            .receive(on: RunLoop.main)
-            .sink { [weak self] level in
-                self?.inputLevelSubject.send(level)
-            }
-            .store(in: &cancellables)
-
-        audioManager.outputLevelPublisher
-            .map { Double(min(1.0, max(0.0, $0))) }
-            .removeDuplicates(by: { abs($0 - $1) < 0.003 })
-            .receive(on: RunLoop.main)
-            .sink { [weak self] level in
-                self?.outputLevelSubject.send(level)
-            }
-            .store(in: &cancellables)
-
         speechInputManager.$currentLanguage
             .removeDuplicates()
             .receive(on: RunLoop.main)
