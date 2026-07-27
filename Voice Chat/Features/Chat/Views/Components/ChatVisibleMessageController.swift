@@ -10,12 +10,35 @@ import Foundation
 
 @MainActor
 final class ChatVisibleMessageController: ObservableObject {
-    @Published private(set) var visibleMessages: [ChatMessage] = []
-    @Published private(set) var fingerprintCache: [UUID: ContentFingerprint] = [:]
-    @Published private(set) var isHydratingSession: Bool = false
+    typealias FingerprintBuilder = @Sendable (
+        [(UUID, String)]
+    ) async -> [UUID: ContentFingerprint]
+
+    @Published private var publishedState = PublishedState()
+
+    var visibleMessages: [ChatMessage] {
+        publishedState.visibleMessages
+    }
+
+    var fingerprintCache: [UUID: ContentFingerprint] {
+        publishedState.fingerprintCache
+    }
+
+    var isHydratingSession: Bool {
+        publishedState.isHydratingSession
+    }
 
     private var state = ChatVisibleMessageHydrationState()
     private var pendingRefresh: PendingRefresh?
+    private let fingerprintBuilder: FingerprintBuilder
+
+    init(fingerprintBuilder: FingerprintBuilder? = nil) {
+        self.fingerprintBuilder = fingerprintBuilder ?? { snapshots in
+            await Task.detached(priority: .userInitiated) {
+                Self.buildFingerprints(from: snapshots)
+            }.value
+        }
+    }
 
     func refreshVisibleMessages(
         orderedMessages: [ChatMessage],
@@ -24,8 +47,22 @@ final class ChatVisibleMessageController: ObservableObject {
         hydrating: Bool = false,
         onVisibleCountChange: @MainActor @Sendable @escaping (Int) -> Void
     ) {
-        let token = state.nextRefreshToken()
+        if !hydrating, state.deferRefreshIfHydrating() {
+            pendingRefresh = PendingRefresh(
+                ownerToken: state.refreshGeneration,
+                orderedMessages: orderedMessages,
+                editingBaseMessageID: editingBaseMessageID,
+                sessionID: sessionID,
+                onVisibleCountChange: onVisibleCountChange
+            )
+            publishStateSnapshot()
+            return
+        }
+        if !hydrating {
+            pendingRefresh = nil
+        }
 
+        let token = state.nextRefreshToken()
         if hydrating {
             beginHydration(
                 orderedMessages: orderedMessages,
@@ -34,17 +71,6 @@ final class ChatVisibleMessageController: ObservableObject {
                 token: token,
                 onVisibleCountChange: onVisibleCountChange
             )
-            return
-        }
-
-        guard !state.deferRefreshIfHydrating() else {
-            pendingRefresh = PendingRefresh(
-                orderedMessages: orderedMessages,
-                editingBaseMessageID: editingBaseMessageID,
-                sessionID: sessionID,
-                onVisibleCountChange: onVisibleCountChange
-            )
-            publishStateSnapshot()
             return
         }
 
@@ -62,6 +88,7 @@ final class ChatVisibleMessageController: ObservableObject {
     }
 
     func cancelHydration() {
+        pendingRefresh = nil
         state.cancelHydration()
         publishStateSnapshot()
     }
@@ -78,13 +105,15 @@ final class ChatVisibleMessageController: ObservableObject {
             editingBaseMessageID: editingBaseMessageID
         )
 
+        pendingRefresh = nil
         state.beginHydration(token: token)
         publishStateSnapshot()
         MessageRenderCache.shared.clear()
 
         let snapshots = ChatVisibleMessagesCoordinator.fingerprintSnapshots(from: target)
-        let fingerprintTask = Task.detached(priority: .userInitiated) {
-            Self.buildFingerprints(from: snapshots)
+        let buildFingerprints = fingerprintBuilder
+        let fingerprintTask = Task {
+            await buildFingerprints(snapshots)
         }
 
         state.hydrationTask = Task { @MainActor [weak self, target, snapshots, fingerprintTask, token] in
@@ -104,23 +133,28 @@ final class ChatVisibleMessageController: ObservableObject {
                 }
             }
 
-            let shouldApply = !Task.isCancelled && state.shouldApply(token: token)
-
-            if !shouldApply {
+            guard !Task.isCancelled, state.shouldApply(token: token) else {
                 fingerprintTask.cancel()
-            } else {
-                let fingerprints = await fingerprintTask.value
-                guard state.shouldApply(token: token) else { return }
-                state.applyHydratedFingerprints(fingerprints)
-                finalizeVisibleState(targetCount: target.count, sessionID: sessionID, onVisibleCountChange: onVisibleCountChange)
-                prewarmThinkParts(for: snapshots)
+                return
             }
 
-            state.finishHydration()
+            let fingerprints = await fingerprintTask.value
+            guard !Task.isCancelled,
+                  state.shouldApply(token: token) else {
+                return
+            }
+            state.applyHydratedFingerprints(fingerprints)
+            finalizeVisibleState(targetCount: target.count, sessionID: sessionID, onVisibleCountChange: onVisibleCountChange)
+            prewarmThinkParts(for: snapshots)
+
+            guard state.finishHydration(token: token) else { return }
             publishStateSnapshot()
 
             if state.consumePendingRefreshAfterHydration() {
-                let refresh = pendingRefresh ?? PendingRefresh(
+                let refresh = pendingRefresh.flatMap { pending in
+                    pending.ownerToken == token ? pending : nil
+                } ?? PendingRefresh(
+                    ownerToken: token,
                     orderedMessages: orderedMessages,
                     editingBaseMessageID: editingBaseMessageID,
                     sessionID: sessionID,
@@ -162,10 +196,11 @@ final class ChatVisibleMessageController: ObservableObject {
         }
 
         Task { @MainActor [weak self, plan, newVisibleCopy, token] in
-            let newFingerprints = await Task.detached(priority: .userInitiated) {
-                Self.buildFingerprints(from: plan.missingSnapshots)
-            }.value
-            guard let self, state.shouldApply(token: token) else { return }
+            guard let self else { return }
+            let newFingerprints = await fingerprintBuilder(
+                plan.missingSnapshots
+            )
+            guard state.shouldApply(token: token) else { return }
 
             state.applyVisibleMessagesWithMissingFingerprints(
                 newVisibleCopy,
@@ -200,9 +235,13 @@ final class ChatVisibleMessageController: ObservableObject {
     }
 
     private func publishStateSnapshot() {
-        visibleMessages = state.visibleMessages
-        fingerprintCache = state.fingerprintCache
-        isHydratingSession = state.isHydratingSession
+        let next = PublishedState(
+            visibleMessages: state.visibleMessages,
+            fingerprintCache: state.fingerprintCache,
+            isHydratingSession: state.isHydratingSession
+        )
+        guard !publishedState.isEquivalent(to: next) else { return }
+        publishedState = next
     }
 
     nonisolated private static func buildFingerprints(from snapshots: [(UUID, String)]) -> [UUID: ContentFingerprint] {
@@ -215,7 +254,25 @@ final class ChatVisibleMessageController: ObservableObject {
     }
 }
 
+private struct PublishedState {
+    var visibleMessages: [ChatMessage] = []
+    var fingerprintCache: [UUID: ContentFingerprint] = [:]
+    var isHydratingSession = false
+
+    func isEquivalent(to other: PublishedState) -> Bool {
+        guard isHydratingSession == other.isHydratingSession,
+              fingerprintCache == other.fingerprintCache,
+              visibleMessages.count == other.visibleMessages.count else {
+            return false
+        }
+        return zip(visibleMessages, other.visibleMessages).allSatisfy {
+            $0.id == $1.id && $0 === $1
+        }
+    }
+}
+
 private struct PendingRefresh {
+    let ownerToken: UUID
     let orderedMessages: [ChatMessage]
     let editingBaseMessageID: UUID?
     let sessionID: UUID

@@ -100,6 +100,10 @@ final class ChatViewModel: ObservableObject {
 
     // Emits content fingerprint updates (e.g., streaming deltas) to drive targeted UI refreshes.
     let messageContentDidChange = PassthroughSubject<MessageContentUpdate, Never>()
+    /// Emits when messages are appended or their presentation-relevant structure changes.
+    /// This deliberately does not mean that the selected conversation branch changed.
+    let messageStructureDidChange = PassthroughSubject<Void, Never>()
+    /// Emits only when the active branch selection/topology changes.
     let branchDidChange = PassthroughSubject<Void, Never>()
     /// Emits a user-facing error string when the current request fails (used by the realtime voice overlay).
     let requestDidFail = PassthroughSubject<String, Never>()
@@ -130,7 +134,8 @@ final class ChatViewModel: ObservableObject {
         self.realtimeNarrationCoordinator = ChatRealtimeNarrationCoordinator(audioManager: audioManager)
         self.sessionMutationController = ChatSessionMutationController(
             sessionPersistence: sessionPersistence,
-            branchDidChange: branchDidChange
+            branchDidChange: branchDidChange,
+            messageStructureDidChange: messageStructureDidChange
         )
 
         bindRequestActivityController()
@@ -341,7 +346,7 @@ final class ChatViewModel: ObservableObject {
         markSessionMessageActivity(at: err.createdAt)
         invalidateCachesAfterMessageMutation()
         branchRestartCoordinator.clearPendingRestore()
-        publishBranchChange()
+        publishMessageStructureChange()
         persistSession(reason: .immediate)
 
         realtimeNarrationCoordinator.finishActiveStream(flushingBufferedText: false)
@@ -613,7 +618,7 @@ final class ChatViewModel: ObservableObject {
             markSessionMessageActivity(at: appendResult.message.createdAt)
             invalidateCachesAfterMessageMutation()
             branchRestartCoordinator.clearPendingRestore()
-            publishBranchChange()
+            publishMessageStructureChange()
             currentAssistantMessageID = appendResult.message.id
             streamingAssistantMessageID = appendResult.message.id
             streamingAssistantFingerprint = appendResult.fingerprint
@@ -660,6 +665,9 @@ final class ChatViewModel: ObservableObject {
     private func invalidateMessageLookupCache() { sessionMutationController.invalidateMessageLookupCache() }
     private func invalidateCachesAfterMessageMutation() { sessionMutationController.invalidateAllCaches() }
     private func publishBranchChange() { sessionMutationController.publishBranchChange() }
+    private func publishMessageStructureChange() {
+        sessionMutationController.publishMessageStructureChange()
+    }
 
     private func markRequestActive(pendingParentMessageID: UUID?) {
         recordedRequestContextFingerprintsForActiveRequest.removeAll(keepingCapacity: true)
@@ -696,7 +704,7 @@ final class ChatViewModel: ObservableObject {
         markSessionMessageActivity(at: placeholder.createdAt)
         invalidateCachesAfterMessageMutation()
         branchRestartCoordinator.clearPendingRestore()
-        publishBranchChange()
+        publishMessageStructureChange()
         persistSession(reason: .immediate)
     }
 
@@ -782,7 +790,7 @@ final class ChatViewModel: ObservableObject {
             appendInterruptionErrors(for: finalizedMessages, now: now)
             markRequestInactive()
             invalidateCachesAfterMessageMutation()
-            publishBranchChange()
+            publishMessageStructureChange()
             persistSession(reason: .immediate)
         }
         return !finalizedMessages.isEmpty
@@ -887,7 +895,7 @@ final class ChatViewModel: ObservableObject {
         }
         markSessionMessageActivity(at: userMsg.createdAt)
         invalidateCachesAfterMessageMutation()
-        publishBranchChange()
+        publishMessageStructureChange()
         branchRestartCoordinator.clearPendingRestore()
         persistSession(reason: .immediate)
 
@@ -993,7 +1001,7 @@ final class ChatViewModel: ObservableObject {
         branchRestartCoordinator.clearPendingRestore()
         markSessionMessageActivity(at: err.createdAt)
         invalidateCachesAfterMessageMutation()
-        publishBranchChange()
+        publishMessageStructureChange()
         persistSession(reason: .immediate)
         clearProcessingToolActivitiesFromMessages()
         clearToolActivities()
@@ -1035,7 +1043,7 @@ final class ChatViewModel: ObservableObject {
             markSessionMessageActivity(at: appendResult.message.createdAt)
             invalidateCachesAfterMessageMutation()
             branchRestartCoordinator.clearPendingRestore()
-            publishBranchChange()
+            publishMessageStructureChange()
             currentAssistantMessageID = appendResult.message.id
         }
         let message = appendResult.message
@@ -1101,7 +1109,7 @@ final class ChatViewModel: ObservableObject {
             markSessionMessageActivity(at: appendResult.message.createdAt)
             invalidateCachesAfterMessageMutation()
             branchRestartCoordinator.clearPendingRestore()
-            publishBranchChange()
+            publishMessageStructureChange()
             currentAssistantMessageID = appendResult.message.id
         }
 

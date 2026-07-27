@@ -336,10 +336,24 @@ final class ChatViewStateSeamTests: XCTestCase {
         state.appendHydratedMessages([message])
         XCTAssertEqual(state.visibleMessages.map(\.id), [message.id])
 
-        state.finishHydration()
+        XCTAssertTrue(state.finishHydration(token: token))
         XCTAssertFalse(state.isHydrating)
         XCTAssertTrue(state.consumePendingRefreshAfterHydration())
         XCTAssertFalse(state.consumePendingRefreshAfterHydration())
+
+        let supersededToken = state.nextRefreshToken()
+        state.beginHydration(token: supersededToken)
+        XCTAssertTrue(state.deferRefreshIfHydrating())
+        let replacementToken = state.nextRefreshToken()
+        state.beginHydration(token: replacementToken)
+        XCTAssertFalse(state.pendingRefreshAfterHydration)
+        XCTAssertFalse(state.finishHydration(token: supersededToken))
+        XCTAssertTrue(state.finishHydration(token: replacementToken))
+
+        let cancelledToken = state.nextRefreshToken()
+        state.beginHydration(token: cancelledToken)
+        state.cancelHydration()
+        XCTAssertFalse(state.shouldApply(token: cancelledToken))
     }
 
     func testChatVisibleMessageHydrationStatePrefersLiveFingerprints() {
@@ -419,6 +433,44 @@ final class ChatViewStateSeamTests: XCTestCase {
                 hasTransientStatus: true
             ),
             currentAssistant.id
+        )
+    }
+
+    func testChatMessageListAnimationKeyTracksTopLevelInsertionsAndRemovals() {
+        let firstID = UUID()
+        let secondID = UUID()
+        let initial = ChatMessageListAnimationKey(
+            messageIDs: [firstID],
+            standaloneStatus: "none"
+        )
+
+        XCTAssertNotEqual(
+            initial,
+            ChatMessageListAnimationKey(
+                messageIDs: [firstID, secondID],
+                standaloneStatus: "none"
+            )
+        )
+        XCTAssertNotEqual(
+            initial,
+            ChatMessageListAnimationKey(
+                messageIDs: [],
+                standaloneStatus: "none"
+            )
+        )
+        XCTAssertNotEqual(
+            initial,
+            ChatMessageListAnimationKey(
+                messageIDs: [firstID],
+                standaloneStatus: "loading"
+            )
+        )
+        XCTAssertEqual(
+            initial,
+            ChatMessageListAnimationKey(
+                messageIDs: [firstID],
+                standaloneStatus: "none"
+            )
         )
     }
 

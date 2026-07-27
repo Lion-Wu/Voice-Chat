@@ -10,7 +10,8 @@ final class ChatSessionMutationControllerTests: XCTestCase {
         let persistence = ChatSessionPersistenceSpy()
         let controller = ChatSessionMutationController(
             sessionPersistence: persistence,
-            branchDidChange: PassthroughSubject<Void, Never>()
+            branchDidChange: PassthroughSubject<Void, Never>(),
+            messageStructureDidChange: PassthroughSubject<Void, Never>()
         )
         let session = ChatSession(title: "Example Conversation")
 
@@ -25,13 +26,19 @@ final class ChatSessionMutationControllerTests: XCTestCase {
     func testMessageTreeRepairPublishesBranchChangeAndPersists() {
         let persistence = ChatSessionPersistenceSpy()
         let branchDidChange = PassthroughSubject<Void, Never>()
+        let messageStructureDidChange = PassthroughSubject<Void, Never>()
         let controller = ChatSessionMutationController(
             sessionPersistence: persistence,
-            branchDidChange: branchDidChange
+            branchDidChange: branchDidChange,
+            messageStructureDidChange: messageStructureDidChange
         )
         var branchChangeCount = 0
+        var messageStructureChangeCount = 0
         branchDidChange
             .sink { branchChangeCount += 1 }
+            .store(in: &cancellables)
+        messageStructureDidChange
+            .sink { messageStructureChangeCount += 1 }
             .store(in: &cancellables)
 
         let session = ChatSession(title: "Branched Conversation")
@@ -72,8 +79,78 @@ final class ChatSessionMutationControllerTests: XCTestCase {
         XCTAssertEqual(child.activeChildMessageID, leaf.id)
         XCTAssertNil(leaf.activeChildMessageID)
         XCTAssertEqual(branchChangeCount, 1)
+        XCTAssertEqual(messageStructureChangeCount, 0)
         XCTAssertEqual(persistence.persistReasons.count, 1)
         XCTAssertImmediate(persistence.persistReasons.first)
+    }
+
+    func testMessageStructureChangeDoesNotPublishBranchTransition() {
+        let branchDidChange = PassthroughSubject<Void, Never>()
+        let messageStructureDidChange = PassthroughSubject<Void, Never>()
+        let controller = ChatSessionMutationController(
+            sessionPersistence: nil,
+            branchDidChange: branchDidChange,
+            messageStructureDidChange: messageStructureDidChange
+        )
+        var branchChangeCount = 0
+        var messageStructureChangeCount = 0
+        branchDidChange
+            .sink { branchChangeCount += 1 }
+            .store(in: &cancellables)
+        messageStructureDidChange
+            .sink { messageStructureChangeCount += 1 }
+            .store(in: &cancellables)
+
+        controller.publishMessageStructureChange()
+
+        XCTAssertEqual(messageStructureChangeCount, 1)
+        XCTAssertEqual(branchChangeCount, 0)
+    }
+
+    func testSwitchingMessageVersionPublishesOnlyBranchTransition() {
+        let branchDidChange = PassthroughSubject<Void, Never>()
+        let messageStructureDidChange = PassthroughSubject<Void, Never>()
+        let controller = ChatSessionMutationController(
+            sessionPersistence: nil,
+            branchDidChange: branchDidChange,
+            messageStructureDidChange: messageStructureDidChange
+        )
+        var branchChangeCount = 0
+        var messageStructureChangeCount = 0
+        branchDidChange
+            .sink { branchChangeCount += 1 }
+            .store(in: &cancellables)
+        messageStructureDidChange
+            .sink { messageStructureChangeCount += 1 }
+            .store(in: &cancellables)
+
+        let session = ChatSession(title: "Branched Conversation")
+        let parent = ChatMessage(
+            content: "question",
+            isUser: true,
+            createdAt: TestDate.reference
+        )
+        let first = ChatMessage(
+            content: "first",
+            isUser: false,
+            createdAt: TestDate.offset(1)
+        )
+        let second = ChatMessage(
+            content: "second",
+            isUser: false,
+            createdAt: TestDate.offset(2)
+        )
+        first.parentMessage = parent
+        second.parentMessage = parent
+        parent.activeChildMessageID = first.id
+        session.messages = [parent, first, second]
+        session.activeRootMessageID = parent.id
+
+        XCTAssertTrue(controller.switchToMessageVersion(second, in: session, isSending: false))
+
+        XCTAssertEqual(parent.activeChildMessageID, second.id)
+        XCTAssertEqual(branchChangeCount, 1)
+        XCTAssertEqual(messageStructureChangeCount, 0)
     }
 
     private func XCTAssertImmediate(

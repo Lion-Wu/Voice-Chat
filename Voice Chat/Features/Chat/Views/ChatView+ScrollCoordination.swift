@@ -162,7 +162,6 @@ extension ChatView {
            ) {
             scrollToBottom(animated: false)
         }
-        initialRenderCoordinator.contentDidLayout()
     }
 
     func updateViewportHeightIfNeeded(_ newHeight: CGFloat) {

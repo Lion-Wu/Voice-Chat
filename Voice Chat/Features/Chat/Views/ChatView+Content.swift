@@ -174,10 +174,13 @@ extension ChatView {
         )
         .environment(\.chatInitialRenderCoordinator, initialRenderCoordinator)
         .task(id: isHydratingSession) {
+            let presentationGeneration = initialRenderCoordinator.generation
             guard !isHydratingSession else { return }
             await Task.yield()
             guard !Task.isCancelled else { return }
-            initialRenderCoordinator.finishCollecting()
+            initialRenderCoordinator.finishCollecting(
+                generation: presentationGeneration
+            )
         }
     }
 
