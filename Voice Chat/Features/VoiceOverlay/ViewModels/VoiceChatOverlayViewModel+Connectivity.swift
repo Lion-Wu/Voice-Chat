@@ -67,8 +67,9 @@ extension VoiceChatOverlayViewModel {
     func connectivityErrorMessage(chatOK: Bool?, ttsOK: Bool?) -> String {
         let chatBase = settingsManager.chatSettings.apiURL.trimmingCharacters(in: .whitespacesAndNewlines)
         let ttsBase = settingsManager.serverSettings.serverAddress.trimmingCharacters(in: .whitespacesAndNewlines)
+        let requiresTTSNetworkService = settingsManager.voiceSettings.provider.requiresNetworkTTSService
 
-        if chatBase.isEmpty || ttsBase.isEmpty {
+        if chatBase.isEmpty || (requiresTTSNetworkService && ttsBase.isEmpty) {
             return NSLocalizedString("Server address is not configured.", comment: "Shown when realtime voice mode is started but server addresses are missing")
         }
 

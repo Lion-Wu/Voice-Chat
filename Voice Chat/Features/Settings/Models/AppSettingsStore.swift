@@ -82,7 +82,12 @@ enum AppSettingsStore {
                 selectedModel: settings.selectedModel,
                 apiKey: chatAPIKey
             ),
-            voiceSettings: VoiceSettings(enableStreaming: settings.enableStreaming),
+            voiceSettings: VoiceSettings(
+                enableStreaming: settings.enableStreaming,
+                provider: TTSProvider(rawValue: settings.ttsProviderRawValue ?? "") ?? .gptSoVITS,
+                appleSpeechVoiceIdentifier: settings.appleSpeechVoiceIdentifier,
+                personalVoiceIdentifier: settings.personalVoiceIdentifier
+            ),
             developerModeEnabled: settings.developerModeEnabled ?? false,
             hapticFeedbackEnabled: settings.hapticFeedbackEnabled ?? defaultHapticFeedbackEnabled,
             apiAdvancedSettings: APIAdvancedSettingsCodec.decode(
@@ -117,6 +122,10 @@ enum AppSettingsStore {
         if settings.toolUseSettingsJSON == nil {
             settings.toolUseSettingsJSON = ToolUseSettingsCodec.encode(loadedState.toolUseSettings)
             save("backfill tool-use settings")
+        }
+        if settings.ttsProviderRawValue == nil {
+            settings.ttsProviderRawValue = loadedState.voiceSettings.provider.rawValue
+            save("backfill TTS provider setting")
         }
     }
 }

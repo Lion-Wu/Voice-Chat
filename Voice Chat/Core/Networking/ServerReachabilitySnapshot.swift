@@ -10,4 +10,5 @@ import Foundation
 struct ServerReachabilitySnapshot: Equatable, Sendable {
     var chatBaseURL: String
     var ttsBaseURL: String
+    var requiresTTSNetworkService: Bool
 }

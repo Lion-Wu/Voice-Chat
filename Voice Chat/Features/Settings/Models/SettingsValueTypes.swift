@@ -26,4 +26,19 @@ struct ChatSettings: Codable, Equatable {
 
 struct VoiceSettings: Codable, Equatable {
     var enableStreaming: Bool
+    var provider: TTSProvider
+    var appleSpeechVoiceIdentifier: String?
+    var personalVoiceIdentifier: String?
+
+    init(
+        enableStreaming: Bool,
+        provider: TTSProvider = .gptSoVITS,
+        appleSpeechVoiceIdentifier: String? = nil,
+        personalVoiceIdentifier: String? = nil
+    ) {
+        self.enableStreaming = enableStreaming
+        self.provider = provider
+        self.appleSpeechVoiceIdentifier = appleSpeechVoiceIdentifier
+        self.personalVoiceIdentifier = personalVoiceIdentifier
+    }
 }

@@ -64,8 +64,16 @@ extension SettingsManager {
         saveModelSettings()
     }
 
-    func updateVoiceSettings(enableStreaming: Bool) {
+    func updateVoiceSettings(
+        enableStreaming: Bool,
+        provider: TTSProvider,
+        appleSpeechVoiceIdentifier: String?,
+        personalVoiceIdentifier: String?
+    ) {
         voiceSettings.enableStreaming = enableStreaming
+        voiceSettings.provider = provider
+        voiceSettings.appleSpeechVoiceIdentifier = appleSpeechVoiceIdentifier
+        voiceSettings.personalVoiceIdentifier = personalVoiceIdentifier
         saveVoiceSettings()
     }
 
@@ -147,6 +155,9 @@ extension SettingsManager {
     func saveVoiceSettings() {
         guard let e = entity, context != nil else { return }
         e.enableStreaming = voiceSettings.enableStreaming
+        e.ttsProviderRawValue = voiceSettings.provider.rawValue
+        e.appleSpeechVoiceIdentifier = voiceSettings.appleSpeechVoiceIdentifier
+        e.personalVoiceIdentifier = voiceSettings.personalVoiceIdentifier
         saveContext(label: "save voice settings")
     }
 

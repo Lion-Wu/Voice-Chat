@@ -248,6 +248,8 @@ extension GlobalAudioManager {
     func resetPlayer() {
         activeDataTasks.values.forEach { $0.cancel() }
         activeDataTasks.removeAll()
+        activeAppleSpeechSessions.values.forEach { $0.cancel() }
+        activeAppleSpeechSessions.removeAll()
         inFlightIndexes.removeAll()
         realtimeRequestQueue.removeAll()
         ttsRetryTasks.values.forEach { $0.cancel() }

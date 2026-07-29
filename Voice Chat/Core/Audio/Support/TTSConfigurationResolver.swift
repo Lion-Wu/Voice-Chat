@@ -32,6 +32,27 @@ struct TTSConfigurationResolver: Sendable {
         snapshot: TTSSettingsSnapshot,
         isRealtime: Bool
     ) -> TTSSynthesisConfiguration? {
+        if snapshot.provider.usesAppleSpeechSynthesizer {
+            let voiceIdentifier: String?
+            switch snapshot.provider {
+            case .appleSpeech:
+                voiceIdentifier = snapshot.appleSpeechVoiceIdentifier
+            case .personalVoice:
+                guard let selectedVoice = snapshot.personalVoiceIdentifier,
+                      !selectedVoice.isEmpty else {
+                    return nil
+                }
+                voiceIdentifier = selectedVoice
+            case .gptSoVITS:
+                voiceIdentifier = nil
+            }
+            return TTSSynthesisConfiguration(
+                provider: snapshot.provider,
+                appleSpeechVoiceIdentifier: voiceIdentifier,
+                usesStreamingSegments: snapshot.enableStreaming
+            )
+        }
+
         let serverAddress = snapshot.serverAddress
             .trimmingCharacters(in: .whitespacesAndNewlines)
         guard let url = constructTTSURL(from: serverAddress) else { return nil }

@@ -17,7 +17,10 @@ extension SettingsManager {
             enableStreaming: voiceSettings.enableStreaming,
             referenceAudioPath: selectedPreset?.refAudioPath ?? "",
             promptText: selectedPreset?.promptText ?? "",
-            promptLanguage: selectedPreset?.promptLang ?? "auto"
+            promptLanguage: selectedPreset?.promptLang ?? "auto",
+            provider: voiceSettings.provider,
+            appleSpeechVoiceIdentifier: voiceSettings.appleSpeechVoiceIdentifier,
+            personalVoiceIdentifier: voiceSettings.personalVoiceIdentifier
         )
     }
 }

@@ -44,7 +44,12 @@ final class ServerReachabilityMonitor: ObservableObject {
     /// Checks both chat and TTS endpoints and surfaces banners when unreachable.
     func checkAll(snapshot: ServerReachabilitySnapshot) async {
         await check(chatBase: snapshot.chatBaseURL)
-        await checkTTS(ttsBase: snapshot.ttsBaseURL)
+        if snapshot.requiresTTSNetworkService {
+            await checkTTS(ttsBase: snapshot.ttsBaseURL)
+        } else {
+            isTTSReachable = true
+            await clear(.tts)
+        }
     }
 
     /// Clears existing notices for the given category when connectivity is restored.
