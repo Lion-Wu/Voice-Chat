@@ -9,11 +9,17 @@ import Foundation
 
 enum TTSRequestBuilderError: LocalizedError, Equatable {
     case serializationFailed
+    case unsupportedProvider
+    case missingEndpoint
 
     var errorDescription: String? {
         switch self {
         case .serializationFailed:
             return NSLocalizedString("Unable to serialize JSON", comment: "Shown when encoding the TTS request body fails")
+        case .unsupportedProvider:
+            return NSLocalizedString("The selected speech provider does not use an HTTP request.", comment: "Shown when an HTTP request is incorrectly requested for a local speech provider")
+        case .missingEndpoint:
+            return NSLocalizedString("The GPT-SoVITS endpoint is not configured.", comment: "Shown when the GPT-SoVITS endpoint is missing")
         }
     }
 }
@@ -23,6 +29,13 @@ enum TTSRequestBuilder {
         for segmentText: String,
         configuration: TTSSynthesisConfiguration
     ) throws -> URLRequest {
+        guard configuration.provider == .gptSoVITS else {
+            throw TTSRequestBuilderError.unsupportedProvider
+        }
+        guard let url = configuration.url else {
+            throw TTSRequestBuilderError.missingEndpoint
+        }
+
         let params: [String: Any] = [
             "text": segmentText,
             "text_lang": configuration.textLanguage,
@@ -41,7 +54,7 @@ enum TTSRequestBuilder {
             throw TTSRequestBuilderError.serializationFailed
         }
 
-        var request = URLRequest(url: configuration.url)
+        var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.timeoutInterval = 60
         request.cachePolicy = .reloadIgnoringLocalCacheData

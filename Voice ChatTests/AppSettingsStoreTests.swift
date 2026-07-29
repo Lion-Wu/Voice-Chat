@@ -23,7 +23,10 @@ final class AppSettingsStoreTests: XCTestCase {
             selectedNormalSystemPromptPresetID: normalID,
             selectedVoiceSystemPromptPresetID: voiceID,
             modelImageInputOverrideJSON: "{\"vision\":true}",
-            apiAdvancedSettingsJSON: nil
+            apiAdvancedSettingsJSON: nil,
+            ttsProviderRawValue: TTSProvider.appleSpeech.rawValue,
+            appleSpeechVoiceIdentifier: "com.apple.voice.test",
+            personalVoiceIdentifier: "com.apple.personalvoice.test"
         )
 
         let state = AppSettingsStore.loadedState(
@@ -36,6 +39,9 @@ final class AppSettingsStoreTests: XCTestCase {
         XCTAssertEqual(state.serverSettings.serverAddress, "http://voice.local")
         XCTAssertEqual(state.chatSettings.apiKey, "key")
         XCTAssertFalse(state.voiceSettings.enableStreaming)
+        XCTAssertEqual(state.voiceSettings.provider, .appleSpeech)
+        XCTAssertEqual(state.voiceSettings.appleSpeechVoiceIdentifier, "com.apple.voice.test")
+        XCTAssertEqual(state.voiceSettings.personalVoiceIdentifier, "com.apple.personalvoice.test")
         XCTAssertTrue(state.developerModeEnabled)
         XCTAssertTrue(state.hapticFeedbackEnabled)
         XCTAssertEqual(state.selectedNormalSystemPromptPresetID, normalID)
@@ -55,5 +61,24 @@ final class AppSettingsStoreTests: XCTestCase {
             "backfill API advanced settings",
             "backfill tool-use settings"
         ])
+    }
+
+    @MainActor
+    func testLoadedStateBackfillsLegacyTTSProviderAsGPTSoVITS() {
+        let settings = AppSettings(ttsProviderRawValue: nil)
+        let state = AppSettingsStore.loadedState(
+            from: settings,
+            chatAPIKey: "",
+            defaultHapticFeedbackEnabled: true,
+            defaultAPIAdvancedSettings: .defaults
+        )
+
+        XCTAssertEqual(state.voiceSettings.provider, .gptSoVITS)
+
+        var labels: [String] = []
+        AppSettingsStore.backfillMissingValues(in: settings, loadedState: state) { labels.append($0) }
+
+        XCTAssertEqual(settings.ttsProviderRawValue, TTSProvider.gptSoVITS.rawValue)
+        XCTAssertTrue(labels.contains("backfill TTS provider setting"))
     }
 }

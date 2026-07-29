@@ -444,7 +444,8 @@ final class ChatSettingsAndDraftSeamTests: XCTestCase {
             ),
             isRealtime: false
         ))
-        XCTAssertEqual(batchConfig.url.absoluteString, "http://localhost:9880/tts")
+        XCTAssertEqual(batchConfig.url?.absoluteString, "http://localhost:9880/tts")
+        XCTAssertEqual(batchConfig.provider, .gptSoVITS)
         XCTAssertEqual(batchConfig.referenceAudioPath, "/tmp/ref.wav")
         XCTAssertEqual(batchConfig.promptText, "hello")
         XCTAssertEqual(batchConfig.promptLanguage, "zh")
@@ -487,7 +488,7 @@ final class ChatSettingsAndDraftSeamTests: XCTestCase {
             ),
             isRealtime: false
         ))
-        XCTAssertEqual(streamingConfig.url.absoluteString, "http://voice.example.com/tts")
+        XCTAssertEqual(streamingConfig.url?.absoluteString, "http://voice.example.com/tts")
         XCTAssertEqual(streamingConfig.textLanguage, "en")
         XCTAssertEqual(streamingConfig.textSplitMethod, "cut0")
         XCTAssertTrue(streamingConfig.usesStreamingSegments)
@@ -504,6 +505,58 @@ final class ChatSettingsAndDraftSeamTests: XCTestCase {
             ),
             isRealtime: false
         ))
+
+        let appleConfig = try XCTUnwrap(resolver.makeConfiguration(
+            snapshot: TTSSettingsSnapshot(
+                serverAddress: " ",
+                textLanguage: "auto",
+                autoSplit: "cut5",
+                enableStreaming: true,
+                referenceAudioPath: "",
+                promptText: "",
+                promptLanguage: "auto",
+                provider: .appleSpeech,
+                appleSpeechVoiceIdentifier: "com.apple.voice.test"
+            ),
+            isRealtime: true
+        ))
+        XCTAssertEqual(appleConfig.provider, .appleSpeech)
+        XCTAssertEqual(appleConfig.appleSpeechVoiceIdentifier, "com.apple.voice.test")
+        XCTAssertNil(appleConfig.url)
+        XCTAssertEqual(appleConfig.mediaType, "caf")
+        XCTAssertTrue(appleConfig.usesStreamingSegments)
+
+        XCTAssertNil(resolver.makeConfiguration(
+            snapshot: TTSSettingsSnapshot(
+                serverAddress: " ",
+                textLanguage: "auto",
+                autoSplit: "cut5",
+                enableStreaming: true,
+                referenceAudioPath: "",
+                promptText: "",
+                promptLanguage: "auto",
+                provider: .personalVoice
+            ),
+            isRealtime: true
+        ))
+
+        let personalVoiceConfig = try XCTUnwrap(resolver.makeConfiguration(
+            snapshot: TTSSettingsSnapshot(
+                serverAddress: " ",
+                textLanguage: "auto",
+                autoSplit: "cut5",
+                enableStreaming: true,
+                referenceAudioPath: "",
+                promptText: "",
+                promptLanguage: "auto",
+                provider: .personalVoice,
+                personalVoiceIdentifier: "com.apple.personalvoice.test"
+            ),
+            isRealtime: true
+        ))
+        XCTAssertEqual(personalVoiceConfig.provider, .personalVoice)
+        XCTAssertEqual(personalVoiceConfig.appleSpeechVoiceIdentifier, "com.apple.personalvoice.test")
+        XCTAssertNil(personalVoiceConfig.url)
     }
 
     func testTTSPresetApplyServiceBuildsWeightEndpointURLs() throws {

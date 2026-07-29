@@ -1,3 +1,4 @@
+import AVFoundation
 import XCTest
 @testable import Voice_Chat
 
@@ -36,5 +37,74 @@ final class TTSRequestBuilderTests: XCTestCase {
         XCTAssertEqual(json["batch_size"] as? Int, 1)
         XCTAssertEqual(json["media_type"] as? String, "wav")
         XCTAssertEqual(json["text_split_method"] as? String, "cut0")
+    }
+
+    func testMakeRequestRejectsAppleSpeechProvider() {
+        let configuration = TTSSynthesisConfiguration(
+            provider: .appleSpeech,
+            appleSpeechVoiceIdentifier: nil,
+            usesStreamingSegments: true
+        )
+
+        XCTAssertThrowsError(
+            try TTSRequestBuilder.makeRequest(for: "hello", configuration: configuration)
+        ) { error in
+            XCTAssertEqual(error as? TTSRequestBuilderError, .unsupportedProvider)
+        }
+    }
+
+    func testSpeechProvidersExposeAppleSpeechAndPersonalVoiceSeparately() {
+        XCTAssertEqual(
+            TTSProvider.allCases,
+            [.gptSoVITS, .appleSpeech, .personalVoice]
+        )
+        XCTAssertTrue(TTSProvider.appleSpeech.usesAppleSpeechSynthesizer)
+        XCTAssertTrue(TTSProvider.personalVoice.usesAppleSpeechSynthesizer)
+        XCTAssertFalse(TTSProvider.personalVoice.requiresNetworkTTSService)
+    }
+
+    func testAppleSpeechVoiceCatalogMarksPersonalVoices() throws {
+        let systemVoices = AVSpeechSynthesisVoice.speechVoices()
+        let options = AppleSpeechVoiceOption.installedVoices(locale: Locale(identifier: "en_US"))
+
+        XCTAssertEqual(options.count, systemVoices.count)
+        for voice in systemVoices {
+            let option = try XCTUnwrap(options.first(where: { $0.id == voice.identifier }))
+            XCTAssertEqual(
+                option.isPersonalVoice,
+                voice.voiceTraits.contains(.isPersonalVoice),
+                "Voice trait mismatch for \(voice.identifier)"
+            )
+        }
+
+        let firstNonPersonalIndex = options.firstIndex(where: { !$0.isPersonalVoice }) ?? options.endIndex
+        XCTAssertTrue(options[..<firstNonPersonalIndex].allSatisfy(\.isPersonalVoice))
+        XCTAssertTrue(options[firstNonPersonalIndex...].allSatisfy { !$0.isPersonalVoice })
+    }
+
+    @MainActor
+    func testAppleSpeechSessionProducesPlayableAudio() async throws {
+        guard let voice = AVSpeechSynthesisVoice.speechVoices().first else {
+            throw XCTSkip("No Apple speech voices are installed on this system")
+        }
+
+        let completed = expectation(description: "Apple Speech synthesis completed")
+        var synthesisResult: Result<Data, AppleSpeechSynthesisError>?
+        let session = AppleSpeechSynthesisSession.start(
+            text: "Voice Chat Apple Speech integration test.",
+            voiceIdentifier: voice.identifier,
+            provider: voice.voiceTraits.contains(.isPersonalVoice) ? .personalVoice : .appleSpeech
+        ) { result in
+            synthesisResult = result
+            completed.fulfill()
+        }
+
+        await fulfillment(of: [completed], timeout: 20)
+        let data = try XCTUnwrap(synthesisResult).get()
+        let player = try AVAudioPlayer(data: data)
+
+        XCTAssertFalse(data.isEmpty)
+        XCTAssertGreaterThan(player.duration, 0)
+        withExtendedLifetime(session) {}
     }
 }

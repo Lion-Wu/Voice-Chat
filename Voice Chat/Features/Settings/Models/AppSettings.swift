@@ -24,6 +24,9 @@ final class AppSettings {
     var selectedVoiceServerPresetID: UUID?
 
     var enableStreaming: Bool
+    var ttsProviderRawValue: String?
+    var appleSpeechVoiceIdentifier: String?
+    var personalVoiceIdentifier: String?
     var developerModeEnabled: Bool?
     var hapticFeedbackEnabled: Bool?
 
@@ -55,7 +58,10 @@ final class AppSettings {
         selectedVoiceSystemPromptPresetID: UUID? = nil,
         modelImageInputOverrideJSON: String? = nil,
         apiAdvancedSettingsJSON: String? = nil,
-        toolUseSettingsJSON: String? = nil
+        toolUseSettingsJSON: String? = nil,
+        ttsProviderRawValue: String? = nil,
+        appleSpeechVoiceIdentifier: String? = nil,
+        personalVoiceIdentifier: String? = nil
     ) {
         self.id = UUID()
         self.serverAddress = serverAddress
@@ -68,6 +74,9 @@ final class AppSettings {
         self.selectedChatServerPresetID = selectedChatServerPresetID
         self.selectedVoiceServerPresetID = selectedVoiceServerPresetID
         self.enableStreaming = enableStreaming
+        self.ttsProviderRawValue = ttsProviderRawValue
+        self.appleSpeechVoiceIdentifier = appleSpeechVoiceIdentifier
+        self.personalVoiceIdentifier = personalVoiceIdentifier
         self.developerModeEnabled = developerModeEnabled
         self.hapticFeedbackEnabled = hapticFeedbackEnabled
         self.selectedPresetID = selectedPresetID

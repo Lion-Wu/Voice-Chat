@@ -12,7 +12,8 @@ extension SettingsManager {
     var serverReachabilitySnapshot: ServerReachabilitySnapshot {
         ServerReachabilitySnapshot(
             chatBaseURL: chatSettings.apiURL,
-            ttsBaseURL: serverSettings.serverAddress
+            ttsBaseURL: serverSettings.serverAddress,
+            requiresTTSNetworkService: voiceSettings.provider.requiresNetworkTTSService
         )
     }
 }

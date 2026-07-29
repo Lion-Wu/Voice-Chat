@@ -7,6 +7,58 @@
 
 import Foundation
 import Combine
+import AVFoundation
+
+struct AppleSpeechVoiceOption: Identifiable, Equatable {
+    let id: String
+    let name: String
+    let language: String
+    let localizedLanguage: String
+    let quality: String
+    let isPersonalVoice: Bool
+
+    var displayName: String {
+        let kind = isPersonalVoice
+            ? NSLocalizedString("Apple Personal Voice", comment: "Apple accessibility Personal Voice label")
+            : quality
+        return "\(name) — \(localizedLanguage) · \(kind)"
+    }
+
+    static func installedVoices(locale: Locale = .current) -> [AppleSpeechVoiceOption] {
+        AVSpeechSynthesisVoice.speechVoices()
+            .map { voice in
+                AppleSpeechVoiceOption(
+                    id: voice.identifier,
+                    name: voice.name,
+                    language: voice.language,
+                    localizedLanguage: locale.localizedString(forIdentifier: voice.language) ?? voice.language,
+                    quality: qualityName(for: voice.quality),
+                    isPersonalVoice: voice.voiceTraits.contains(.isPersonalVoice)
+                )
+            }
+            .sorted {
+                if $0.isPersonalVoice != $1.isPersonalVoice {
+                    return $0.isPersonalVoice
+                }
+                let languageComparison = $0.localizedLanguage.localizedStandardCompare($1.localizedLanguage)
+                if languageComparison == .orderedSame {
+                    return $0.name.localizedStandardCompare($1.name) == .orderedAscending
+                }
+                return languageComparison == .orderedAscending
+            }
+    }
+
+    private static func qualityName(for quality: AVSpeechSynthesisVoiceQuality) -> String {
+        switch quality {
+        case .premium:
+            return NSLocalizedString("Premium", comment: "Premium quality Apple speech voice")
+        case .enhanced:
+            return NSLocalizedString("Enhanced", comment: "Enhanced quality Apple speech voice")
+        default:
+            return NSLocalizedString("Standard", comment: "Standard quality Apple speech voice")
+        }
+    }
+}
 
 @MainActor
 final class SettingsViewModel: ObservableObject {
@@ -32,6 +84,30 @@ final class SettingsViewModel: ObservableObject {
             }
         }
     }
+    @Published var ttsProvider: TTSProvider {
+        didSet {
+            guard !suppression.isActive(.autoSaves) else { return }
+            saveVoiceSettings()
+            if ttsProvider == .personalVoice {
+                activatePersonalVoiceProvider()
+            }
+        }
+    }
+    @Published var appleSpeechVoiceIdentifier: String? {
+        didSet {
+            guard !suppression.isActive(.autoSaves) else { return }
+            saveVoiceSettings()
+        }
+    }
+    @Published var personalVoiceIdentifier: String? {
+        didSet {
+            guard !suppression.isActive(.autoSaves) else { return }
+            saveVoiceSettings()
+        }
+    }
+    @Published private(set) var availableAppleSpeechVoices: [AppleSpeechVoiceOption] = []
+    @Published private(set) var personalVoiceAuthorizationStatus: AVSpeechSynthesizer.PersonalVoiceAuthorizationStatus
+    @Published private(set) var isRequestingPersonalVoiceAuthorization = false
 
     @Published var autoSplit: String {
         didSet {
@@ -187,6 +263,10 @@ final class SettingsViewModel: ObservableObject {
         selectedVoiceServerPresetID = nil
 
         enableStreaming = true
+        ttsProvider = .gptSoVITS
+        appleSpeechVoiceIdentifier = nil
+        personalVoiceIdentifier = nil
+        personalVoiceAuthorizationStatus = AVSpeechSynthesizer.personalVoiceAuthorizationStatus
 
         autoSplit = "cut0"
         modelId = ""
@@ -197,6 +277,7 @@ final class SettingsViewModel: ObservableObject {
 
         refreshFromSettingsManager()
         bindInitialStoreSync()
+        bindAppleSpeechVoiceChanges()
     }
 
     var shouldShowUnknownModelImageInputToggle: Bool {
@@ -344,6 +425,9 @@ final class SettingsViewModel: ObservableObject {
             chatAPIKey = c.apiKey
 
             enableStreaming = v.enableStreaming
+            ttsProvider = v.provider
+            appleSpeechVoiceIdentifier = v.appleSpeechVoiceIdentifier
+            personalVoiceIdentifier = v.personalVoiceIdentifier
             hapticFeedbackEnabled = settingsManager.hapticFeedbackEnabled
             apiAdvancedSettings = settingsManager.apiAdvancedSettings
             toolUseSettings = settingsManager.toolUseSettings
@@ -358,6 +442,7 @@ final class SettingsViewModel: ObservableObject {
         reloadPresetListAndSelection()
         loadSelectedPresetFields()
         reloadSystemPromptPresetListsAndSelections()
+        refreshAvailableAppleSpeechVoices()
     }
 
     private func bindInitialStoreSync() {
@@ -372,6 +457,64 @@ final class SettingsViewModel: ObservableObject {
                 self.refreshFromSettingsManager()
             }
             .store(in: &cancellables)
+    }
+
+    private func bindAppleSpeechVoiceChanges() {
+        NotificationCenter.default.publisher(for: AVSpeechSynthesizer.availableVoicesDidChangeNotification)
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in
+                self?.refreshAvailableAppleSpeechVoices()
+            }
+            .store(in: &cancellables)
+    }
+
+    func refreshAvailableAppleSpeechVoices() {
+        personalVoiceAuthorizationStatus = AVSpeechSynthesizer.personalVoiceAuthorizationStatus
+        availableAppleSpeechVoices = AppleSpeechVoiceOption.installedVoices()
+        ensurePersonalVoiceSelection()
+    }
+
+    var availableSystemVoices: [AppleSpeechVoiceOption] {
+        availableAppleSpeechVoices.filter { !$0.isPersonalVoice }
+    }
+
+    var availablePersonalVoices: [AppleSpeechVoiceOption] {
+        availableAppleSpeechVoices.filter(\.isPersonalVoice)
+    }
+
+    private func activatePersonalVoiceProvider() {
+        refreshAvailableAppleSpeechVoices()
+        guard personalVoiceAuthorizationStatus == .notDetermined else {
+            ensurePersonalVoiceSelection()
+            return
+        }
+        requestPersonalVoiceAuthorization()
+    }
+
+    private func requestPersonalVoiceAuthorization() {
+        guard ttsProvider == .personalVoice,
+              !isRequestingPersonalVoiceAuthorization else { return }
+        isRequestingPersonalVoiceAuthorization = true
+
+        Task { [weak self] in
+            let status = await AVSpeechSynthesizer.requestPersonalVoiceAuthorization()
+            guard let self else { return }
+            personalVoiceAuthorizationStatus = status
+            isRequestingPersonalVoiceAuthorization = false
+            refreshAvailableAppleSpeechVoices()
+        }
+    }
+
+    private func ensurePersonalVoiceSelection() {
+        guard ttsProvider == .personalVoice,
+              personalVoiceAuthorizationStatus == .authorized else {
+            return
+        }
+        if let personalVoiceIdentifier,
+           availablePersonalVoices.contains(where: { $0.id == personalVoiceIdentifier }) {
+            return
+        }
+        personalVoiceIdentifier = availablePersonalVoices.first?.id
     }
 
     // MARK: - Persist settings
@@ -400,7 +543,10 @@ final class SettingsViewModel: ObservableObject {
 
     func saveVoiceSettings() {
         settingsManager.updateVoiceSettings(
-            enableStreaming: enableStreaming
+            enableStreaming: enableStreaming,
+            provider: ttsProvider,
+            appleSpeechVoiceIdentifier: appleSpeechVoiceIdentifier,
+            personalVoiceIdentifier: personalVoiceIdentifier
         )
     }
 

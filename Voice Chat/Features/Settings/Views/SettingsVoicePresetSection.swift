@@ -8,17 +8,75 @@ struct SettingsVoicePresetSection: View {
 
     var body: some View {
         Section {
-            presetPickerRow
-            presetActionButtons
-            presetDetailFields
-            presetApplyStatusRow
-            presetApplyRow
+            switch viewModel.ttsProvider {
+            case .gptSoVITS:
+                presetPickerRow
+                presetActionButtons
+                presetDetailFields
+                presetApplyStatusRow
+                presetApplyRow
+            case .appleSpeech:
+                appleSpeechSettings
+            case .personalVoice:
+                personalVoiceSettings
+            }
         } header: {
             if hideHeader {
                 EmptyView()
             } else {
                 SettingsSectionHeader("Voice Model")
             }
+        }
+    }
+
+    @ViewBuilder
+    private var appleSpeechSettings: some View {
+        Picker("Apple Speech", selection: $viewModel.appleSpeechVoiceIdentifier) {
+            Text("System Default").tag(String?.none)
+            if let selectedIdentifier = viewModel.appleSpeechVoiceIdentifier,
+               !viewModel.availableSystemVoices.contains(where: { $0.id == selectedIdentifier }) {
+                Text("Selected voice is not installed").tag(Optional.some(selectedIdentifier))
+            }
+            ForEach(viewModel.availableSystemVoices) { voice in
+                Text(voice.displayName).tag(Optional.some(voice.id))
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var personalVoiceSettings: some View {
+        switch viewModel.personalVoiceAuthorizationStatus {
+        case .notDetermined:
+            if viewModel.isRequestingPersonalVoiceAuthorization {
+                HStack(spacing: 8) {
+                    ProgressView()
+                        .controlSize(.small)
+                    Text("Requesting Apple Personal Voice access…")
+                }
+                .foregroundStyle(.secondary)
+            } else {
+                Text("Apple Personal Voice access is not authorized.")
+                    .foregroundStyle(.secondary)
+            }
+        case .authorized:
+            if viewModel.availablePersonalVoices.isEmpty {
+                Text("No Apple Personal Voice is available.")
+                    .foregroundStyle(.secondary)
+            } else {
+                Picker("Apple Personal Voice", selection: $viewModel.personalVoiceIdentifier) {
+                    ForEach(viewModel.availablePersonalVoices) { voice in
+                        Text(voice.displayName).tag(Optional.some(voice.id))
+                    }
+                }
+            }
+        case .denied:
+            Text("Apple Personal Voice access is not authorized.")
+                .foregroundStyle(.secondary)
+        case .unsupported:
+            Text("Apple Personal Voice is not supported on this device.")
+                .foregroundStyle(.secondary)
+        @unknown default:
+            EmptyView()
         }
     }
 

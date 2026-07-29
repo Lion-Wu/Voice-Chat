@@ -188,6 +188,7 @@
 		FD90000000000000000001DE /* ServerReachabilitySnapshot+SettingsManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD90000000000000000000DD /* ServerReachabilitySnapshot+SettingsManager.swift */; };
 		FD90000000000000000001E0 /* TTSPlaybackState.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD90000000000000000000DF /* TTSPlaybackState.swift */; };
 		FD90000000000000000001E2 /* VoiceWorkSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD90000000000000000000E1 /* VoiceWorkSnapshot.swift */; };
+		FDAC72000000000000000002 /* AppleSpeechSynthesisSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = FDAC72000000000000000001 /* AppleSpeechSynthesisSession.swift */; };
 		FDA8D9262E7F0E320012B42F /* BubbleBackground.swift in Sources */ = {isa = PBXBuildFile; fileRef = FDA8D9202E7F0E320012B42F /* BubbleBackground.swift */; };
 		FDA8D9272E7F0E320012B42F /* ChatTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = FDA8D9212E7F0E320012B42F /* ChatTheme.swift */; };
 		FDA8D9282E7F0E320012B42F /* ChatView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FDA8D9222E7F0E320012B42F /* ChatView.swift */; };
@@ -574,6 +575,7 @@
 		FD90000000000000000000DD /* ServerReachabilitySnapshot+SettingsManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = "ServerReachabilitySnapshot+SettingsManager.swift"; path = "Voice Chat/Features/Settings/Models/ServerReachabilitySnapshot+SettingsManager.swift"; sourceTree = SOURCE_ROOT; };
 		FD90000000000000000000DF /* TTSPlaybackState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = TTSPlaybackState.swift; path = "Voice Chat/Core/Audio/Support/TTSPlaybackState.swift"; sourceTree = SOURCE_ROOT; };
 		FD90000000000000000000E1 /* VoiceWorkSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = VoiceWorkSnapshot.swift; path = "Voice Chat/Features/VoiceOverlay/ViewModels/VoiceWorkSnapshot.swift"; sourceTree = SOURCE_ROOT; };
+		FDAC72000000000000000001 /* AppleSpeechSynthesisSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = AppleSpeechSynthesisSession.swift; path = "Voice Chat/Core/Audio/Services/AppleSpeechSynthesisSession.swift"; sourceTree = SOURCE_ROOT; };
 		FDA8D9202E7F0E320012B42F /* BubbleBackground.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = BubbleBackground.swift; path = "Voice Chat/Features/Chat/Views/Components/BubbleBackground.swift"; sourceTree = SOURCE_ROOT; };
 		FDA8D9212E7F0E320012B42F /* ChatTheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ChatTheme.swift; path = "Voice Chat/Features/Chat/Views/Components/ChatTheme.swift"; sourceTree = SOURCE_ROOT; };
 		FDA8D9222E7F0E320012B42F /* ChatView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ChatView.swift; path = "Voice Chat/Features/Chat/Views/ChatView.swift"; sourceTree = SOURCE_ROOT; };
@@ -1008,6 +1010,7 @@
 		FD910000000000000000000B /* Services */ = {
 			isa = PBXGroup;
 			children = (
+				FDAC72000000000000000001 /* AppleSpeechSynthesisSession.swift */,
 				FD40D5752CA876010064E732 /* GlobalAudioManager.swift */,
 				FDFE0A9C2F123D0000000001 /* GlobalAudioManager+PlaybackSession.swift */,
 				FD7228642E7EBE22005BF261 /* SpeechInputManager.swift */,
@@ -1733,6 +1736,7 @@
 				FDA8D93C2E7F12040012B42F /* AudioPlayback.swift in Sources */,
 				FD7AF1B42CD896B900A5080B /* BlurView.swift in Sources */,
 				FD40D5762CA876010064E732 /* GlobalAudioManager.swift in Sources */,
+				FDAC72000000000000000002 /* AppleSpeechSynthesisSession.swift in Sources */,
 				FDFE0A9D2F123D0000000001 /* GlobalAudioManager+PlaybackSession.swift in Sources */,
 				FDFE0A9F2F123D0000000001 /* GlobalAudioManager+TTSFailureHandling.swift in Sources */,
 				FDA8D9492E7F13340012B42F /* RegexSplitString.swift in Sources */,

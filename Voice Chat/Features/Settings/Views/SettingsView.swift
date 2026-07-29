@@ -277,18 +277,68 @@ struct SettingsView: View {
     private func serverSection(hideHeader: Bool = false) -> some View {
         Section {
             #if os(macOS)
-            LabeledContent("Preset") {
-                Picker("", selection: $viewModel.selectedVoiceServerPresetID) {
-                    ForEach(viewModel.voiceServerPresetList) { p in
-                        Text(p.name).tag(Optional.some(p.id))
+            LabeledContent("Speech Provider") {
+                Picker("", selection: $viewModel.ttsProvider) {
+                    ForEach(TTSProvider.allCases) { provider in
+                        Text(provider.displayName).tag(provider)
                     }
                 }
                 .labelsHidden()
             }
+            #else
+            Picker("Speech Provider", selection: $viewModel.ttsProvider) {
+                ForEach(TTSProvider.allCases) { provider in
+                    Text(provider.displayName).tag(provider)
+                }
+            }
+            .pickerStyle(.menu)
+            #endif
 
-            HStack {
-                Spacer()
-                HStack(spacing: 8) {
+            if viewModel.ttsProvider == .gptSoVITS {
+                #if os(macOS)
+                LabeledContent("Preset") {
+                    Picker("", selection: $viewModel.selectedVoiceServerPresetID) {
+                        ForEach(viewModel.voiceServerPresetList) { p in
+                            Text(p.name).tag(Optional.some(p.id))
+                        }
+                    }
+                    .labelsHidden()
+                }
+
+                HStack {
+                    Spacer()
+                    HStack(spacing: 8) {
+                        Button {
+                            viewModel.addVoiceServerPreset()
+                        } label: {
+                            Label("Add", systemImage: "plus.circle.fill")
+                                .foregroundStyle(.blue)
+                        }
+                        .buttonStyle(.plain)
+                        .controlSize(.small)
+                        .help("Add preset")
+
+                        Button(role: .destructive) {
+                            requestDeletion(.voiceServerPreset)
+                        } label: {
+                            Label("Delete", systemImage: "trash")
+                                .foregroundStyle(.red)
+                        }
+                        .buttonStyle(.plain)
+                        .controlSize(.small)
+                        .help("Delete selected preset")
+                        .disabled(viewModel.voiceServerPresetList.count <= 1 || viewModel.selectedVoiceServerPresetID == nil)
+                    }
+                }
+                #else
+                Picker("Preset", selection: $viewModel.selectedVoiceServerPresetID) {
+                    ForEach(viewModel.voiceServerPresetList) { p in
+                        Text(p.name).tag(Optional.some(p.id))
+                    }
+                }
+                .pickerStyle(.menu)
+
+                HStack(spacing: 16) {
                     Button {
                         viewModel.addVoiceServerPreset()
                     } label: {
@@ -296,8 +346,7 @@ struct SettingsView: View {
                             .foregroundStyle(.blue)
                     }
                     .buttonStyle(.plain)
-                    .controlSize(.small)
-                    .help("Add preset")
+                    .contentShape(Rectangle())
 
                     Button(role: .destructive) {
                         requestDeletion(.voiceServerPreset)
@@ -306,52 +355,23 @@ struct SettingsView: View {
                             .foregroundStyle(.red)
                     }
                     .buttonStyle(.plain)
-                    .controlSize(.small)
-                    .help("Delete selected preset")
+                    .contentShape(Rectangle())
                     .disabled(viewModel.voiceServerPresetList.count <= 1 || viewModel.selectedVoiceServerPresetID == nil)
                 }
+                #endif
+
+                LabeledTextField(
+                    label: "Preset Name",
+                    placeholder: "Enter preset name",
+                    text: $viewModel.voiceServerPresetName
+                )
+
+                LabeledTextField(
+                    label: "Server URL",
+                    placeholder: "http://localhost:9880",
+                    text: $viewModel.serverAddress
+                )
             }
-            #else
-            Picker("Preset", selection: $viewModel.selectedVoiceServerPresetID) {
-                ForEach(viewModel.voiceServerPresetList) { p in
-                    Text(p.name).tag(Optional.some(p.id))
-                }
-            }
-            .pickerStyle(.menu)
-
-            HStack(spacing: 16) {
-                Button {
-                    viewModel.addVoiceServerPreset()
-                } label: {
-                    Label("Add", systemImage: "plus.circle.fill")
-                        .foregroundStyle(.blue)
-                }
-                .buttonStyle(.plain)
-                .contentShape(Rectangle())
-
-                Button(role: .destructive) {
-                    requestDeletion(.voiceServerPreset)
-                } label: {
-                    Label("Delete", systemImage: "trash")
-                        .foregroundStyle(.red)
-                }
-                .buttonStyle(.plain)
-                .contentShape(Rectangle())
-                .disabled(viewModel.voiceServerPresetList.count <= 1 || viewModel.selectedVoiceServerPresetID == nil)
-            }
-            #endif
-
-            LabeledTextField(
-                label: "Preset Name",
-                placeholder: "Enter preset name",
-                text: $viewModel.voiceServerPresetName
-            )
-
-            LabeledTextField(
-                label: "Server URL",
-                placeholder: "http://localhost:9880",
-                text: $viewModel.serverAddress
-            )
         } header: {
             if hideHeader {
                 EmptyView()
@@ -374,16 +394,34 @@ struct SettingsView: View {
     @ViewBuilder
     private func voiceOutputSection(hideHeader: Bool = false) -> some View {
         Section {
-            LabeledTextField(
-                label: "Text Language",
-                placeholder: "e.g. auto/zh/en",
-                text: $viewModel.textLang
-            )
+            if viewModel.ttsProvider == .gptSoVITS {
+                LabeledTextField(
+                    label: "Text Language",
+                    placeholder: "e.g. auto/zh/en",
+                    text: $viewModel.textLang
+                )
+            }
 
             #if os(macOS)
             Toggle("Enable Streaming", isOn: $viewModel.enableStreaming)
-            LabeledContent("Split Method") {
-                Picker("", selection: $viewModel.autoSplit) {
+            if viewModel.ttsProvider == .gptSoVITS {
+                LabeledContent("Split Method") {
+                    Picker("", selection: $viewModel.autoSplit) {
+                        Text("cut0: No Split").tag("cut0")
+                        Text("cut1: every 4 sentences").tag("cut1")
+                        Text("cut2: every 50 chars").tag("cut2")
+                        Text("cut3: by Chinese period").tag("cut3")
+                        Text("cut4: by English period").tag("cut4")
+                        Text("cut5: by punctuation").tag("cut5")
+                    }
+                    .labelsHidden()
+                    .disabled(viewModel.enableStreaming)
+                }
+            }
+            #else
+            Toggle("Enable Streaming", isOn: $viewModel.enableStreaming)
+            if viewModel.ttsProvider == .gptSoVITS {
+                Picker("Split Method", selection: $viewModel.autoSplit) {
                     Text("cut0: No Split").tag("cut0")
                     Text("cut1: every 4 sentences").tag("cut1")
                     Text("cut2: every 50 chars").tag("cut2")
@@ -391,20 +429,8 @@ struct SettingsView: View {
                     Text("cut4: by English period").tag("cut4")
                     Text("cut5: by punctuation").tag("cut5")
                 }
-                .labelsHidden()
                 .disabled(viewModel.enableStreaming)
             }
-            #else
-            Toggle("Enable Streaming", isOn: $viewModel.enableStreaming)
-            Picker("Split Method", selection: $viewModel.autoSplit) {
-                Text("cut0: No Split").tag("cut0")
-                Text("cut1: every 4 sentences").tag("cut1")
-                Text("cut2: every 50 chars").tag("cut2")
-                Text("cut3: by Chinese period").tag("cut3")
-                Text("cut4: by English period").tag("cut4")
-                Text("cut5: by punctuation").tag("cut5")
-            }
-            .disabled(viewModel.enableStreaming)
             #endif
         } header: {
             if hideHeader {

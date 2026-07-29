@@ -10,8 +10,9 @@ import AVFoundation
 import Combine
 
 struct TTSSynthesisConfiguration: Equatable {
+    let provider: TTSProvider
     let serverAddress: String
-    let url: URL
+    let url: URL?
     let textLanguage: String
     let referenceAudioPath: String
     let promptText: String
@@ -19,6 +20,50 @@ struct TTSSynthesisConfiguration: Equatable {
     let textSplitMethod: String
     let mediaType: String
     let usesStreamingSegments: Bool
+    let appleSpeechVoiceIdentifier: String?
+
+    init(
+        serverAddress: String,
+        url: URL,
+        textLanguage: String,
+        referenceAudioPath: String,
+        promptText: String,
+        promptLanguage: String,
+        textSplitMethod: String,
+        mediaType: String,
+        usesStreamingSegments: Bool
+    ) {
+        self.provider = .gptSoVITS
+        self.serverAddress = serverAddress
+        self.url = url
+        self.textLanguage = textLanguage
+        self.referenceAudioPath = referenceAudioPath
+        self.promptText = promptText
+        self.promptLanguage = promptLanguage
+        self.textSplitMethod = textSplitMethod
+        self.mediaType = mediaType
+        self.usesStreamingSegments = usesStreamingSegments
+        self.appleSpeechVoiceIdentifier = nil
+    }
+
+    init(
+        provider: TTSProvider,
+        appleSpeechVoiceIdentifier: String?,
+        usesStreamingSegments: Bool
+    ) {
+        precondition(provider.usesAppleSpeechSynthesizer)
+        self.provider = provider
+        self.serverAddress = ""
+        self.url = nil
+        self.textLanguage = ""
+        self.referenceAudioPath = ""
+        self.promptText = ""
+        self.promptLanguage = ""
+        self.textSplitMethod = ""
+        self.mediaType = "caf"
+        self.usesStreamingSegments = usesStreamingSegments
+        self.appleSpeechVoiceIdentifier = appleSpeechVoiceIdentifier
+    }
 }
 
 @MainActor
@@ -147,6 +192,7 @@ final class GlobalAudioManager: NSObject, ObservableObject, AVAudioPlayerDelegat
     var currentPlayingIndex: Int = 0
 
     var activeDataTasks: [UUID: URLSessionDataTask] = [:]
+    var activeAppleSpeechSessions: [UUID: AppleSpeechSynthesisSession] = [:]
     var inFlightIndexes: Set<Int> = []
     var ttsRetryTasks: [Int: Task<Void, Never>] = [:]
     var ttsRetryState = TTSRequestRetryState()
@@ -325,8 +371,16 @@ final class GlobalAudioManager: NSObject, ObservableObject, AVAudioPlayerDelegat
         let trimmed = message.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
         errorMessage = trimmed
+        let title: String
+        if currentTTSConfiguration?.provider == .personalVoice {
+            title = NSLocalizedString("Apple Personal Voice unavailable", comment: "Shown when Apple Personal Voice synthesis fails")
+        } else if currentTTSConfiguration?.provider == .appleSpeech {
+            title = NSLocalizedString("Apple Speech unavailable", comment: "Shown when Apple's built-in speech synthesis fails")
+        } else {
+            title = NSLocalizedString("TTS server unavailable", comment: "Shown when the TTS server cannot be reached or replied with an error")
+        }
         noticePublisher.publish(
-            title: NSLocalizedString("TTS server unavailable", comment: "Shown when the TTS server cannot be reached or replied with an error"),
+            title: title,
             message: trimmed,
             category: .tts,
             autoDismiss: autoDismiss

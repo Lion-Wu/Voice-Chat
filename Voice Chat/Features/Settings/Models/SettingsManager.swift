@@ -69,7 +69,12 @@ final class SettingsManager: ObservableObject {
         self.chatModelCapabilityStore = ChatModelCapabilityStore(
             thinkingPreferences: ChatModelCapabilityStore.decodeThinkingPreferences()
         )
-        self.voiceSettings = VoiceSettings(enableStreaming: SettingsDefaults.enableStreaming)
+        self.voiceSettings = VoiceSettings(
+            enableStreaming: SettingsDefaults.enableStreaming,
+            provider: .gptSoVITS,
+            appleSpeechVoiceIdentifier: nil,
+            personalVoiceIdentifier: nil
+        )
         self.developerModeEnabled = SettingsDefaults.developerModeEnabled
         self.hapticFeedbackEnabled = SettingsDefaults.hapticFeedbackEnabled
         self.apiAdvancedSettings = SettingsDefaults.apiAdvancedSettings

@@ -27,10 +27,16 @@ extension GlobalAudioManager {
     }
 
     func invalidTTSConfigurationMessage() -> String {
-        let address = currentTTSSettingsSnapshot().serverAddress
+        let snapshot = currentTTSSettingsSnapshot()
+        if snapshot.provider == .personalVoice {
+            return NSLocalizedString(
+                "Apple Personal Voice is not authorized or available.",
+                comment: "Shown when Apple Personal Voice synthesis cannot start"
+            )
+        }
         return String(
             format: NSLocalizedString("Unable to construct TTS URL from %@", comment: "Shown when the TTS endpoint URL cannot be built"),
-            address
+            snapshot.serverAddress
         )
     }
 
@@ -92,6 +98,18 @@ extension GlobalAudioManager {
         inFlightIndexes.insert(index)
         refreshPlaybackLoadState()
 
+        let genAtRequest = currentGenerationID
+        if configuration.provider.usesAppleSpeechSynthesizer {
+            startAppleSpeechSynthesis(
+                for: segmentText,
+                index: index,
+                generationID: genAtRequest,
+                advanceSequenceOnSuccess: advanceSequenceOnSuccess,
+                configuration: configuration
+            )
+            return
+        }
+
         let request: URLRequest
         do {
             request = try TTSRequestBuilder.makeRequest(
@@ -106,8 +124,6 @@ extension GlobalAudioManager {
             if isRealtimeMode { processRealtimeQueueIfNeeded() }
             return
         }
-
-        let genAtRequest = self.currentGenerationID
 
         let requestID = UUID()
         let task = ttsSession.dataTask(with: request) { [weak self] (data: Data?, resp: URLResponse?, error: Error?) in
@@ -166,98 +182,164 @@ extension GlobalAudioManager {
                     return
                 }
 
-                // Ensure the arrays grow safely when realtime mode extends them dynamically.
-                if index >= self.audioChunks.count {
-                    let delta = index - self.audioChunks.count + 1
-                    for _ in 0..<delta {
-                        self.audioChunks.append(nil)
-                        self.audioMotionTimelines.append(nil)
-                        self.chunkDurations.append(0)
-                    }
-                }
-
-                if index < self.audioChunks.count {
-                    do {
-                        let chunk = try TTSAudioChunkDecoder.decode(data)
-                        self.clearTTSAutoRetry(for: index)
-                        self.skippedAudioChunkIndexes.remove(index)
-                        self.audioChunks[index] = chunk.data
-                        self.audioMotionTimelines[index] = nil
-                        self.chunkDurations[index] = chunk.duration
-                        self.scheduleAudioMotionTimeline(
-                            for: chunk.data,
-                            at: index,
-                            generationID: genAtRequest
-                        )
-                    } catch let failure as TTSAudioChunkDecodeFailure {
-                        self.handleTTSFailure(
-                            failure.disposition,
-                            segmentText: segmentText,
-                            index: index,
-                            generationID: genAtRequest,
-                            advanceSequenceOnSuccess: advanceSequenceOnSuccess,
-                            lastErrorMessage: failure.message
-                        )
-                        return
-                    } catch {
-                        let failure = TTSAudioChunkDecodeFailure.unsupportedAudioData
-                        self.handleTTSFailure(
-                            failure.disposition,
-                            segmentText: segmentText,
-                            index: index,
-                            generationID: genAtRequest,
-                            advanceSequenceOnSuccess: advanceSequenceOnSuccess,
-                            lastErrorMessage: failure.message
-                        )
-                        return
-                    }
-                    self.recalcTotalDuration()
-                    self.refreshPlaybackLoadState()
-                }
-
-                if self.playbackFinished() {
-                    self.finishPlayback()
-                    return
-                }
-
-                if index == self.currentPlayingIndex {
-                    let shouldAutoplay = self.isPlaybackRequested
-                    let resumeTime: TimeInterval? = {
-                        if let seek = self.seekTime { return seek }
-                        return self.isBuffering ? self.currentTime : nil
-                    }()
-
-                    let didStart = self.playAudioChunk(
-                        at: index,
-                        fromTime: resumeTime,
-                        shouldPlay: shouldAutoplay
-                    )
-
-                    if self.isRealtimeMode {
-                        self.isPlaybackRequested = shouldAutoplay
-                        self.isAudioPlaying = shouldAutoplay && didStart
-                        self.isLoading = shouldAutoplay && !didStart
-                    } else {
-                        self.isLoading = false
-                    }
-                    self.seekTime = nil
-                }
-
-                if index == self.currentPlayingIndex + 1 {
-                    self.prepareNextAudioChunk(at: index)
-                }
-
-                if !self.isRealtimeMode,
-                   advanceSequenceOnSuccess,
-                   index == self.currentChunkIndex {
-                    self.currentChunkIndex = index + 1
-                    self.refreshPlaybackLoadState()
-                    self.sendNextSegment()
-                }
+                self.acceptSynthesizedAudio(
+                    data,
+                    segmentText: segmentText,
+                    index: index,
+                    generationID: genAtRequest,
+                    advanceSequenceOnSuccess: advanceSequenceOnSuccess
+                )
             }
         }
         activeDataTasks[requestID] = task
         task.resume()
+    }
+
+    private func startAppleSpeechSynthesis(
+        for segmentText: String,
+        index: Int,
+        generationID: UUID,
+        advanceSequenceOnSuccess: Bool,
+        configuration: TTSSynthesisConfiguration
+    ) {
+        let requestID = UUID()
+        let session = AppleSpeechSynthesisSession.start(
+            text: segmentText,
+            voiceIdentifier: configuration.appleSpeechVoiceIdentifier,
+            provider: configuration.provider
+        ) { [weak self] result in
+            guard let self else { return }
+            self.activeAppleSpeechSessions.removeValue(forKey: requestID)
+            guard generationID == self.currentGenerationID else { return }
+
+            defer {
+                self.inFlightIndexes.remove(index)
+                self.refreshPlaybackLoadState()
+                if self.isRealtimeMode {
+                    self.processRealtimeQueueIfNeeded()
+                }
+                self.concludeRealtimeIfIdle()
+            }
+
+            switch result {
+            case .success(let data):
+                self.acceptSynthesizedAudio(
+                    data,
+                    segmentText: segmentText,
+                    index: index,
+                    generationID: generationID,
+                    advanceSequenceOnSuccess: advanceSequenceOnSuccess
+                )
+            case .failure(.cancelled):
+                return
+            case .failure(let error):
+                self.handleTTSFailure(
+                    error.disposition,
+                    segmentText: segmentText,
+                    index: index,
+                    generationID: generationID,
+                    advanceSequenceOnSuccess: advanceSequenceOnSuccess,
+                    lastErrorMessage: error.localizedDescription
+                )
+            }
+        }
+        activeAppleSpeechSessions[requestID] = session
+    }
+
+    private func acceptSynthesizedAudio(
+        _ data: Data,
+        segmentText: String,
+        index: Int,
+        generationID: UUID,
+        advanceSequenceOnSuccess: Bool
+    ) {
+        if index >= audioChunks.count {
+            let delta = index - audioChunks.count + 1
+            for _ in 0..<delta {
+                audioChunks.append(nil)
+                audioMotionTimelines.append(nil)
+                chunkDurations.append(0)
+            }
+        }
+
+        if index < audioChunks.count {
+            do {
+                let chunk = try TTSAudioChunkDecoder.decode(data)
+                clearTTSAutoRetry(for: index)
+                skippedAudioChunkIndexes.remove(index)
+                audioChunks[index] = chunk.data
+                audioMotionTimelines[index] = nil
+                chunkDurations[index] = chunk.duration
+                scheduleAudioMotionTimeline(
+                    for: chunk.data,
+                    at: index,
+                    generationID: generationID
+                )
+            } catch let failure as TTSAudioChunkDecodeFailure {
+                handleTTSFailure(
+                    failure.disposition,
+                    segmentText: segmentText,
+                    index: index,
+                    generationID: generationID,
+                    advanceSequenceOnSuccess: advanceSequenceOnSuccess,
+                    lastErrorMessage: failure.message
+                )
+                return
+            } catch {
+                let failure = TTSAudioChunkDecodeFailure.unsupportedAudioData
+                handleTTSFailure(
+                    failure.disposition,
+                    segmentText: segmentText,
+                    index: index,
+                    generationID: generationID,
+                    advanceSequenceOnSuccess: advanceSequenceOnSuccess,
+                    lastErrorMessage: failure.message
+                )
+                return
+            }
+            recalcTotalDuration()
+            refreshPlaybackLoadState()
+        }
+
+        if playbackFinished() {
+            finishPlayback()
+            return
+        }
+
+        if index == currentPlayingIndex {
+            let shouldAutoplay = isPlaybackRequested
+            let resumeTime: TimeInterval? = {
+                if let seek = seekTime { return seek }
+                return isBuffering ? currentTime : nil
+            }()
+
+            let didStart = playAudioChunk(
+                at: index,
+                fromTime: resumeTime,
+                shouldPlay: shouldAutoplay
+            )
+
+            if isRealtimeMode {
+                isPlaybackRequested = shouldAutoplay
+                isAudioPlaying = shouldAutoplay && didStart
+                isLoading = shouldAutoplay && !didStart
+            } else {
+                isLoading = false
+            }
+            seekTime = nil
+        }
+
+        if index == currentPlayingIndex + 1 {
+            prepareNextAudioChunk(at: index)
+        }
+
+        if !isRealtimeMode,
+           advanceSequenceOnSuccess,
+           index == currentChunkIndex {
+            currentChunkIndex = index + 1
+            refreshPlaybackLoadState()
+            sendNextSegment()
+        }
     }
 
 }
