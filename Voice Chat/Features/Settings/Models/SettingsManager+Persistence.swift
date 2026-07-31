@@ -12,8 +12,9 @@ extension SettingsManager {
     // SwiftData context injected from the app or root view.
     @discardableResult
     func attach(context: ModelContext) -> Bool {
+        let loaded: SettingsPersistenceLoad
         do {
-            guard let loaded = try persistence.attach(
+            guard let attached = try persistence.attach(
                 context: context,
                 chatAPIKeyForPreset: { [chatAPIKeyStore] in chatAPIKeyStore.load(for: $0) },
                 defaultHapticFeedbackEnabled: SettingsDefaults.hapticFeedbackEnabled,
@@ -22,23 +23,33 @@ extension SettingsManager {
             ) else {
                 return true
             }
+            loaded = attached
 
             isCoalescingPersistenceWrites = true
             applyLoadedState(loaded.loadedState)
             applyPendingStoredPreferences()
             try reloadAndRepairPresetStoresAfterAttach()
-            isCoalescingPersistenceWrites = false
-            try persistence.saveContextOrThrow(label: "initialize settings stores")
-            return true
         } catch {
             isCoalescingPersistenceWrites = false
             // Startup repair is one transaction. Discard inserts/deletes and
-            // backfills staged before a later fetch or the final save failed,
-            // so another subsystem cannot commit a partially initialized store.
+            // backfills staged before a later read failed, so the settings
+            // context cannot retain a partially initialized in-memory store.
             persistence.discardBinding()
             onPersistentStoreReadFailure?(error)
             return false
         }
+
+        isCoalescingPersistenceWrites = false
+        do {
+            try persistence.saveContextOrThrow(label: "initialize settings stores")
+        } catch {
+            // The store was readable and the initialization transaction remains
+            // coherent in this isolated settings context. Keep the binding live
+            // so a later settings save can retry it without blocking startup or
+            // routing an ordinary write failure to destructive recovery.
+            reportSettingsWriteFailure(error)
+        }
+        return true
     }
 
     func detachPersistentStore() {

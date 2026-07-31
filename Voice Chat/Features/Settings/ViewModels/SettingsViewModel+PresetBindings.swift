@@ -47,7 +47,7 @@ extension SettingsViewModel {
     }
 
     func addChatServerPreset() {
-        commitChatServerEdits()
+        guard commitChatServerEdits() else { return }
         if let id = presetBindingController.createChatServerPreset() {
             reloadChatServerPresetListAndSelection()
             presetBindingController.selectChatServerPreset(id)

@@ -557,10 +557,11 @@ final class SettingsViewModel: ObservableObject {
         settingsManager.updateToolUseSettings(toolUseSettings)
     }
 
-    func commitChatServerEdits() {
+    @discardableResult
+    func commitChatServerEdits() -> Bool {
         guard !suppression.isActive(.autoSaves),
               !suppression.isActive(.saveChatServerPreset),
-              !suppression.isActive(.saveChatServerPresetFormat) else { return }
+              !suppression.isActive(.saveChatServerPresetFormat) else { return true }
         let didCommit = settingsManager.commitSelectedChatServerSettings(
             name: chatServerPresetName,
             apiURL: apiURL,
@@ -570,12 +571,13 @@ final class SettingsViewModel: ObservableObject {
         )
         guard didCommit else {
             refreshFromSettingsManager()
-            return
+            return false
         }
         let presets = presetBindingController.chatServerBinding().presets
         if chatServerPresetList != presets {
             chatServerPresetList = presets
         }
+        return true
     }
 
     func commitPendingEdits() {
