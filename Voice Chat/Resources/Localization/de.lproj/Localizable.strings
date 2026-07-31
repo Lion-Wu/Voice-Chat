@@ -30,6 +30,8 @@
 "API Base URL" = "Basis-URL der API";
 "API Format" = "API-Format";
 "API Key" = "API-Schlüssel";
+"Data Saving Issue" = "Problem beim Speichern von Daten";
+"The API key could not be saved." = "Der API-Schlüssel konnte nicht gespeichert werden.";
 "Apply Preset Now" = "Voreinstellung jetzt anwenden";
 "Apply selected preset now" = "Ausgewählte Voreinstellung jetzt anwenden";
 "Applying preset..." = "Voreinstellung wird angewendet...";

@@ -97,11 +97,11 @@ final class SettingsChatServerRuntimeTests: XCTestCase {
             loadString: { _, _ in XCTFail("equal in-memory key must not access Keychain"); return nil },
             saveString: { _, _, _ in
                 XCTFail("equal key must not be saved")
-                return false
+                return .failure(KeychainStoreError(status: -1))
             },
             deleteString: { _, _ in
                 XCTFail("equal key must not be deleted")
-                return false
+                return .failure(KeychainStoreError(status: -1))
             }
         )
 
@@ -128,11 +128,11 @@ final class SettingsChatServerRuntimeTests: XCTestCase {
             loadString: { _, _ in nil },
             saveString: { value, service, account in
                 saved.append((value, service, account))
-                return true
+                return .success(())
             },
             deleteString: { _, _ in
                 XCTFail("non-empty API keys should be saved")
-                return false
+                return .failure(KeychainStoreError(status: -1))
             }
         )
 
@@ -179,11 +179,11 @@ final class SettingsChatServerRuntimeTests: XCTestCase {
             },
             saveString: { _, _, _ in
                 XCTFail("selecting a preset should not save API keys")
-                return false
+                return .failure(KeychainStoreError(status: -1))
             },
             deleteString: { _, _ in
                 XCTFail("selecting a preset should not delete API keys")
-                return false
+                return .failure(KeychainStoreError(status: -1))
             }
         )
 
@@ -227,11 +227,11 @@ final class SettingsChatServerRuntimeTests: XCTestCase {
             },
             saveString: { _, _, _ in
                 XCTFail("applying a fallback must not write its API key")
-                return false
+                return .failure(KeychainStoreError(status: -1))
             },
             deleteString: { _, _ in
                 XCTFail("applying a fallback must not delete an API key")
-                return false
+                return .failure(KeychainStoreError(status: -1))
             }
         )
 

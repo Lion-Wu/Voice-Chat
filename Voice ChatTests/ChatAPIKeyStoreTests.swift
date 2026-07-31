@@ -10,9 +10,9 @@ final class ChatAPIKeyStoreTests: XCTestCase {
             loadString: { _, _ in nil },
             saveString: { value, service, account in
                 saved.append((value, service, account))
-                return true
+                return .success(())
             },
-            deleteString: { _, _ in true }
+            deleteString: { _, _ in .success(()) }
         )
 
         store.save("  secret-token  ", for: presetID)
@@ -31,11 +31,11 @@ final class ChatAPIKeyStoreTests: XCTestCase {
             loadString: { _, _ in "existing-token" },
             saveString: { _, _, _ in
                 XCTFail("empty API keys should delete instead of save")
-                return false
+                return .failure(KeychainStoreError(status: -1))
             },
             deleteString: { service, account in
                 deleted.append((service, account))
-                return true
+                return .success(())
             }
         )
 
@@ -53,8 +53,8 @@ final class ChatAPIKeyStoreTests: XCTestCase {
         let store = ChatAPIKeyStore(
             service: "test.service",
             loadString: { _, _ in "  unchanged-token\n" },
-            saveString: { _, _, _ in saveCount += 1; return true },
-            deleteString: { _, _ in deleteCount += 1; return true }
+            saveString: { _, _, _ in saveCount += 1; return .success(()) },
+            deleteString: { _, _ in deleteCount += 1; return .success(()) }
         )
 
         XCTAssertFalse(store.save("unchanged-token", for: presetID))
@@ -70,9 +70,9 @@ final class ChatAPIKeyStoreTests: XCTestCase {
             loadString: { _, _ in nil },
             saveString: { _, _, _ in
                 XCTFail("empty API key must not be saved")
-                return false
+                return .failure(KeychainStoreError(status: -1))
             },
-            deleteString: { _, _ in deleteCount += 1; return true }
+            deleteString: { _, _ in deleteCount += 1; return .success(()) }
         )
 
         XCTAssertTrue(store.save("   ", for: presetID))
@@ -88,8 +88,8 @@ final class ChatAPIKeyStoreTests: XCTestCase {
                 requestedAccounts.append(account)
                 return "  loaded-token\n"
             },
-            saveString: { _, _, _ in true },
-            deleteString: { _, _ in true }
+            saveString: { _, _, _ in .success(()) },
+            deleteString: { _, _ in .success(()) }
         )
 
         XCTAssertEqual(store.load(for: presetID), "loaded-token")
@@ -102,10 +102,21 @@ final class ChatAPIKeyStoreTests: XCTestCase {
         let store = ChatAPIKeyStore(
             service: "test.service",
             loadString: { _, _ in nil },
-            saveString: { _, _, _ in false },
-            deleteString: { _, _ in false }
+            saveString: { _, _, _ in .failure(KeychainStoreError(status: -50)) },
+            deleteString: { _, _ in .failure(KeychainStoreError(status: -50)) }
         )
 
-        XCTAssertEqual(store.write("new-token", for: presetID), .failed)
+        guard case .failed(let failure) = store.write("new-token", for: presetID) else {
+            return XCTFail("Expected a Keychain write failure")
+        }
+        XCTAssertTrue(
+            failure.localizedDescription.hasPrefix(
+                String(localized: "The API key could not be saved.")
+            )
+        )
+        XCTAssertEqual(
+            failure.reason,
+            KeychainStoreError(status: -50).localizedDescription
+        )
     }
 }

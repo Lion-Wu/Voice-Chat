@@ -324,6 +324,7 @@ struct SidebarView: View {
     }
 
     private func selectDraftSession() {
+        guard chatSessionsViewModel.canStartNewSession else { return }
         let draft = chatSessionsViewModel.draftSession
         chatSessionsViewModel.selectedSession = draft
         onConversationTap(draft)
@@ -438,6 +439,7 @@ struct SidebarView: View {
                     )) {
                         iosDraftRowContent
                     }
+                    .disabled(!chatSessionsViewModel.canStartNewSession)
                 }
             }
             if shouldShowInitialSessionLoading || sidebarGroups.isEmpty {
@@ -521,6 +523,7 @@ struct SidebarView: View {
                         Button(action: selectDraftSession) {
                             Label("New Chat", systemImage: "square.and.pencil")
                         }
+                        .disabled(!chatSessionsViewModel.canStartNewSession)
                     }
                 } else {
                     ToolbarItemGroup(placement: .bottomBar) {
@@ -533,6 +536,7 @@ struct SidebarView: View {
                         Button(action: selectDraftSession) {
                             Label("New Chat", systemImage: "square.and.pencil")
                         }
+                        .disabled(!chatSessionsViewModel.canStartNewSession)
                     }
                 }
             }

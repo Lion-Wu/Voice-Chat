@@ -42,13 +42,33 @@ struct ContentView: View {
     }
 
     var body: some View {
+        Group {
         #if os(macOS)
-        macContent
+            macContent
         #elseif os(visionOS)
-        visionContent
+            visionContent
         #else
-        iosContent
+            iosContent
         #endif
+        }
+        .alert("Data Saving Issue", isPresented: persistenceWriteFailureAlertBinding) {
+            Button("OK") {
+                chatSessionsViewModel.clearPersistenceWriteFailure()
+            }
+        } message: {
+            Text(chatSessionsViewModel.persistenceWriteFailure?.message ?? "")
+        }
+    }
+
+    private var persistenceWriteFailureAlertBinding: Binding<Bool> {
+        Binding(
+            get: { chatSessionsViewModel.persistenceWriteFailure != nil },
+            set: { isPresented in
+                if !isPresented {
+                    chatSessionsViewModel.clearPersistenceWriteFailure()
+                }
+            }
+        )
     }
 
     #if os(macOS)
@@ -121,6 +141,8 @@ private extension ContentView {
         NavigationStack(path: $iosNavigationPath) {
             SidebarView(
                 onConversationTap: { conversation in
+                    guard isPersistentDataReady,
+                          chatSessionsViewModel.isPersistentStoreAttached else { return }
                     chatSessionsViewModel.selectedSession = conversation
                     let route = ChatSessionNavigationRoute(sessionID: conversation.id)
                     if iosNavigationPath.last != route {
@@ -134,23 +156,27 @@ private extension ContentView {
                 }
             )
             .navigationDestination(for: ChatSessionNavigationRoute.self) { route in
-                let session = iosSession(with: route.sessionID)
-                ChatView(viewModel: chatSessionsViewModel.viewModel(for: session))
-                    .id(session.id)
-                    .toolbar {
-                        ToolbarItem(placement: .topBarTrailing) {
-                            Button(action: {
-                                startNewIOSSession()
-                            }) {
-                                Label("New Chat", systemImage: "square.and.pencil")
+                if isPersistentDataReady && chatSessionsViewModel.isPersistentStoreAttached {
+                    let session = iosSession(with: route.sessionID)
+                    ChatView(viewModel: chatSessionsViewModel.viewModel(for: session))
+                        .id(session.id)
+                        .toolbar {
+                            ToolbarItem(placement: .topBarTrailing) {
+                                Button(action: {
+                                    startNewIOSSession()
+                                }) {
+                                    Label("New Chat", systemImage: "square.and.pencil")
+                                }
+                                .labelStyle(.iconOnly)
+                                .accessibilityLabel("New Chat")
+                                .disabled(!chatSessionsViewModel.canStartNewSession)
                             }
-                            .labelStyle(.iconOnly)
-                            .accessibilityLabel("New Chat")
-                            .disabled(!chatSessionsViewModel.canStartNewSession)
                         }
-                    }
-                .onAppear {
-                    selectIOSSession(with: route.sessionID, matchingSearchQuery: route.searchQuery)
+                        .onAppear {
+                            selectIOSSession(with: route.sessionID, matchingSearchQuery: route.searchQuery)
+                        }
+                } else {
+                    StartupChatLoadingView()
                 }
             }
         }
@@ -177,7 +203,8 @@ private extension ContentView {
     }
 
     private func startNewIOSSession() {
-        guard chatSessionsViewModel.canStartNewSession else { return }
+        guard isPersistentDataReady,
+              chatSessionsViewModel.canStartNewSession else { return }
         chatSessionsViewModel.startNewSession()
         let draftID = chatSessionsViewModel.draftSession.id
         let route = ChatSessionNavigationRoute(sessionID: draftID)

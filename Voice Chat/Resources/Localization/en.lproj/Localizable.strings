@@ -30,6 +30,8 @@
 "API Base URL" = "API Base URL";
 "API Format" = "API Format";
 "API Key" = "API Key";
+"Data Saving Issue" = "Data Saving Issue";
+"The API key could not be saved." = "The API key could not be saved.";
 "Apply Preset Now" = "Apply Preset Now";
 "Apply selected preset now" = "Apply selected preset now";
 "Applying preset..." = "Applying preset...";

@@ -7,17 +7,6 @@
 
 import Foundation
 
-private enum SettingsCommitError: LocalizedError {
-    case apiKeyWriteFailed
-
-    var errorDescription: String? {
-        switch self {
-        case .apiKeyWriteFailed:
-            return String(localized: "The API key could not be saved securely.")
-        }
-    }
-}
-
 extension SettingsManager {
     func updateServerSettings(serverAddress: String, textLang: String) {
         _ = commitSelectedVoiceServerSettings(
@@ -157,8 +146,8 @@ extension SettingsManager {
                 trimmedAPIKey,
                 for: selectedChatServerPresetID
             )
-            guard keyWriteResult != .failed else {
-                reportSettingsWriteFailure(SettingsCommitError.apiKeyWriteFailed)
+            if let failure = keyWriteResult.failure {
+                reportSettingsWriteFailure(failure)
                 return false
             }
         }
@@ -189,12 +178,12 @@ extension SettingsManager {
                 try persistence.saveContextOrThrow(label: "commit chat server settings")
             } catch {
                 persistence.rollbackPendingChanges()
-                if keyWriteResult == .updated,
-                   chatAPIKeyStore.write(
+                if keyWriteResult.didUpdate,
+                   let restoreFailure = chatAPIKeyStore.write(
                        previousStoredAPIKey,
                        for: selectedChatServerPresetID
-                   ) == .failed {
-                    print("Failed to restore the previous API key after a settings transaction error.")
+                   ).failure {
+                    print("Failed to restore the previous API key after a settings transaction error: \(restoreFailure.localizedDescription)")
                 }
                 reportSettingsWriteFailure(error)
                 return false
@@ -314,9 +303,9 @@ extension SettingsManager {
         } else {
             keyWriteResult = chatAPIKeyStore.write(chatSettings.apiKey, for: preset.id)
         }
-        guard keyWriteResult != .failed else {
+        if let failure = keyWriteResult.failure {
             persistence.rollbackPendingChanges()
-            reportSettingsWriteFailure(SettingsCommitError.apiKeyWriteFailed)
+            reportSettingsWriteFailure(failure)
             return nil
         }
 
@@ -324,9 +313,9 @@ extension SettingsManager {
             try persistence.saveContextOrThrow(label: "create chat server preset")
         } catch {
             persistence.rollbackPendingChanges()
-            if keyWriteResult == .updated,
-               chatAPIKeyStore.write("", for: preset.id) == .failed {
-                print("Failed to remove an API key after preset creation was rolled back.")
+            if keyWriteResult.didUpdate,
+               let cleanupFailure = chatAPIKeyStore.write("", for: preset.id).failure {
+                print("Failed to remove an API key after preset creation was rolled back: \(cleanupFailure.localizedDescription)")
             }
             reportSettingsWriteFailure(error)
             return nil
@@ -367,10 +356,10 @@ extension SettingsManager {
         }
 
         let keyWriteResult = chatAPIKeyStore.write("", for: id)
-        guard keyWriteResult != .failed else {
+        if let failure = keyWriteResult.failure {
             persistence.rollbackPendingChanges()
             selectedChatServerPresetID = previousSelectedID
-            reportSettingsWriteFailure(SettingsCommitError.apiKeyWriteFailed)
+            reportSettingsWriteFailure(failure)
             return
         }
 
@@ -379,9 +368,9 @@ extension SettingsManager {
         } catch {
             persistence.rollbackPendingChanges()
             selectedChatServerPresetID = previousSelectedID
-            if keyWriteResult == .updated,
-               chatAPIKeyStore.write(previousAPIKey, for: id) == .failed {
-                print("Failed to restore an API key after preset deletion was rolled back.")
+            if keyWriteResult.didUpdate,
+               let restoreFailure = chatAPIKeyStore.write(previousAPIKey, for: id).failure {
+                print("Failed to restore an API key after preset deletion was rolled back: \(restoreFailure.localizedDescription)")
             }
             reportSettingsWriteFailure(error)
             return

@@ -9,13 +9,32 @@ import Foundation
 
 struct ChatAPIKeyStore {
     typealias Loader = (String, String) -> String?
-    typealias Saver = (String, String, String) -> Bool
-    typealias Deleter = (String, String) -> Bool
+    typealias Saver = (String, String, String) -> Result<Void, KeychainStoreError>
+    typealias Deleter = (String, String) -> Result<Void, KeychainStoreError>
+
+    struct WriteFailure: LocalizedError, Equatable {
+        let reason: String?
+
+        var errorDescription: String? {
+            let base = String(localized: "The API key could not be saved.")
+            guard let reason, !reason.isEmpty else { return base }
+            return "\(base)\n\(reason)"
+        }
+    }
 
     enum WriteResult: Equatable {
         case unchanged
         case updated
-        case failed
+        case failed(WriteFailure)
+
+        var didUpdate: Bool {
+            self == .updated
+        }
+
+        var failure: WriteFailure? {
+            guard case .failed(let failure) = self else { return nil }
+            return failure
+        }
     }
 
     private static let accountPrefix = "chat_server_preset_api_key."
@@ -59,7 +78,7 @@ struct ChatAPIKeyStore {
     }
 
     func write(_ apiKey: String, for presetID: UUID?) -> WriteResult {
-        guard let presetID else { return .failed }
+        guard let presetID else { return .failed(WriteFailure(reason: nil)) }
         let trimmed = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
         let account = account(forChatServerPresetID: presetID)
 
@@ -67,18 +86,33 @@ struct ChatAPIKeyStore {
         // indistinguishable from a missing item, while SecItemDelete already
         // treats item-not-found as success.
         if trimmed.isEmpty {
-            return deleteString(service, account) ? .updated : .failed
+            switch deleteString(service, account) {
+            case .success:
+                return .updated
+            case .failure(let error):
+                return .failed(WriteFailure(reason: error.localizedDescription))
+            }
         }
 
         let current = (loadString(service, account) ?? "")
             .trimmingCharacters(in: .whitespacesAndNewlines)
         guard current != trimmed else { return .unchanged }
 
-        return saveString(trimmed, service, account) ? .updated : .failed
+        switch saveString(trimmed, service, account) {
+        case .success:
+            return .updated
+        case .failure(let error):
+            return .failed(WriteFailure(reason: error.localizedDescription))
+        }
     }
 
     @discardableResult
     func delete(for presetID: UUID) -> Bool {
-        deleteString(service, account(forChatServerPresetID: presetID))
+        switch deleteString(service, account(forChatServerPresetID: presetID)) {
+        case .success:
+            return true
+        case .failure:
+            return false
+        }
     }
 }

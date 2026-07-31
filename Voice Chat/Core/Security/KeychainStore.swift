@@ -8,6 +8,17 @@
 import Foundation
 import Security
 
+struct KeychainStoreError: LocalizedError, Equatable {
+    let status: OSStatus
+
+    var errorDescription: String? {
+        if let message = SecCopyErrorMessageString(status, nil) as String? {
+            return "\(message) (OSStatus \(status))"
+        }
+        return "OSStatus \(status)"
+    }
+}
+
 enum KeychainStore {
     private static func baseQuery(service: String, account: String) -> [String: Any] {
         [
@@ -38,8 +49,12 @@ enum KeychainStore {
     }
 
     @discardableResult
-    static func saveString(_ value: String, service: String, account: String) -> Bool {
-        guard let data = value.data(using: .utf8) else { return false }
+    static func saveString(
+        _ value: String,
+        service: String,
+        account: String
+    ) -> Result<Void, KeychainStoreError> {
+        let data = Data(value.utf8)
 
         let itemQuery = baseQuery(service: service, account: account)
         let attributes: [String: Any] = [
@@ -50,10 +65,10 @@ enum KeychainStore {
             attributes as CFDictionary
         )
         if updateStatus == errSecSuccess {
-            return true
+            return .success(())
         }
         guard updateStatus == errSecItemNotFound else {
-            return false
+            return .failure(KeychainStoreError(status: updateStatus))
         }
 
         var addQuery = baseQuery(service: service, account: account)
@@ -61,13 +76,23 @@ enum KeychainStore {
 #if os(iOS)
         addQuery[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlock
 #endif
-        return SecItemAdd(addQuery as CFDictionary, nil) == errSecSuccess
+        let addStatus = SecItemAdd(addQuery as CFDictionary, nil)
+        guard addStatus == errSecSuccess else {
+            return .failure(KeychainStoreError(status: addStatus))
+        }
+        return .success(())
     }
 
     @discardableResult
-    static func delete(service: String, account: String) -> Bool {
+    static func delete(
+        service: String,
+        account: String
+    ) -> Result<Void, KeychainStoreError> {
         let query = baseQuery(service: service, account: account)
         let status = SecItemDelete(query as CFDictionary)
-        return status == errSecSuccess || status == errSecItemNotFound
+        guard status == errSecSuccess || status == errSecItemNotFound else {
+            return .failure(KeychainStoreError(status: status))
+        }
+        return .success(())
     }
 }

@@ -30,6 +30,8 @@
 "API Base URL" = "URL base de la API";
 "API Format" = "Formato de API";
 "API Key" = "Clave de API";
+"Data Saving Issue" = "Problema al guardar los datos";
+"The API key could not be saved." = "No se pudo guardar la clave de API.";
 "Apply Preset Now" = "Aplicar preajuste ahora";
 "Apply selected preset now" = "Aplicar ahora el preajuste seleccionado";
 "Applying preset..." = "Aplicando preajuste...";

@@ -30,6 +30,8 @@
 "API Base URL" = "API 기본 URL";
 "API Format" = "API 형식";
 "API Key" = "API 키";
+"Data Saving Issue" = "데이터 저장 문제";
+"The API key could not be saved." = "API 키를 저장할 수 없습니다.";
 "Apply Preset Now" = "프리셋 지금 적용";
 "Apply selected preset now" = "선택한 프리셋 지금 적용";
 "Applying preset..." = "프리셋 적용 중...";

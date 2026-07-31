@@ -30,6 +30,8 @@
 "API Base URL" = "عنوان URL الأساسي لـ API";
 "API Format" = "تنسيق API";
 "API Key" = "مفتاح API";
+"Data Saving Issue" = "مشكلة في حفظ البيانات";
+"The API key could not be saved." = "تعذر حفظ مفتاح API.";
 "Apply Preset Now" = "تطبيق الإعداد المسبق الآن";
 "Apply selected preset now" = "تطبيق الإعداد المسبق المحدد الآن";
 "Applying preset..." = "جارٍ تطبيق الإعداد المسبق...";

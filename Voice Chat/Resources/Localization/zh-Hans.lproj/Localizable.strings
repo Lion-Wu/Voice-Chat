@@ -30,6 +30,8 @@
 "API Base URL" = "API 基础地址";
 "API Format" = "API 格式";
 "API Key" = "API 密钥";
+"Data Saving Issue" = "数据保存问题";
+"The API key could not be saved." = "无法保存 API 密钥。";
 "Apply Preset Now" = "立即应用预设";
 "Apply selected preset now" = "立即应用所选预设";
 "Applying preset..." = "正在应用预设...";

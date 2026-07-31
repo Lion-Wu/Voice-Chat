@@ -37,6 +37,11 @@ struct ChatSearchNavigationTarget: Equatable, Sendable {
     }
 }
 
+struct ChatSessionPersistenceWriteFailure: Identifiable {
+    let id = UUID()
+    let message: String
+}
+
 @MainActor
 final class ChatSessionsViewModel: ObservableObject {
     private struct PendingOrderingUpdate {
@@ -57,6 +62,7 @@ final class ChatSessionsViewModel: ObservableObject {
     @Published private(set) var isRealtimeVoiceLocked: Bool = false
     @Published private(set) var hasActiveTextRequests: Bool = false
     @Published private(set) var isPersistentStoreAttached: Bool = false
+    @Published private(set) var persistenceWriteFailure: ChatSessionPersistenceWriteFailure?
     /// Content-only mutations do not need to replace the session array, but
     /// sidebar search and time grouping still need to recompute their derived
     /// membership.
@@ -128,6 +134,10 @@ final class ChatSessionsViewModel: ObservableObject {
 
     var canStartNewSession: Bool {
         isPersistentStoreAttached && !isRealtimeVoiceLocked
+    }
+
+    func clearPersistenceWriteFailure() {
+        persistenceWriteFailure = nil
     }
 
     func sessions(matchingSidebarQuery rawQuery: String) -> [ChatSession] {
@@ -262,11 +272,12 @@ final class ChatSessionsViewModel: ObservableObject {
         selectedSessionID = draftSession.id
         searchNavigationTarget = nil
         hasActiveTextRequests = false
+        persistenceWriteFailure = nil
     }
 
     // MARK: - Session Ops
     func startNewSession() {
-        guard !isRealtimeVoiceLocked else { return }
+        guard canStartNewSession else { return }
         searchNavigationTarget = nil
         selectedSessionID = draftSession.id
     }
@@ -417,7 +428,9 @@ final class ChatSessionsViewModel: ObservableObject {
                     try self.repository.saveSidebarSummaryBackfills()
                 } catch {
                     guard !Task.isCancelled else { return }
-                    self.onPersistentStoreReadFailure?(error)
+                    self.persistenceWriteFailure = ChatSessionPersistenceWriteFailure(
+                        message: error.localizedDescription
+                    )
                     return
                 }
             }
