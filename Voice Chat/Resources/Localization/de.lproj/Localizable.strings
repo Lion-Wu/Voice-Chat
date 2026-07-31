@@ -233,7 +233,9 @@
 "LM Studio" = "LM Studio";
 "LM Studio REST v1" = "LM Studio REST v1";
 "LM Studio stream error." = "LM Studio-Streamfehler.";
+"Loading chats..." = "Chats werden geladen...";
 "Loading model list..." = "Modellliste wird geladen...";
+"Loading settings..." = "Einstellungen werden geladen...";
 "Loading..." = "Wird geladen...";
 "Location" = "Standort";
 "Location access is not available on this platform." = "Der Standortzugriff ist auf dieser Plattform nicht verfügbar.";

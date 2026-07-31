@@ -233,7 +233,9 @@
 "LM Studio" = "LM Studio";
 "LM Studio REST v1" = "LM Studio REST v1";
 "LM Studio stream error." = "LM Studio 스트림 오류.";
+"Loading chats..." = "채팅을 불러오는 중...";
 "Loading model list..." = "모델 목록 불러오는 중...";
+"Loading settings..." = "설정을 불러오는 중...";
 "Loading..." = "불러오는 중...";
 "Location" = "위치";
 "Location access is not available on this platform." = "이 플랫폼에서는 위치 정보에 접근할 수 없습니다.";

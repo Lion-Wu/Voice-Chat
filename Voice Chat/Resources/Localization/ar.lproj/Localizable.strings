@@ -233,7 +233,9 @@
 "LM Studio" = "LM Studio";
 "LM Studio REST v1" = "LM Studio REST v1";
 "LM Studio stream error." = "خطأ في البث من LM Studio.";
+"Loading chats..." = "جارٍ تحميل المحادثات...";
 "Loading model list..." = "جارٍ تحميل قائمة النماذج...";
+"Loading settings..." = "جارٍ تحميل الإعدادات...";
 "Loading..." = "جارٍ التحميل...";
 "Location" = "الموقع";
 "Location access is not available on this platform." = "الوصول إلى الموقع غير متاح على هذه المنصة.";

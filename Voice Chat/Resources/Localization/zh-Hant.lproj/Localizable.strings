@@ -233,7 +233,9 @@
 "LM Studio" = "LM Studio";
 "LM Studio REST v1" = "LM Studio REST v1";
 "LM Studio stream error." = "LM Studio 串流回應錯誤。";
+"Loading chats..." = "正在載入聊天...";
 "Loading model list..." = "正在載入模型列表...";
+"Loading settings..." = "正在載入設定...";
 "Loading..." = "正在載入...";
 "Location" = "位置";
 "Location access is not available on this platform." = "此平台不支援存取位置。";
