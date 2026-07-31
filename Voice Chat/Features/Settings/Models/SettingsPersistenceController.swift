@@ -22,12 +22,14 @@ final class SettingsPersistenceController {
         context: ModelContext,
         chatAPIKeyForPreset: (UUID?) -> String,
         defaultHapticFeedbackEnabled: Bool,
-        defaultAPIAdvancedSettings: APIAdvancedSettings
-    ) -> SettingsPersistenceLoad? {
-        guard self.context == nil else { return nil }
+        defaultAPIAdvancedSettings: APIAdvancedSettings,
+        deferSave: Bool = false
+    ) throws -> SettingsPersistenceLoad? {
+        guard self.context !== context else { return nil }
         self.context = context
+        self.entity = nil
 
-        let loadedEntity = AppSettingsStore.loadOrCreate(in: context)
+        let loadedEntity = try AppSettingsStore.loadOrCreate(in: context)
         entity = loadedEntity
 
         let loadedState = AppSettingsStore.loadedState(
@@ -39,18 +41,37 @@ final class SettingsPersistenceController {
         AppSettingsStore.backfillMissingValues(
             in: loadedEntity,
             loadedState: loadedState,
-            save: saveContext(label:)
+            save: { _ in }
         )
+
+        if !deferSave {
+            saveContext(label: "initialize app settings")
+        }
 
         return SettingsPersistenceLoad(entity: loadedEntity, loadedState: loadedState)
     }
 
     func saveContext(label: String) {
-        guard let context else { return }
         do {
-            try context.save()
+            try saveContextOrThrow(label: label)
         } catch {
             print("SwiftData save failed (\(label)): \(error)")
         }
+    }
+
+    func saveContextOrThrow(label: String) throws {
+        guard let context else { return }
+        guard context.hasChanges else { return }
+        try context.save()
+    }
+
+    func discardBinding() {
+        context?.rollback()
+        entity = nil
+        context = nil
+    }
+
+    func rollbackPendingChanges() {
+        context?.rollback()
     }
 }

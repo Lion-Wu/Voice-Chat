@@ -28,9 +28,14 @@ enum SettingsVoiceServerRuntime {
         persistServerSettings: (ServerSettings) -> Void,
         save: (String) -> Void
     ) -> Bool {
-        serverSettings.serverAddress = serverAddress
-        serverSettings.textLang = textLang
-        persistServerSettings(serverSettings)
+        let nextSettings = ServerSettings(
+            serverAddress: serverAddress,
+            textLang: textLang
+        )
+        if nextSettings != serverSettings {
+            serverSettings = nextSettings
+            persistServerSettings(nextSettings)
+        }
 
         guard hasContext else { return false }
         return VoiceServerPresetStore.updateSelectedServerAddress(
@@ -96,20 +101,21 @@ enum SettingsVoiceServerRuntime {
         persistServerSettings: (ServerSettings) -> Void,
         save: (String) -> Void
     ) -> Bool {
-        guard SettingsPresetMutationController.selectVoiceServerPreset(
-            id: id,
-            selectedID: &selectedID,
-            appSettings: appSettings,
-            save: save
-        ) else {
-            return false
+        guard selectedID != id else { return false }
+        selectedID = id
+        appSettings.selectedVoiceServerPresetID = id
+
+        if let preset = selectedPreset(in: presets, selectedID: id) {
+            let nextSettings = ServerSettings(
+                serverAddress: preset.serverAddress,
+                textLang: serverSettings.textLang
+            )
+            if nextSettings != serverSettings {
+                serverSettings = nextSettings
+                persistServerSettings(nextSettings)
+            }
         }
-        applySelectedPresetToServerSettings(
-            presets: presets,
-            selectedID: selectedID,
-            serverSettings: &serverSettings,
-            persistServerSettings: persistServerSettings
-        )
+        save("select voice server preset")
         return true
     }
 
@@ -123,8 +129,13 @@ enum SettingsVoiceServerRuntime {
         guard let preset = selectedPreset(in: presets, selectedID: selectedID) else {
             return false
         }
-        serverSettings.serverAddress = preset.serverAddress
-        persistServerSettings(serverSettings)
+        let nextSettings = ServerSettings(
+            serverAddress: preset.serverAddress,
+            textLang: serverSettings.textLang
+        )
+        guard nextSettings != serverSettings else { return false }
+        serverSettings = nextSettings
+        persistServerSettings(nextSettings)
         return true
     }
 }

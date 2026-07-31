@@ -23,6 +23,7 @@ struct ChatSessionNavigationRoute: Hashable {
 }
 
 struct ContentView: View {
+    let isPersistentDataReady: Bool
     @EnvironmentObject var appEnvironment: AppEnvironment
     @EnvironmentObject var audioManager: GlobalAudioManager
     @EnvironmentObject var settingsManager: SettingsManager
@@ -35,6 +36,10 @@ struct ContentView: View {
     @State private var iosNavigationPath: [ChatSessionNavigationRoute] = []
     @State private var isIOSSettingsPresented = false
     #endif
+
+    init(isPersistentDataReady: Bool = true) {
+        self.isPersistentDataReady = isPersistentDataReady
+    }
 
     var body: some View {
         #if os(macOS)
@@ -78,9 +83,13 @@ private extension ContentView {
                     onOpenSettings: { openSettingsWindow() }
                 )
             } detail: {
-                let activeSession = chatSessionsViewModel.selectedSession ?? chatSessionsViewModel.draftSession
-                ChatView(viewModel: chatSessionsViewModel.viewModel(for: activeSession))
-                    .id(activeSession.id)
+                if isPersistentDataReady {
+                    let activeSession = chatSessionsViewModel.selectedSession ?? chatSessionsViewModel.draftSession
+                    ChatView(viewModel: chatSessionsViewModel.viewModel(for: activeSession))
+                        .id(activeSession.id)
+                } else {
+                    StartupChatLoadingView()
+                }
             }
             .toolbar {
                 ToolbarItem {
@@ -119,7 +128,9 @@ private extension ContentView {
                     }
                 },
                 onOpenSettings: {
-                    isIOSSettingsPresented = true
+                    if isPersistentDataReady {
+                        isIOSSettingsPresented = true
+                    }
                 }
             )
             .navigationDestination(for: ChatSessionNavigationRoute.self) { route in
@@ -181,13 +192,17 @@ private extension ContentView {
 #if os(visionOS)
     @ViewBuilder
     var visionContent: some View {
-        VisionRootView()
-            .environmentObject(appEnvironment)
-            .environmentObject(audioManager)
-            .environmentObject(settingsManager)
-            .environmentObject(chatSessionsViewModel)
-            .environmentObject(errorCenter)
-            .environmentObject(voiceOverlayViewModel)
+        if isPersistentDataReady {
+            VisionRootView()
+                .environmentObject(appEnvironment)
+                .environmentObject(audioManager)
+                .environmentObject(settingsManager)
+                .environmentObject(chatSessionsViewModel)
+                .environmentObject(errorCenter)
+                .environmentObject(voiceOverlayViewModel)
+        } else {
+            StartupChatLoadingView()
+        }
     }
 #endif
 
@@ -226,9 +241,19 @@ private extension ContentView {
         errorCenter: AppErrorCenter.shared,
         reachabilityMonitor: reachabilityMonitor
     )
+    let container = try! ModelContainer(
+        for: Schema([
+            ChatSession.self,
+            ChatMessage.self,
+            ChatRequestContextMetadata.self,
+            AppSettings.self
+        ]),
+        configurations: [ModelConfiguration(isStoredInMemoryOnly: true)]
+    )
+    _ = chatSessions.attach(context: container.mainContext)
 
-    ContentView()
-        .modelContainer(for: [ChatSession.self, ChatMessage.self, ChatRequestContextMetadata.self, AppSettings.self], inMemory: true)
+    return ContentView()
+        .modelContainer(container)
         .environmentObject(appEnvironment)
         .environmentObject(appEnvironment.audioManager)
         .environmentObject(appEnvironment.settingsManager)
@@ -257,11 +282,21 @@ private extension ContentView {
         errorCenter: AppErrorCenter.shared,
         reachabilityMonitor: reachabilityMonitor
     )
+    let container = try! ModelContainer(
+        for: Schema([
+            ChatSession.self,
+            ChatMessage.self,
+            ChatRequestContextMetadata.self,
+            AppSettings.self
+        ]),
+        configurations: [ModelConfiguration(isStoredInMemoryOnly: true)]
+    )
+    _ = chatSessions.attach(context: container.mainContext)
 
     appEnvironment.voiceOverlayViewModel.isPresented = true
 
     return ContentView()
-        .modelContainer(for: [ChatSession.self, ChatMessage.self, ChatRequestContextMetadata.self, AppSettings.self], inMemory: true)
+        .modelContainer(container)
         .environmentObject(appEnvironment)
         .environmentObject(appEnvironment.audioManager)
         .environmentObject(appEnvironment.settingsManager)

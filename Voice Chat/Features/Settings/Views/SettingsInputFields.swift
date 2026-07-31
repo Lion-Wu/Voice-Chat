@@ -16,13 +16,17 @@ struct LabeledTextField: View {
     var label: String
     var placeholder: String
     @Binding var text: String
+    var onCommit: () -> Void = {}
+    @FocusState private var isFocused: Bool
 
     var body: some View {
+        Group {
         #if os(macOS)
         LabeledContent(LocalizedStringKey(label)) {
             TextField("", text: $text, prompt: Text(LocalizedStringKey(placeholder)))
                 .textFieldStyle(.roundedBorder)
                 .frame(maxWidth: .infinity)
+                .focused($isFocused)
         }
         #else
         VStack(alignment: .leading, spacing: 6) {
@@ -31,8 +35,17 @@ struct LabeledTextField: View {
                 .foregroundColor(.secondary)
             TextField(LocalizedStringKey(placeholder), text: $text)
                 .textInputAutocapitalization(.never)
+                .focused($isFocused)
         }
         #endif
+        }
+        .onSubmit(onCommit)
+        .onChange(of: isFocused) { wasFocused, isFocused in
+            if wasFocused && !isFocused {
+                onCommit()
+            }
+        }
+        .onDisappear(perform: onCommit)
     }
 }
 
@@ -42,8 +55,11 @@ struct LabeledTextEditor: View {
     var label: String
     var placeholder: String
     @Binding var text: String
+    var onCommit: () -> Void = {}
+    @FocusState private var isFocused: Bool
 
     var body: some View {
+        Group {
         #if os(macOS)
         LabeledContent(LocalizedStringKey(label)) {
             TextEditor(text: $text)
@@ -54,6 +70,7 @@ struct LabeledTextEditor: View {
                         .stroke(Color.secondary.opacity(0.25), lineWidth: 1)
                 )
                 .background(Color(NSColor.textBackgroundColor))
+                .focused($isFocused)
         }
         #else
         VStack(alignment: .leading, spacing: 6) {
@@ -75,8 +92,16 @@ struct LabeledTextEditor: View {
                             .padding(.leading, 6)
                     }
                 }
+                .focused($isFocused)
         }
         #endif
+        }
+        .onChange(of: isFocused) { wasFocused, isFocused in
+            if wasFocused && !isFocused {
+                onCommit()
+            }
+        }
+        .onDisappear(perform: onCommit)
     }
 }
 
@@ -86,14 +111,18 @@ struct LabeledSecureField: View {
     var label: String
     var placeholder: String
     @Binding var text: String
+    var onCommit: () -> Void = {}
+    @FocusState private var isFocused: Bool
 
     var body: some View {
+        Group {
         #if os(macOS)
         LabeledContent(LocalizedStringKey(label)) {
             SecureField("", text: $text)
                 .textFieldStyle(.roundedBorder)
                 .privacySensitive()
                 .frame(maxWidth: .infinity)
+                .focused($isFocused)
         }
         #else
         VStack(alignment: .leading, spacing: 6) {
@@ -104,7 +133,16 @@ struct LabeledSecureField: View {
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
                 .privacySensitive()
+                .focused($isFocused)
         }
         #endif
+        }
+        .onSubmit(onCommit)
+        .onChange(of: isFocused) { wasFocused, isFocused in
+            if wasFocused && !isFocused {
+                onCommit()
+            }
+        }
+        .onDisappear(perform: onCommit)
     }
 }

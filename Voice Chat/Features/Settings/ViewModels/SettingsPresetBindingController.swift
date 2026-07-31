@@ -221,11 +221,6 @@ struct SettingsPresetBindingController {
         settingsManager.selectVoiceServerPreset(id)
     }
 
-    func updateVoiceServerPresetName(_ name: String) {
-        guard let id = settingsManager.selectedVoiceServerPresetID else { return }
-        settingsManager.updateVoiceServerPreset(id: id, name: name)
-    }
-
     func createVoiceServerPreset() -> UUID? {
         settingsManager.createVoiceServerPreset()?.id
     }
@@ -237,16 +232,6 @@ struct SettingsPresetBindingController {
 
     func selectChatServerPreset(_ id: UUID?) {
         settingsManager.selectChatServerPreset(id)
-    }
-
-    func updateChatServerPresetName(_ name: String) {
-        guard let id = settingsManager.selectedChatServerPresetID else { return }
-        settingsManager.updateChatServerPreset(id: id, name: name)
-    }
-
-    func updateChatServerAPIFormatPreference(_ preference: ChatAPIFormatPreference) {
-        guard let id = settingsManager.selectedChatServerPresetID else { return }
-        settingsManager.updateChatServerPreset(id: id, apiFormatPreference: preference)
     }
 
     func createChatServerPreset() -> UUID? {
@@ -290,26 +275,6 @@ struct SettingsPresetBindingController {
 
     func selectVoiceSystemPromptPreset(_ id: UUID?) {
         settingsManager.selectVoiceSystemPromptPreset(id)
-    }
-
-    func updateNormalSystemPromptPresetName(_ name: String) {
-        guard let id = settingsManager.selectedNormalSystemPromptPresetID else { return }
-        settingsManager.updateNormalSystemPromptPreset(id: id, name: name)
-    }
-
-    func updateNormalSystemPromptPresetPrompt(_ prompt: String) {
-        guard let id = settingsManager.selectedNormalSystemPromptPresetID else { return }
-        settingsManager.updateNormalSystemPromptPreset(id: id, prompt: prompt)
-    }
-
-    func updateVoiceSystemPromptPresetName(_ name: String) {
-        guard let id = settingsManager.selectedVoiceSystemPromptPresetID else { return }
-        settingsManager.updateVoiceSystemPromptPreset(id: id, name: name)
-    }
-
-    func updateVoiceSystemPromptPresetPrompt(_ prompt: String) {
-        guard let id = settingsManager.selectedVoiceSystemPromptPresetID else { return }
-        settingsManager.updateVoiceSystemPromptPreset(id: id, prompt: prompt)
     }
 
     func createNormalSystemPromptPreset() -> UUID? {

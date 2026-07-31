@@ -59,6 +59,65 @@ final class SettingsChatServerRuntimeTests: XCTestCase {
         XCTAssertEqual(preset.selectedModel, "old-model")
     }
 
+    func testEqualSettingsDoNotPublishOrWrite() {
+        let preset = ChatServerPreset(
+            name: "Primary",
+            apiURL: "http://same.local",
+            selectedModel: "same-model"
+        )
+        var chatSettings = ChatSettings(
+            apiURL: "http://same.local",
+            selectedModel: "same-model",
+            apiKey: "secret"
+        )
+
+        let didUpdatePreset = SettingsChatServerRuntime.updateSettings(
+            apiURL: "http://same.local",
+            selectedModel: "same-model",
+            chatSettings: &chatSettings,
+            presets: [preset],
+            selectedID: preset.id,
+            hasContext: true,
+            persistChatSettings: { _ in XCTFail("equal settings must not publish") },
+            save: { _ in XCTFail("equal settings must not write") }
+        )
+
+        XCTAssertFalse(didUpdatePreset)
+    }
+
+    func testEqualAPIKeyDoesNotTouchKeychainOrPreset() {
+        let preset = ChatServerPreset(name: "Primary")
+        var chatSettings = ChatSettings(
+            apiURL: "http://local",
+            selectedModel: "model",
+            apiKey: "same-key"
+        )
+        let store = ChatAPIKeyStore(
+            service: "runtime.test",
+            loadString: { _, _ in XCTFail("equal in-memory key must not access Keychain"); return nil },
+            saveString: { _, _, _ in
+                XCTFail("equal key must not be saved")
+                return false
+            },
+            deleteString: { _, _ in
+                XCTFail("equal key must not be deleted")
+                return false
+            }
+        )
+
+        let didTouchPreset = SettingsChatServerRuntime.updateAPIKey(
+            " same-key ",
+            chatSettings: &chatSettings,
+            selectedID: preset.id,
+            presets: [preset],
+            hasContext: true,
+            apiKeyStore: store,
+            save: { _ in XCTFail("equal key must not touch the preset") }
+        )
+
+        XCTAssertFalse(didTouchPreset)
+    }
+
     func testUpdateAPIKeyStoresTrimmedKeyAndTouchesSelectedPreset() {
         let preset = ChatServerPreset(name: "Primary")
         var chatSettings = ChatSettings(apiURL: "http://local", selectedModel: "model", apiKey: "")
@@ -69,8 +128,12 @@ final class SettingsChatServerRuntimeTests: XCTestCase {
             loadString: { _, _ in nil },
             saveString: { value, service, account in
                 saved.append((value, service, account))
+                return true
             },
-            deleteString: { _, _ in XCTFail("non-empty API keys should be saved") }
+            deleteString: { _, _ in
+                XCTFail("non-empty API keys should be saved")
+                return false
+            }
         )
 
         let didTouchPreset = SettingsChatServerRuntime.updateAPIKey(
@@ -114,8 +177,14 @@ final class SettingsChatServerRuntimeTests: XCTestCase {
                 loadedAccounts.append(account)
                 return "  loaded-key\n"
             },
-            saveString: { _, _, _ in XCTFail("selecting a preset should not save API keys") },
-            deleteString: { _, _ in XCTFail("selecting a preset should not delete API keys") }
+            saveString: { _, _, _ in
+                XCTFail("selecting a preset should not save API keys")
+                return false
+            },
+            deleteString: { _, _ in
+                XCTFail("selecting a preset should not delete API keys")
+                return false
+            }
         )
 
         let didSelect = SettingsChatServerRuntime.selectPreset(

@@ -27,38 +27,22 @@ struct AppSettingsLoadedState: Equatable {
 
 @MainActor
 enum AppSettingsStore {
-    static func loadOrCreate(in context: ModelContext) -> AppSettings {
+    static func loadOrCreate(in context: ModelContext) throws -> AppSettings {
         let descriptor = FetchDescriptor<AppSettings>(predicate: nil, sortBy: [])
-        do {
-            let fetched = try context.fetch(descriptor)
-            if fetched.isEmpty {
-                let fresh = AppSettings()
-                context.insert(fresh)
-                try context.save()
-                return fresh
-            }
-
-            let sorted = fetched.sorted { lhs, rhs in
-                lhs.id.uuidString < rhs.id.uuidString
-            }
-            for other in sorted.dropFirst() {
-                context.delete(other)
-            }
-            if sorted.count > 1 {
-                try context.save()
-            }
-            return sorted[0]
-        } catch {
-            print("SwiftData fetch AppSettings failed: \(error)")
+        let fetched = try context.fetch(descriptor)
+        if fetched.isEmpty {
             let fresh = AppSettings()
             context.insert(fresh)
-            do {
-                try context.save()
-            } catch {
-                print("SwiftData save AppSettings failed: \(error)")
-            }
             return fresh
         }
+
+        let sorted = fetched.sorted { lhs, rhs in
+            lhs.id.uuidString < rhs.id.uuidString
+        }
+        for other in sorted.dropFirst() {
+            context.delete(other)
+        }
+        return sorted[0]
     }
 
     static func loadedState(

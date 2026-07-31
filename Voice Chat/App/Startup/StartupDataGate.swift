@@ -14,44 +14,47 @@ import AppKit
 
 @MainActor
 final class StartupDataCoordinator: ObservableObject {
+    typealias ContainerFactory = @Sendable () throws -> ModelContainer
+    typealias ContainerPreparer = @MainActor (ModelContainer) -> Void
+
     enum LaunchState {
-        case checking
+        case loading
         case ready(ModelContainer)
         case failed(String)
     }
 
-    @Published private(set) var launchState: LaunchState = .checking
+    @Published private(set) var launchState: LaunchState = .loading
     @Published private(set) var isResettingStore = false
-    private var isBootstrappingStore = false
     private var activeOperationID = UUID()
+    private let containerFactory: ContainerFactory
+    private let prepareContainer: ContainerPreparer
+    var onWillResetPersistentStore: (() -> Void)?
 
-    func bootstrapPersistentStoreIfNeeded() {
-        guard case .checking = launchState else { return }
-        guard !isBootstrappingStore else { return }
-        isBootstrappingStore = true
-        let operationID = UUID()
-        activeOperationID = operationID
+    init(prepareContainer: @escaping ContainerPreparer = { _ in }) {
+        self.containerFactory = Self.makeContainer
+        self.prepareContainer = prepareContainer
+        beginPersistentContainerLoad()
+    }
 
-        Task { [operationID] in
-            let result = await Self.makeContainerAndValidateAsync()
-            isBootstrappingStore = false
-            guard activeOperationID == operationID else { return }
-            guard case .checking = launchState else { return }
+    init(
+        containerFactory: @escaping ContainerFactory,
+        prepareContainer: @escaping ContainerPreparer = { _ in }
+    ) {
+        self.containerFactory = containerFactory
+        self.prepareContainer = prepareContainer
+        beginPersistentContainerLoad()
+    }
 
-            switch result {
-            case .success(let container):
-                launchState = .ready(container)
-            case .failure(let error):
-                launchState = .failed(Self.formatErrorMessage(error))
-            }
-        }
+    func reportPersistentStoreReadFailure(_ error: Error) {
+        guard !isResettingStore else { return }
+        activeOperationID = UUID()
+        launchState = .failed(Self.formatErrorMessage(error))
     }
 
     func resetDataAndRetry() {
         guard !isResettingStore else { return }
+        onWillResetPersistentStore?()
         isResettingStore = true
-        // Any ongoing bootstrap result is now stale once reset starts.
-        isBootstrappingStore = false
         let operationID = UUID()
         activeOperationID = operationID
 
@@ -62,8 +65,7 @@ final class StartupDataCoordinator: ObservableObject {
             isResettingStore = false
             switch result {
             case .success:
-                launchState = .checking
-                bootstrapPersistentStoreIfNeeded()
+                beginPersistentContainerLoad()
             case .failure(let error):
                 let template = String(localized: "Reset data failed.\n%@")
                 launchState = .failed(String.localizedStringWithFormat(template, Self.formatErrorMessage(error)))
@@ -99,39 +101,39 @@ final class StartupDataCoordinator: ObservableObject {
         try ModelContainer(for: persistentSchema, configurations: [persistentConfiguration])
     }
 
-    /// Runs container init and lightweight validation off the main thread.
-    private static func makeContainerAndValidateAsync() async -> Result<ModelContainer, Error> {
-        return await withCheckedContinuation { continuation in
-            DispatchQueue.global(qos: .userInitiated).async {
-                let result: Result<ModelContainer, Error>
-                do {
-                    result = .success(try makeContainerAndValidate())
-                } catch {
-                    result = .failure(error)
-                }
-                continuation.resume(returning: result)
+    private func beginPersistentContainerLoad() {
+        launchState = .loading
+        let operationID = UUID()
+        activeOperationID = operationID
+        let factory = containerFactory
+
+        Task { [weak self] in
+            let result = await Self.makeContainerAsync(using: factory)
+            guard let self, self.activeOperationID == operationID else { return }
+            switch result {
+            case .success(let container):
+                self.prepareContainer(container)
+                guard self.activeOperationID == operationID else { return }
+                guard case .loading = self.launchState else { return }
+                self.launchState = .ready(container)
+            case .failure(let error):
+                self.launchState = .failed(Self.formatErrorMessage(error))
             }
         }
     }
 
-    /// Ensures all key entities can be read before entering the app UI.
-    private nonisolated static func makeContainerAndValidate() throws -> ModelContainer {
-        let container = try makeContainer()
-        try validatePersistentStoreReadability(in: container)
-        return container
-    }
-
-    private nonisolated static func validatePersistentStoreReadability(in container: ModelContainer) throws {
-        let context = ModelContext(container)
-        // One lightweight read is enough to verify local data is readable at startup.
-        try validateModelReadability(AppSettings.self, in: context)
-    }
-
-    private nonisolated static func validateModelReadability<T: PersistentModel>(_ type: T.Type, in context: ModelContext) throws {
-        var descriptor = FetchDescriptor<T>()
-        descriptor.fetchLimit = 1
-        descriptor.includePendingChanges = false
-        _ = try context.fetchIdentifiers(descriptor)
+    private nonisolated static func makeContainerAsync(
+        using factory: @escaping ContainerFactory
+    ) async -> Result<ModelContainer, Error> {
+        await withCheckedContinuation { continuation in
+            DispatchQueue.global(qos: .userInitiated).async {
+                do {
+                    continuation.resume(returning: .success(try factory()))
+                } catch {
+                    continuation.resume(returning: .failure(error))
+                }
+            }
+        }
     }
 
     private nonisolated static func resetPersistentStore() throws {
@@ -197,23 +199,26 @@ final class StartupDataCoordinator: ObservableObject {
     }
 }
 
-struct StartupDataGateView<ReadyContent: View>: View {
+struct StartupDataGateView<LoadingContent: View, ReadyContent: View>: View {
     @ObservedObject private var coordinator: StartupDataCoordinator
+    private let loadingContent: () -> LoadingContent
     private let readyContent: (ModelContainer) -> ReadyContent
 
     init(
         coordinator: StartupDataCoordinator,
+        @ViewBuilder loadingContent: @escaping () -> LoadingContent,
         @ViewBuilder readyContent: @escaping (ModelContainer) -> ReadyContent
     ) {
         self.coordinator = coordinator
+        self.loadingContent = loadingContent
         self.readyContent = readyContent
     }
 
     var body: some View {
         Group {
             switch coordinator.launchState {
-            case .checking:
-                StartupDataLoadingView()
+            case .loading:
+                loadingContent()
             case .failed(let errorMessage):
                 StartupDataErrorView(
                     errorMessage: errorMessage,
@@ -225,26 +230,29 @@ struct StartupDataGateView<ReadyContent: View>: View {
                 readyContent(container)
             }
         }
-        .task {
-            coordinator.bootstrapPersistentStoreIfNeeded()
+    }
+}
+
+/// Loading content shown inside the normal chat shell while the single
+/// persistent container opens in the background.
+struct StartupChatLoadingView: View {
+    var body: some View {
+        ZStack {
+            AppBackgroundView()
+            ProgressView("Loading chats...")
+                .foregroundStyle(.secondary)
         }
     }
 }
 
-/// Shown while startup is verifying the persistent store.
-struct StartupDataLoadingView: View {
+struct StartupSettingsLoadingView: View {
     var body: some View {
         ZStack {
             AppBackgroundView()
-            VStack(spacing: 12) {
-                ProgressView()
-                Text("Checking data...")
-                    .font(.headline)
-                    .foregroundStyle(.secondary)
-            }
-            .padding(24)
-            .appChromedContainer(cornerRadius: 24, shadowOpacity: 0.26)
+            ProgressView("Loading settings...")
+                .foregroundStyle(.secondary)
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
 
@@ -308,10 +316,6 @@ struct StartupDataErrorView: View {
             .appChromedContainer(cornerRadius: 28, shadowOpacity: 0.32)
         }
     }
-}
-
-#Preview("Startup Data Loading") {
-    StartupDataLoadingView()
 }
 
 #Preview("Startup Data Error") {

@@ -59,6 +59,24 @@ struct SidebarSessionGroup: Identifiable {
     var id: SidebarTimeSection { section }
 }
 
+enum SidebarSessionListLoadState: Equatable {
+    case loading
+    case ready
+
+    static func resolve(
+        isPersistentStoreAttached: Bool,
+        hasSessions: Bool,
+        hasPublishedGroups: Bool,
+        visibleSearchKeyword: String
+    ) -> Self {
+        guard isPersistentStoreAttached else { return .loading }
+        if visibleSearchKeyword.isEmpty, hasSessions, !hasPublishedGroups {
+            return .loading
+        }
+        return .ready
+    }
+}
+
 enum SidebarSessionGrouping {
     static func groupedSessions(_ sessions: [ChatSession]) -> [SidebarSessionGroup] {
         let calendar = Calendar.autoupdatingCurrent

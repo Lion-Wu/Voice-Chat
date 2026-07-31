@@ -21,7 +21,7 @@ enum ChatStreamingConfigurationUpdate: Equatable {
 final class ChatStreamingSessionCoordinator {
     typealias ServiceFactory = (ChatServiceConfiguring) -> ChatStreamingService
 
-    private var service: ChatStreamingService
+    private var service: ChatStreamingService?
     private var serviceGeneration: UInt64 = 0
     private let serviceFactory: ServiceFactory
     private(set) var configuration: ChatServiceConfiguration
@@ -42,7 +42,7 @@ final class ChatStreamingSessionCoordinator {
     ) {
         self.configuration = configuration
         self.serviceFactory = serviceFactory
-        self.service = service ?? serviceFactory(configuration)
+        self.service = service
     }
 
     func bindHandlers(
@@ -61,7 +61,9 @@ final class ChatStreamingSessionCoordinator {
         self.onResponseMetadata = onResponseMetadata
         self.onToolActivity = onToolActivity
         self.onStreamFinished = onStreamFinished
-        bindCurrentService()
+        if let service {
+            bind(service)
+        }
     }
 
     func updateConfiguration(
@@ -99,6 +101,7 @@ final class ChatStreamingSessionCoordinator {
         developerPrompt: String?,
         includeImagesInUserContent: Bool
     ) {
+        let service = ensureService()
         service.fetchStreamedData(
             messages: messages,
             developerPrompt: developerPrompt,
@@ -107,25 +110,39 @@ final class ChatStreamingSessionCoordinator {
     }
 
     func retryLastFailedStreamRequest() -> Bool {
-        service.retryLastFailedStreamRequest()
+        service?.retryLastFailedStreamRequest() ?? false
     }
 
     func cancelStreaming() {
-        service.cancelStreaming()
+        service?.cancelStreaming()
     }
 
     func resolveToolAuthorization(requestID: String, allowed: Bool) {
-        service.resolveToolAuthorization(requestID: requestID, allowed: allowed)
+        service?.resolveToolAuthorization(requestID: requestID, allowed: allowed)
     }
 
     private func applyConfiguration(_ newConfiguration: ChatServiceConfiguration) {
         deferredConfiguration = nil
         configuration = newConfiguration
-        service = serviceFactory(newConfiguration)
-        bindCurrentService()
+        // Configuration edits are metadata changes until a request actually starts.
+        // Dropping the idle service here avoids rebuilding URLSession/queues for every
+        // cached conversation whenever a setting changes.
+        service = nil
+        serviceGeneration &+= 1
     }
 
-    private func bindCurrentService() {
+    private func ensureService() -> ChatStreamingService {
+        if let service {
+            return service
+        }
+
+        let service = serviceFactory(configuration)
+        self.service = service
+        bind(service)
+        return service
+    }
+
+    private func bind(_ service: ChatStreamingService) {
         serviceGeneration &+= 1
         let generation = serviceGeneration
         service.onDelta = { [weak self] piece in

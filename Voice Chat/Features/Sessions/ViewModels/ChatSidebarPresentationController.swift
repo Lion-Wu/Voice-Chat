@@ -26,10 +26,8 @@ struct ChatSidebarBodySearchMatch {
 struct ChatSidebarPresentationController {
     private struct CacheEntry {
         let title: String
-        let messageCount: Int
         let lastMessageAt: Date?
-        let lastMessageID: UUID?
-        let lastMessageContent: String?
+        let sidebarPreviewText: String?
         let subtitle: String
         let searchCorpus: String?
     }
@@ -121,39 +119,26 @@ struct ChatSidebarPresentationController {
     }
 
     private mutating func presentation(for session: ChatSession) -> CacheEntry {
-        let lastMessage = latestMessage(in: session)
-        let lastMessageContent = lastMessage?.content
-
         if let cached = cache[session.id],
            cached.title == session.title,
-           cached.messageCount == session.messages.count,
-           cached.lastMessageID == lastMessage?.id,
-           cached.lastMessageContent == lastMessageContent,
+           cached.sidebarPreviewText == session.sidebarPreviewText,
            cached.lastMessageAt == session.lastMessageAt {
             return cached
         }
 
-        let bodyText = lastMessageContent?
-            .extractThinkParts()
-            .body
-            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-
         let subtitle: String
-        if lastMessage == nil {
+        if session.lastMessageAt == nil {
             subtitle = String(localized: "Fresh conversation")
-        } else if bodyText.isEmpty {
+        } else if session.sidebarPreviewText?.isEmpty != false {
             subtitle = String(localized: "No recent replies")
         } else {
-            let snippet = bodyText.prefix(60)
-            subtitle = bodyText.count > 60 ? "\(snippet)…" : String(snippet)
+            subtitle = session.sidebarPreviewText ?? ""
         }
 
         let entry = CacheEntry(
             title: session.title,
-            messageCount: session.messages.count,
             lastMessageAt: session.lastMessageAt,
-            lastMessageID: lastMessage?.id,
-            lastMessageContent: lastMessageContent,
+            sidebarPreviewText: session.sidebarPreviewText,
             subtitle: subtitle,
             searchCorpus: nil
         )
@@ -174,23 +159,13 @@ struct ChatSidebarPresentationController {
 
         let updatedEntry = CacheEntry(
             title: presentation.title,
-            messageCount: presentation.messageCount,
             lastMessageAt: presentation.lastMessageAt,
-            lastMessageID: presentation.lastMessageID,
-            lastMessageContent: presentation.lastMessageContent,
+            sidebarPreviewText: presentation.sidebarPreviewText,
             subtitle: presentation.subtitle,
             searchCorpus: searchCorpus
         )
         cache[session.id] = updatedEntry
         return searchCorpus
-    }
-
-    private func latestMessage(in session: ChatSession) -> ChatMessage? {
-        if let lastMessageAt = session.lastMessageAt,
-           let message = session.messages.first(where: { $0.createdAt == lastMessageAt }) {
-            return message
-        }
-        return session.messages.max(by: { $0.createdAt < $1.createdAt })
     }
 
     private func searchText(for message: ChatMessage) -> String {

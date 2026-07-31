@@ -20,6 +20,7 @@ struct SettingsSystemPromptSection: View {
             selectedPresetID: $viewModel.selectedNormalSystemPromptPresetID,
             presetName: $viewModel.normalSystemPromptPresetName,
             prompt: $viewModel.normalSystemPromptPrompt,
+            onCommit: viewModel.commitNormalSystemPromptEdits,
             onAdd: viewModel.addNormalSystemPromptPreset,
             onDelete: onDeleteNormalPromptPreset
         )
@@ -31,6 +32,7 @@ struct SettingsSystemPromptSection: View {
             selectedPresetID: $viewModel.selectedVoiceSystemPromptPresetID,
             presetName: $viewModel.voiceSystemPromptPresetName,
             prompt: $viewModel.voiceSystemPromptPrompt,
+            onCommit: viewModel.commitVoiceSystemPromptEdits,
             onAdd: viewModel.addVoiceSystemPromptPreset,
             onDelete: onDeleteVoicePromptPreset
         )
@@ -44,6 +46,7 @@ private struct SettingsPromptPresetSection: View {
     @Binding var selectedPresetID: UUID?
     @Binding var presetName: String
     @Binding var prompt: String
+    let onCommit: () -> Void
     let onAdd: () -> Void
     let onDelete: () -> Void
 
@@ -59,12 +62,14 @@ private struct SettingsPromptPresetSection: View {
             LabeledTextField(
                 label: "Preset Name",
                 placeholder: "Enter preset name",
-                text: $presetName
+                text: $presetName,
+                onCommit: onCommit
             )
             LabeledTextEditor(
                 label: "Prompt",
                 placeholder: promptPlaceholder,
-                text: $prompt
+                text: $prompt,
+                onCommit: onCommit
             )
         } header: {
             sectionHeader(title)

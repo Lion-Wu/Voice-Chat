@@ -65,14 +65,31 @@ struct SettingsAdvancedAPIBooleanToggleField: View {
 struct SettingsAdvancedAPIIntegerField: View {
     let title: LocalizedStringKey
     @Binding var value: Int
+    @State private var draftValue: Int
+    @FocusState private var isFieldFocused: Bool
+
+    init(title: LocalizedStringKey, value: Binding<Int>) {
+        self.title = title
+        _value = value
+        _draftValue = State(initialValue: value.wrappedValue)
+    }
 
     var body: some View {
         #if os(macOS)
         SettingsAdvancedAPILabeledContent(title) {
-            TextField("", value: $value, format: .number)
+            TextField("", value: $draftValue, format: .number)
                 .multilineTextAlignment(.leading)
                 .textFieldStyle(.roundedBorder)
                 .frame(width: 180)
+                .focused($isFieldFocused)
+                .onSubmit(commitDraft)
+                .onChange(of: isFieldFocused) { _, isFocused in
+                    if !isFocused { commitDraft() }
+                }
+                .onChange(of: value) { _, newValue in
+                    synchronizeDraft(with: newValue)
+                }
+                .onDisappear(perform: commitDraft)
         }
         #else
         VStack(alignment: .leading, spacing: 6) {
@@ -80,12 +97,31 @@ struct SettingsAdvancedAPIIntegerField: View {
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
-            TextField("", value: $value, format: .number)
+            TextField("", value: $draftValue, format: .number)
                 .multilineTextAlignment(.leading)
                 .keyboardType(.numberPad)
+                .focused($isFieldFocused)
+                .onSubmit(commitDraft)
+                .onChange(of: isFieldFocused) { _, isFocused in
+                    if !isFocused { commitDraft() }
+                }
+                .onChange(of: value) { _, newValue in
+                    synchronizeDraft(with: newValue)
+                }
+                .onDisappear(perform: commitDraft)
         }
         .padding(.vertical, 4)
         #endif
+    }
+
+    private func commitDraft() {
+        guard draftValue != value else { return }
+        value = draftValue
+    }
+
+    private func synchronizeDraft(with newValue: Int) {
+        guard draftValue != newValue else { return }
+        draftValue = newValue
     }
 }
 
@@ -93,6 +129,15 @@ struct SettingsAdvancedAPIIntegerToggleField: View {
     let title: LocalizedStringKey
     @Binding var enabled: Bool
     @Binding var value: Int
+    @State private var draftValue: Int
+    @FocusState private var isFieldFocused: Bool
+
+    init(title: LocalizedStringKey, enabled: Binding<Bool>, value: Binding<Int>) {
+        self.title = title
+        _enabled = enabled
+        _value = value
+        _draftValue = State(initialValue: value.wrappedValue)
+    }
 
     var body: some View {
         #if os(macOS)
@@ -103,10 +148,19 @@ struct SettingsAdvancedAPIIntegerToggleField: View {
                     .toggleStyle(.switch)
 
                 if enabled {
-                    TextField("", value: $value, format: .number)
+                    TextField("", value: $draftValue, format: .number)
                         .multilineTextAlignment(.leading)
                         .textFieldStyle(.roundedBorder)
                         .frame(width: 180)
+                        .focused($isFieldFocused)
+                        .onSubmit(commitDraft)
+                        .onChange(of: isFieldFocused) { _, isFocused in
+                            if !isFocused { commitDraft() }
+                        }
+                        .onChange(of: value) { _, newValue in
+                            synchronizeDraft(with: newValue)
+                        }
+                        .onDisappear(perform: commitDraft)
                 }
             }
         }
@@ -114,13 +168,32 @@ struct SettingsAdvancedAPIIntegerToggleField: View {
         VStack(alignment: .leading, spacing: 6) {
             Toggle(title, isOn: $enabled)
             if enabled {
-                TextField("", value: $value, format: .number)
+                TextField("", value: $draftValue, format: .number)
                     .multilineTextAlignment(.leading)
                     .keyboardType(.numberPad)
+                    .focused($isFieldFocused)
+                    .onSubmit(commitDraft)
+                    .onChange(of: isFieldFocused) { _, isFocused in
+                        if !isFocused { commitDraft() }
+                    }
+                    .onChange(of: value) { _, newValue in
+                        synchronizeDraft(with: newValue)
+                    }
+                    .onDisappear(perform: commitDraft)
             }
         }
         .padding(.vertical, 4)
         #endif
+    }
+
+    private func commitDraft() {
+        guard draftValue != value else { return }
+        value = draftValue
+    }
+
+    private func synchronizeDraft(with newValue: Int) {
+        guard draftValue != newValue else { return }
+        draftValue = newValue
     }
 }
 
@@ -128,6 +201,15 @@ struct SettingsAdvancedAPIDoubleToggleField: View {
     let title: LocalizedStringKey
     @Binding var enabled: Bool
     @Binding var value: Double
+    @State private var draftValue: Double
+    @FocusState private var isFieldFocused: Bool
+
+    init(title: LocalizedStringKey, enabled: Binding<Bool>, value: Binding<Double>) {
+        self.title = title
+        _enabled = enabled
+        _value = value
+        _draftValue = State(initialValue: value.wrappedValue)
+    }
 
     var body: some View {
         #if os(macOS)
@@ -138,10 +220,19 @@ struct SettingsAdvancedAPIDoubleToggleField: View {
                     .toggleStyle(.switch)
 
                 if enabled {
-                    TextField("", value: $value, format: .number.precision(.fractionLength(0...3)))
+                    TextField("", value: $draftValue, format: .number.precision(.fractionLength(0...3)))
                         .multilineTextAlignment(.leading)
                         .textFieldStyle(.roundedBorder)
                         .frame(width: 180)
+                        .focused($isFieldFocused)
+                        .onSubmit(commitDraft)
+                        .onChange(of: isFieldFocused) { _, isFocused in
+                            if !isFocused { commitDraft() }
+                        }
+                        .onChange(of: value) { _, newValue in
+                            synchronizeDraft(with: newValue)
+                        }
+                        .onDisappear(perform: commitDraft)
                 }
             }
         }
@@ -149,13 +240,32 @@ struct SettingsAdvancedAPIDoubleToggleField: View {
         VStack(alignment: .leading, spacing: 6) {
             Toggle(title, isOn: $enabled)
             if enabled {
-                TextField("", value: $value, format: .number.precision(.fractionLength(0...3)))
+                TextField("", value: $draftValue, format: .number.precision(.fractionLength(0...3)))
                     .multilineTextAlignment(.leading)
                     .keyboardType(.decimalPad)
+                    .focused($isFieldFocused)
+                    .onSubmit(commitDraft)
+                    .onChange(of: isFieldFocused) { _, isFocused in
+                        if !isFocused { commitDraft() }
+                    }
+                    .onChange(of: value) { _, newValue in
+                        synchronizeDraft(with: newValue)
+                    }
+                    .onDisappear(perform: commitDraft)
             }
         }
         .padding(.vertical, 4)
         #endif
+    }
+
+    private func commitDraft() {
+        guard draftValue != value else { return }
+        value = draftValue
+    }
+
+    private func synchronizeDraft(with newValue: Double) {
+        guard draftValue != newValue else { return }
+        draftValue = newValue
     }
 }
 

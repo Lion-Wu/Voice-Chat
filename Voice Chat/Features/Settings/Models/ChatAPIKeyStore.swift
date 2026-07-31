@@ -9,8 +9,14 @@ import Foundation
 
 struct ChatAPIKeyStore {
     typealias Loader = (String, String) -> String?
-    typealias Saver = (String, String, String) -> Void
-    typealias Deleter = (String, String) -> Void
+    typealias Saver = (String, String, String) -> Bool
+    typealias Deleter = (String, String) -> Bool
+
+    enum WriteResult: Equatable {
+        case unchanged
+        case updated
+        case failed
+    }
 
     private static let accountPrefix = "chat_server_preset_api_key."
 
@@ -25,10 +31,10 @@ struct ChatAPIKeyStore {
             return KeychainStore.loadString(service: service, account: account)
         },
         saveString: @escaping Saver = { value, service, account in
-            _ = KeychainStore.saveString(value, service: service, account: account)
+            KeychainStore.saveString(value, service: service, account: account)
         },
         deleteString: @escaping Deleter = { service, account in
-            _ = KeychainStore.delete(service: service, account: account)
+            KeychainStore.delete(service: service, account: account)
         }
     ) {
         self.service = service
@@ -47,19 +53,32 @@ struct ChatAPIKeyStore {
             .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    func save(_ apiKey: String, for presetID: UUID?) {
-        guard let presetID else { return }
+    @discardableResult
+    func save(_ apiKey: String, for presetID: UUID?) -> Bool {
+        write(apiKey, for: presetID) == .updated
+    }
+
+    func write(_ apiKey: String, for presetID: UUID?) -> WriteResult {
+        guard let presetID else { return .failed }
         let trimmed = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
         let account = account(forChatServerPresetID: presetID)
 
+        // Always issue a delete for an empty target. A failed Keychain read is
+        // indistinguishable from a missing item, while SecItemDelete already
+        // treats item-not-found as success.
         if trimmed.isEmpty {
-            deleteString(service, account)
-        } else {
-            saveString(trimmed, service, account)
+            return deleteString(service, account) ? .updated : .failed
         }
+
+        let current = (loadString(service, account) ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard current != trimmed else { return .unchanged }
+
+        return saveString(trimmed, service, account) ? .updated : .failed
     }
 
-    func delete(for presetID: UUID) {
+    @discardableResult
+    func delete(for presetID: UUID) -> Bool {
         deleteString(service, account(forChatServerPresetID: presetID))
     }
 }

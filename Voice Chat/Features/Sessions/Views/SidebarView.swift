@@ -5,6 +5,7 @@
 //  Created by Lion Wu on 2024.11.04.
 //
 
+import SwiftData
 import SwiftUI
 
 struct SidebarView: View {
@@ -42,6 +43,15 @@ struct SidebarView: View {
         isSidebarSearchLoading && !searchKeyword.isEmpty
     }
 
+    private var shouldShowInitialSessionLoading: Bool {
+        SidebarSessionListLoadState.resolve(
+            isPersistentStoreAttached: chatSessionsViewModel.isPersistentStoreAttached,
+            hasSessions: !chatSessionsViewModel.chatSessions.isEmpty,
+            hasPublishedGroups: !sidebarGroups.isEmpty,
+            visibleSearchKeyword: visibleSearchKeyword
+        ) == .loading
+    }
+
     private var isSidebarSearchActive: Bool {
         !searchKeyword.isEmpty
     }
@@ -62,10 +72,19 @@ struct SidebarView: View {
 
     @ViewBuilder
     private var sidebarSearchLoadingRow: some View {
+        sidebarLoadingRow(title: "Searching...")
+    }
+
+    @ViewBuilder
+    private var sidebarInitialLoadingRow: some View {
+        sidebarLoadingRow(title: "Loading...")
+    }
+
+    private func sidebarLoadingRow(title: LocalizedStringKey) -> some View {
         HStack(spacing: 10) {
             ProgressView()
                 .controlSize(.small)
-            Text("Searching...")
+            Text(title)
                 .font(.caption)
                 .foregroundStyle(.secondary)
             Spacer(minLength: 0)
@@ -365,9 +384,11 @@ struct SidebarView: View {
                 macDraftRow
                     .tag(chatSessionsViewModel.draftSession.id)
             }
-            if sidebarGroups.isEmpty {
+            if shouldShowInitialSessionLoading || sidebarGroups.isEmpty {
                 Section(header: Text("Chats")) {
-                    if visibleSearchKeyword.isEmpty {
+                    if shouldShowInitialSessionLoading {
+                        sidebarInitialLoadingRow
+                    } else if visibleSearchKeyword.isEmpty {
                         Text("No chats yet")
                             .foregroundStyle(.secondary)
                     } else if shouldShowSidebarSearchLoading {
@@ -419,9 +440,12 @@ struct SidebarView: View {
                     }
                 }
             }
-            if sidebarGroups.isEmpty {
+            if shouldShowInitialSessionLoading || sidebarGroups.isEmpty {
                 Section(LocalizedStringKey("Chats")) {
-                    if visibleSearchKeyword.isEmpty {
+                    if shouldShowInitialSessionLoading {
+                        sidebarInitialLoadingRow
+                            .listRowBackground(Color.clear)
+                    } else if visibleSearchKeyword.isEmpty {
                         ContentUnavailableView(
                             LocalizedStringKey("No chats yet"),
                             systemImage: "text.bubble",
@@ -529,9 +553,11 @@ struct SidebarView: View {
                     .tag(chatSessionsViewModel.draftSession.id)
             }
 
-            if sidebarGroups.isEmpty {
+            if shouldShowInitialSessionLoading || sidebarGroups.isEmpty {
                 Section(LocalizedStringKey("Chats")) {
-                    if visibleSearchKeyword.isEmpty {
+                    if shouldShowInitialSessionLoading {
+                        sidebarInitialLoadingRow
+                    } else if visibleSearchKeyword.isEmpty {
                         ContentUnavailableView(
                             LocalizedStringKey("No chats yet"),
                             systemImage: "text.bubble",
@@ -672,14 +698,26 @@ struct SidebarView: View {
 
 #Preview {
     let settingsManager = SettingsManager.shared
-    SidebarView(
-        onConversationTap: { _ in },
-        onOpenSettings: {}
-    )
-    .modelContainer(for: [ChatSession.self, ChatMessage.self, ChatRequestContextMetadata.self, AppSettings.self], inMemory: true)
-    .environmentObject(ChatSessionsViewModel(
+    let chatSessions = ChatSessionsViewModel(
         settingsManager: settingsManager,
         reachability: ServerReachabilityMonitor.shared,
         audioManager: GlobalAudioManager.shared
-    ))
+    )
+    let container = try! ModelContainer(
+        for: Schema([
+            ChatSession.self,
+            ChatMessage.self,
+            ChatRequestContextMetadata.self,
+            AppSettings.self
+        ]),
+        configurations: [ModelConfiguration(isStoredInMemoryOnly: true)]
+    )
+    _ = chatSessions.attach(context: container.mainContext)
+
+    return SidebarView(
+        onConversationTap: { _ in },
+        onOpenSettings: {}
+    )
+    .modelContainer(container)
+    .environmentObject(chatSessions)
 }

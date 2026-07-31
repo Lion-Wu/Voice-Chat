@@ -8,6 +8,46 @@
 import Foundation
 import Network
 
+private final class TCPProbeResumeGate: @unchecked Sendable {
+    private let lock = NSLock()
+    private var continuation: CheckedContinuation<Void, Error>?
+    private var connection: NWConnection?
+    private var pendingResult: Result<Void, Error>?
+
+    func install(
+        connection: NWConnection,
+        continuation: CheckedContinuation<Void, Error>
+    ) {
+        lock.lock()
+        if let pendingResult {
+            lock.unlock()
+            connection.cancel()
+            continuation.resume(with: pendingResult)
+            return
+        }
+        self.connection = connection
+        self.continuation = continuation
+        lock.unlock()
+    }
+
+    func finish(_ result: Result<Void, Error>) {
+        lock.lock()
+        guard pendingResult == nil else {
+            lock.unlock()
+            return
+        }
+        pendingResult = result
+        let connection = connection
+        let continuation = continuation
+        self.connection = nil
+        self.continuation = nil
+        lock.unlock()
+
+        connection?.cancel()
+        continuation?.resume(with: result)
+    }
+}
+
 /// Performs lightweight reachability checks for the text-generation and TTS servers.
 @MainActor
 final class ServerReachabilityMonitor: ObservableObject {
@@ -68,6 +108,8 @@ final class ServerReachabilityMonitor: ObservableObject {
             try await tcpProbe(host: endpoint.host, port: endpoint.port)
             await MainActor.run { self.isChatReachable = true }
             await clear(.textModel)
+        } catch is CancellationError {
+            return
         } catch {
             await MainActor.run {
                 self.isChatReachable = false
@@ -91,6 +133,8 @@ final class ServerReachabilityMonitor: ObservableObject {
             try await tcpProbe(host: endpoint.host, port: endpoint.port)
             await MainActor.run { self.isTTSReachable = true }
             await clear(.tts)
+        } catch is CancellationError {
+            return
         } catch {
             await MainActor.run {
                 self.isTTSReachable = false
@@ -139,50 +183,45 @@ final class ServerReachabilityMonitor: ObservableObject {
     }
 
     private func tcpProbe(host: String, port: UInt16, timeout: TimeInterval = 5) async throws {
-        return try await withCheckedThrowingContinuation { continuation in
-            let endpointHost = NWEndpoint.Host(host)
-            guard let endpointPort = NWEndpoint.Port(rawValue: port) else {
-                continuation.resume(throwing: URLError(.badURL))
-                return
-            }
+        let gate = TCPProbeResumeGate()
+        try await withTaskCancellationHandler(operation: {
+            try Task.checkCancellation()
+            try await withCheckedThrowingContinuation {
+                (continuation: CheckedContinuation<Void, Error>) in
+                let endpointHost = NWEndpoint.Host(host)
+                guard let endpointPort = NWEndpoint.Port(rawValue: port) else {
+                    continuation.resume(throwing: URLError(.badURL))
+                    return
+                }
 
-            let params = NWParameters.tcp
-            params.allowLocalEndpointReuse = true
-            let connection = NWConnection(host: endpointHost, port: endpointPort, using: params)
+                let params = NWParameters.tcp
+                params.allowLocalEndpointReuse = true
+                let connection = NWConnection(host: endpointHost, port: endpointPort, using: params)
+                let queue = DispatchQueue(label: "VoiceChat.TCPProbe.\(host):\(port)")
 
-            let queue = DispatchQueue(label: "VoiceChat.TCPProbe.\(host):\(port)")
+                gate.install(connection: connection, continuation: continuation)
 
-            actor ResumeGate {
-                private var fired = false
-                func fire(_ result: Result<Void, Error>, connection: NWConnection, continuation: CheckedContinuation<Void, Error>) {
-                    guard !fired else { return }
-                    fired = true
-                    connection.cancel()
-                    continuation.resume(with: result)
+                connection.stateUpdateHandler = { state in
+                    switch state {
+                    case .ready:
+                        gate.finish(.success(()))
+                    case .failed(let error):
+                        gate.finish(.failure(error))
+                    case .cancelled:
+                        gate.finish(.failure(URLError(.cancelled)))
+                    default:
+                        break
+                    }
+                }
+
+                connection.start(queue: queue)
+                queue.asyncAfter(deadline: .now() + timeout) {
+                    gate.finish(.failure(URLError(.timedOut)))
                 }
             }
-
-            let gate = ResumeGate()
-
-            connection.stateUpdateHandler = { state in
-            switch state {
-            case .ready:
-                Task { await gate.fire(.success(()), connection: connection, continuation: continuation) }
-            case .failed(let error):
-                Task { await gate.fire(.failure(error), connection: connection, continuation: continuation) }
-            case .cancelled:
-                Task { await gate.fire(.failure(URLError(.cancelled)), connection: connection, continuation: continuation) }
-            default:
-                break
-            }
-        }
-
-        connection.start(queue: queue)
-
-            queue.asyncAfter(deadline: .now() + timeout) {
-                Task { await gate.fire(.failure(URLError(.timedOut)), connection: connection, continuation: continuation) }
-            }
-        }
+        }, onCancel: {
+            gate.finish(.failure(CancellationError()))
+        })
     }
 
     private func friendlyMessage(for error: Error, base: String) -> String {

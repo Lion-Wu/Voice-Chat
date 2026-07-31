@@ -45,6 +45,7 @@ private enum MacSettingsTab: Hashable {
 // MARK: - Settings View
 
 struct SettingsView: View {
+    @Environment(\.scenePhase) private var scenePhase
     @StateObject private var viewModel: SettingsViewModel
     @ObservedObject private var settingsManager: SettingsManager
     @State private var pendingDeletionTarget: SettingsDeletionTarget?
@@ -139,6 +140,14 @@ struct SettingsView: View {
             .task {
                 viewModel.refreshFromSettingsManager()
                 viewModel.fetchAvailableModels()
+            }
+            .onDisappear {
+                viewModel.commitPendingEdits()
+            }
+            .onChange(of: scenePhase) { _, phase in
+                if phase != .active {
+                    viewModel.commitPendingEdits()
+                }
             }
             .alert(
                 pendingDeletionTarget?.title ?? LocalizedStringKey("Delete"),
@@ -363,13 +372,15 @@ struct SettingsView: View {
                 LabeledTextField(
                     label: "Preset Name",
                     placeholder: "Enter preset name",
-                    text: $viewModel.voiceServerPresetName
+                    text: $viewModel.voiceServerPresetName,
+                    onCommit: viewModel.commitVoiceServerEdits
                 )
 
                 LabeledTextField(
                     label: "Server URL",
                     placeholder: "http://localhost:9880",
-                    text: $viewModel.serverAddress
+                    text: $viewModel.serverAddress,
+                    onCommit: viewModel.commitVoiceServerEdits
                 )
             }
         } header: {
@@ -398,7 +409,8 @@ struct SettingsView: View {
                 LabeledTextField(
                     label: "Text Language",
                     placeholder: "e.g. auto/zh/en",
-                    text: $viewModel.textLang
+                    text: $viewModel.textLang,
+                    onCommit: viewModel.commitVoiceServerEdits
                 )
             }
 

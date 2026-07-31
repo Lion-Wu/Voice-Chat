@@ -29,6 +29,13 @@ final class ChatStreamingSessionCoordinatorTests: XCTestCase {
             .applied
         )
         XCTAssertEqual(coordinator.configuration, next)
+        XCTAssertTrue(createdModels.isEmpty)
+
+        coordinator.fetchStreamedData(
+            messages: [],
+            developerPrompt: nil,
+            includeImagesInUserContent: false
+        )
         XCTAssertEqual(createdModels, ["next"])
     }
 
@@ -59,10 +66,46 @@ final class ChatStreamingSessionCoordinatorTests: XCTestCase {
             coordinator.updateConfiguration(next, isActiveTextRequest: false),
             .applied
         )
+        coordinator.fetchStreamedData(
+            messages: [],
+            developerPrompt: nil,
+            includeImagesInUserContent: false
+        )
         staleCallback?("stale")
         replacementService.onDelta?("new")
 
         XCTAssertEqual(receivedDeltas, ["old", "new"])
+    }
+
+    func testServiceCreationIsDeferredUntilFirstRequest() {
+        let configuration = chatConfig(model: "model")
+        var creationCount = 0
+        let coordinator = ChatStreamingSessionCoordinator(
+            configuration: configuration,
+            service: nil,
+            serviceFactory: { _ in
+                creationCount += 1
+                return StubChatStreamingService()
+            }
+        )
+
+        coordinator.bindHandlers(
+            onDelta: { _ in },
+            onSegment: { _ in },
+            onOpenAIResponsesConversationItems: { _ in },
+            onError: { _ in },
+            onResponseMetadata: { _ in },
+            onToolActivity: { _ in },
+            onStreamFinished: {}
+        )
+        XCTAssertEqual(creationCount, 0)
+
+        coordinator.fetchStreamedData(
+            messages: [],
+            developerPrompt: nil,
+            includeImagesInUserContent: false
+        )
+        XCTAssertEqual(creationCount, 1)
     }
 
     func testChatServiceDropsQueuedCallbacksFromInvalidatedRetryAttempt() async {

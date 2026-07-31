@@ -157,24 +157,30 @@ struct SettingsVoicePresetSection: View {
         Group {
             LabeledTextField(label: "Preset Name",
                              placeholder: "Enter preset name",
-                             text: $viewModel.presetName)
+                             text: $viewModel.presetName,
+                             onCommit: viewModel.commitVoicePresetEdits)
 
             LabeledTextField(label: "Reference Audio Path",
                              placeholder: "GPT_SoVITS/refs/xxx.wav",
-                             text: $viewModel.presetRefAudioPath)
+                             text: $viewModel.presetRefAudioPath,
+                             onCommit: viewModel.commitVoicePresetEdits)
             LabeledTextField(label: "Reference Text",
                              placeholder: "Reference text (optional)",
-                             text: $viewModel.presetPromptText)
+                             text: $viewModel.presetPromptText,
+                             onCommit: viewModel.commitVoicePresetEdits)
             LabeledTextField(label: "Reference Language",
                              placeholder: "e.g. auto/zh/en",
-                             text: $viewModel.presetPromptLang)
+                             text: $viewModel.presetPromptLang,
+                             onCommit: viewModel.commitVoicePresetEdits)
 
             LabeledTextField(label: "GPT weights path",
                              placeholder: "GPT_SoVITS/pretrained_models/s1xxx.ckpt",
-                             text: $viewModel.presetGPTWeightsPath)
+                             text: $viewModel.presetGPTWeightsPath,
+                             onCommit: viewModel.commitVoicePresetEdits)
             LabeledTextField(label: "SoVITS weights path",
                              placeholder: "GPT_SoVITS/pretrained_models/s2xxx.pth",
-                             text: $viewModel.presetSoVITSWeightsPath)
+                             text: $viewModel.presetSoVITSWeightsPath,
+                             onCommit: viewModel.commitVoicePresetEdits)
         }
     }
 

@@ -8,20 +8,24 @@
 import Foundation
 
 extension SettingsManager {
-    func reloadAndRepairPresetStoresAfterAttach() {
-        loadVoiceServerPresetsFromStore()
+    func reloadAndRepairPresetStoresAfterAttach() throws {
+        guard let context else { return }
+
+        voiceServerPresets = try VoiceServerPresetStore.fetch(from: context)
         ensureDefaultVoiceServerPresetIfNeeded()
         ensureSelectedVoiceServerPresetIsValid()
+        applySelectedVoiceServerPresetToServerSettings()
 
-        loadChatServerPresetsFromStore()
+        chatServerPresets = try ChatServerPresetStore.fetch(from: context)
         ensureDefaultChatServerPresetIfNeeded()
         ensureSelectedChatServerPresetIsValid()
+        applySelectedChatServerPresetToChatSettings()
 
-        loadPresetsFromStore()
+        presets = try VoicePresetStore.fetch(from: context)
         ensureDefaultPresetIfNeeded()
         ensureSelectedPresetIsValid()
 
-        loadSystemPromptPresetsFromStore()
+        systemPromptPresets = try SystemPromptPresetStore.fetch(from: context)
         ensureDefaultSystemPromptPresetsForModesIfNeeded()
 
         selectedPresetID = entity?.selectedPresetID ?? presets.first?.id
@@ -33,26 +37,6 @@ extension SettingsManager {
         selectedVoiceSystemPromptPresetID = entity?.selectedVoiceSystemPromptPresetID ?? selectedVoiceSystemPromptPresetID
     }
 
-    func loadChatServerPresetsFromStore() {
-        guard let context else { return }
-        chatServerPresets = ChatServerPresetStore.fetch(from: context)
-    }
-
-    func loadVoiceServerPresetsFromStore() {
-        guard let context else { return }
-        voiceServerPresets = VoiceServerPresetStore.fetch(from: context)
-    }
-
-    func loadPresetsFromStore() {
-        guard let context else { return }
-        presets = VoicePresetStore.fetch(from: context)
-    }
-
-    func loadSystemPromptPresetsFromStore() {
-        guard let context else { return }
-        systemPromptPresets = SystemPromptPresetStore.fetch(from: context)
-    }
-
     func ensureDefaultChatServerPresetIfNeeded() {
         guard let context, let e = entity else { return }
         selectedChatServerPresetID = ChatServerPresetStore.ensureDefaultIfNeeded(
@@ -61,7 +45,6 @@ extension SettingsManager {
             context: context,
             save: saveContext(label:)
         )
-        applySelectedChatServerPresetToChatSettings()
     }
 
     func ensureDefaultVoiceServerPresetIfNeeded() {
@@ -72,7 +55,6 @@ extension SettingsManager {
             context: context,
             save: saveContext(label:)
         )
-        applySelectedVoiceServerPresetToServerSettings()
     }
 
     func ensureSelectedChatServerPresetIsValid() {
@@ -82,7 +64,6 @@ extension SettingsManager {
             appSettings: e,
             save: saveContext(label:)
         )
-        applySelectedChatServerPresetToChatSettings()
     }
 
     func ensureSelectedVoiceServerPresetIsValid() {
@@ -92,7 +73,6 @@ extension SettingsManager {
             appSettings: e,
             save: saveContext(label:)
         )
-        applySelectedVoiceServerPresetToServerSettings()
     }
 
     func ensureDefaultPresetIfNeeded() {

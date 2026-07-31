@@ -55,6 +55,30 @@ final class SettingsVoiceServerRuntimeTests: XCTestCase {
         XCTAssertEqual(preset.serverAddress, "http://old.local:9880")
     }
 
+    func testEqualSettingsDoNotPublishOrWrite() {
+        let preset = VoiceServerPreset(
+            name: "Primary",
+            serverAddress: "http://same.local:9880"
+        )
+        var serverSettings = ServerSettings(
+            serverAddress: "http://same.local:9880",
+            textLang: "auto"
+        )
+
+        let didUpdatePreset = SettingsVoiceServerRuntime.updateSettings(
+            serverAddress: "http://same.local:9880",
+            textLang: "auto",
+            serverSettings: &serverSettings,
+            presets: [preset],
+            selectedID: preset.id,
+            hasContext: true,
+            persistServerSettings: { _ in XCTFail("equal settings must not publish") },
+            save: { _ in XCTFail("equal settings must not write") }
+        )
+
+        XCTAssertFalse(didUpdatePreset)
+    }
+
     func testSelectPresetAppliesServerAddressAndKeepsCurrentTextLanguage() {
         let first = VoiceServerPreset(
             name: "First",

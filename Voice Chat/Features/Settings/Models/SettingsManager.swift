@@ -54,6 +54,8 @@ final class SettingsManager: ObservableObject {
     let chatAPIKeyStore = ChatAPIKeyStore()
     let chatModelCatalogRefreshCoordinator = ChatModelCatalogRefreshCoordinator()
     let presetApplyController = SettingsPresetApplyController()
+    var onPersistentStoreReadFailure: ((Error) -> Void)?
+    var isCoalescingPersistenceWrites = false
 
     // Used to gate one-time work performed at launch.
     var didPrefetchChatModelsOnLaunch = false

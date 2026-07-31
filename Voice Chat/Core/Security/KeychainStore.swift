@@ -41,25 +41,27 @@ enum KeychainStore {
     static func saveString(_ value: String, service: String, account: String) -> Bool {
         guard let data = value.data(using: .utf8) else { return false }
 
+        let itemQuery = baseQuery(service: service, account: account)
+        let attributes: [String: Any] = [
+            kSecValueData as String: data
+        ]
+        let updateStatus = SecItemUpdate(
+            itemQuery as CFDictionary,
+            attributes as CFDictionary
+        )
+        if updateStatus == errSecSuccess {
+            return true
+        }
+        guard updateStatus == errSecItemNotFound else {
+            return false
+        }
+
         var addQuery = baseQuery(service: service, account: account)
         addQuery[kSecValueData as String] = data
 #if os(iOS)
         addQuery[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlock
 #endif
-
-        let status = SecItemAdd(addQuery as CFDictionary, nil)
-        if status == errSecSuccess {
-            return true
-        }
-        if status != errSecDuplicateItem {
-            return false
-        }
-
-        let updateQuery = baseQuery(service: service, account: account)
-        let attributes: [String: Any] = [
-            kSecValueData as String: data
-        ]
-        return SecItemUpdate(updateQuery as CFDictionary, attributes as CFDictionary) == errSecSuccess
+        return SecItemAdd(addQuery as CFDictionary, nil) == errSecSuccess
     }
 
     @discardableResult
@@ -69,4 +71,3 @@ enum KeychainStore {
         return status == errSecSuccess || status == errSecItemNotFound
     }
 }
-

@@ -10,17 +10,12 @@ import SwiftData
 
 @MainActor
 enum ChatServerPresetStore {
-    static func fetch(from context: ModelContext) -> [ChatServerPreset] {
+    static func fetch(from context: ModelContext) throws -> [ChatServerPreset] {
         let descriptor = FetchDescriptor<ChatServerPreset>(
             predicate: nil,
             sortBy: [SortDescriptor(\.updatedAt, order: .reverse)]
         )
-        do {
-            return try context.fetch(descriptor)
-        } catch {
-            print("SwiftData fetch ChatServerPreset failed: \(error)")
-            return []
-        }
+        return try context.fetch(descriptor)
     }
 
     static func apiFormatPreference(
@@ -128,6 +123,13 @@ enum ChatServerPresetStore {
         save: (String) -> Void
     ) -> Bool {
         guard let preset = presets.first(where: { $0.id == id }) else { return false }
+        let nextFormatRaw = apiFormatPreference.map {
+            $0 == .automatic ? nil : $0.rawValue
+        }
+        let nameChanged = name.map { $0 != preset.name } ?? false
+        let formatChanged = nextFormatRaw.map { $0 != preset.apiFormatPreferenceRaw } ?? false
+        guard nameChanged || formatChanged else { return false }
+
         if let name { preset.name = name }
         if let apiFormatPreference {
             preset.apiFormatPreferenceRaw = apiFormatPreference == .automatic ? nil : apiFormatPreference.rawValue
@@ -146,6 +148,9 @@ enum ChatServerPresetStore {
     ) -> Bool {
         guard let selectedID,
               let preset = presets.first(where: { $0.id == selectedID }) else {
+            return false
+        }
+        guard preset.apiURL != apiURL || preset.selectedModel != selectedModel else {
             return false
         }
         preset.apiURL = apiURL

@@ -31,17 +31,12 @@ enum SystemPromptPresetStore {
     }
 
     @MainActor
-    static func fetch(from context: ModelContext) -> [SystemPromptPreset] {
+    static func fetch(from context: ModelContext) throws -> [SystemPromptPreset] {
         let descriptor = FetchDescriptor<SystemPromptPreset>(
             predicate: nil,
             sortBy: [SortDescriptor(\.updatedAt, order: .reverse)]
         )
-        do {
-            return try context.fetch(descriptor)
-        } catch {
-            print("SwiftData fetch SystemPromptPreset failed: \(error)")
-            return []
-        }
+        return try context.fetch(descriptor)
     }
 
     @MainActor
@@ -55,7 +50,8 @@ enum SystemPromptPresetStore {
 
         missingDefaults.forEach { context.insert($0) }
         save("ensure default system prompt presets")
-        presets = fetch(from: context)
+        presets.append(contentsOf: missingDefaults)
+        presets.sort { $0.updatedAt > $1.updatedAt }
     }
 
     static func missingDefaultPresets(for presets: [SystemPromptPreset]) -> [SystemPromptPreset] {
@@ -157,6 +153,11 @@ enum SystemPromptPresetStore {
         save: (String) -> Void
     ) -> Bool {
         guard let preset = presets.first(where: { $0.id == id }) else { return false }
+        let changed = preset.mode != normalMode
+            || (name.map { $0 != preset.name } ?? false)
+            || (prompt.map { $0 != preset.normalPrompt } ?? false)
+            || !preset.voicePrompt.isEmpty
+        guard changed else { return false }
         updateNormalPreset(preset, name: name, prompt: prompt)
         save("update normal system prompt preset")
         return true
@@ -178,6 +179,11 @@ enum SystemPromptPresetStore {
         save: (String) -> Void
     ) -> Bool {
         guard let preset = presets.first(where: { $0.id == id }) else { return false }
+        let changed = preset.mode != voiceMode
+            || (name.map { $0 != preset.name } ?? false)
+            || (prompt.map { $0 != preset.voicePrompt } ?? false)
+            || !preset.normalPrompt.isEmpty
+        guard changed else { return false }
         updateVoicePreset(preset, name: name, prompt: prompt)
         save("update voice system prompt preset")
         return true
@@ -204,6 +210,10 @@ enum SystemPromptPresetStore {
         save: (String) -> Void
     ) -> Bool {
         guard let preset = presets.first(where: { $0.id == id }) else { return false }
+        let changed = (name.map { $0 != preset.name } ?? false)
+            || (normalPrompt.map { $0 != preset.normalPrompt } ?? false)
+            || (voicePrompt.map { $0 != preset.voicePrompt } ?? false)
+        guard changed else { return false }
         updatePreset(
             preset,
             name: name,
