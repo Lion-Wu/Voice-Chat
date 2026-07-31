@@ -8,6 +8,11 @@
 import Foundation
 import SwiftData
 
+struct SettingsWriteFailure: Identifiable {
+    let id = UUID()
+    let message: String
+}
+
 // MARK: - Settings Manager (SwiftData-backed)
 
 @MainActor
@@ -24,6 +29,7 @@ final class SettingsManager: ObservableObject {
     @Published var hapticFeedbackEnabled: Bool
     @Published var apiAdvancedSettings: APIAdvancedSettings
     @Published var toolUseSettings: ToolUseSettings
+    @Published private(set) var settingsWriteFailure: SettingsWriteFailure?
 
     lazy var chatModelCapabilities = makeChatModelCapabilityController()
 
@@ -81,8 +87,17 @@ final class SettingsManager: ObservableObject {
         self.hapticFeedbackEnabled = SettingsDefaults.hapticFeedbackEnabled
         self.apiAdvancedSettings = SettingsDefaults.apiAdvancedSettings
         self.toolUseSettings = ToolUseSettings.defaults
+        self.settingsWriteFailure = nil
 
         bindPresetApplyStatusUpdates()
+    }
+
+    func reportSettingsWriteFailure(_ error: Error) {
+        settingsWriteFailure = SettingsWriteFailure(message: error.localizedDescription)
+    }
+
+    func clearSettingsWriteFailure() {
+        settingsWriteFailure = nil
     }
 
 }

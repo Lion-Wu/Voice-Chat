@@ -538,11 +538,15 @@ final class SettingsViewModel: ObservableObject {
     func commitVoiceServerEdits() {
         guard !suppression.isActive(.autoSaves),
               !suppression.isActive(.saveVoiceServerPreset) else { return }
-        settingsManager.commitSelectedVoiceServerSettings(
+        let didCommit = settingsManager.commitSelectedVoiceServerSettings(
             name: voiceServerPresetName,
             serverAddress: serverAddress,
             textLang: textLang
         )
+        guard didCommit else {
+            refreshFromSettingsManager()
+            return
+        }
         let presets = presetBindingController.voiceServerBinding().presets
         if voiceServerPresetList != presets {
             voiceServerPresetList = presets
@@ -557,13 +561,17 @@ final class SettingsViewModel: ObservableObject {
         guard !suppression.isActive(.autoSaves),
               !suppression.isActive(.saveChatServerPreset),
               !suppression.isActive(.saveChatServerPresetFormat) else { return }
-        settingsManager.commitSelectedChatServerSettings(
+        let didCommit = settingsManager.commitSelectedChatServerSettings(
             name: chatServerPresetName,
             apiURL: apiURL,
             selectedModel: selectedModel,
             apiKey: chatAPIKey,
             apiFormatPreference: selectedChatAPIFormatPreference
         )
+        guard didCommit else {
+            refreshFromSettingsManager()
+            return
+        }
         let presets = presetBindingController.chatServerBinding().presets
         if chatServerPresetList != presets {
             chatServerPresetList = presets

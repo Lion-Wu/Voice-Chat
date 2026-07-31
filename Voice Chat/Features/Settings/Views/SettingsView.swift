@@ -160,6 +160,13 @@ struct SettingsView: View {
             } message: {
                 Text("This action cannot be undone.")
             }
+            .alert("Error", isPresented: settingsWriteFailureAlertBinding) {
+                Button("Close") {
+                    settingsManager.clearSettingsWriteFailure()
+                }
+            } message: {
+                Text(settingsManager.settingsWriteFailure?.message ?? "")
+            }
     }
 
     private var deletionAlertBinding: Binding<Bool> {
@@ -168,6 +175,17 @@ struct SettingsView: View {
             set: { isPresented in
                 if !isPresented {
                     pendingDeletionTarget = nil
+                }
+            }
+        )
+    }
+
+    private var settingsWriteFailureAlertBinding: Binding<Bool> {
+        Binding(
+            get: { settingsManager.settingsWriteFailure != nil },
+            set: { isPresented in
+                if !isPresented {
+                    settingsManager.clearSettingsWriteFailure()
                 }
             }
         )

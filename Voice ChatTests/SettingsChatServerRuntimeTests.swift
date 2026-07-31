@@ -206,4 +206,52 @@ final class SettingsChatServerRuntimeTests: XCTestCase {
         XCTAssertEqual(loadedAccounts, [store.account(forChatServerPresetID: second.id)])
         XCTAssertEqual(saveLabels, ["select chat server preset"])
     }
+
+    func testApplySelectedPresetPublishesFallbackSettingsAfterDeletion() {
+        let fallback = ChatServerPreset(
+            name: "Fallback",
+            apiURL: "http://fallback.local",
+            selectedModel: "fallback-model"
+        )
+        var chatSettings = ChatSettings(
+            apiURL: "http://deleted.local",
+            selectedModel: "deleted-model",
+            apiKey: "deleted-key"
+        )
+        var persisted: [ChatSettings] = []
+        let store = ChatAPIKeyStore(
+            service: "runtime.test",
+            loadString: { _, account in
+                XCTAssertEqual(account, "chat_server_preset_api_key.\(fallback.id.uuidString)")
+                return "fallback-key"
+            },
+            saveString: { _, _, _ in
+                XCTFail("applying a fallback must not write its API key")
+                return false
+            },
+            deleteString: { _, _ in
+                XCTFail("applying a fallback must not delete an API key")
+                return false
+            }
+        )
+
+        let didApply = SettingsChatServerRuntime.applySelectedPresetToChatSettings(
+            presets: [fallback],
+            selectedID: fallback.id,
+            chatSettings: &chatSettings,
+            apiKeyStore: store,
+            persistChatSettings: { persisted.append($0) }
+        )
+
+        XCTAssertTrue(didApply)
+        XCTAssertEqual(
+            chatSettings,
+            ChatSettings(
+                apiURL: "http://fallback.local",
+                selectedModel: "fallback-model",
+                apiKey: "fallback-key"
+            )
+        )
+        XCTAssertEqual(persisted, [chatSettings])
+    }
 }

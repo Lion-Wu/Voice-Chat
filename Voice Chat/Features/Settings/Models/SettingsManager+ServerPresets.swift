@@ -20,7 +20,7 @@ private enum SettingsCommitError: LocalizedError {
 
 extension SettingsManager {
     func updateServerSettings(serverAddress: String, textLang: String) {
-        commitSelectedVoiceServerSettings(
+        _ = commitSelectedVoiceServerSettings(
             name: selectedVoiceServerPreset?.name ?? "",
             serverAddress: serverAddress,
             textLang: textLang
@@ -28,7 +28,7 @@ extension SettingsManager {
     }
 
     func updateChatSettings(apiURL: String, selectedModel: String) {
-        commitSelectedChatServerSettings(
+        _ = commitSelectedChatServerSettings(
             name: selectedChatServerPreset?.name ?? "",
             apiURL: apiURL,
             selectedModel: selectedModel,
@@ -38,7 +38,7 @@ extension SettingsManager {
     }
 
     func updateChatAPIKey(_ apiKey: String) {
-        commitSelectedChatServerSettings(
+        _ = commitSelectedChatServerSettings(
             name: selectedChatServerPreset?.name ?? "",
             apiURL: chatSettings.apiURL,
             selectedModel: chatSettings.selectedModel,
@@ -49,11 +49,12 @@ extension SettingsManager {
 
     /// Commits the complete selected voice-server draft as one transaction.
     /// Text fields stay local to the settings UI until this boundary is crossed.
+    @discardableResult
     func commitSelectedVoiceServerSettings(
         name: String,
         serverAddress: String,
         textLang: String
-    ) {
+    ) -> Bool {
         let nextSettings = ServerSettings(serverAddress: serverAddress, textLang: textLang)
         let settingsChanged = nextSettings != serverSettings
         let selectedPreset = selectedVoiceServerPreset
@@ -61,13 +62,13 @@ extension SettingsManager {
             $0.name != name || $0.serverAddress != serverAddress
         } ?? false
 
-        guard settingsChanged || presetChanged else { return }
+        guard settingsChanged || presetChanged else { return true }
 
         guard entity != nil, context != nil else {
             if settingsChanged {
                 serverSettings = nextSettings
             }
-            return
+            return true
         }
 
         if presetChanged, let selectedPreset {
@@ -96,8 +97,8 @@ extension SettingsManager {
                 try persistence.saveContextOrThrow(label: "commit voice server settings")
             } catch {
                 persistence.rollbackPendingChanges()
-                onPersistentStoreReadFailure?(error)
-                return
+                reportSettingsWriteFailure(error)
+                return false
             }
         }
         if settingsChanged {
@@ -106,17 +107,19 @@ extension SettingsManager {
         if presetChanged {
             voiceServerPresets = voiceServerPresets.sorted { $0.updatedAt > $1.updatedAt }
         }
+        return true
     }
 
     /// Commits URL, model, key and selected-preset metadata together. The AppSettings
     /// row and selected SwiftData preset share a single context save.
+    @discardableResult
     func commitSelectedChatServerSettings(
         name: String,
         apiURL: String,
         selectedModel: String,
         apiKey: String,
         apiFormatPreference: ChatAPIFormatPreference
-    ) {
+    ) -> Bool {
         let trimmedAPIKey = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
         let previousSettings = chatSettings
         let nextSettings = ChatSettings(
@@ -136,13 +139,13 @@ extension SettingsManager {
                 || keyChanged
         } ?? false
 
-        guard settingsChanged || presetChanged else { return }
+        guard settingsChanged || presetChanged else { return true }
 
         guard let entity, context != nil else {
             if settingsChanged {
                 chatSettings = nextSettings
             }
-            return
+            return true
         }
 
         let previousStoredAPIKey = keyChanged
@@ -155,8 +158,8 @@ extension SettingsManager {
                 for: selectedChatServerPresetID
             )
             guard keyWriteResult != .failed else {
-                print(SettingsCommitError.apiKeyWriteFailed.localizedDescription)
-                return
+                reportSettingsWriteFailure(SettingsCommitError.apiKeyWriteFailed)
+                return false
             }
         }
 
@@ -193,8 +196,8 @@ extension SettingsManager {
                    ) == .failed {
                     print("Failed to restore the previous API key after a settings transaction error.")
                 }
-                onPersistentStoreReadFailure?(error)
-                return
+                reportSettingsWriteFailure(error)
+                return false
             }
         }
 
@@ -205,6 +208,7 @@ extension SettingsManager {
         if presetChanged {
             chatServerPresets = chatServerPresets.sorted { $0.updatedAt > $1.updatedAt }
         }
+        return true
     }
 
     func createVoiceServerPreset(name: String = String(localized: "New Preset")) -> VoiceServerPreset? {
@@ -223,16 +227,42 @@ extension SettingsManager {
 
     func deleteVoiceServerPreset(_ id: UUID) {
         guard let context else { return }
-        if SettingsVoiceServerRuntime.deletePreset(
+        let previousSelectedID = selectedVoiceServerPresetID
+        guard SettingsVoiceServerRuntime.deletePreset(
             id: id,
             presets: voiceServerPresets,
             selectedID: &selectedVoiceServerPresetID,
             appSettings: entity,
             context: context,
-            save: saveContext(label:)
-        ) {
-            voiceServerPresets.removeAll { $0.id == id }
-            ensureSelectedVoiceServerPresetIsValid()
+            save: { _ in }
+        ) else { return }
+
+        let remainingPresets = voiceServerPresets.filter { $0.id != id }
+        var nextSettings = serverSettings
+        if previousSelectedID == id, let entity {
+            _ = SettingsVoiceServerRuntime.applySelectedPresetToServerSettings(
+                presets: remainingPresets,
+                selectedID: selectedVoiceServerPresetID,
+                serverSettings: &nextSettings,
+                persistServerSettings: { settings in
+                    entity.serverAddress = settings.serverAddress
+                    entity.textLang = settings.textLang
+                }
+            )
+        }
+
+        do {
+            try persistence.saveContextOrThrow(label: "delete voice server preset")
+        } catch {
+            persistence.rollbackPendingChanges()
+            selectedVoiceServerPresetID = previousSelectedID
+            reportSettingsWriteFailure(error)
+            return
+        }
+
+        voiceServerPresets = remainingPresets
+        if nextSettings != serverSettings {
+            serverSettings = nextSettings
         }
     }
 
@@ -286,7 +316,7 @@ extension SettingsManager {
         }
         guard keyWriteResult != .failed else {
             persistence.rollbackPendingChanges()
-            print(SettingsCommitError.apiKeyWriteFailed.localizedDescription)
+            reportSettingsWriteFailure(SettingsCommitError.apiKeyWriteFailed)
             return nil
         }
 
@@ -298,7 +328,7 @@ extension SettingsManager {
                chatAPIKeyStore.write("", for: preset.id) == .failed {
                 print("Failed to remove an API key after preset creation was rolled back.")
             }
-            onPersistentStoreReadFailure?(error)
+            reportSettingsWriteFailure(error)
             return nil
         }
 
@@ -321,11 +351,26 @@ extension SettingsManager {
             save: { _ in }
         ) else { return }
 
+        let remainingPresets = chatServerPresets.filter { $0.id != id }
+        var nextSettings = chatSettings
+        if previousSelectedID == id, let entity {
+            _ = SettingsChatServerRuntime.applySelectedPresetToChatSettings(
+                presets: remainingPresets,
+                selectedID: selectedChatServerPresetID,
+                chatSettings: &nextSettings,
+                apiKeyStore: chatAPIKeyStore,
+                persistChatSettings: { settings in
+                    entity.apiURL = settings.apiURL
+                    entity.selectedModel = settings.selectedModel
+                }
+            )
+        }
+
         let keyWriteResult = chatAPIKeyStore.write("", for: id)
         guard keyWriteResult != .failed else {
             persistence.rollbackPendingChanges()
             selectedChatServerPresetID = previousSelectedID
-            print(SettingsCommitError.apiKeyWriteFailed.localizedDescription)
+            reportSettingsWriteFailure(SettingsCommitError.apiKeyWriteFailed)
             return
         }
 
@@ -338,12 +383,14 @@ extension SettingsManager {
                chatAPIKeyStore.write(previousAPIKey, for: id) == .failed {
                 print("Failed to restore an API key after preset deletion was rolled back.")
             }
-            onPersistentStoreReadFailure?(error)
+            reportSettingsWriteFailure(error)
             return
         }
 
-        chatServerPresets.removeAll { $0.id == id }
-        ensureSelectedChatServerPresetIsValid()
+        chatServerPresets = remainingPresets
+        if nextSettings != chatSettings {
+            chatSettings = nextSettings
+        }
     }
 
     func updateChatServerPreset(

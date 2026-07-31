@@ -111,4 +111,30 @@ final class SettingsVoiceServerRuntimeTests: XCTestCase {
         XCTAssertEqual(persisted, [serverSettings])
         XCTAssertEqual(saveLabels, ["select voice server preset"])
     }
+
+    func testApplySelectedPresetPublishesFallbackSettingsAfterDeletion() {
+        let fallback = VoiceServerPreset(
+            name: "Fallback",
+            serverAddress: "http://fallback.local:9880"
+        )
+        var serverSettings = ServerSettings(
+            serverAddress: "http://deleted.local:9880",
+            textLang: "zh"
+        )
+        var persisted: [ServerSettings] = []
+
+        let didApply = SettingsVoiceServerRuntime.applySelectedPresetToServerSettings(
+            presets: [fallback],
+            selectedID: fallback.id,
+            serverSettings: &serverSettings,
+            persistServerSettings: { persisted.append($0) }
+        )
+
+        XCTAssertTrue(didApply)
+        XCTAssertEqual(
+            serverSettings,
+            ServerSettings(serverAddress: "http://fallback.local:9880", textLang: "zh")
+        )
+        XCTAssertEqual(persisted, [serverSettings])
+    }
 }
