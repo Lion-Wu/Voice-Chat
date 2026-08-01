@@ -535,9 +535,10 @@ final class SettingsViewModel: ObservableObject {
 
     // MARK: - Persist settings
 
-    func commitVoiceServerEdits() {
+    @discardableResult
+    func commitVoiceServerEdits() -> Bool {
         guard !suppression.isActive(.autoSaves),
-              !suppression.isActive(.saveVoiceServerPreset) else { return }
+              !suppression.isActive(.saveVoiceServerPreset) else { return true }
         let didCommit = settingsManager.commitSelectedVoiceServerSettings(
             name: voiceServerPresetName,
             serverAddress: serverAddress,
@@ -545,12 +546,13 @@ final class SettingsViewModel: ObservableObject {
         )
         guard didCommit else {
             refreshFromSettingsManager()
-            return
+            return false
         }
         let presets = presetBindingController.voiceServerBinding().presets
         if voiceServerPresetList != presets {
             voiceServerPresetList = presets
         }
+        return true
     }
 
     func saveToolUseSettings() {

@@ -391,14 +391,14 @@ struct SettingsView: View {
                     label: "Preset Name",
                     placeholder: "Enter preset name",
                     text: $viewModel.voiceServerPresetName,
-                    onCommit: viewModel.commitVoiceServerEdits
+                    onCommit: { viewModel.commitVoiceServerEdits() }
                 )
 
                 LabeledTextField(
                     label: "Server URL",
                     placeholder: "http://localhost:9880",
                     text: $viewModel.serverAddress,
-                    onCommit: viewModel.commitVoiceServerEdits
+                    onCommit: { viewModel.commitVoiceServerEdits() }
                 )
             }
         } header: {
@@ -428,7 +428,7 @@ struct SettingsView: View {
                     label: "Text Language",
                     placeholder: "e.g. auto/zh/en",
                     text: $viewModel.textLang,
-                    onCommit: viewModel.commitVoiceServerEdits
+                    onCommit: { viewModel.commitVoiceServerEdits() }
                 )
             }
 

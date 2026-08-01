@@ -20,7 +20,7 @@ extension SettingsViewModel {
     }
 
     func addVoiceServerPreset() {
-        commitVoiceServerEdits()
+        guard commitVoiceServerEdits() else { return }
         if let id = presetBindingController.createVoiceServerPreset() {
             reloadVoiceServerPresetListAndSelection()
             presetBindingController.selectVoiceServerPreset(id)
