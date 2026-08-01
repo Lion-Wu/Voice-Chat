@@ -67,12 +67,19 @@ final class SettingsViewModel: ObservableObject {
     private var didSyncAfterStoreLoad = false
 
     // MARK: - Settings
-    @Published var serverAddress: String { didSet { if !suppression.isActive(.autoSaves) { saveServerSettings() } } }
-    @Published var textLang: String { didSet { if !suppression.isActive(.autoSaves) { saveServerSettings() } } }
+    // Text entry is kept as a UI draft and committed on submit/focus loss/settings close.
+    // This avoids synchronous SwiftData/Keychain work for every typed character.
+    @Published var serverAddress: String
+    @Published var textLang: String
 
-    @Published var apiURL: String { didSet { if !suppression.isActive(.autoSaves) { saveChatSettings() } } }
-    @Published var selectedModel: String { didSet { if !suppression.isActive(.autoSaves) { saveChatSettings() } } }
-    @Published var chatAPIKey: String { didSet { if !suppression.isActive(.autoSaves) { saveChatAPIKey() } } }
+    @Published var apiURL: String
+    @Published var selectedModel: String {
+        didSet {
+            guard !suppression.isActive(.autoSaves) else { return }
+            commitChatServerEdits()
+        }
+    }
+    @Published var chatAPIKey: String
 
     @Published var enableStreaming: Bool {
         didSet {
@@ -155,32 +162,39 @@ final class SettingsViewModel: ObservableObject {
     @Published var selectedVoiceServerPresetID: UUID? {
         didSet {
             if !suppression.isActive(.voiceServerPresetDidSet) {
+                commitVoiceServerEdits()
                 presetBindingController.selectVoiceServerPreset(selectedVoiceServerPresetID)
                 refreshFromSettingsManager()
             }
         }
     }
-    @Published var voiceServerPresetName: String = "" { didSet { saveSelectedVoiceServerPresetName() } }
+    @Published var voiceServerPresetName: String = ""
 
     // MARK: - Chat server presets
     @Published var chatServerPresetList: [PresetSummary] = []
     @Published var selectedChatServerPresetID: UUID? {
         didSet {
             if !suppression.isActive(.chatServerPresetDidSet) {
+                commitChatServerEdits()
                 presetBindingController.selectChatServerPreset(selectedChatServerPresetID)
                 refreshFromSettingsManager()
             }
         }
     }
-    @Published var chatServerPresetName: String = "" { didSet { saveSelectedChatServerPresetName() } }
+    @Published var chatServerPresetName: String = ""
     @Published var selectedChatAPIFormatPreference: ChatAPIFormatPreference = .automatic {
-        didSet { saveSelectedChatServerPresetAPIFormatPreference() }
+        didSet {
+            guard !suppression.isActive(.saveChatServerPresetFormat) else { return }
+            commitChatServerEdits()
+            fetchAvailableModels()
+        }
     }
 
     @Published var presetList: [PresetSummary] = []
     @Published var selectedPresetID: UUID? {
         didSet {
             if !suppression.isActive(.voicePresetDidSet) {
+                commitVoicePresetEdits()
                 presetBindingController.selectVoicePreset(selectedPresetID, apply: true)
                 // Reload the preset fields after switching selection.
                 loadSelectedPresetFields()
@@ -188,12 +202,12 @@ final class SettingsViewModel: ObservableObject {
         }
     }
 
-    @Published var presetName: String = ""          { didSet { savePresetFields() } }
-    @Published var presetRefAudioPath: String = ""  { didSet { savePresetFields() } }
-    @Published var presetPromptText: String = ""    { didSet { savePresetFields() } }
-    @Published var presetPromptLang: String = "auto" { didSet { savePresetFields() } }
-    @Published var presetGPTWeightsPath: String = "" { didSet { savePresetFields() } }
-    @Published var presetSoVITSWeightsPath: String = "" { didSet { savePresetFields() } }
+    @Published var presetName: String = ""
+    @Published var presetRefAudioPath: String = ""
+    @Published var presetPromptText: String = ""
+    @Published var presetPromptLang: String = "auto"
+    @Published var presetGPTWeightsPath: String = ""
+    @Published var presetSoVITSWeightsPath: String = ""
 
     // MARK: - System prompt presets (normal / voice are separate)
 
@@ -201,25 +215,27 @@ final class SettingsViewModel: ObservableObject {
     @Published var selectedNormalSystemPromptPresetID: UUID? {
         didSet {
             if !suppression.isActive(.normalSystemPromptDidSet) {
+                commitNormalSystemPromptEdits()
                 presetBindingController.selectNormalSystemPromptPreset(selectedNormalSystemPromptPresetID)
                 loadSelectedNormalSystemPromptPresetFields()
             }
         }
     }
-    @Published var normalSystemPromptPresetName: String = "" { didSet { saveSelectedNormalSystemPromptPresetName() } }
-    @Published var normalSystemPromptPrompt: String = "" { didSet { saveSelectedNormalSystemPromptPresetPrompt() } }
+    @Published var normalSystemPromptPresetName: String = ""
+    @Published var normalSystemPromptPrompt: String = ""
 
     @Published var voiceSystemPromptPresetList: [PresetSummary] = []
     @Published var selectedVoiceSystemPromptPresetID: UUID? {
         didSet {
             if !suppression.isActive(.voiceSystemPromptDidSet) {
+                commitVoiceSystemPromptEdits()
                 presetBindingController.selectVoiceSystemPromptPreset(selectedVoiceSystemPromptPresetID)
                 loadSelectedVoiceSystemPromptPresetFields()
             }
         }
     }
-    @Published var voiceSystemPromptPresetName: String = "" { didSet { saveSelectedVoiceSystemPromptPresetName() } }
-    @Published var voiceSystemPromptPrompt: String = "" { didSet { saveSelectedVoiceSystemPromptPresetPrompt() } }
+    @Published var voiceSystemPromptPresetName: String = ""
+    @Published var voiceSystemPromptPrompt: String = ""
 
     // MARK: - Dependency
     let settingsManager: SettingsManager
@@ -519,26 +535,59 @@ final class SettingsViewModel: ObservableObject {
 
     // MARK: - Persist settings
 
-    func saveServerSettings() {
-        settingsManager.updateServerSettings(
+    @discardableResult
+    func commitVoiceServerEdits() -> Bool {
+        guard !suppression.isActive(.autoSaves),
+              !suppression.isActive(.saveVoiceServerPreset) else { return true }
+        let didCommit = settingsManager.commitSelectedVoiceServerSettings(
+            name: voiceServerPresetName,
             serverAddress: serverAddress,
             textLang: textLang
         )
+        guard didCommit else {
+            refreshFromSettingsManager()
+            return false
+        }
+        let presets = presetBindingController.voiceServerBinding().presets
+        if voiceServerPresetList != presets {
+            voiceServerPresetList = presets
+        }
+        return true
     }
 
     func saveToolUseSettings() {
         settingsManager.updateToolUseSettings(toolUseSettings)
     }
 
-    func saveChatSettings() {
-        settingsManager.updateChatSettings(
+    @discardableResult
+    func commitChatServerEdits() -> Bool {
+        guard !suppression.isActive(.autoSaves),
+              !suppression.isActive(.saveChatServerPreset),
+              !suppression.isActive(.saveChatServerPresetFormat) else { return true }
+        let didCommit = settingsManager.commitSelectedChatServerSettings(
+            name: chatServerPresetName,
             apiURL: apiURL,
-            selectedModel: selectedModel
+            selectedModel: selectedModel,
+            apiKey: chatAPIKey,
+            apiFormatPreference: selectedChatAPIFormatPreference
         )
+        guard didCommit else {
+            refreshFromSettingsManager()
+            return false
+        }
+        let presets = presetBindingController.chatServerBinding().presets
+        if chatServerPresetList != presets {
+            chatServerPresetList = presets
+        }
+        return true
     }
 
-    func saveChatAPIKey() {
-        settingsManager.updateChatAPIKey(chatAPIKey)
+    func commitPendingEdits() {
+        commitChatServerEdits()
+        commitVoiceServerEdits()
+        commitVoicePresetEdits()
+        commitNormalSystemPromptEdits()
+        commitVoiceSystemPromptEdits()
     }
 
     func saveVoiceSettings() {

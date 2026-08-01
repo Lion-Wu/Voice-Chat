@@ -30,8 +30,8 @@ final class ChatSessionMutationController {
         sessionPersistence?.persist(session: session, reason: reason)
     }
 
-    func markMessageActivity(in session: ChatSession, at date: Date) {
-        session.registerMessageActivity(at: date)
+    func markMessageActivity(in session: ChatSession, message: ChatMessage) {
+        session.registerMessageActivity(message)
     }
 
     func messageLookup(in session: ChatSession) -> [UUID: ChatMessage] {

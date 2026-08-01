@@ -37,6 +37,11 @@ struct ChatSearchNavigationTarget: Equatable, Sendable {
     }
 }
 
+struct ChatSessionPersistenceWriteFailure: Identifiable {
+    let id = UUID()
+    let message: String
+}
+
 @MainActor
 final class ChatSessionsViewModel: ObservableObject {
     private struct PendingOrderingUpdate {
@@ -56,6 +61,8 @@ final class ChatSessionsViewModel: ObservableObject {
     }
     @Published private(set) var isRealtimeVoiceLocked: Bool = false
     @Published private(set) var hasActiveTextRequests: Bool = false
+    @Published private(set) var isPersistentStoreAttached: Bool = false
+    @Published private(set) var persistenceWriteFailure: ChatSessionPersistenceWriteFailure?
     /// Content-only mutations do not need to replace the session array, but
     /// sidebar search and time grouping still need to recompute their derived
     /// membership.
@@ -69,8 +76,10 @@ final class ChatSessionsViewModel: ObservableObject {
     private var searchNavigationTargetValidationTask: Task<Void, Never>?
     private var pendingOrderingUpdates: [UUID: PendingOrderingUpdate] = [:]
     private var orderingPublishTask: Task<Void, Never>?
+    private var sidebarSummaryBackfillTask: Task<Void, Never>?
     private var deletedSessionIDs: Set<UUID> = []
     private var sidebarPresentation = ChatSidebarPresentationController()
+    var onPersistentStoreReadFailure: ((Error) -> Void)?
 
     // MARK: - Dependencies
     private let settingsManager: SettingsManager
@@ -124,7 +133,11 @@ final class ChatSessionsViewModel: ObservableObject {
     }
 
     var canStartNewSession: Bool {
-        !isRealtimeVoiceLocked
+        isPersistentStoreAttached && !isRealtimeVoiceLocked
+    }
+
+    func clearPersistenceWriteFailure() {
+        persistenceWriteFailure = nil
     }
 
     func sessions(matchingSidebarQuery rawQuery: String) -> [ChatSession] {
@@ -195,17 +208,20 @@ final class ChatSessionsViewModel: ObservableObject {
     func viewModel(for session: ChatSession) -> ChatViewModel {
         ensureChatConfigurationCurrent()
         if let cached = viewModelCache[session.id] {
+            if cached.chatSession !== session {
+                repository.hydrateTransientMessageState(in: session)
+            }
             cached.attach(session: session)
             bindActivity(for: cached, sessionID: session.id)
             return cached
         }
-        let config = cachedChatConfiguration
+        repository.hydrateTransientMessageState(in: session)
         let vm = ChatViewModel(
             chatSession: session,
             settingsManager: settingsManager,
             reachability: reachability,
             audioManager: audioManager,
-            chatService: chatServiceFactory(config),
+            chatService: nil,
             chatServiceFactory: chatServiceFactory,
             sessionPersistence: self
         )
@@ -215,14 +231,53 @@ final class ChatSessionsViewModel: ObservableObject {
     }
 
     // MARK: - Attach Context
-    func attach(context: ModelContext) {
+    @discardableResult
+    func attach(context: ModelContext) -> Bool {
         repository.attach(context: context)
-        loadChatSessions()
+        let didLoad = loadChatSessions()
+        if !didLoad {
+            repository.detach()
+        }
+        isPersistentStoreAttached = didLoad
+        return didLoad
+    }
+
+    func detachPersistentStore() {
+        // Stop persistence first so cancelling active requests cannot write an
+        // interruption record back into the store that is about to be erased.
+        repository.detach()
+        isPersistentStoreAttached = false
+        sidebarSummaryBackfillTask?.cancel()
+        sidebarSummaryBackfillTask = nil
+        orderingPublishTask?.cancel()
+        orderingPublishTask = nil
+        configurationUpdateTask?.cancel()
+        configurationUpdateTask = nil
+        searchNavigationTargetValidationTask?.cancel()
+        searchNavigationTargetValidationTask = nil
+        textActivityPublishTask?.cancel()
+        textActivityPublishTask = nil
+        viewModelCache.values.forEach {
+            $0.cancelCurrentRequest(autostartQueuedDraft: false)
+        }
+        activityCancellables.values.forEach { $0.cancel() }
+        activityCancellables.removeAll()
+        viewModelCache.removeAll()
+        sessionsWithActiveTextRequests.removeAll()
+        pendingOrderingUpdates.removeAll()
+        deletedSessionIDs.removeAll()
+        sidebarPresentation = ChatSidebarPresentationController()
+        chatSessions = []
+        draftSession = ChatSession()
+        selectedSessionID = draftSession.id
+        searchNavigationTarget = nil
+        hasActiveTextRequests = false
+        persistenceWriteFailure = nil
     }
 
     // MARK: - Session Ops
     func startNewSession() {
-        guard !isRealtimeVoiceLocked else { return }
+        guard canStartNewSession else { return }
         searchNavigationTarget = nil
         selectedSessionID = draftSession.id
     }
@@ -230,19 +285,22 @@ final class ChatSessionsViewModel: ObservableObject {
     private func cacheViewModel(for session: ChatSession) {
         ensureChatConfigurationCurrent()
         if let existing = viewModelCache[session.id] {
+            if existing.chatSession !== session {
+                repository.hydrateTransientMessageState(in: session)
+            }
             existing.attach(session: session)
             viewModelCache[session.id] = existing
             bindActivity(for: existing, sessionID: session.id)
             return
         }
 
-        let config = cachedChatConfiguration
+        repository.hydrateTransientMessageState(in: session)
         let vm = ChatViewModel(
             chatSession: session,
             settingsManager: settingsManager,
             reachability: reachability,
             audioManager: audioManager,
-            chatService: chatServiceFactory(config),
+            chatService: nil,
             chatServiceFactory: chatServiceFactory,
             sessionPersistence: self
         )
@@ -251,11 +309,15 @@ final class ChatSessionsViewModel: ObservableObject {
     }
 
     func addSession(_ session: ChatSession) {
+        trackNewSession(session)
+        persist(session: session, reason: .immediate)
+    }
+
+    private func trackNewSession(_ session: ChatSession) {
         ensureChatConfigurationCurrent()
         deletedSessionIDs.remove(session.id)
         repository.ensureSessionTracked(session)
         cacheViewModel(for: session)
-        persist(session: session, reason: .immediate)
         searchNavigationTarget = nil
         selectedSessionID = session.id
     }
@@ -274,7 +336,7 @@ final class ChatSessionsViewModel: ObservableObject {
             unbindActivity(for: s.id)
             repository.delete(s) // SwiftData cascades to remove related messages.
         }
-        loadChatSessions() // Keeps list in sync with persisted state.
+        _ = loadChatSessions() // Keeps list in sync with persisted state.
     }
 
     // MARK: - Persistence (SwiftData)
@@ -294,13 +356,20 @@ final class ChatSessionsViewModel: ObservableObject {
     }
 
     // MARK: - Fetch
-    func loadChatSessions() {
-        let fetched = repository.fetchSessions()
-        hydrateLastMessageActivityIfNeeded(in: fetched)
-        chatSessions = orderedSessions(fetched)
-        pruneStaleViewModels(keeping: fetched)
-        ensureChatConfigurationCurrent()
-        ensureValidSelection()
+    @discardableResult
+    func loadChatSessions() -> Bool {
+        do {
+            let fetched = try repository.fetchSessions()
+            chatSessions = orderedSessions(fetched)
+            pruneStaleViewModels(keeping: fetched)
+            ensureChatConfigurationCurrent()
+            ensureValidSelection()
+            scheduleSidebarSummaryBackfillIfNeeded(in: fetched)
+            return true
+        } catch {
+            onPersistentStoreReadFailure?(error)
+            return false
+        }
     }
 
     private func pruneStaleViewModels(keeping sessions: [ChatSession]) {
@@ -314,10 +383,60 @@ final class ChatSessionsViewModel: ObservableObject {
         sidebarPresentation.prune(keeping: validIDs)
     }
 
-    private func hydrateLastMessageActivityIfNeeded(in sessions: [ChatSession]) {
-        for session in sessions where session.lastMessageAt == nil {
-            if let latest = session.messages.lazy.map(\.createdAt).max() {
-                session.lastMessageAt = latest
+    private func scheduleSidebarSummaryBackfillIfNeeded(in sessions: [ChatSession]) {
+        sidebarSummaryBackfillTask?.cancel()
+        let sessionsNeedingBackfill = sessions.filter { $0.sidebarPreviewText == nil }
+        guard !sessionsNeedingBackfill.isEmpty else {
+            sidebarSummaryBackfillTask = nil
+            return
+        }
+
+        sidebarSummaryBackfillTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            defer {
+                // A cancelled predecessor must not clear the handle of the
+                // newer backfill task that replaced it.
+                if !Task.isCancelled {
+                    self.sidebarSummaryBackfillTask = nil
+                }
+            }
+            var didBackfillAnySummary = false
+            var readFailure: Error?
+            for session in sessionsNeedingBackfill {
+                if Task.isCancelled { break }
+                guard !self.deletedSessionIDs.contains(session.id) else { continue }
+
+                do {
+                    if try self.repository.backfillSidebarSummaryIfNeeded(for: session) {
+                        didBackfillAnySummary = true
+                        self.invalidateSidebarPresentationCache(for: session.id)
+                        self.updateInMemoryOrdering(with: session)
+                    }
+                } catch {
+                    readFailure = error
+                    break
+                }
+
+                // Give the already-published sidebar a chance to display each
+                // completed legacy summary before fetching the next one.
+                await Task.yield()
+            }
+
+            guard !Task.isCancelled else { return }
+            if didBackfillAnySummary {
+                do {
+                    try self.repository.saveSidebarSummaryBackfills()
+                } catch {
+                    guard !Task.isCancelled else { return }
+                    self.persistenceWriteFailure = ChatSessionPersistenceWriteFailure(
+                        message: error.localizedDescription
+                    )
+                    return
+                }
+            }
+            guard !Task.isCancelled else { return }
+            if let readFailure {
+                self.onPersistentStoreReadFailure?(readFailure)
             }
         }
     }
@@ -525,7 +644,10 @@ extension ChatSessionsViewModel: ChatSessionPersisting {
         if chatSessions.contains(where: { $0.id == session.id }) {
             repository.ensureSessionTracked(session)
         } else {
-            addSession(session)
+            // The mutation controller persists immediately after this call.
+            // Tracking must not issue its own save or the first draft mutation
+            // would write the same session twice.
+            trackNewSession(session)
         }
     }
 

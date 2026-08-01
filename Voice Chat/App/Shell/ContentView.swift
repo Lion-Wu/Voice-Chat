@@ -23,6 +23,7 @@ struct ChatSessionNavigationRoute: Hashable {
 }
 
 struct ContentView: View {
+    let isPersistentDataReady: Bool
     @EnvironmentObject var appEnvironment: AppEnvironment
     @EnvironmentObject var audioManager: GlobalAudioManager
     @EnvironmentObject var settingsManager: SettingsManager
@@ -36,14 +37,38 @@ struct ContentView: View {
     @State private var isIOSSettingsPresented = false
     #endif
 
+    init(isPersistentDataReady: Bool = true) {
+        self.isPersistentDataReady = isPersistentDataReady
+    }
+
     var body: some View {
+        Group {
         #if os(macOS)
-        macContent
+            macContent
         #elseif os(visionOS)
-        visionContent
+            visionContent
         #else
-        iosContent
+            iosContent
         #endif
+        }
+        .alert("Data Saving Issue", isPresented: persistenceWriteFailureAlertBinding) {
+            Button("OK") {
+                chatSessionsViewModel.clearPersistenceWriteFailure()
+            }
+        } message: {
+            Text(chatSessionsViewModel.persistenceWriteFailure?.message ?? "")
+        }
+    }
+
+    private var persistenceWriteFailureAlertBinding: Binding<Bool> {
+        Binding(
+            get: { chatSessionsViewModel.persistenceWriteFailure != nil },
+            set: { isPresented in
+                if !isPresented {
+                    chatSessionsViewModel.clearPersistenceWriteFailure()
+                }
+            }
+        )
     }
 
     #if os(macOS)
@@ -78,9 +103,13 @@ private extension ContentView {
                     onOpenSettings: { openSettingsWindow() }
                 )
             } detail: {
-                let activeSession = chatSessionsViewModel.selectedSession ?? chatSessionsViewModel.draftSession
-                ChatView(viewModel: chatSessionsViewModel.viewModel(for: activeSession))
-                    .id(activeSession.id)
+                if isPersistentDataReady {
+                    let activeSession = chatSessionsViewModel.selectedSession ?? chatSessionsViewModel.draftSession
+                    ChatView(viewModel: chatSessionsViewModel.viewModel(for: activeSession))
+                        .id(activeSession.id)
+                } else {
+                    StartupChatLoadingView()
+                }
             }
             .toolbar {
                 ToolbarItem {
@@ -112,6 +141,8 @@ private extension ContentView {
         NavigationStack(path: $iosNavigationPath) {
             SidebarView(
                 onConversationTap: { conversation in
+                    guard isPersistentDataReady,
+                          chatSessionsViewModel.isPersistentStoreAttached else { return }
                     chatSessionsViewModel.selectedSession = conversation
                     let route = ChatSessionNavigationRoute(sessionID: conversation.id)
                     if iosNavigationPath.last != route {
@@ -119,27 +150,33 @@ private extension ContentView {
                     }
                 },
                 onOpenSettings: {
-                    isIOSSettingsPresented = true
+                    if isPersistentDataReady {
+                        isIOSSettingsPresented = true
+                    }
                 }
             )
             .navigationDestination(for: ChatSessionNavigationRoute.self) { route in
-                let session = iosSession(with: route.sessionID)
-                ChatView(viewModel: chatSessionsViewModel.viewModel(for: session))
-                    .id(session.id)
-                    .toolbar {
-                        ToolbarItem(placement: .topBarTrailing) {
-                            Button(action: {
-                                startNewIOSSession()
-                            }) {
-                                Label("New Chat", systemImage: "square.and.pencil")
+                if isPersistentDataReady && chatSessionsViewModel.isPersistentStoreAttached {
+                    let session = iosSession(with: route.sessionID)
+                    ChatView(viewModel: chatSessionsViewModel.viewModel(for: session))
+                        .id(session.id)
+                        .toolbar {
+                            ToolbarItem(placement: .topBarTrailing) {
+                                Button(action: {
+                                    startNewIOSSession()
+                                }) {
+                                    Label("New Chat", systemImage: "square.and.pencil")
+                                }
+                                .labelStyle(.iconOnly)
+                                .accessibilityLabel("New Chat")
+                                .disabled(!chatSessionsViewModel.canStartNewSession)
                             }
-                            .labelStyle(.iconOnly)
-                            .accessibilityLabel("New Chat")
-                            .disabled(!chatSessionsViewModel.canStartNewSession)
                         }
-                    }
-                .onAppear {
-                    selectIOSSession(with: route.sessionID, matchingSearchQuery: route.searchQuery)
+                        .onAppear {
+                            selectIOSSession(with: route.sessionID, matchingSearchQuery: route.searchQuery)
+                        }
+                } else {
+                    StartupChatLoadingView()
                 }
             }
         }
@@ -166,7 +203,8 @@ private extension ContentView {
     }
 
     private func startNewIOSSession() {
-        guard chatSessionsViewModel.canStartNewSession else { return }
+        guard isPersistentDataReady,
+              chatSessionsViewModel.canStartNewSession else { return }
         chatSessionsViewModel.startNewSession()
         let draftID = chatSessionsViewModel.draftSession.id
         let route = ChatSessionNavigationRoute(sessionID: draftID)
@@ -181,13 +219,17 @@ private extension ContentView {
 #if os(visionOS)
     @ViewBuilder
     var visionContent: some View {
-        VisionRootView()
-            .environmentObject(appEnvironment)
-            .environmentObject(audioManager)
-            .environmentObject(settingsManager)
-            .environmentObject(chatSessionsViewModel)
-            .environmentObject(errorCenter)
-            .environmentObject(voiceOverlayViewModel)
+        if isPersistentDataReady {
+            VisionRootView()
+                .environmentObject(appEnvironment)
+                .environmentObject(audioManager)
+                .environmentObject(settingsManager)
+                .environmentObject(chatSessionsViewModel)
+                .environmentObject(errorCenter)
+                .environmentObject(voiceOverlayViewModel)
+        } else {
+            StartupChatLoadingView()
+        }
     }
 #endif
 
@@ -226,9 +268,19 @@ private extension ContentView {
         errorCenter: AppErrorCenter.shared,
         reachabilityMonitor: reachabilityMonitor
     )
+    let container = try! ModelContainer(
+        for: Schema([
+            ChatSession.self,
+            ChatMessage.self,
+            ChatRequestContextMetadata.self,
+            AppSettings.self
+        ]),
+        configurations: [ModelConfiguration(isStoredInMemoryOnly: true)]
+    )
+    _ = chatSessions.attach(context: container.mainContext)
 
-    ContentView()
-        .modelContainer(for: [ChatSession.self, ChatMessage.self, ChatRequestContextMetadata.self, AppSettings.self], inMemory: true)
+    return ContentView()
+        .modelContainer(container)
         .environmentObject(appEnvironment)
         .environmentObject(appEnvironment.audioManager)
         .environmentObject(appEnvironment.settingsManager)
@@ -257,11 +309,21 @@ private extension ContentView {
         errorCenter: AppErrorCenter.shared,
         reachabilityMonitor: reachabilityMonitor
     )
+    let container = try! ModelContainer(
+        for: Schema([
+            ChatSession.self,
+            ChatMessage.self,
+            ChatRequestContextMetadata.self,
+            AppSettings.self
+        ]),
+        configurations: [ModelConfiguration(isStoredInMemoryOnly: true)]
+    )
+    _ = chatSessions.attach(context: container.mainContext)
 
     appEnvironment.voiceOverlayViewModel.isPresented = true
 
     return ContentView()
-        .modelContainer(for: [ChatSession.self, ChatMessage.self, ChatRequestContextMetadata.self, AppSettings.self], inMemory: true)
+        .modelContainer(container)
         .environmentObject(appEnvironment)
         .environmentObject(appEnvironment.audioManager)
         .environmentObject(appEnvironment.settingsManager)

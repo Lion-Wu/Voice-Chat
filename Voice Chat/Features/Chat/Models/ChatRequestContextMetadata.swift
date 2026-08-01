@@ -89,13 +89,16 @@ enum ChatRequestContextMetadataStore {
     @MainActor
     static func record(_ snapshot: ChatRequestContextSnapshot, in context: ModelContext?) {
         guard let context else { return }
-        if let existing = fetch(fingerprint: snapshot.fingerprint, in: context) {
+        // Metadata has its own transaction so recording request telemetry cannot
+        // flush a throttled conversation before transient segments are encoded.
+        let metadataContext = ModelContext(context.container)
+        if let existing = fetch(fingerprint: snapshot.fingerprint, in: metadataContext) {
             existing.markSeen(with: snapshot)
         } else {
-            context.insert(ChatRequestContextMetadata(snapshot: snapshot))
+            metadataContext.insert(ChatRequestContextMetadata(snapshot: snapshot))
         }
         do {
-            try context.save()
+            try metadataContext.save()
         } catch {
             print("Save request context metadata error: \(error)")
         }

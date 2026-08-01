@@ -10,17 +10,12 @@ import SwiftData
 
 @MainActor
 enum VoiceServerPresetStore {
-    static func fetch(from context: ModelContext) -> [VoiceServerPreset] {
+    static func fetch(from context: ModelContext) throws -> [VoiceServerPreset] {
         let descriptor = FetchDescriptor<VoiceServerPreset>(
             predicate: nil,
             sortBy: [SortDescriptor(\.updatedAt, order: .reverse)]
         )
-        do {
-            return try context.fetch(descriptor)
-        } catch {
-            print("SwiftData fetch VoiceServerPreset failed: \(error)")
-            return []
-        }
+        return try context.fetch(descriptor)
     }
 
     static func ensureDefaultIfNeeded(
@@ -107,7 +102,8 @@ enum VoiceServerPresetStore {
         save: (String) -> Void
     ) -> Bool {
         guard let preset = presets.first(where: { $0.id == id }) else { return false }
-        if let name { preset.name = name }
+        guard let name, name != preset.name else { return false }
+        preset.name = name
         preset.updatedAt = Date()
         save("update voice server preset meta")
         return true

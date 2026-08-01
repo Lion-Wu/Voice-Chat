@@ -83,13 +83,15 @@ struct SettingsChatServerSection: View {
             LabeledTextField(
                 label: "Preset Name",
                 placeholder: "Enter preset name",
-                text: $viewModel.chatServerPresetName
+                text: $viewModel.chatServerPresetName,
+                onCommit: { viewModel.commitChatServerEdits() }
             )
 
             LabeledTextField(
                 label: "Server URL",
                 placeholder: "http://localhost:1234",
-                text: $viewModel.apiURL
+                text: $viewModel.apiURL,
+                onCommit: { viewModel.commitChatServerEdits() }
             )
 
             LabeledContent("API Format") {
@@ -120,7 +122,8 @@ struct SettingsChatServerSection: View {
             LabeledSecureField(
                 label: "API Key",
                 placeholder: "Enter API key",
-                text: $viewModel.chatAPIKey
+                text: $viewModel.chatAPIKey,
+                onCommit: { viewModel.commitChatServerEdits() }
             )
         } header: {
             header

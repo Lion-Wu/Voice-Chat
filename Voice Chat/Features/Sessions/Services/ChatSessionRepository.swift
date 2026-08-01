@@ -14,6 +14,17 @@ enum SessionPersistReason {
     case immediate
 }
 
+enum ChatSessionRepositoryReadError: LocalizedError {
+    case contextUnavailable
+
+    var errorDescription: String? {
+        switch self {
+        case .contextUnavailable:
+            return String(localized: "The chat data store is not available.")
+        }
+    }
+}
+
 /// Persistence contract used by chat-focused view models.
 @MainActor
 protocol ChatSessionPersisting: AnyObject {
@@ -34,7 +45,12 @@ protocol ChatSessionActivityPublishing: AnyObject {
 protocol ChatSessionRepository: ChatSessionPersisting {
     var didPersistSessions: ((Set<UUID>) -> Void)? { get set }
     func attach(context: ModelContext)
-    func fetchSessions() -> [ChatSession]
+    func detach()
+    func fetchSessions() throws -> [ChatSession]
+    func hydrateTransientMessageState(in session: ChatSession)
+    @discardableResult
+    func backfillSidebarSummaryIfNeeded(for session: ChatSession) throws -> Bool
+    func saveSidebarSummaryBackfills() throws
     func createSession(title: String) -> ChatSession?
     func delete(_ session: ChatSession)
     func setImmediatePersistenceEnabled(_ enabled: Bool)
@@ -57,12 +73,24 @@ final class SwiftDataChatSessionRepository: ChatSessionRepository {
     }
 
     func attach(context: ModelContext) {
-        guard self.context == nil else { return }
+        guard self.context !== context else { return }
+        detach()
         self.context = context
     }
 
-    func fetchSessions() -> [ChatSession] {
-        guard let context = context else { return [] }
+    func detach() {
+        pendingSaveTasks.values.forEach { $0.cancel() }
+        pendingSaveTasks.removeAll()
+        pendingSessionIDs.removeAll()
+        pendingSessions.removeAll()
+        lastSaveTime.removeAll()
+        context = nil
+    }
+
+    func fetchSessions() throws -> [ChatSession] {
+        guard let context else {
+            throw ChatSessionRepositoryReadError.contextUnavailable
+        }
         let descriptor = FetchDescriptor<ChatSession>(
             predicate: nil,
             sortBy: [
@@ -70,16 +98,46 @@ final class SwiftDataChatSessionRepository: ChatSessionRepository {
                 SortDescriptor(\.createdAt, order: .reverse)
             ]
         )
-        do {
-            let sessions = try context.fetch(descriptor)
-            for session in sessions {
-                session.hydrateTransientMessageState()
-            }
-            return sessions
-        } catch {
-            print("Fetch sessions error: \(error)")
-            return []
+        let sessions = try context.fetch(descriptor)
+        for session in sessions {
+            session.prepareForMetadataOnlyPersistence()
         }
+        return sessions
+    }
+
+    func hydrateTransientMessageState(in session: ChatSession) {
+        session.hydrateTransientMessageState()
+    }
+
+    @discardableResult
+    func backfillSidebarSummaryIfNeeded(for session: ChatSession) throws -> Bool {
+        guard session.sidebarPreviewText == nil else { return false }
+        guard let context else {
+            throw ChatSessionRepositoryReadError.contextUnavailable
+        }
+
+        let sessionID = session.id
+        var descriptor = FetchDescriptor<ChatMessage>(
+            predicate: #Predicate<ChatMessage> { message in
+                message.session?.id == sessionID
+            },
+            sortBy: [SortDescriptor(\.createdAt, order: .reverse)]
+        )
+        // The sidebar needs exactly the latest message, not a page of history.
+        descriptor.fetchLimit = 1
+        let latestMessage = try context.fetch(descriptor).first
+        session.applySidebarSummaryBackfill(from: latestMessage)
+        return true
+    }
+
+    func saveSidebarSummaryBackfills() throws {
+        guard context != nil else {
+            throw ChatSessionRepositoryReadError.contextUnavailable
+        }
+        _ = try saveContextOrThrow(
+            label: "sidebar summary backfills",
+            notifyObserver: true
+        )
     }
 
     func createSession(title: String) -> ChatSession? {
@@ -149,6 +207,24 @@ final class SwiftDataChatSessionRepository: ChatSessionRepository {
         at saveTime: Date = Date(),
         notifyObserver: Bool = false
     ) -> Bool {
+        do {
+            return try saveContextOrThrow(
+                label: label,
+                at: saveTime,
+                notifyObserver: notifyObserver
+            )
+        } catch {
+            print("SwiftData save failed (\(label)): \(error)")
+            return false
+        }
+    }
+
+    @discardableResult
+    private func saveContextOrThrow(
+        label: String,
+        at saveTime: Date = Date(),
+        notifyObserver: Bool = false
+    ) throws -> Bool {
         guard let context else { return false }
         let savedSessionIDs = pendingSessionIDs
         for sessionID in savedSessionIDs {
@@ -186,8 +262,7 @@ final class SwiftDataChatSessionRepository: ChatSessionRepository {
             for sessionID in savedSessionIDs {
                 pendingSessions[sessionID]?.markTransientMessageStatePersistenceFailed()
             }
-            print("SwiftData save failed (\(label)): \(error)")
-            return false
+            throw error
         }
     }
 

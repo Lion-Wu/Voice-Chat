@@ -24,7 +24,7 @@ extension SettingsManager {
             context: context,
             save: saveContext(label:)
         ) {
-            loadSystemPromptPresetsFromStore()
+            systemPromptPresets.removeAll { $0.id == id }
             ensureDefaultSystemPromptPresetsForModesIfNeeded()
             ensureSystemPromptSelectionsAreValid()
         }
@@ -43,7 +43,7 @@ extension SettingsManager {
             presets: systemPromptPresets,
             save: saveContext(label:)
         ) {
-            loadSystemPromptPresetsFromStore()
+            systemPromptPresets = systemPromptPresets.sorted { $0.updatedAt > $1.updatedAt }
         }
     }
 
@@ -60,7 +60,7 @@ extension SettingsManager {
             presets: systemPromptPresets,
             save: saveContext(label:)
         ) {
-            loadSystemPromptPresetsFromStore()
+            systemPromptPresets = systemPromptPresets.sorted { $0.updatedAt > $1.updatedAt }
         }
     }
 
@@ -79,7 +79,7 @@ extension SettingsManager {
             presets: systemPromptPresets,
             save: saveContext(label:)
         ) {
-            loadSystemPromptPresetsFromStore()
+            systemPromptPresets = systemPromptPresets.sorted { $0.updatedAt > $1.updatedAt }
         }
     }
 
@@ -111,7 +111,9 @@ extension SettingsManager {
             context: context,
             save: saveContext(label:)
         )
-        loadSystemPromptPresetsFromStore()
+        systemPromptPresets = (systemPromptPresets + [preset]).sorted {
+            $0.updatedAt > $1.updatedAt
+        }
         return preset
     }
 }

@@ -55,6 +55,30 @@ final class SettingsVoiceServerRuntimeTests: XCTestCase {
         XCTAssertEqual(preset.serverAddress, "http://old.local:9880")
     }
 
+    func testEqualSettingsDoNotPublishOrWrite() {
+        let preset = VoiceServerPreset(
+            name: "Primary",
+            serverAddress: "http://same.local:9880"
+        )
+        var serverSettings = ServerSettings(
+            serverAddress: "http://same.local:9880",
+            textLang: "auto"
+        )
+
+        let didUpdatePreset = SettingsVoiceServerRuntime.updateSettings(
+            serverAddress: "http://same.local:9880",
+            textLang: "auto",
+            serverSettings: &serverSettings,
+            presets: [preset],
+            selectedID: preset.id,
+            hasContext: true,
+            persistServerSettings: { _ in XCTFail("equal settings must not publish") },
+            save: { _ in XCTFail("equal settings must not write") }
+        )
+
+        XCTAssertFalse(didUpdatePreset)
+    }
+
     func testSelectPresetAppliesServerAddressAndKeepsCurrentTextLanguage() {
         let first = VoiceServerPreset(
             name: "First",
@@ -86,5 +110,31 @@ final class SettingsVoiceServerRuntimeTests: XCTestCase {
         XCTAssertEqual(serverSettings, ServerSettings(serverAddress: "http://second.local:9880", textLang: "ja"))
         XCTAssertEqual(persisted, [serverSettings])
         XCTAssertEqual(saveLabels, ["select voice server preset"])
+    }
+
+    func testApplySelectedPresetPublishesFallbackSettingsAfterDeletion() {
+        let fallback = VoiceServerPreset(
+            name: "Fallback",
+            serverAddress: "http://fallback.local:9880"
+        )
+        var serverSettings = ServerSettings(
+            serverAddress: "http://deleted.local:9880",
+            textLang: "zh"
+        )
+        var persisted: [ServerSettings] = []
+
+        let didApply = SettingsVoiceServerRuntime.applySelectedPresetToServerSettings(
+            presets: [fallback],
+            selectedID: fallback.id,
+            serverSettings: &serverSettings,
+            persistServerSettings: { persisted.append($0) }
+        )
+
+        XCTAssertTrue(didApply)
+        XCTAssertEqual(
+            serverSettings,
+            ServerSettings(serverAddress: "http://fallback.local:9880", textLang: "zh")
+        )
+        XCTAssertEqual(persisted, [serverSettings])
     }
 }

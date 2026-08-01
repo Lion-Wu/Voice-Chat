@@ -10,17 +10,12 @@ import SwiftData
 
 @MainActor
 enum VoicePresetStore {
-    static func fetch(from context: ModelContext) -> [VoicePreset] {
+    static func fetch(from context: ModelContext) throws -> [VoicePreset] {
         let descriptor = FetchDescriptor<VoicePreset>(
             predicate: nil,
             sortBy: [SortDescriptor(\.updatedAt, order: .reverse)]
         )
-        do {
-            return try context.fetch(descriptor)
-        } catch {
-            print("SwiftData fetch VoicePreset failed: \(error)")
-            return []
-        }
+        return try context.fetch(descriptor)
     }
 
     static func ensureDefaultIfNeeded(
@@ -110,6 +105,14 @@ enum VoicePresetStore {
         save: (String) -> Void
     ) -> Bool {
         guard let preset = presets.first(where: { $0.id == id }) else { return false }
+        let changed = (name.map { $0 != preset.name } ?? false)
+            || (refAudioPath.map { $0 != preset.refAudioPath } ?? false)
+            || (promptText.map { $0 != preset.promptText } ?? false)
+            || (promptLang.map { $0 != preset.promptLang } ?? false)
+            || (gptWeightsPath.map { $0 != preset.gptWeightsPath } ?? false)
+            || (sovitsWeightsPath.map { $0 != preset.sovitsWeightsPath } ?? false)
+        guard changed else { return false }
+
         if let name { preset.name = name }
         if let refAudioPath { preset.refAudioPath = refAudioPath }
         if let promptText { preset.promptText = promptText }

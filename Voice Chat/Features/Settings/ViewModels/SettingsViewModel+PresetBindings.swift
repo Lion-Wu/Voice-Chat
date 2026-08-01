@@ -19,14 +19,8 @@ extension SettingsViewModel {
         applyVoiceServerPresetBinding(presetBindingController.voiceServerBinding())
     }
 
-    func saveSelectedVoiceServerPresetName() {
-        guard !suppression.isActive(.saveVoiceServerPreset),
-              selectedVoiceServerPresetID != nil else { return }
-        presetBindingController.updateVoiceServerPresetName(voiceServerPresetName)
-        reloadVoiceServerPresetListAndSelection()
-    }
-
     func addVoiceServerPreset() {
+        guard commitVoiceServerEdits() else { return }
         if let id = presetBindingController.createVoiceServerPreset() {
             reloadVoiceServerPresetListAndSelection()
             presetBindingController.selectVoiceServerPreset(id)
@@ -52,21 +46,8 @@ extension SettingsViewModel {
         applyChatServerPresetBinding(presetBindingController.chatServerBinding())
     }
 
-    func saveSelectedChatServerPresetName() {
-        guard !suppression.isActive(.saveChatServerPreset),
-              selectedChatServerPresetID != nil else { return }
-        presetBindingController.updateChatServerPresetName(chatServerPresetName)
-        reloadChatServerPresetListAndSelection()
-    }
-
-    func saveSelectedChatServerPresetAPIFormatPreference() {
-        guard !suppression.isActive(.saveChatServerPresetFormat),
-              selectedChatServerPresetID != nil else { return }
-        presetBindingController.updateChatServerAPIFormatPreference(selectedChatAPIFormatPreference)
-        fetchAvailableModels()
-    }
-
     func addChatServerPreset() {
+        guard commitChatServerEdits() else { return }
         if let id = presetBindingController.createChatServerPreset() {
             reloadChatServerPresetListAndSelection()
             presetBindingController.selectChatServerPreset(id)
@@ -92,13 +73,18 @@ extension SettingsViewModel {
         applyVoicePresetBinding(presetBindingController.voicePresetBinding())
     }
 
-    func savePresetFields() {
-        guard !suppression.isActive(.saveVoicePreset), selectedPresetID != nil else { return }
+    func commitVoicePresetEdits() {
+        guard !suppression.isActive(.saveVoicePreset),
+              settingsManager.selectedPresetID != nil else { return }
         presetBindingController.updateVoicePreset(currentVoicePresetBinding())
-        reloadPresetListAndSelection()
+        let presets = presetBindingController.voicePresetBinding().presets
+        if presetList != presets {
+            presetList = presets
+        }
     }
 
     func addPreset() {
+        commitVoicePresetEdits()
         if let id = presetBindingController.createVoicePreset() {
             reloadPresetListAndSelection()
             presetBindingController.selectVoicePreset(id, apply: false)
@@ -117,6 +103,7 @@ extension SettingsViewModel {
     }
 
     func applySelectedPresetNow() {
+        commitVoicePresetEdits()
         AppHaptics.trigger(.selection)
         Task { await settingsManager.applySelectedPreset() }
     }
@@ -135,37 +122,36 @@ extension SettingsViewModel {
         applyVoiceSystemPromptBinding(presetBindingController.voiceSystemPromptBinding())
     }
 
-    func saveSelectedNormalSystemPromptPresetName() {
+    func commitNormalSystemPromptEdits() {
         guard !suppression.isActive(.saveNormalSystemPrompt),
-              let id = selectedNormalSystemPromptPresetID else { return }
-        presetBindingController.updateNormalSystemPromptPresetName(normalSystemPromptPresetName)
-        if let idx = normalSystemPromptPresetList.firstIndex(where: { $0.id == id }) {
-            normalSystemPromptPresetList[idx].name = normalSystemPromptPresetName
+              let id = settingsManager.selectedNormalSystemPromptPresetID else { return }
+        settingsManager.updateNormalSystemPromptPreset(
+            id: id,
+            name: normalSystemPromptPresetName,
+            prompt: normalSystemPromptPrompt
+        )
+        let presets = presetBindingController.normalSystemPromptBinding().presets
+        if normalSystemPromptPresetList != presets {
+            normalSystemPromptPresetList = presets
         }
     }
 
-    func saveSelectedNormalSystemPromptPresetPrompt() {
-        guard !suppression.isActive(.saveNormalSystemPrompt),
-              selectedNormalSystemPromptPresetID != nil else { return }
-        presetBindingController.updateNormalSystemPromptPresetPrompt(normalSystemPromptPrompt)
-    }
-
-    func saveSelectedVoiceSystemPromptPresetName() {
+    func commitVoiceSystemPromptEdits() {
         guard !suppression.isActive(.saveVoiceSystemPrompt),
-              let id = selectedVoiceSystemPromptPresetID else { return }
-        presetBindingController.updateVoiceSystemPromptPresetName(voiceSystemPromptPresetName)
-        if let idx = voiceSystemPromptPresetList.firstIndex(where: { $0.id == id }) {
-            voiceSystemPromptPresetList[idx].name = voiceSystemPromptPresetName
+              let id = settingsManager.selectedVoiceSystemPromptPresetID else { return }
+        settingsManager.updateVoiceSystemPromptPreset(
+            id: id,
+            name: voiceSystemPromptPresetName,
+            prompt: voiceSystemPromptPrompt
+        )
+        let presets = presetBindingController.voiceSystemPromptBinding().presets
+        if voiceSystemPromptPresetList != presets {
+            voiceSystemPromptPresetList = presets
         }
-    }
-
-    func saveSelectedVoiceSystemPromptPresetPrompt() {
-        guard !suppression.isActive(.saveVoiceSystemPrompt),
-              selectedVoiceSystemPromptPresetID != nil else { return }
-        presetBindingController.updateVoiceSystemPromptPresetPrompt(voiceSystemPromptPrompt)
     }
 
     func addNormalSystemPromptPreset() {
+        commitNormalSystemPromptEdits()
         if let id = presetBindingController.createNormalSystemPromptPreset() {
             reloadSystemPromptPresetListsAndSelections()
             presetBindingController.selectNormalSystemPromptPreset(id)
@@ -182,6 +168,7 @@ extension SettingsViewModel {
     }
 
     func addVoiceSystemPromptPreset() {
+        commitVoiceSystemPromptEdits()
         if let id = presetBindingController.createVoiceSystemPromptPreset() {
             reloadSystemPromptPresetListsAndSelections()
             presetBindingController.selectVoiceSystemPromptPreset(id)

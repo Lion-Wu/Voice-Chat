@@ -30,6 +30,8 @@
 "API Base URL" = "URL de base de l’API";
 "API Format" = "Format d’API";
 "API Key" = "Clé d’API";
+"Data Saving Issue" = "Problème d’enregistrement des données";
+"The API key could not be saved." = "La clé API n’a pas pu être enregistrée.";
 "Apply Preset Now" = "Appliquer le préréglage maintenant";
 "Apply selected preset now" = "Appliquer maintenant le préréglage sélectionné";
 "Applying preset..." = "Application du préréglage...";
@@ -231,7 +233,9 @@
 "LM Studio" = "LM Studio";
 "LM Studio REST v1" = "LM Studio REST v1";
 "LM Studio stream error." = "Erreur de flux LM Studio.";
+"Loading chats..." = "Chargement des discussions...";
 "Loading model list..." = "Chargement de la liste des modèles...";
+"Loading settings..." = "Chargement des réglages...";
 "Loading..." = "Chargement...";
 "Location" = "Position";
 "Location access is not available on this platform." = "L’accès à la position n’est pas disponible sur cette plateforme.";

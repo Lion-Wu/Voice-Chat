@@ -30,6 +30,8 @@
 "API Base URL" = "APIベースURL";
 "API Format" = "API 形式";
 "API Key" = "APIキー";
+"Data Saving Issue" = "データ保存の問題";
+"The API key could not be saved." = "APIキーを保存できませんでした。";
 "Apply Preset Now" = "プリセットを今すぐ適用";
 "Apply selected preset now" = "選択したプリセットを今すぐ適用";
 "Applying preset..." = "プリセットを適用しています...";
@@ -231,7 +233,9 @@
 "LM Studio" = "LM Studio";
 "LM Studio REST v1" = "LM Studio REST v1";
 "LM Studio stream error." = "LM Studio のストリームエラー。";
+"Loading chats..." = "チャットを読み込み中...";
 "Loading model list..." = "モデル一覧を読み込み中...";
+"Loading settings..." = "設定を読み込み中...";
 "Loading..." = "読み込み中...";
 "Location" = "位置情報";
 "Location access is not available on this platform." = "このプラットフォームでは位置情報にアクセスできません。";

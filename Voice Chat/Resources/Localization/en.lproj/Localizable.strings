@@ -30,6 +30,8 @@
 "API Base URL" = "API Base URL";
 "API Format" = "API Format";
 "API Key" = "API Key";
+"Data Saving Issue" = "Data Saving Issue";
+"The API key could not be saved." = "The API key could not be saved.";
 "Apply Preset Now" = "Apply Preset Now";
 "Apply selected preset now" = "Apply selected preset now";
 "Applying preset..." = "Applying preset...";
@@ -231,7 +233,9 @@
 "LM Studio" = "LM Studio";
 "LM Studio REST v1" = "LM Studio REST v1";
 "LM Studio stream error." = "LM Studio stream error.";
+"Loading chats..." = "Loading chats...";
 "Loading model list..." = "Loading model list...";
+"Loading settings..." = "Loading settings...";
 "Loading..." = "Loading...";
 "Location" = "Location";
 "Location access is not available on this platform." = "Location access is not available on this platform.";

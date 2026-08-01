@@ -2036,6 +2036,40 @@ final class ChatMessageToolTracePersistenceTests: XCTestCase {
         ])
     }
 
+    @MainActor
+    func testRepeatedMetadataFetchPreservesPendingAssistantSegmentPersistence() throws {
+        let container = try ModelContainer(
+            for: ChatSession.self,
+            ChatMessage.self,
+            configurations: ModelConfiguration(isStoredInMemoryOnly: true)
+        )
+        let repository = SwiftDataChatSessionRepository()
+        repository.attach(context: container.mainContext)
+        let session = ChatSession(title: "Pending Segments")
+        let message = ChatMessage(
+            content: "Answer",
+            assistantSegments: [.init(kind: .text, itemID: "m1", text: "A")],
+            isUser: false,
+            session: session
+        )
+        session.messages.append(message)
+        repository.ensureSessionTracked(session)
+        XCTAssertTrue(repository.persist(session: session, reason: .immediate))
+
+        _ = try repository.fetchSessions()
+        message.appendAssistantSegment(.text(id: "m1", text: "B"))
+        _ = try repository.fetchSessions()
+        XCTAssertTrue(repository.persist(session: session, reason: .immediate))
+
+        let verificationContext = ModelContext(container)
+        let restored = try XCTUnwrap(
+            verificationContext.fetch(FetchDescriptor<ChatSession>()).first?.messages.first
+        )
+        XCTAssertEqual(restored.assistantSegments, [
+            .init(kind: .text, itemID: "m1", text: "AB")
+        ])
+    }
+
     func testAssistantSegmentsAreEncodedOnlyAfterMutation() {
         let message = ChatMessage(content: "", isUser: false)
 
@@ -2096,7 +2130,7 @@ final class ChatMessageToolTracePersistenceTests: XCTestCase {
     }
 
     @MainActor
-    func testRepositoryHydratesAssistantSegmentsAfterFetch() throws {
+    func testRepositoryHydratesAssistantSegmentsOnlyOnDemandAfterFetch() throws {
         let configuration = ModelConfiguration(isStoredInMemoryOnly: true)
         let container = try ModelContainer(
             for: ChatSession.self,
@@ -2123,9 +2157,14 @@ final class ChatMessageToolTracePersistenceTests: XCTestCase {
         let readerContext = ModelContext(container)
         let reader = SwiftDataChatSessionRepository()
         reader.attach(context: readerContext)
-        let fetched = try XCTUnwrap(reader.fetchSessions().first?.messages.first)
+        let fetchedSession = try XCTUnwrap(try reader.fetchSessions().first)
+        let fetched = try XCTUnwrap(fetchedSession.messages.first)
 
         XCTAssertFalse(readerContext.hasChanges)
+        XCTAssertNil(fetched.transientAssistantSegments)
+
+        reader.hydrateTransientMessageState(in: fetchedSession)
+
         XCTAssertNotNil(fetched.transientAssistantSegments)
         XCTAssertEqual(fetched.assistantSegments, [
             .init(kind: .text, itemID: "m1", text: "Answer")
@@ -2134,5 +2173,182 @@ final class ChatMessageToolTracePersistenceTests: XCTestCase {
             "type": .string("message"),
             "id": .string("m1")
         ])])
+    }
+
+    @MainActor
+    func testRepositoryBackfillsAndPersistsLatestSidebarProjection() throws {
+        let configuration = ModelConfiguration(isStoredInMemoryOnly: true)
+        let container = try ModelContainer(
+            for: ChatSession.self,
+            ChatMessage.self,
+            configurations: configuration
+        )
+        let writer = SwiftDataChatSessionRepository()
+        writer.attach(context: container.mainContext)
+        let session = ChatSession(title: "Legacy Projection")
+        let older = ChatMessage(
+            content: "Older",
+            isUser: true,
+            createdAt: TestDate.reference,
+            session: session
+        )
+        let latest = ChatMessage(
+            content: "<think>hidden</think> Latest body",
+            isUser: false,
+            createdAt: TestDate.offset(1),
+            session: session
+        )
+        session.messages = [older, latest]
+        session.lastMessageAt = nil
+        session.lastMessageID = nil
+        session.sidebarPreviewText = nil
+        writer.ensureSessionTracked(session)
+        XCTAssertTrue(writer.persist(session: session, reason: .immediate))
+
+        let readerContext = ModelContext(container)
+        let reader = SwiftDataChatSessionRepository()
+        reader.attach(context: readerContext)
+        let fetchedSession = try XCTUnwrap(try reader.fetchSessions().first)
+
+        XCTAssertNil(fetchedSession.sidebarPreviewText)
+        XCTAssertTrue(try reader.backfillSidebarSummaryIfNeeded(for: fetchedSession))
+        XCTAssertEqual(fetchedSession.lastMessageID, latest.id)
+        XCTAssertEqual(fetchedSession.lastMessageAt, latest.createdAt)
+        XCTAssertEqual(fetchedSession.sidebarPreviewText, "Latest body")
+
+        try reader.saveSidebarSummaryBackfills()
+        let verificationContext = ModelContext(container)
+        let restored = try XCTUnwrap(verificationContext.fetch(FetchDescriptor<ChatSession>()).first)
+        XCTAssertEqual(restored.lastMessageID, latest.id)
+        XCTAssertEqual(restored.lastMessageAt, latest.createdAt)
+        XCTAssertEqual(restored.sidebarPreviewText, "Latest body")
+    }
+
+    @MainActor
+    func testSidebarBackfillSaveSynchronizesPendingStructuredSegments() throws {
+        let container = try ModelContainer(
+            for: ChatSession.self,
+            ChatMessage.self,
+            configurations: ModelConfiguration(isStoredInMemoryOnly: true)
+        )
+        let repository = SwiftDataChatSessionRepository(throttleInterval: 10_000)
+        repository.attach(context: container.mainContext)
+
+        let streamingSession = ChatSession(title: "Streaming")
+        let streamingMessage = ChatMessage(
+            content: "A",
+            assistantSegments: [.init(kind: .text, itemID: "m1", text: "A")],
+            isUser: false,
+            session: streamingSession
+        )
+        streamingSession.messages.append(streamingMessage)
+        repository.ensureSessionTracked(streamingSession)
+
+        let legacySession = ChatSession(title: "Legacy")
+        let legacyMessage = ChatMessage(content: "Latest", isUser: true, session: legacySession)
+        legacySession.messages.append(legacyMessage)
+        repository.ensureSessionTracked(legacySession)
+        XCTAssertTrue(repository.persist(session: streamingSession, reason: .immediate))
+
+        streamingMessage.content = "AB"
+        streamingMessage.appendAssistantSegment(.text(id: "m1", text: "B"))
+        XCTAssertFalse(repository.persist(session: streamingSession, reason: .throttled))
+
+        legacySession.lastMessageAt = nil
+        legacySession.lastMessageID = nil
+        legacySession.sidebarPreviewText = nil
+        XCTAssertTrue(try repository.backfillSidebarSummaryIfNeeded(for: legacySession))
+        try repository.saveSidebarSummaryBackfills()
+
+        let verificationContext = ModelContext(container)
+        let streamingMessageID = streamingMessage.id
+        let restored = try XCTUnwrap(
+            verificationContext.fetch(
+                FetchDescriptor<ChatMessage>(
+                    predicate: #Predicate<ChatMessage> { $0.id == streamingMessageID }
+                )
+            ).first
+        )
+        XCTAssertEqual(restored.content, "AB")
+        XCTAssertEqual(restored.assistantSegments, [
+            .init(kind: .text, itemID: "m1", text: "AB")
+        ])
+    }
+
+    @MainActor
+    func testRequestMetadataRecordDoesNotFlushPendingConversationContext() throws {
+        let container = try ModelContainer(
+            for: ChatSession.self,
+            ChatMessage.self,
+            ChatRequestContextMetadata.self,
+            configurations: ModelConfiguration(isStoredInMemoryOnly: true)
+        )
+        let context = container.mainContext
+        let session = ChatSession(title: "Pending")
+        let message = ChatMessage(content: "persisted", isUser: true, session: session)
+        session.messages.append(message)
+        context.insert(session)
+        try context.save()
+
+        message.content = "pending"
+        ChatRequestContextMetadataStore.record(
+            ChatRequestContextSnapshot(
+                fingerprint: "metadata-isolation",
+                version: 1,
+                modelIdentifier: "model",
+                endpointURLHash: "endpoint",
+                providerRawValue: "openAI",
+                requestStyleRawValue: "openAIResponses",
+                developerPromptHash: "prompt",
+                developerPromptCharacterCount: 0,
+                thinkingOptionRawValue: nil,
+                toolUseEnabled: false,
+                enabledToolIDsJSON: "[]",
+                toolSchemaDigest: "tools",
+                toolSchemaSummaryJSON: "[]",
+                toolAuthorizationModeRawValue: "ask",
+                allowHighRiskToolAutoExecution: false,
+                useProviderContinuationIDs: false
+            ),
+            in: context
+        )
+
+        let verificationContext = ModelContext(container)
+        let restoredMessage = try XCTUnwrap(
+            verificationContext.fetch(FetchDescriptor<ChatMessage>()).first
+        )
+        XCTAssertEqual(restoredMessage.content, "persisted")
+        XCTAssertEqual(
+            try verificationContext.fetch(FetchDescriptor<ChatRequestContextMetadata>()).count,
+            1
+        )
+    }
+
+    @MainActor
+    func testRepositoryRebindsToReplacementContextAfterDataReset() throws {
+        let firstContainer = try ModelContainer(
+            for: ChatSession.self,
+            ChatMessage.self,
+            configurations: ModelConfiguration(isStoredInMemoryOnly: true)
+        )
+        let secondContainer = try ModelContainer(
+            for: ChatSession.self,
+            ChatMessage.self,
+            configurations: ModelConfiguration(isStoredInMemoryOnly: true)
+        )
+        let repository = SwiftDataChatSessionRepository()
+        repository.attach(context: firstContainer.mainContext)
+        let oldSession = ChatSession(title: "Old Store")
+        repository.ensureSessionTracked(oldSession)
+        XCTAssertTrue(repository.persist(session: oldSession, reason: .immediate))
+        XCTAssertEqual(try repository.fetchSessions().map(\.title), ["Old Store"])
+
+        repository.attach(context: secondContainer.mainContext)
+
+        XCTAssertTrue(try repository.fetchSessions().isEmpty)
+        let newSession = ChatSession(title: "Replacement Store")
+        repository.ensureSessionTracked(newSession)
+        XCTAssertTrue(repository.persist(session: newSession, reason: .immediate))
+        XCTAssertEqual(try repository.fetchSessions().map(\.title), ["Replacement Store"])
     }
 }

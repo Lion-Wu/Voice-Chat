@@ -10,19 +10,60 @@ import SwiftData
 
 extension SettingsManager {
     // SwiftData context injected from the app or root view.
-    func attach(context: ModelContext) {
-        guard let loaded = persistence.attach(
-            context: context,
-            chatAPIKeyForPreset: { [chatAPIKeyStore] in chatAPIKeyStore.load(for: $0) },
-            defaultHapticFeedbackEnabled: SettingsDefaults.hapticFeedbackEnabled,
-            defaultAPIAdvancedSettings: SettingsDefaults.apiAdvancedSettings
-        ) else {
-            return
+    @discardableResult
+    func attach(context: ModelContext) -> Bool {
+        let loaded: SettingsPersistenceLoad
+        do {
+            guard let attached = try persistence.attach(
+                context: context,
+                chatAPIKeyForPreset: { [chatAPIKeyStore] in chatAPIKeyStore.load(for: $0) },
+                defaultHapticFeedbackEnabled: SettingsDefaults.hapticFeedbackEnabled,
+                defaultAPIAdvancedSettings: SettingsDefaults.apiAdvancedSettings,
+                deferSave: true
+            ) else {
+                return true
+            }
+            loaded = attached
+
+            isCoalescingPersistenceWrites = true
+            applyLoadedState(loaded.loadedState)
+            applyPendingStoredPreferences()
+            try reloadAndRepairPresetStoresAfterAttach()
+        } catch {
+            isCoalescingPersistenceWrites = false
+            // Startup repair is one transaction. Discard inserts/deletes and
+            // backfills staged before a later read failed, so the settings
+            // context cannot retain a partially initialized in-memory store.
+            persistence.discardBinding()
+            onPersistentStoreReadFailure?(error)
+            return false
         }
 
-        applyLoadedState(loaded.loadedState)
-        applyPendingStoredPreferences()
-        reloadAndRepairPresetStoresAfterAttach()
+        isCoalescingPersistenceWrites = false
+        do {
+            try persistence.saveContextOrThrow(label: "initialize settings stores")
+        } catch {
+            // The store was readable and the initialization transaction remains
+            // coherent in this isolated settings context. Keep the binding live
+            // so a later settings save can retry it without blocking startup or
+            // routing an ordinary write failure to destructive recovery.
+            reportSettingsWriteFailure(error)
+        }
+        return true
+    }
+
+    func detachPersistentStore() {
+        isCoalescingPersistenceWrites = false
+        persistence.discardBinding()
+        voiceServerPresets = []
+        chatServerPresets = []
+        presets = []
+        systemPromptPresets = []
+        selectedVoiceServerPresetID = nil
+        selectedChatServerPresetID = nil
+        selectedPresetID = nil
+        selectedNormalSystemPromptPresetID = nil
+        selectedVoiceSystemPromptPresetID = nil
     }
 
     func applyLoadedState(_ loadedState: AppSettingsLoadedState) {
@@ -46,6 +87,7 @@ extension SettingsManager {
     }
 
     func saveContext(label: String) {
+        guard !isCoalescingPersistenceWrites else { return }
         persistence.saveContext(label: label)
     }
 
@@ -58,9 +100,9 @@ extension SettingsManager {
     }
 
     func updateModelSettings(modelId: String, language: String, autoSplit: String) {
-        modelSettings.modelId = modelId
-        modelSettings.language = language
-        modelSettings.autoSplit = autoSplit
+        let next = ModelSettings(modelId: modelId, language: language, autoSplit: autoSplit)
+        guard next != modelSettings else { return }
+        modelSettings = next
         saveModelSettings()
     }
 
@@ -70,14 +112,19 @@ extension SettingsManager {
         appleSpeechVoiceIdentifier: String?,
         personalVoiceIdentifier: String?
     ) {
-        voiceSettings.enableStreaming = enableStreaming
-        voiceSettings.provider = provider
-        voiceSettings.appleSpeechVoiceIdentifier = appleSpeechVoiceIdentifier
-        voiceSettings.personalVoiceIdentifier = personalVoiceIdentifier
+        let next = VoiceSettings(
+            enableStreaming: enableStreaming,
+            provider: provider,
+            appleSpeechVoiceIdentifier: appleSpeechVoiceIdentifier,
+            personalVoiceIdentifier: personalVoiceIdentifier
+        )
+        guard next != voiceSettings else { return }
+        voiceSettings = next
         saveVoiceSettings()
     }
 
     func updateDeveloperModeEnabled(_ enabled: Bool) {
+        guard developerModeEnabled != enabled else { return }
         developerModeEnabled = enabled
         guard entity != nil, context != nil else {
             pendingDeveloperModeEnabled = enabled
@@ -87,6 +134,7 @@ extension SettingsManager {
     }
 
     func updateHapticFeedbackEnabled(_ enabled: Bool) {
+        guard hapticFeedbackEnabled != enabled else { return }
         hapticFeedbackEnabled = enabled
         guard entity != nil, context != nil else {
             pendingHapticFeedbackEnabled = enabled
@@ -96,7 +144,9 @@ extension SettingsManager {
     }
 
     func updateAPIAdvancedSettings(_ settings: APIAdvancedSettings) {
-        apiAdvancedSettings = settings.sanitized
+        let next = settings.sanitized
+        guard next != apiAdvancedSettings else { return }
+        apiAdvancedSettings = next
         guard entity != nil, context != nil else {
             pendingAPIAdvancedSettings = apiAdvancedSettings
             return
@@ -105,6 +155,7 @@ extension SettingsManager {
     }
 
     func updateToolUseSettings(_ settings: ToolUseSettings) {
+        guard settings != toolUseSettings else { return }
         toolUseSettings = settings
         guard entity != nil, context != nil else {
             pendingToolUseSettings = settings

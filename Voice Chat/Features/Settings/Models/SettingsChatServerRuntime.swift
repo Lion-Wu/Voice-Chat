@@ -28,9 +28,15 @@ enum SettingsChatServerRuntime {
         persistChatSettings: (ChatSettings) -> Void,
         save: (String) -> Void
     ) -> Bool {
-        chatSettings.apiURL = apiURL
-        chatSettings.selectedModel = selectedModel
-        persistChatSettings(chatSettings)
+        let nextSettings = ChatSettings(
+            apiURL: apiURL,
+            selectedModel: selectedModel,
+            apiKey: chatSettings.apiKey
+        )
+        if nextSettings != chatSettings {
+            chatSettings = nextSettings
+            persistChatSettings(nextSettings)
+        }
 
         guard hasContext else { return false }
         return ChatServerPresetStore.updateSelectedSettings(
@@ -53,7 +59,12 @@ enum SettingsChatServerRuntime {
         save: (String) -> Void
     ) -> Bool {
         let trimmed = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
-        chatSettings.apiKey = trimmed
+        guard trimmed != chatSettings.apiKey else { return false }
+        chatSettings = ChatSettings(
+            apiURL: chatSettings.apiURL,
+            selectedModel: chatSettings.selectedModel,
+            apiKey: trimmed
+        )
         apiKeyStore.save(trimmed, for: selectedID)
 
         guard hasContext else { return false }
@@ -134,21 +145,22 @@ enum SettingsChatServerRuntime {
         persistChatSettings: (ChatSettings) -> Void,
         save: (String) -> Void
     ) -> Bool {
-        guard SettingsPresetMutationController.selectChatServerPreset(
-            id: id,
-            selectedID: &selectedID,
-            appSettings: appSettings,
-            save: save
-        ) else {
-            return false
+        guard selectedID != id else { return false }
+        selectedID = id
+        appSettings.selectedChatServerPresetID = id
+
+        if let preset = selectedPreset(in: presets, selectedID: id) {
+            let nextSettings = ChatSettings(
+                apiURL: preset.apiURL,
+                selectedModel: preset.selectedModel,
+                apiKey: apiKeyStore.load(for: preset.id)
+            )
+            if nextSettings != chatSettings {
+                chatSettings = nextSettings
+                persistChatSettings(nextSettings)
+            }
         }
-        applySelectedPresetToChatSettings(
-            presets: presets,
-            selectedID: selectedID,
-            chatSettings: &chatSettings,
-            apiKeyStore: apiKeyStore,
-            persistChatSettings: persistChatSettings
-        )
+        save("select chat server preset")
         return true
     }
 
@@ -163,10 +175,14 @@ enum SettingsChatServerRuntime {
         guard let preset = selectedPreset(in: presets, selectedID: selectedID) else {
             return false
         }
-        chatSettings.apiURL = preset.apiURL
-        chatSettings.selectedModel = preset.selectedModel
-        chatSettings.apiKey = apiKeyStore.load(for: preset.id)
-        persistChatSettings(chatSettings)
+        let nextSettings = ChatSettings(
+            apiURL: preset.apiURL,
+            selectedModel: preset.selectedModel,
+            apiKey: apiKeyStore.load(for: preset.id)
+        )
+        guard nextSettings != chatSettings else { return false }
+        chatSettings = nextSettings
+        persistChatSettings(nextSettings)
         return true
     }
 }

@@ -220,6 +220,7 @@ extension ChatMessage {
             if previous != newValue {
                 assistantSegmentsNeedPersistence = true
                 assistantSegmentsSynchronizedForPersistence = false
+                session?.registerTransientMessagePersistence(self)
             }
         }
     }
@@ -337,6 +338,7 @@ extension ChatMessage {
         transientAssistantSegments = segments
         assistantSegmentsNeedPersistence = true
         assistantSegmentsSynchronizedForPersistence = false
+        session?.registerTransientMessagePersistence(self)
     }
 
     func hydrateAssistantSegmentsIfNeeded() {

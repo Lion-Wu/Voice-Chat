@@ -30,6 +30,8 @@
 "API Base URL" = "عنوان URL الأساسي لـ API";
 "API Format" = "تنسيق API";
 "API Key" = "مفتاح API";
+"Data Saving Issue" = "مشكلة في حفظ البيانات";
+"The API key could not be saved." = "تعذر حفظ مفتاح API.";
 "Apply Preset Now" = "تطبيق الإعداد المسبق الآن";
 "Apply selected preset now" = "تطبيق الإعداد المسبق المحدد الآن";
 "Applying preset..." = "جارٍ تطبيق الإعداد المسبق...";
@@ -231,7 +233,9 @@
 "LM Studio" = "LM Studio";
 "LM Studio REST v1" = "LM Studio REST v1";
 "LM Studio stream error." = "خطأ في البث من LM Studio.";
+"Loading chats..." = "جارٍ تحميل المحادثات...";
 "Loading model list..." = "جارٍ تحميل قائمة النماذج...";
+"Loading settings..." = "جارٍ تحميل الإعدادات...";
 "Loading..." = "جارٍ التحميل...";
 "Location" = "الموقع";
 "Location access is not available on this platform." = "الوصول إلى الموقع غير متاح على هذه المنصة.";

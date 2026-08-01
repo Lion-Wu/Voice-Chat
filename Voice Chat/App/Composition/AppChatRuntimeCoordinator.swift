@@ -15,6 +15,12 @@ final class AppChatRuntimeCoordinator {
         let apiKey: String
     }
 
+    private struct ChatRuntimeSignature: Equatable {
+        let settings: ChatSettings
+        let selectedPresetID: UUID?
+        let apiFormatRaw: String?
+    }
+
     private let settingsManager: SettingsManager
     private let chatSessionsViewModel: ChatSessionsViewModel
     private let reachabilityMonitor: ServerReachabilityMonitor
@@ -50,11 +56,33 @@ final class AppChatRuntimeCoordinator {
 
     private func observeSettingsChanges() {
         settingsManager.$chatSettings
+            .combineLatest(
+                settingsManager.$chatServerPresets,
+                settingsManager.$selectedChatServerPresetID.removeDuplicates()
+            )
+            .map { settings, presets, selectedID in
+                let rawFormat = presets
+                    .first(where: { $0.id == selectedID })?
+                    .apiFormatPreferenceRaw?
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                return ChatRuntimeSignature(
+                    settings: settings,
+                    selectedPresetID: selectedID,
+                    apiFormatRaw: rawFormat?.isEmpty == false ? rawFormat : nil
+                )
+            }
             .removeDuplicates()
             .sink { [weak self] _ in
-                guard let self else { return }
-                self.chatSessionsViewModel.refreshChatConfigurationIfNeeded()
-                self.kickReachabilityCheck()
+                self?.chatSessionsViewModel.refreshChatConfigurationIfNeeded()
+            }
+            .store(in: &cancellables)
+
+        settingsManager.$chatSettings
+            .map { $0.apiURL.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .removeDuplicates()
+            .dropFirst()
+            .sink { [weak self] _ in
+                self?.kickReachabilityCheck()
             }
             .store(in: &cancellables)
 
@@ -67,7 +95,6 @@ final class AppChatRuntimeCoordinator {
             }
             .removeDuplicates()
             .dropFirst()
-            .debounce(for: .milliseconds(650), scheduler: RunLoop.main)
             .sink { [settingsManager] _ in
                 Task { [settingsManager] in
                     await settingsManager.refreshChatProviderHintsAndModels()
@@ -99,28 +126,19 @@ final class AppChatRuntimeCoordinator {
             }
             .store(in: &cancellables)
 
-        settingsManager.$chatServerPresets
-            .combineLatest(settingsManager.$selectedChatServerPresetID.removeDuplicates())
-            .map { presets, selectedID in
-                guard let selectedID,
-                      let preset = presets.first(where: { $0.id == selectedID }) else {
-                    return ""
-                }
-                let normalizedBase = ChatAPIEndpointResolver.normalizedAPIBaseKey(preset.apiURL)
-                    ?? preset.apiURL.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-                let format = (preset.apiFormatPreferenceRaw ?? "")
-                    .trimmingCharacters(in: .whitespacesAndNewlines)
-                return "\(selectedID.uuidString)|\(normalizedBase)|\(format)"
-            }
+        settingsManager.$serverSettings
+            .map { $0.serverAddress.trimmingCharacters(in: .whitespacesAndNewlines) }
             .removeDuplicates()
             .dropFirst()
             .sink { [weak self] _ in
-                self?.chatSessionsViewModel.refreshChatConfigurationIfNeeded()
+                self?.kickReachabilityCheck()
             }
             .store(in: &cancellables)
 
-        settingsManager.$serverSettings
+        settingsManager.$voiceSettings
+            .map(\.provider)
             .removeDuplicates()
+            .dropFirst()
             .sink { [weak self] _ in
                 self?.kickReachabilityCheck()
             }
@@ -128,7 +146,6 @@ final class AppChatRuntimeCoordinator {
     }
 
     private func startReachabilityMonitoring() {
-        kickReachabilityCheck()
         reachabilityMonitor.startMonitoring { [settingsManager] in
             settingsManager.serverReachabilitySnapshot
         }

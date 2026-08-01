@@ -16,7 +16,7 @@ extension SettingsManager {
             context: context,
             save: saveContext(label:)
         )
-        loadPresetsFromStore()
+        presets = (presets + [preset]).sorted { $0.updatedAt > $1.updatedAt }
         return preset
     }
 
@@ -30,7 +30,7 @@ extension SettingsManager {
             context: context,
             save: saveContext(label:)
         ) {
-            loadPresetsFromStore()
+            presets.removeAll { $0.id == id }
         }
     }
 
@@ -55,7 +55,7 @@ extension SettingsManager {
             presets: presets,
             save: saveContext(label:)
         ) {
-            loadPresetsFromStore()
+            presets = presets.sorted { $0.updatedAt > $1.updatedAt }
         }
     }
 

@@ -45,6 +45,7 @@ private enum MacSettingsTab: Hashable {
 // MARK: - Settings View
 
 struct SettingsView: View {
+    @Environment(\.scenePhase) private var scenePhase
     @StateObject private var viewModel: SettingsViewModel
     @ObservedObject private var settingsManager: SettingsManager
     @State private var pendingDeletionTarget: SettingsDeletionTarget?
@@ -140,6 +141,14 @@ struct SettingsView: View {
                 viewModel.refreshFromSettingsManager()
                 viewModel.fetchAvailableModels()
             }
+            .onDisappear {
+                viewModel.commitPendingEdits()
+            }
+            .onChange(of: scenePhase) { _, phase in
+                if phase != .active {
+                    viewModel.commitPendingEdits()
+                }
+            }
             .alert(
                 pendingDeletionTarget?.title ?? LocalizedStringKey("Delete"),
                 isPresented: deletionAlertBinding
@@ -151,6 +160,13 @@ struct SettingsView: View {
             } message: {
                 Text("This action cannot be undone.")
             }
+            .alert("Error", isPresented: settingsWriteFailureAlertBinding) {
+                Button("Close") {
+                    settingsManager.clearSettingsWriteFailure()
+                }
+            } message: {
+                Text(settingsManager.settingsWriteFailure?.message ?? "")
+            }
     }
 
     private var deletionAlertBinding: Binding<Bool> {
@@ -159,6 +175,17 @@ struct SettingsView: View {
             set: { isPresented in
                 if !isPresented {
                     pendingDeletionTarget = nil
+                }
+            }
+        )
+    }
+
+    private var settingsWriteFailureAlertBinding: Binding<Bool> {
+        Binding(
+            get: { settingsManager.settingsWriteFailure != nil },
+            set: { isPresented in
+                if !isPresented {
+                    settingsManager.clearSettingsWriteFailure()
                 }
             }
         )
@@ -363,13 +390,15 @@ struct SettingsView: View {
                 LabeledTextField(
                     label: "Preset Name",
                     placeholder: "Enter preset name",
-                    text: $viewModel.voiceServerPresetName
+                    text: $viewModel.voiceServerPresetName,
+                    onCommit: { viewModel.commitVoiceServerEdits() }
                 )
 
                 LabeledTextField(
                     label: "Server URL",
                     placeholder: "http://localhost:9880",
-                    text: $viewModel.serverAddress
+                    text: $viewModel.serverAddress,
+                    onCommit: { viewModel.commitVoiceServerEdits() }
                 )
             }
         } header: {
@@ -398,7 +427,8 @@ struct SettingsView: View {
                 LabeledTextField(
                     label: "Text Language",
                     placeholder: "e.g. auto/zh/en",
-                    text: $viewModel.textLang
+                    text: $viewModel.textLang,
+                    onCommit: { viewModel.commitVoiceServerEdits() }
                 )
             }
 

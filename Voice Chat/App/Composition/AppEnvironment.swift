@@ -39,7 +39,9 @@ final class AppEnvironment: ObservableObject {
     private let chatRuntimeCoordinator: AppChatRuntimeCoordinator
     private let realtimeVoiceLockCoordinator: AppRealtimeVoiceLockCoordinator
     private let keepAwakeCoordinator: AppKeepAwakeCoordinator
-    private var didBindModelContext = false
+    private var boundModelContainer: ModelContainer?
+    private var settingsModelContext: ModelContext?
+    private var sessionsModelContext: ModelContext?
     private var didStart = false
 
     init(
@@ -97,23 +99,46 @@ final class AppEnvironment: ObservableObject {
         keepAwakeCoordinator.start()
     }
 
-    /// Bootstraps the environment exactly once after SwiftData is available.
-    func start(with context: ModelContext) {
+    /// Binds the only persistent container before the data-backed UI is published.
+    func start(with container: ModelContainer) {
+        guard bindModelContainer(container) else { return }
+
         guard !didStart else { return }
         didStart = true
-
-        bindModelContext(context)
         chatRuntimeCoordinator.start()
     }
 
-    /// Bind the SwiftData model context once and hydrate singletons before UI usage.
-    func bindModelContext(_ context: ModelContext) {
-        guard !didBindModelContext else { return }
-        didBindModelContext = true
+    /// Reset Data replaces the container, so the same app-scoped environment
+    /// must accept a new persistent container.
+    @discardableResult
+    func bindModelContainer(_ container: ModelContainer) -> Bool {
+        guard boundModelContainer !== container else { return true }
 
-        settingsManager.attach(context: context)
-        chatSessionsViewModel.attach(context: context)
+        // Settings and conversations use isolated contexts backed by the same
+        // container. A settings transaction can no longer flush or roll back a
+        // throttled chat write, and separate app scenes cannot rebind each other.
+        let settingsContext = ModelContext(container)
+        guard settingsManager.attach(context: settingsContext) else { return false }
+
+        let sessionsContext = ModelContext(container)
+        guard chatSessionsViewModel.attach(context: sessionsContext) else {
+            settingsManager.detachPersistentStore()
+            return false
+        }
+
+        boundModelContainer = container
+        settingsModelContext = settingsContext
+        sessionsModelContext = sessionsContext
         chatSessionsViewModel.refreshChatConfigurationIfNeeded()
+        return true
+    }
+
+    func quiescePersistentStore() {
+        chatSessionsViewModel.detachPersistentStore()
+        settingsManager.detachPersistentStore()
+        sessionsModelContext = nil
+        settingsModelContext = nil
+        boundModelContainer = nil
     }
 
     func updatePersistenceMode(for scenePhase: ScenePhase) {
@@ -121,17 +146,4 @@ final class AppEnvironment: ObservableObject {
         chatSessionsViewModel.setImmediatePersistenceEnabled(shouldForceImmediateSaves)
     }
 
-}
-
-/// Lightweight helper view to inject the model context into the shared environment once.
-struct ModelContextBinder: View {
-    @Environment(\.modelContext) private var modelContext
-    @EnvironmentObject private var appEnvironment: AppEnvironment
-
-    var body: some View {
-        Color.clear
-            .task {
-                appEnvironment.start(with: modelContext)
-            }
-    }
 }

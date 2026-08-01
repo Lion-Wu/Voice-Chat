@@ -30,6 +30,8 @@
 "API Base URL" = "API 基礎位址";
 "API Format" = "API 格式";
 "API Key" = "API 金鑰";
+"Data Saving Issue" = "資料儲存問題";
+"The API key could not be saved." = "無法儲存 API 金鑰。";
 "Apply Preset Now" = "立即套用預設";
 "Apply selected preset now" = "立即套用所選預設";
 "Applying preset..." = "正在套用預設...";
@@ -231,7 +233,9 @@
 "LM Studio" = "LM Studio";
 "LM Studio REST v1" = "LM Studio REST v1";
 "LM Studio stream error." = "LM Studio 串流回應錯誤。";
+"Loading chats..." = "正在載入聊天...";
 "Loading model list..." = "正在載入模型列表...";
+"Loading settings..." = "正在載入設定...";
 "Loading..." = "正在載入...";
 "Location" = "位置";
 "Location access is not available on this platform." = "此平台不支援存取位置。";

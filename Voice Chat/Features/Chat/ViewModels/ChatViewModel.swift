@@ -343,7 +343,7 @@ final class ChatViewModel: ObservableObject {
             parent.activeChildMessageID = err.id
         }
         chatSession.messages.append(err)
-        markSessionMessageActivity(at: err.createdAt)
+        markSessionMessageActivity(for: err)
         invalidateCachesAfterMessageMutation()
         branchRestartCoordinator.clearPendingRestore()
         publishMessageStructureChange()
@@ -411,7 +411,7 @@ final class ChatViewModel: ObservableObject {
             captureStreamAttemptRetryCheckpoint()
         }
         let fingerprint = ContentFingerprint.make(message.renderFingerprintSource)
-        messageContentDidChange.send(.init(messageID: message.id, fingerprint: fingerprint))
+        publishMessageContentChange(for: message, fingerprint: fingerprint)
     }
 
     private func handleOpenAIResponsesConversationItems(_ items: [JSONValue]) {
@@ -501,7 +501,7 @@ final class ChatViewModel: ObservableObject {
         if streamingAssistantMessageID == message.id {
             streamingAssistantFingerprint = fingerprint
         }
-        messageContentDidChange.send(.init(messageID: message.id, fingerprint: fingerprint))
+        publishMessageContentChange(for: message, fingerprint: fingerprint)
         persistSession(reason: .immediate)
     }
 
@@ -534,7 +534,7 @@ final class ChatViewModel: ObservableObject {
         for messageID in changedMessageIDs {
             guard let message = lookup[messageID] else { continue }
             let fingerprint = ContentFingerprint.make(message.renderFingerprintSource)
-            messageContentDidChange.send(.init(messageID: message.id, fingerprint: fingerprint))
+            publishMessageContentChange(for: message, fingerprint: fingerprint)
         }
         return true
     }
@@ -615,7 +615,7 @@ final class ChatViewModel: ObservableObject {
             pendingAssistantParentMessageID = nil
         }
         if appendResult.didCreateMessage {
-            markSessionMessageActivity(at: appendResult.message.createdAt)
+            markSessionMessageActivity(for: appendResult.message)
             invalidateCachesAfterMessageMutation()
             branchRestartCoordinator.clearPendingRestore()
             publishMessageStructureChange()
@@ -658,8 +658,16 @@ final class ChatViewModel: ObservableObject {
 
     private func resetStreamingPersistenceState() { textRequestRuntime.resetStreamingPersistenceState() }
 
-    private func markSessionMessageActivity(at date: Date) {
-        sessionMutationController.markMessageActivity(in: chatSession, at: date)
+    private func markSessionMessageActivity(for message: ChatMessage) {
+        sessionMutationController.markMessageActivity(in: chatSession, message: message)
+    }
+
+    private func publishMessageContentChange(
+        for message: ChatMessage,
+        fingerprint: ContentFingerprint
+    ) {
+        chatSession.refreshSidebarPreviewIfLatest(message)
+        messageContentDidChange.send(.init(messageID: message.id, fingerprint: fingerprint))
     }
     private func invalidateBranchMessagesCache() { sessionMutationController.invalidateBranchMessagesCache() }
     private func invalidateMessageLookupCache() { sessionMutationController.invalidateMessageLookupCache() }
@@ -701,7 +709,7 @@ final class ChatViewModel: ObservableObject {
         streamingAssistantMessageID = placeholder.id
         streamingAssistantFingerprint = ContentFingerprint.make("")
         pendingAssistantParentMessageID = nil
-        markSessionMessageActivity(at: placeholder.createdAt)
+        markSessionMessageActivity(for: placeholder)
         invalidateCachesAfterMessageMutation()
         branchRestartCoordinator.clearPendingRestore()
         publishMessageStructureChange()
@@ -893,7 +901,7 @@ final class ChatViewModel: ObservableObject {
         if turnStart.shouldClearEditingBaseMessageID {
             editingBaseMessageID = nil
         }
-        markSessionMessageActivity(at: userMsg.createdAt)
+        markSessionMessageActivity(for: userMsg)
         invalidateCachesAfterMessageMutation()
         publishMessageStructureChange()
         branchRestartCoordinator.clearPendingRestore()
@@ -999,7 +1007,7 @@ final class ChatViewModel: ObservableObject {
         chatSession.messages.append(err)
 
         branchRestartCoordinator.clearPendingRestore()
-        markSessionMessageActivity(at: err.createdAt)
+        markSessionMessageActivity(for: err)
         invalidateCachesAfterMessageMutation()
         publishMessageStructureChange()
         persistSession(reason: .immediate)
@@ -1040,7 +1048,7 @@ final class ChatViewModel: ObservableObject {
             pendingAssistantParentMessageID = nil
         }
         if appendResult.didCreateMessage {
-            markSessionMessageActivity(at: appendResult.message.createdAt)
+            markSessionMessageActivity(for: appendResult.message)
             invalidateCachesAfterMessageMutation()
             branchRestartCoordinator.clearPendingRestore()
             publishMessageStructureChange()
@@ -1054,6 +1062,9 @@ final class ChatViewModel: ObservableObject {
         applyStreamMetadata(to: message, firstTokenTimestamp: now)
         bumpStreamCounters(for: message, delta: piece)
         textRequestRuntime.markAssistantDeltaStarted()
+        // Keep the persisted sidebar projection in the same transaction as the
+        // streamed message content. The UI event remains after persistence.
+        chatSession.refreshSidebarPreviewIfLatest(message)
         if appendResult.didCreateMessage {
             resetStreamingPersistenceState()
             persistSession(reason: .immediate)
@@ -1064,7 +1075,7 @@ final class ChatViewModel: ObservableObject {
             // reintroducing per-token synchronous writes.
             persistSession(reason: .throttled)
         }
-        messageContentDidChange.send(.init(messageID: message.id, fingerprint: fingerprint))
+        publishMessageContentChange(for: message, fingerprint: fingerprint)
     }
 
     private func handleAssistantStreamSegment(_ segment: AssistantStreamSegment) {
@@ -1106,7 +1117,7 @@ final class ChatViewModel: ObservableObject {
             pendingAssistantParentMessageID = nil
         }
         if appendResult.didCreateMessage {
-            markSessionMessageActivity(at: appendResult.message.createdAt)
+            markSessionMessageActivity(for: appendResult.message)
             invalidateCachesAfterMessageMutation()
             branchRestartCoordinator.clearPendingRestore()
             publishMessageStructureChange()
@@ -1136,6 +1147,9 @@ final class ChatViewModel: ObservableObject {
         if case let .text(_, text) = segment, !text.isEmpty {
             realtimeNarrationCoordinator.appendDelta(text)
         }
+        // Keep the persisted sidebar projection in the same transaction as the
+        // streamed message content. The UI event remains after persistence.
+        chatSession.refreshSidebarPreviewIfLatest(message)
         if appendResult.didCreateMessage {
             resetStreamingPersistenceState()
             persistSession(reason: .immediate)
@@ -1144,7 +1158,7 @@ final class ChatViewModel: ObservableObject {
         } else {
             persistSession(reason: .throttled)
         }
-        messageContentDidChange.send(.init(messageID: message.id, fingerprint: fingerprint))
+        publishMessageContentChange(for: message, fingerprint: fingerprint)
     }
 
     private var canAcceptAssistantDelta: Bool {
