@@ -71,7 +71,7 @@ final class JavaScriptRuntimeToolTests: XCTestCase {
     }
 
     func testBoundsLargeResultsAndReportsTruncation() async throws {
-        let result = try await run("[range(1, 250), \"x\".repeat(70000)];")
+        let result = try await run("[range(1, 250), \"x\".repeat(100_000_000)];")
 
         guard case let .array(values) = result.payload["result"],
               case let .array(numbers) = values.first,
@@ -132,7 +132,7 @@ final class JavaScriptRuntimeToolTests: XCTestCase {
         """)
 
         XCTAssertNil(result.payload["result"])
-        XCTAssertEqual(result.payload["result_type"], .string("unavailable"))
+        XCTAssertEqual(result.payload["result_type"], .string("undefined"))
         XCTAssertEqual(result.payload["output"], .string("test1 [2,4]\n[warn] {\"ok\":true}\nuser-defined Object"))
         XCTAssertEqual(result.payload["truncated"], .bool(false))
     }
@@ -151,6 +151,18 @@ final class JavaScriptRuntimeToolTests: XCTestCase {
             "throw new TypeError('raw boom');",
             containing: ["TypeError: raw boom", "Line ", "column "]
         )
+
+        do {
+            _ = try await run(#"throw new Error("x".repeat(100_000_000));"#)
+            XCTFail("Expected bounded JavaScript exception")
+        } catch let error as ChatToolError {
+            XCTAssertEqual(error.resultStatus, .invalidArguments)
+            XCTAssertTrue(error.localizedDescription.contains("Error: "))
+            XCTAssertTrue(error.localizedDescription.contains("Exception details were truncated."))
+            XCTAssertLessThan(error.localizedDescription.utf16.count, 10_000)
+        } catch {
+            XCTFail("Unexpected error: \(error)")
+        }
     }
 
     func testInfiniteLoopTimesOutAndNextExecutionStillWorks() async throws {
