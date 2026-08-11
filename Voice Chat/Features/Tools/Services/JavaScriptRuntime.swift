@@ -505,6 +505,17 @@ private final class JavaScriptWebSession: NSObject, WKNavigationDelegate {
     const __voiceChatConsoleLines = [];
     let __voiceChatConsoleUnits = 0;
     let __voiceChatConsoleTruncated = false;
+    const __voiceChatTruncateConsoleLine = (line, maximumUnits) => {
+      let end = Math.min(line.length, maximumUnits);
+      if (end > 0 && end < line.length) {
+        const previousUnit = line.charCodeAt(end - 1);
+        const nextUnit = line.charCodeAt(end);
+        const splitsSurrogatePair = previousUnit >= 0xD800 && previousUnit <= 0xDBFF
+          && nextUnit >= 0xDC00 && nextUnit <= 0xDFFF;
+        if (splitsSurrogatePair) end -= 1;
+      }
+      return line.slice(0, end);
+    };
     const __voiceChatFormatConsoleValue = value => {
       if (typeof value === "string") return value;
       if (typeof value === "undefined") return "undefined";
@@ -540,7 +551,7 @@ private final class JavaScriptWebSession: NSObject, WKNavigationDelegate {
       const prefix = level === "log" ? "" : `[${level}] `;
       const line = prefix + values.map(__voiceChatFormatConsoleValue).join(" ");
       const available = Math.min(4000, 64000 - __voiceChatConsoleUnits);
-      const visible = line.slice(0, available);
+      const visible = __voiceChatTruncateConsoleLine(line, available);
       __voiceChatConsoleLines.push(visible);
       __voiceChatConsoleUnits += visible.length;
       if (visible.length < line.length) __voiceChatConsoleTruncated = true;

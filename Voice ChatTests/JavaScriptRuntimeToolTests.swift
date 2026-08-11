@@ -137,6 +137,18 @@ final class JavaScriptRuntimeToolTests: XCTestCase {
         XCTAssertEqual(result.payload["truncated"], .bool(false))
     }
 
+    func testTruncatesConsoleOutputWithoutSplittingEmoji() async throws {
+        let result = try await run(#"console.warn("😀".repeat(3000));"#)
+
+        guard case let .string(output) = result.payload["output"] else {
+            return XCTFail("Expected console output")
+        }
+        XCTAssertEqual(output.utf16.count, 3_999)
+        XCTAssertTrue(output.hasPrefix("[warn] "))
+        XCTAssertTrue(output.hasSuffix("😀"))
+        XCTAssertEqual(result.payload["truncated"], .bool(true))
+    }
+
     func testRejectsDynamicCodeGeneration() async {
         await assertInvalidScript(#"(() => {})["constructor"]("return 7")();"#)
     }
