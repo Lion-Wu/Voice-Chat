@@ -223,8 +223,6 @@
 "JavaScript, %d characters" = "JavaScript, %d caracteres";
 "JSON mode" = "Modo JSON";
 "Keywords: %@" = "Palabras clave: %@";
-"Last 30 Days" = "Últimos 30 días";
-"Last 7 Days" = "Últimos 7 días";
 "Last Seen At" = "Último uso";
 "List" = "Lista";
 "Listening" = "Escuchando";
@@ -287,7 +285,6 @@
 "Nothing to send" = "No hay nada que enviar";
 "Object" = "Objeto";
 "Off" = "Desactivado";
-"Older" = "Más antiguos";
 "On" = "Activado";
 "Only enabled sampling fields are added to requests." = "Solo los campos de muestreo habilitados se agregan a las solicitudes.";
 "Only the endpoint URLs listed below may continue from an OpenAI Responses response ID." = "Solo las URL de endpoint indicadas pueden continuar una conversación desde un ID de respuesta de OpenAI Responses.";
@@ -310,7 +307,6 @@
 "Owner" = "Propietario";
 "Parameters" = "Parámetros";
 "Parent Message ID" = "ID del mensaje padre";
-"Past Year" = "Último año";
 "Pause audio" = "Pausar audio";
 "Phase" = "Fase";
 "Placement Offset" = "Desplazamiento de ubicación";

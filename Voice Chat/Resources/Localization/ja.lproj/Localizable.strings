@@ -223,8 +223,6 @@
 "JavaScript, %d characters" = "JavaScript、%d文字";
 "JSON mode" = "JSON モード";
 "Keywords: %@" = "キーワード：%@";
-"Last 30 Days" = "過去30日間";
-"Last 7 Days" = "過去7日間";
 "Last Seen At" = "最終使用日時";
 "List" = "リスト";
 "Listening" = "聞き取り中";
@@ -287,7 +285,6 @@
 "Nothing to send" = "送信する内容がありません";
 "Object" = "オブジェクト";
 "Off" = "オフ";
-"Older" = "それ以前";
 "On" = "オン";
 "Only enabled sampling fields are added to requests." = "有効にしたサンプリングフィールドのみがリクエストに追加されます。";
 "Only the endpoint URLs listed below may continue from an OpenAI Responses response ID." = "以下のエンドポイント URL のみ、OpenAI Responses の応答 ID から会話を継続できます。";
@@ -310,7 +307,6 @@
 "Owner" = "所有者";
 "Parameters" = "パラメータ";
 "Parent Message ID" = "親メッセージID";
-"Past Year" = "過去1年";
 "Pause audio" = "音声を一時停止";
 "Phase" = "フェーズ";
 "Placement Offset" = "配置オフセット";

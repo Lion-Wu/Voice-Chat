@@ -401,7 +401,7 @@ struct SidebarView: View {
                 }
             } else {
                 ForEach(sidebarGroups) { group in
-                    Section(header: Text(group.section.title)) {
+                    Section(header: group.section.title) {
                         ForEach(group.sessions) { session in
                             macSessionRow(session)
                                 .tag(session.id)
@@ -468,7 +468,7 @@ struct SidebarView: View {
                 }
             } else {
                 ForEach(sidebarGroups) { group in
-                    Section(group.section.title) {
+                    Section {
                         ForEach(group.sessions) { session in
                             NavigationLink(value: ChatSessionNavigationRoute(
                                 sessionID: session.id,
@@ -486,6 +486,8 @@ struct SidebarView: View {
                         .onDelete { offsets in
                             handleSwipeDelete(at: offsets, within: group.sessions)
                         }
+                    } header: {
+                        group.section.title
                     }
                 }
                 sidebarSearchLoadingSection
@@ -579,7 +581,7 @@ struct SidebarView: View {
                 }
             } else {
                 ForEach(sidebarGroups) { group in
-                    Section(group.section.title) {
+                    Section {
                         ForEach(group.sessions) { session in
                             iosSessionRow(session)
                                 .contentShape(Rectangle())
@@ -597,6 +599,8 @@ struct SidebarView: View {
                         .onDelete { offsets in
                             handleSwipeDelete(at: offsets, within: group.sessions)
                         }
+                    } header: {
+                        group.section.title
                     }
                 }
                 sidebarSearchLoadingSection

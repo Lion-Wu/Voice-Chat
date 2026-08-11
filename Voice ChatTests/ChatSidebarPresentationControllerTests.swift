@@ -45,8 +45,10 @@ final class ChatSidebarPresentationControllerTests: XCTestCase {
     func testSidebarGroupLayoutIgnoresContentOnlyMutation() {
         let first = ChatSession(title: "First")
         let second = ChatSession(title: "Second")
+        let currentDay = SidebarDaySection(startDate: TestDate.reference)
+        let differentDay = SidebarDaySection(startDate: TestDate.offset(86_400))
         let current = [
-            SidebarSessionGroup(section: .today, sessions: [first, second])
+            SidebarSessionGroup(section: currentDay, sessions: [first, second])
         ]
 
         first.title = "Updated title"
@@ -54,21 +56,59 @@ final class ChatSidebarPresentationControllerTests: XCTestCase {
         XCTAssertTrue(SidebarSessionGrouping.hasSameLayout(
             current,
             as: [
-                SidebarSessionGroup(section: .today, sessions: [first, second])
+                SidebarSessionGroup(section: currentDay, sessions: [first, second])
             ]
         ))
         XCTAssertFalse(SidebarSessionGrouping.hasSameLayout(
             current,
             as: [
-                SidebarSessionGroup(section: .today, sessions: [second, first])
+                SidebarSessionGroup(section: currentDay, sessions: [second, first])
             ]
         ))
         XCTAssertFalse(SidebarSessionGrouping.hasSameLayout(
             current,
             as: [
-                SidebarSessionGroup(section: .yesterday, sessions: [first, second])
+                SidebarSessionGroup(section: differentDay, sessions: [first, second])
             ]
         ))
+    }
+
+    func testSidebarGroupingCreatesOneSectionPerCalendarDay() throws {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = try XCTUnwrap(TimeZone(secondsFromGMT: 8 * 60 * 60))
+
+        func date(_ year: Int, _ month: Int, _ day: Int, _ hour: Int) throws -> Date {
+            try XCTUnwrap(calendar.date(from: DateComponents(
+                year: year,
+                month: month,
+                day: day,
+                hour: hour
+            )))
+        }
+
+        let newest = ChatSession(title: "Newest")
+        newest.lastMessageAt = try date(2026, 8, 11, 22)
+        let sameDay = ChatSession(title: "Same day")
+        sameDay.lastMessageAt = try date(2026, 8, 11, 8)
+        let previousDay = ChatSession(title: "Previous day")
+        previousDay.lastMessageAt = try date(2026, 8, 10, 23)
+        let olderDay = ChatSession(title: "Older day")
+        olderDay.lastMessageAt = try date(2026, 8, 4, 12)
+
+        let groups = SidebarSessionGrouping.groupedSessions(
+            [newest, sameDay, previousDay, olderDay],
+            calendar: calendar
+        )
+
+        XCTAssertEqual(groups.count, 3)
+        XCTAssertEqual(groups.map(\.section.startDate), [
+            try date(2026, 8, 11, 0),
+            try date(2026, 8, 10, 0),
+            try date(2026, 8, 4, 0)
+        ])
+        XCTAssertEqual(groups[0].sessions.map(\.id), [newest.id, sameDay.id])
+        XCTAssertEqual(groups[1].sessions.map(\.id), [previousDay.id])
+        XCTAssertEqual(groups[2].sessions.map(\.id), [olderDay.id])
     }
 
     func testSessionListPublicationPolicyIgnoresContentOnlyMutation() {

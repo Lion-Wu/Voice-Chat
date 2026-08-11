@@ -223,8 +223,6 @@
 "JavaScript, %d characters" = "JavaScript, %d자";
 "JSON mode" = "JSON 모드";
 "Keywords: %@" = "키워드: %@";
-"Last 30 Days" = "최근 30일";
-"Last 7 Days" = "최근 7일";
 "Last Seen At" = "마지막 사용 시각";
 "List" = "목록";
 "Listening" = "듣는 중";
@@ -287,7 +285,6 @@
 "Nothing to send" = "보낼 내용이 없습니다";
 "Object" = "객체";
 "Off" = "끔";
-"Older" = "이전";
 "On" = "켬";
 "Only enabled sampling fields are added to requests." = "활성화된 샘플링 필드만 요청에 추가됩니다.";
 "Only the endpoint URLs listed below may continue from an OpenAI Responses response ID." = "아래 엔드포인트 URL만 OpenAI Responses 응답 ID에서 대화를 계속할 수 있습니다.";
@@ -310,7 +307,6 @@
 "Owner" = "소유자";
 "Parameters" = "매개변수";
 "Parent Message ID" = "상위 메시지 ID";
-"Past Year" = "지난 1년";
 "Pause audio" = "오디오 일시 정지";
 "Phase" = "단계";
 "Placement Offset" = "배치 오프셋";
