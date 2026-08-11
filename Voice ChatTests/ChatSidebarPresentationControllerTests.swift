@@ -111,6 +111,14 @@ final class ChatSidebarPresentationControllerTests: XCTestCase {
         XCTAssertEqual(groups[2].sessions.map(\.id), [olderDay.id])
     }
 
+    func testSidebarDayHeadingUsesSelectedCalendar() {
+        let calendar = Calendar(identifier: .buddhist)
+
+        let style = SidebarDaySection.dateFormatStyle(calendar: calendar)
+
+        XCTAssertEqual(style.calendar.identifier, .buddhist)
+    }
+
     func testSessionListPublicationPolicyIgnoresContentOnlyMutation() {
         let first = ChatSession(title: "First")
         let second = ChatSession(title: "Second")

@@ -13,7 +13,18 @@ struct SidebarDaySection: Identifiable, Hashable {
         if calendar.isDateInYesterday(startDate) {
             return Text("Yesterday")
         }
-        return Text(startDate, format: .dateTime.year().month().day())
+        return Text(startDate, format: Self.dateFormatStyle(calendar: calendar))
+    }
+
+    static func dateFormatStyle(calendar: Calendar) -> Date.FormatStyle {
+        Date.FormatStyle(
+            date: .omitted,
+            time: .omitted,
+            calendar: calendar
+        )
+        .year()
+        .month()
+        .day()
     }
 }
 
