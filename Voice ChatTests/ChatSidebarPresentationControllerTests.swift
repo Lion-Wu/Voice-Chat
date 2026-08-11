@@ -119,6 +119,70 @@ final class ChatSidebarPresentationControllerTests: XCTestCase {
         XCTAssertEqual(style.calendar.identifier, .buddhist)
     }
 
+    func testSidebarCalendarConfigurationDetectsCalendarAndTimeZoneChanges() throws {
+        var appliedCalendar = Calendar(identifier: .gregorian)
+        appliedCalendar.timeZone = try XCTUnwrap(TimeZone(identifier: "UTC"))
+        let applied = SidebarCalendarConfiguration(calendar: appliedCalendar)
+
+        XCTAssertFalse(SidebarCalendarConfiguration.needsRefresh(
+            applied: applied,
+            calendar: appliedCalendar
+        ))
+
+        var changedTimeZone = appliedCalendar
+        changedTimeZone.timeZone = try XCTUnwrap(TimeZone(identifier: "Asia/Shanghai"))
+        XCTAssertTrue(SidebarCalendarConfiguration.needsRefresh(
+            applied: applied,
+            calendar: changedTimeZone
+        ))
+
+        var changedCalendar = Calendar(identifier: .buddhist)
+        changedCalendar.timeZone = appliedCalendar.timeZone
+        XCTAssertTrue(SidebarCalendarConfiguration.needsRefresh(
+            applied: applied,
+            calendar: changedCalendar
+        ))
+    }
+
+    func testSidebarGroupingRebuildsDayBoundariesForChangedTimeZone() throws {
+        var utcCalendar = Calendar(identifier: .gregorian)
+        utcCalendar.timeZone = try XCTUnwrap(TimeZone(identifier: "UTC"))
+        let evening = try XCTUnwrap(utcCalendar.date(from: DateComponents(
+            year: 2026,
+            month: 8,
+            day: 10,
+            hour: 18
+        )))
+        let nextMorning = try XCTUnwrap(utcCalendar.date(from: DateComponents(
+            year: 2026,
+            month: 8,
+            day: 11,
+            hour: 2
+        )))
+        let first = ChatSession(title: "First")
+        first.lastMessageAt = evening
+        let second = ChatSession(title: "Second")
+        second.lastMessageAt = nextMorning
+
+        var shanghaiCalendar = utcCalendar
+        shanghaiCalendar.timeZone = try XCTUnwrap(TimeZone(identifier: "Asia/Shanghai"))
+
+        XCTAssertEqual(
+            SidebarSessionGrouping.groupedSessions(
+                [second, first],
+                calendar: utcCalendar
+            ).count,
+            2
+        )
+        XCTAssertEqual(
+            SidebarSessionGrouping.groupedSessions(
+                [second, first],
+                calendar: shanghaiCalendar
+            ).count,
+            1
+        )
+    }
+
     func testSessionListPublicationPolicyIgnoresContentOnlyMutation() {
         let first = ChatSession(title: "First")
         let second = ChatSession(title: "Second")

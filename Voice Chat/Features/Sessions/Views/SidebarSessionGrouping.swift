@@ -28,6 +28,23 @@ struct SidebarDaySection: Identifiable, Hashable {
     }
 }
 
+struct SidebarCalendarConfiguration: Equatable {
+    let calendarIdentifier: Calendar.Identifier
+    let timeZoneIdentifier: String
+
+    init(calendar: Calendar) {
+        calendarIdentifier = calendar.identifier
+        timeZoneIdentifier = calendar.timeZone.identifier
+    }
+
+    static func needsRefresh(
+        applied: SidebarCalendarConfiguration?,
+        calendar: Calendar
+    ) -> Bool {
+        applied != SidebarCalendarConfiguration(calendar: calendar)
+    }
+}
+
 struct SidebarSessionGroup: Identifiable {
     let section: SidebarDaySection
     let sessions: [ChatSession]
