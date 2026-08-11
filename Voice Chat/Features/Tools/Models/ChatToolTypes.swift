@@ -23,7 +23,7 @@ enum ChatToolID: String, CaseIterable, Codable, Sendable {
     case clipboardSetText = "clipboard_set_text"
     case systemOpenURL = "system_open_url"
     case systemGetTime = "system_get_time"
-    case codeInterpreterRun = "code_interpreter_run"
+    case javaScriptRun = "javascript_run"
 
     init?(toolName: String) {
         let normalized = toolName.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -53,7 +53,7 @@ extension ChatToolID {
             return .display
         case .systemOpenURL:
             return .action
-        case .codeInterpreterRun:
+        case .javaScriptRun:
             return .compute
         }
     }
@@ -72,7 +72,7 @@ extension ChatToolID {
         case .calendarDeleteEvent, .remindersDeleteReminder,
              .locationCurrent, .motionDevice, .deviceContext,
              .clipboardGetText, .clipboardSetText,
-             .systemOpenURL, .systemGetTime, .codeInterpreterRun:
+             .systemOpenURL, .systemGetTime, .javaScriptRun:
             return []
         }
     }

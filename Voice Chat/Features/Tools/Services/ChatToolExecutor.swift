@@ -23,7 +23,7 @@ struct ChatToolExecutor: ChatToolExecuting {
     private let deviceTool: DeviceContextToolServing
     private let clipboardTool: ClipboardToolServing
     private let systemActionTool: SystemActionToolServing
-    private let codeInterpreterTool: CodeInterpreterToolServing
+    private let javaScriptRuntimeTool: JavaScriptRuntimeToolServing
 
     init(
         calendarTool: CalendarToolServing = EventKitCalendarTool(),
@@ -33,7 +33,7 @@ struct ChatToolExecutor: ChatToolExecuting {
         deviceTool: DeviceContextToolServing = SystemDeviceContextTool(),
         clipboardTool: ClipboardToolServing = SystemClipboardTool(),
         systemActionTool: SystemActionToolServing = DefaultSystemActionTool(),
-        codeInterpreterTool: CodeInterpreterToolServing = SandboxedCodeInterpreterTool()
+        javaScriptRuntimeTool: JavaScriptRuntimeToolServing = SandboxedJavaScriptRuntimeTool()
     ) {
         self.calendarTool = calendarTool
         self.remindersTool = remindersTool
@@ -42,7 +42,7 @@ struct ChatToolExecutor: ChatToolExecuting {
         self.deviceTool = deviceTool
         self.clipboardTool = clipboardTool
         self.systemActionTool = systemActionTool
-        self.codeInterpreterTool = codeInterpreterTool
+        self.javaScriptRuntimeTool = javaScriptRuntimeTool
     }
 
     func execute(
@@ -133,8 +133,8 @@ struct ChatToolExecutor: ChatToolExecuting {
                 let result = try await systemActionTool.currentTime(arguments: reader)
                 payload = result.payload
                 summary = result.summary
-            case .codeInterpreterRun:
-                let result = try await codeInterpreterTool.run(arguments: reader)
+            case .javaScriptRun:
+                let result = try await javaScriptRuntimeTool.run(arguments: reader)
                 payload = result.payload
                 summary = result.summary
             }

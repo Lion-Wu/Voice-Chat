@@ -229,8 +229,8 @@
 		FDAA10010000000000000114 /* ChatToolInlineContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FDAA00010000000000000114 /* ChatToolInlineContentView.swift */; };
 		FDAA10010000000000000115 /* SystemUtilityTools.swift in Sources */ = {isa = PBXBuildFile; fileRef = FDAA00010000000000000115 /* SystemUtilityTools.swift */; };
 		FDAA10010000000000000116 /* ChatToolAuthorizationCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = FDAA00010000000000000116 /* ChatToolAuthorizationCoordinator.swift */; };
-		FDAA10010000000000000117 /* CodeInterpreterTool.swift in Sources */ = {isa = PBXBuildFile; fileRef = FDAA00010000000000000117 /* CodeInterpreterTool.swift */; };
-		FDAA10010000000000000118 /* CodeInterpreterRuntime.swift in Sources */ = {isa = PBXBuildFile; fileRef = FDAA00010000000000000118 /* CodeInterpreterRuntime.swift */; };
+		FDAA10010000000000000117 /* JavaScriptRuntimeTool.swift in Sources */ = {isa = PBXBuildFile; fileRef = FDAA00010000000000000117 /* JavaScriptRuntimeTool.swift */; };
+		FDAA10010000000000000118 /* JavaScriptRuntime.swift in Sources */ = {isa = PBXBuildFile; fileRef = FDAA00010000000000000118 /* JavaScriptRuntime.swift */; };
 		FDAA1001000000000000011B /* ChatToolTimeFormatter.swift in Sources */ = {isa = PBXBuildFile; fileRef = FDAA0001000000000000011B /* ChatToolTimeFormatter.swift */; };
 		FDAA1001000000000000011C /* ChatToolTemporalResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = FDAA0001000000000000011C /* ChatToolTemporalResolver.swift */; };
 		FDAA1001000000000000012D /* ChatToolPresentationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FDAA0001000000000000012D /* ChatToolPresentationView.swift */; };
@@ -239,7 +239,7 @@
 		FDAB10052F123D0000000001 /* ChatToolCallParserTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FDAB10062F123D0000000001 /* ChatToolCallParserTests.swift */; };
 		FDAB10072F123D0000000001 /* ChatToolExecutorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FDAB10082F123D0000000001 /* ChatToolExecutorTests.swift */; };
 		FDAB10092F123D0000000001 /* ChatToolAuthorizationCoordinatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FDAB100A2F123D0000000001 /* ChatToolAuthorizationCoordinatorTests.swift */; };
-		FDAB100B2F123D0000000001 /* CodeInterpreterToolTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FDAB100C2F123D0000000001 /* CodeInterpreterToolTests.swift */; };
+		FDAB100B2F123D0000000001 /* JavaScriptRuntimeToolTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FDAB100C2F123D0000000001 /* JavaScriptRuntimeToolTests.swift */; };
 		FDABCD000000000000000002 /* OpenAIResponsesStreamItemReducer.swift in Sources */ = {isa = PBXBuildFile; fileRef = FDABCD000000000000000001 /* OpenAIResponsesStreamItemReducer.swift */; };
 		FDAC20010000000000000001 /* ChatRequestContextMetadata.swift in Sources */ = {isa = PBXBuildFile; fileRef = FDAC10010000000000000001 /* ChatRequestContextMetadata.swift */; };
 		FDAC20010000000000000002 /* ChatRequestContextBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = FDAC10010000000000000002 /* ChatRequestContextBuilder.swift */; };
@@ -616,8 +616,8 @@
 		FDAA00010000000000000114 /* ChatToolInlineContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ChatToolInlineContentView.swift; path = "Voice Chat/Features/Chat/Views/Components/ChatToolInlineContentView.swift"; sourceTree = SOURCE_ROOT; };
 		FDAA00010000000000000115 /* SystemUtilityTools.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = SystemUtilityTools.swift; path = "Voice Chat/Features/Tools/Services/SystemUtilityTools.swift"; sourceTree = SOURCE_ROOT; };
 		FDAA00010000000000000116 /* ChatToolAuthorizationCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ChatToolAuthorizationCoordinator.swift; path = "Voice Chat/Features/Tools/Services/ChatToolAuthorizationCoordinator.swift"; sourceTree = SOURCE_ROOT; };
-		FDAA00010000000000000117 /* CodeInterpreterTool.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = CodeInterpreterTool.swift; path = "Voice Chat/Features/Tools/Services/CodeInterpreterTool.swift"; sourceTree = SOURCE_ROOT; };
-		FDAA00010000000000000118 /* CodeInterpreterRuntime.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = CodeInterpreterRuntime.swift; path = "Voice Chat/Features/Tools/Services/CodeInterpreterRuntime.swift"; sourceTree = SOURCE_ROOT; };
+		FDAA00010000000000000117 /* JavaScriptRuntimeTool.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = JavaScriptRuntimeTool.swift; path = "Voice Chat/Features/Tools/Services/JavaScriptRuntimeTool.swift"; sourceTree = SOURCE_ROOT; };
+		FDAA00010000000000000118 /* JavaScriptRuntime.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = JavaScriptRuntime.swift; path = "Voice Chat/Features/Tools/Services/JavaScriptRuntime.swift"; sourceTree = SOURCE_ROOT; };
 		FDAA0001000000000000011B /* ChatToolTimeFormatter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ChatToolTimeFormatter.swift; path = "Voice Chat/Features/Tools/Services/ChatToolTimeFormatter.swift"; sourceTree = SOURCE_ROOT; };
 		FDAA0001000000000000011C /* ChatToolTemporalResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ChatToolTemporalResolver.swift; path = "Voice Chat/Features/Tools/Services/ChatToolTemporalResolver.swift"; sourceTree = SOURCE_ROOT; };
 		FDAA0001000000000000012D /* ChatToolPresentationView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ChatToolPresentationView.swift; path = "Voice Chat/Features/Chat/Views/Components/ChatToolPresentationView.swift"; sourceTree = SOURCE_ROOT; };
@@ -626,7 +626,7 @@
 		FDAB10062F123D0000000001 /* ChatToolCallParserTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ChatToolCallParserTests.swift; path = "Voice ChatTests/ChatToolCallParserTests.swift"; sourceTree = SOURCE_ROOT; };
 		FDAB10082F123D0000000001 /* ChatToolExecutorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ChatToolExecutorTests.swift; path = "Voice ChatTests/ChatToolExecutorTests.swift"; sourceTree = SOURCE_ROOT; };
 		FDAB100A2F123D0000000001 /* ChatToolAuthorizationCoordinatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ChatToolAuthorizationCoordinatorTests.swift; path = "Voice ChatTests/ChatToolAuthorizationCoordinatorTests.swift"; sourceTree = SOURCE_ROOT; };
-		FDAB100C2F123D0000000001 /* CodeInterpreterToolTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = CodeInterpreterToolTests.swift; path = "Voice ChatTests/CodeInterpreterToolTests.swift"; sourceTree = SOURCE_ROOT; };
+		FDAB100C2F123D0000000001 /* JavaScriptRuntimeToolTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = JavaScriptRuntimeToolTests.swift; path = "Voice ChatTests/JavaScriptRuntimeToolTests.swift"; sourceTree = SOURCE_ROOT; };
 		FDABCD000000000000000001 /* OpenAIResponsesStreamItemReducer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = OpenAIResponsesStreamItemReducer.swift; path = "Voice Chat/Features/Chat/Services/OpenAIResponsesStreamItemReducer.swift"; sourceTree = SOURCE_ROOT; };
 		FDAC10010000000000000001 /* ChatRequestContextMetadata.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ChatRequestContextMetadata.swift; path = "Voice Chat/Features/Chat/Models/ChatRequestContextMetadata.swift"; sourceTree = SOURCE_ROOT; };
 		FDAC10010000000000000002 /* ChatRequestContextBuilder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ChatRequestContextBuilder.swift; path = "Voice Chat/Features/Chat/Services/ChatRequestContextBuilder.swift"; sourceTree = SOURCE_ROOT; };
@@ -879,7 +879,7 @@
 				FDAB10062F123D0000000001 /* ChatToolCallParserTests.swift */,
 				FDAB10082F123D0000000001 /* ChatToolExecutorTests.swift */,
 				FDAB100A2F123D0000000001 /* ChatToolAuthorizationCoordinatorTests.swift */,
-				FDAB100C2F123D0000000001 /* CodeInterpreterToolTests.swift */,
+				FDAB100C2F123D0000000001 /* JavaScriptRuntimeToolTests.swift */,
 				FDFE0A322F123D0000000001 /* ChatRequestActivityControllerTests.swift */,
 				FDFE0A422F123D0000000001 /* ChatStreamRetryStatusControllerTests.swift */,
 				FDFE0A462F123D0000000001 /* SettingsPresetApplyControllerTests.swift */,
@@ -1554,8 +1554,8 @@
 				FDAA00010000000000000104 /* ChatToolSchemaEncoder.swift */,
 				FDAA0001000000000000011B /* ChatToolTimeFormatter.swift */,
 				FDAA0001000000000000011C /* ChatToolTemporalResolver.swift */,
-				FDAA00010000000000000118 /* CodeInterpreterRuntime.swift */,
-				FDAA00010000000000000117 /* CodeInterpreterTool.swift */,
+				FDAA00010000000000000118 /* JavaScriptRuntime.swift */,
+				FDAA00010000000000000117 /* JavaScriptRuntimeTool.swift */,
 				FDAA00010000000000000108 /* CoreLocationTool.swift */,
 				FDAA00010000000000000109 /* CoreMotionTool.swift */,
 				FDAA0001000000000000010A /* DeviceContextTool.swift */,
@@ -1885,8 +1885,8 @@
 				FDAA10010000000000000112 /* ChatService+PromptTools.swift in Sources */,
 				FDAA10010000000000000115 /* SystemUtilityTools.swift in Sources */,
 				FDAA10010000000000000116 /* ChatToolAuthorizationCoordinator.swift in Sources */,
-				FDAA10010000000000000117 /* CodeInterpreterTool.swift in Sources */,
-				FDAA10010000000000000118 /* CodeInterpreterRuntime.swift in Sources */,
+				FDAA10010000000000000117 /* JavaScriptRuntimeTool.swift in Sources */,
+				FDAA10010000000000000118 /* JavaScriptRuntime.swift in Sources */,
 				FDAA1001000000000000011B /* ChatToolTimeFormatter.swift in Sources */,
 				FDAA1001000000000000011C /* ChatToolTemporalResolver.swift in Sources */,
 				FD90000000000000000001A4 /* ModelThinkingCapability.swift in Sources */,
@@ -2049,7 +2049,7 @@
 				FDAB10052F123D0000000001 /* ChatToolCallParserTests.swift in Sources */,
 				FDAB10072F123D0000000001 /* ChatToolExecutorTests.swift in Sources */,
 				FDAB10092F123D0000000001 /* ChatToolAuthorizationCoordinatorTests.swift in Sources */,
-				FDAB100B2F123D0000000001 /* CodeInterpreterToolTests.swift in Sources */,
+				FDAB100B2F123D0000000001 /* JavaScriptRuntimeToolTests.swift in Sources */,
 				FDFE0A332F123D0000000001 /* ChatRequestActivityControllerTests.swift in Sources */,
 				FDFE0A432F123D0000000001 /* ChatStreamRetryStatusControllerTests.swift in Sources */,
 				FDFE0A472F123D0000000001 /* SettingsPresetApplyControllerTests.swift in Sources */,

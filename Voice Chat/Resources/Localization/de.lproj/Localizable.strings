@@ -92,7 +92,7 @@
 "Close camera" = "Kamera schließen";
 "Close realtime voice overlay" = "Overlay für Echtzeitstimme schließen";
 "Close voice vision camera" = "Kamera im Sprachmodus schließen";
-"Code Interpreter" = "Code-Interpreter";
+"JavaScript Runtime" = "JavaScript-Laufzeit";
 "Collapse" = "Einklappen";
 "Completed reminders" = "Erledigte Erinnerungen";
 "Connecting" = "Verbindet";
@@ -467,7 +467,7 @@
 "This message will be deleted." = "Diese Nachricht wird gelöscht.";
 "This model's metadata does not clearly report image-input capability. Turn this on only if you are sure the backend can accept image content for this model." = "Die Metadaten dieses Modells geben die Unterstützung für Bildeingaben nicht eindeutig an. Aktiviere dies nur, wenn du sicher bist, dass das Backend Bildinhalte für dieses Modell akzeptieren kann.";
 "This tool is disabled for the current endpoint." = "Dieses Tool ist für den aktuellen Endpunkt deaktiviert.";
-"This will allow location, clipboard, URL, and Code Interpreter tools to run automatically when permitted by the authorization mode. This may increase the risk of privacy exposure." = "Dadurch können Standort-, Zwischenablage-, URL- und Code-Interpreter-Tools automatisch ausgeführt werden, wenn der Autorisierungsmodus dies zulässt. Dies kann das Risiko einer Offenlegung privater Daten erhöhen.";
+"This will allow location, clipboard, URL, and JavaScript Runtime tools to run automatically when permitted by the authorization mode. This may increase the risk of privacy exposure." = "Dadurch können Standort-, Zwischenablage-, URL- und JavaScript-Laufzeit-Tools automatisch ausgeführt werden, wenn der Autorisierungsmodus dies zulässt. Dies kann das Risiko einer Offenlegung privater Daten erhöhen.";
 "This will reset all developer options to their default values." = "Dadurch werden alle Entwickleroptionen auf ihre Standardwerte zurückgesetzt.";
 "This will reset all options to defaults." = "Dadurch werden alle Optionen auf die Standardwerte zurückgesetzt.";
 "Time" = "Zeit";

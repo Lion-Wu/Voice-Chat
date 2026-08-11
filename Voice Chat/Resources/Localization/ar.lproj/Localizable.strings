@@ -92,7 +92,7 @@
 "Close camera" = "إغلاق الكاميرا";
 "Close realtime voice overlay" = "إغلاق طبقة الصوت الفوري";
 "Close voice vision camera" = "إغلاق كاميرا الوضع الصوتي";
-"Code Interpreter" = "مفسر التعليمات البرمجية";
+"JavaScript Runtime" = "بيئة تشغيل JavaScript";
 "Collapse" = "طي";
 "Completed reminders" = "التذكيرات المكتملة";
 "Connecting" = "جارٍ الاتصال";
@@ -467,7 +467,7 @@
 "This message will be deleted." = "سيتم حذف هذه الرسالة.";
 "This model's metadata does not clearly report image-input capability. Turn this on only if you are sure the backend can accept image content for this model." = "لا توضّح البيانات الوصفية لهذا النموذج بشكل صريح ما إذا كان يدعم إدخال الصور. فعّل هذا الخيار فقط إذا كنت متأكدًا من أن الواجهة الخلفية يمكنها قبول محتوى الصور لهذا النموذج.";
 "This tool is disabled for the current endpoint." = "هذه الأداة معطلة لنقطة النهاية الحالية.";
-"This will allow location, clipboard, URL, and Code Interpreter tools to run automatically when permitted by the authorization mode. This may increase the risk of privacy exposure." = "سيسمح هذا بتشغيل أدوات الموقع والحافظة وعناوين URL ومفسر التعليمات البرمجية تلقائيًا عندما يسمح وضع التفويض بذلك. قد يزيد هذا من مخاطر كشف المعلومات الخاصة.";
+"This will allow location, clipboard, URL, and JavaScript Runtime tools to run automatically when permitted by the authorization mode. This may increase the risk of privacy exposure." = "سيسمح هذا بتشغيل أدوات الموقع والحافظة وعناوين URL وبيئة تشغيل JavaScript تلقائيًا عندما يسمح وضع التفويض بذلك. قد يزيد هذا من مخاطر كشف المعلومات الخاصة.";
 "This will reset all developer options to their default values." = "سيؤدي هذا إلى إعادة تعيين جميع خيارات المطور إلى قيمها الافتراضية.";
 "This will reset all options to defaults." = "سيؤدي ذلك إلى إعادة تعيين كل الخيارات إلى الافتراضيات.";
 "Time" = "الوقت";

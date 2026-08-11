@@ -92,7 +92,7 @@
 "Close camera" = "カメラを閉じる";
 "Close realtime voice overlay" = "リアルタイム音声オーバーレイを閉じる";
 "Close voice vision camera" = "音声モードのカメラを閉じる";
-"Code Interpreter" = "コードインタープリター";
+"JavaScript Runtime" = "JavaScript ランタイム";
 "Collapse" = "折りたたむ";
 "Completed reminders" = "完了済みのリマインダー";
 "Connecting" = "接続中";
@@ -467,7 +467,7 @@
 "This message will be deleted." = "このメッセージは削除されます。";
 "This model's metadata does not clearly report image-input capability. Turn this on only if you are sure the backend can accept image content for this model." = "このモデルのメタデータでは画像入力対応が明確ではありません。バックエンドがこのモデルの画像入力を受け付けると確信できる場合のみ有効にしてください。";
 "This tool is disabled for the current endpoint." = "現在のエンドポイントではこのツールは無効です。";
-"This will allow location, clipboard, URL, and Code Interpreter tools to run automatically when permitted by the authorization mode. This may increase the risk of privacy exposure." = "認証方式で許可されている場合、位置情報、クリップボード、URL 操作、コードインタープリターツールの自動実行が許可されます。プライバシー漏えいのリスクが高まる可能性があります。";
+"This will allow location, clipboard, URL, and JavaScript Runtime tools to run automatically when permitted by the authorization mode. This may increase the risk of privacy exposure." = "認証方式で許可されている場合、位置情報、クリップボード、URL 操作、JavaScript ランタイムツールの自動実行が許可されます。プライバシー漏えいのリスクが高まる可能性があります。";
 "This will reset all developer options to their default values." = "すべての開発者向けオプションをデフォルト値に戻します。";
 "This will reset all options to defaults." = "すべてのオプションを既定値に戻します。";
 "Time" = "時刻";

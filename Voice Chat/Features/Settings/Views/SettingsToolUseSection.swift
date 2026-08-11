@@ -44,7 +44,7 @@ struct SettingsToolUseSection: View {
                             setHighRiskAutoExecution(true)
                         }
                     } message: {
-                        Text("This will allow location, clipboard, URL, and Code Interpreter tools to run automatically when permitted by the authorization mode. This may increase the risk of privacy exposure.")
+                        Text("This will allow location, clipboard, URL, and JavaScript Runtime tools to run automatically when permitted by the authorization mode. This may increase the risk of privacy exposure.")
                     }
                 }
             } header: {
@@ -75,7 +75,7 @@ struct SettingsToolUseSection: View {
                         .disabled(viewModel.toolUseSettings.requiresTimeTool)
                     Toggle("Clipboard", isOn: toolBinding(\.clipboardEnabled))
                     Toggle("URL Actions", isOn: toolBinding(\.urlActionsEnabled))
-                    Toggle("Code Interpreter", isOn: toolBinding(\.codeInterpreterEnabled))
+                    Toggle("JavaScript Runtime", isOn: toolBinding(\.javaScriptRuntimeEnabled))
 
                     if let status = viewModel.toolUseStatusMessage {
                         Text(status)
@@ -98,7 +98,7 @@ struct SettingsToolUseSection: View {
             settings.timeEnabled &&
             settings.clipboardEnabled &&
             settings.urlActionsEnabled &&
-            settings.codeInterpreterEnabled
+            settings.javaScriptRuntimeEnabled
     }
 
     private var highRiskAutoExecutionBinding: Binding<Bool> {
@@ -150,7 +150,7 @@ struct SettingsToolUseSection: View {
         next.timeEnabled = enabled
         next.clipboardEnabled = enabled
         next.urlActionsEnabled = enabled
-        next.codeInterpreterEnabled = enabled
+        next.javaScriptRuntimeEnabled = enabled
         viewModel.toolUseSettings = next
     }
 
@@ -446,7 +446,7 @@ struct SettingsDeveloperToolUseSection: View {
             return "arrow.up.forward.app"
         case .systemGetTime:
             return "clock"
-        case .codeInterpreterRun:
+        case .javaScriptRun:
             return "curlybraces"
         }
     }

@@ -22,7 +22,7 @@ struct ToolUseSettings: Codable, Equatable, Sendable {
     var deviceContextEnabled: Bool
     var clipboardEnabled: Bool
     var urlActionsEnabled: Bool
-    var codeInterpreterEnabled: Bool
+    var javaScriptRuntimeEnabled: Bool
     private var isTimeExplicitlyEnabled: Bool
     var timeEnabled: Bool {
         get { isTimeExplicitlyEnabled || requiresTimeTool }
@@ -42,7 +42,7 @@ struct ToolUseSettings: Codable, Equatable, Sendable {
         deviceContextEnabled: Bool,
         clipboardEnabled: Bool = false,
         urlActionsEnabled: Bool = false,
-        codeInterpreterEnabled: Bool = false,
+        javaScriptRuntimeEnabled: Bool = false,
         timeEnabled: Bool = false,
         authorizationMode: ToolAuthorizationMode = .readOnly,
         allowHighRiskToolAutoExecution: Bool = false,
@@ -57,7 +57,7 @@ struct ToolUseSettings: Codable, Equatable, Sendable {
         self.deviceContextEnabled = deviceContextEnabled
         self.clipboardEnabled = clipboardEnabled
         self.urlActionsEnabled = urlActionsEnabled
-        self.codeInterpreterEnabled = codeInterpreterEnabled
+        self.javaScriptRuntimeEnabled = javaScriptRuntimeEnabled
         self.isTimeExplicitlyEnabled = timeEnabled
         self.authorizationMode = authorizationMode
         self.allowHighRiskToolAutoExecution = allowHighRiskToolAutoExecution
@@ -76,7 +76,7 @@ struct ToolUseSettings: Codable, Equatable, Sendable {
             deviceContextEnabled: try container.decode(Bool.self, forKey: .deviceContextEnabled),
             clipboardEnabled: try container.decode(Bool.self, forKey: .clipboardEnabled),
             urlActionsEnabled: try container.decode(Bool.self, forKey: .urlActionsEnabled),
-            codeInterpreterEnabled: try container.decode(Bool.self, forKey: .codeInterpreterEnabled),
+            javaScriptRuntimeEnabled: try container.decodeIfPresent(Bool.self, forKey: .javaScriptRuntimeEnabled) ?? false,
             timeEnabled: try container.decode(Bool.self, forKey: .timeEnabled),
             authorizationMode: try container.decode(ToolAuthorizationMode.self, forKey: .authorizationMode),
             allowHighRiskToolAutoExecution: try container.decode(Bool.self, forKey: .allowHighRiskToolAutoExecution),
@@ -97,7 +97,7 @@ struct ToolUseSettings: Codable, Equatable, Sendable {
         case deviceContextEnabled
         case clipboardEnabled
         case urlActionsEnabled
-        case codeInterpreterEnabled
+        case javaScriptRuntimeEnabled
         case timeEnabled
         case authorizationMode
         case allowHighRiskToolAutoExecution
@@ -115,7 +115,7 @@ struct ToolUseSettings: Codable, Equatable, Sendable {
         try container.encode(deviceContextEnabled, forKey: .deviceContextEnabled)
         try container.encode(clipboardEnabled, forKey: .clipboardEnabled)
         try container.encode(urlActionsEnabled, forKey: .urlActionsEnabled)
-        try container.encode(codeInterpreterEnabled, forKey: .codeInterpreterEnabled)
+        try container.encode(javaScriptRuntimeEnabled, forKey: .javaScriptRuntimeEnabled)
         try container.encode(isTimeExplicitlyEnabled, forKey: .timeEnabled)
         try container.encode(authorizationMode, forKey: .authorizationMode)
         try container.encode(allowHighRiskToolAutoExecution, forKey: .allowHighRiskToolAutoExecution)
@@ -139,7 +139,7 @@ struct ToolUseSettings: Codable, Equatable, Sendable {
         deviceContextEnabled: false,
         clipboardEnabled: false,
         urlActionsEnabled: false,
-        codeInterpreterEnabled: false,
+        javaScriptRuntimeEnabled: false,
         timeEnabled: false,
         authorizationMode: .readOnly,
         allowHighRiskToolAutoExecution: false,
@@ -190,7 +190,7 @@ struct ToolUseSettings: Codable, Equatable, Sendable {
             ids.insert(.clipboardSetText)
         }
         if urlActionsEnabled { ids.insert(.systemOpenURL) }
-        if codeInterpreterEnabled { ids.insert(.codeInterpreterRun) }
+        if javaScriptRuntimeEnabled { ids.insert(.javaScriptRun) }
         return ids
     }
 
@@ -313,7 +313,7 @@ enum ChatToolAuthorizationPolicy {
 private extension ChatToolID {
     var requiresHighRiskAutoExecution: Bool {
         switch self {
-        case .locationCurrent, .clipboardGetText, .clipboardSetText, .systemOpenURL, .codeInterpreterRun:
+        case .locationCurrent, .clipboardGetText, .clipboardSetText, .systemOpenURL, .javaScriptRun:
             return true
         default:
             return false

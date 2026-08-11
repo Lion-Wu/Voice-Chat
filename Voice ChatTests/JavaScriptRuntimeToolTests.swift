@@ -6,7 +6,7 @@ import CoreLocation
 import MapKit
 #endif
 
-final class CodeInterpreterToolTests: XCTestCase {
+final class JavaScriptRuntimeToolTests: XCTestCase {
     func testRunsStandardJavaScriptLoopsAndFunctions() async throws {
         let result = try await run("""
         function fibonacci(count) {
@@ -22,7 +22,7 @@ final class CodeInterpreterToolTests: XCTestCase {
             total += index;
             index += 1;
         }
-        return { total, values: fibonacci(7) };
+        ({ total, values: fibonacci(7) });
         """)
 
         XCTAssertEqual(result.payload["result"], .object([
@@ -38,12 +38,12 @@ final class CodeInterpreterToolTests: XCTestCase {
             """
             const selected = input.values.filter(value => value >= input.minimum);
             const weighted = selected.map((value, index) => value * (index + 1));
-            return {
+            ({
                 average: round(mean(selected), 2),
                 median: median(selected),
                 sum: sum(weighted),
                 range: range(1, 4)
-            };
+            });
             """,
             input: ["values": [1, 3, 5, 7], "minimum": 3]
         )
@@ -57,7 +57,7 @@ final class CodeInterpreterToolTests: XCTestCase {
     }
 
     func testKeepsJSONNumbersAndBooleansDistinct() async throws {
-        let result = try await run("return { zero: input.zero, one: input.one, enabled: input.enabled };", input: [
+        let result = try await run("({ zero: input.zero, one: input.one, enabled: input.enabled });", input: [
             "zero": 0,
             "one": 1,
             "enabled": true
@@ -71,7 +71,7 @@ final class CodeInterpreterToolTests: XCTestCase {
     }
 
     func testBoundsLargeResultsAndReportsTruncation() async throws {
-        let result = try await run("return [range(1, 250), \"x\".repeat(70000)];")
+        let result = try await run("[range(1, 250), \"x\".repeat(70000)];")
 
         guard case let .array(values) = result.payload["result"],
               case let .array(numbers) = values.first,
@@ -84,49 +84,80 @@ final class CodeInterpreterToolTests: XCTestCase {
     }
 
     func testBoundsExponentiallySharedOutput() async throws {
-        let result = try await run("return range(1, 40).reduce((value) => [value, value], 0);")
+        let result = try await run("range(1, 40).reduce((value) => [value, value], 0);")
 
         XCTAssertEqual(result.payload["truncated"], .bool(true))
         XCTAssertLessThanOrEqual(jsonNodeCount(result.payload["result"]), 4_000)
     }
 
     func testMedianOfLargeFiniteValuesRemainsFinite() async throws {
-        let result = try await run("return median([1e308, 1e308]);")
+        let result = try await run("median([1e308, 1e308]);")
 
         XCTAssertEqual(result.payload["result"], .number(1e308))
     }
 
-    func testDoesNotExposeNetworkFilesystemOrWebPageGlobals() async throws {
+    func testDoesNotExposeNetworkFilesystemOrNativeBridgeGlobals() async throws {
         let result = try await run("""
-        return [
-            typeof fetch,
-            typeof XMLHttpRequest,
-            typeof WebSocket,
-            typeof window,
-            typeof document,
-            typeof require,
-            typeof process
-        ];
+        ({
+            restricted: [
+                typeof fetch,
+                typeof XMLHttpRequest,
+                typeof WebSocket,
+                typeof webkit,
+                typeof require,
+                typeof process,
+                typeof this.fetch,
+                typeof this.webkit
+            ],
+            printType: typeof print,
+            consoleLogType: typeof console.log
+        });
         """)
 
-        XCTAssertEqual(result.payload["result"], .array(Array(repeating: .string("undefined"), count: 7)))
+        XCTAssertEqual(result.payload["result"], .object([
+            "restricted": .array(Array(repeating: .string("undefined"), count: 8)),
+            "printType": .string("function"),
+            "consoleLogType": .string("function")
+        ]))
+    }
+
+    func testReturnsConsoleAndPrintOutputWithoutFinalValue() async throws {
+        let result = try await run("""
+        const numbers = [1, 2];
+        const Object = "user-defined Object";
+        function doubled(value) { return value * 2; }
+        console.log("test1", numbers.map(doubled));
+        console.warn({ ok: true });
+        print(Object);
+        """)
+
+        XCTAssertNil(result.payload["result"])
+        XCTAssertEqual(result.payload["result_type"], .string("unavailable"))
+        XCTAssertEqual(result.payload["output"], .string("test1 [2,4]\n[warn] {\"ok\":true}\nuser-defined Object"))
+        XCTAssertEqual(result.payload["truncated"], .bool(false))
     }
 
     func testRejectsDynamicCodeGeneration() async {
-        await assertInvalidScript(#"return (() => {})["constructor"]("return 7")();"#)
+        await assertInvalidScript(#"(() => {})["constructor"]("return 7")();"#)
     }
 
-    func testRejectsSyntaxErrorsAsyncResultsAndNonFiniteResults() async {
-        await assertInvalidScript("this is not valid JavaScript")
-        await assertInvalidScript("return Promise.resolve(1);")
-        await assertInvalidScript("return Math.log(-1);")
+    func testReturnsRawJavaScriptExceptionDetails() async {
+        await assertInvalidScript(
+            "this is not valid JavaScript",
+            containing: ["SyntaxError:", "Line ", "column "]
+        )
+        await assertInvalidScript("return 1;")
+        await assertInvalidScript(
+            "throw new TypeError('raw boom');",
+            containing: ["TypeError: raw boom", "Line ", "column "]
+        )
     }
 
     func testInfiniteLoopTimesOutAndNextExecutionStillWorks() async throws {
         let clock = ContinuousClock()
         let start = clock.now
         do {
-            _ = try await CodeInterpreterRuntime.evaluate(
+            _ = try await JavaScriptRuntime.evaluate(
                 code: "while (true) {}",
                 input: [:],
                 timeoutSeconds: 0.2
@@ -138,22 +169,29 @@ final class CodeInterpreterToolTests: XCTestCase {
         }
         XCTAssertLessThan(start.duration(to: clock.now), .seconds(3))
 
-        let recovery = try await run("return 7;")
+        let recovery = try await run("7;")
         XCTAssertEqual(recovery.payload["result"], .number(7))
     }
 
-    func testRejectsOversizedOrNonObjectInput() async throws {
-        let oversized = String(repeating: "x", count: 1_000_001)
+    func testRejectsOversizedCodeInputOrNonObjectInput() async throws {
         do {
-            _ = try await run("return input.value.length;", input: ["value": oversized])
+            _ = try await run(String(repeating: "0;", count: 128_001))
+            XCTFail("Expected oversized code error")
+        } catch let error as ChatToolError {
+            XCTAssertEqual(error.resultStatus, .invalidArguments)
+        }
+
+        let oversized = String(repeating: "x", count: 4_000_001)
+        do {
+            _ = try await run("input.value.length;", input: ["value": oversized])
             XCTFail("Expected oversized input error")
         } catch let error as ChatToolError {
             XCTAssertEqual(error.resultStatus, .invalidArguments)
         }
 
         do {
-            let reader = try ChatToolArgumentReader(argumentsJSON: #"{"code":"return 1;","input":[]}"#)
-            _ = try await SandboxedCodeInterpreterTool().run(arguments: reader)
+            let reader = try ChatToolArgumentReader(argumentsJSON: #"{"code":"1;","input":[]}"#)
+            _ = try await SandboxedJavaScriptRuntimeTool().run(arguments: reader)
             XCTFail("Expected object input error")
         } catch let error as ChatToolError {
             XCTAssertEqual(error.resultStatus, .invalidArguments)
@@ -203,15 +241,18 @@ final class CodeInterpreterToolTests: XCTestCase {
         let data = try JSONSerialization.data(withJSONObject: arguments)
         let json = try XCTUnwrap(String(data: data, encoding: .utf8))
         let reader = try ChatToolArgumentReader(argumentsJSON: json)
-        return try await SandboxedCodeInterpreterTool().run(arguments: reader)
+        return try await SandboxedJavaScriptRuntimeTool().run(arguments: reader)
     }
 
-    private func assertInvalidScript(_ code: String) async {
+    private func assertInvalidScript(_ code: String, containing fragments: [String] = []) async {
         do {
             _ = try await run(code)
             XCTFail("Expected invalid arguments")
         } catch let error as ChatToolError {
             XCTAssertEqual(error.resultStatus, .invalidArguments)
+            for fragment in fragments {
+                XCTAssertTrue(error.localizedDescription.contains(fragment), error.localizedDescription)
+            }
         } catch {
             XCTFail("Unexpected error: \(error)")
         }

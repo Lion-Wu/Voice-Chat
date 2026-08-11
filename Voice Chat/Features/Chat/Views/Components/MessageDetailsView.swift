@@ -667,7 +667,7 @@ struct MessageDetailsView: View {
             return "arrow.up.forward.app"
         case .systemGetTime:
             return "clock"
-        case .codeInterpreterRun:
+        case .javaScriptRun:
             return "curlybraces"
         case .none:
             return "wrench.and.screwdriver"

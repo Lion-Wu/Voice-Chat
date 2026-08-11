@@ -614,7 +614,7 @@ final class ChatRequestBodyBuilderTests: XCTestCase {
                 deviceContextEnabled: true,
                 clipboardEnabled: true,
                 urlActionsEnabled: true,
-                codeInterpreterEnabled: true,
+                javaScriptRuntimeEnabled: true,
                 timeEnabled: true
             ),
             thinkingCapability: nil,
@@ -1004,7 +1004,7 @@ final class ChatRequestBodyBuilderTests: XCTestCase {
         do {
             var disabled = ToolUseSettings.defaults
             disabled.isEnabled = true
-            disabled.codeInterpreterEnabled = true
+            disabled.javaScriptRuntimeEnabled = true
             disabled.allowHighRiskToolAutoExecution = false
             var enabled = disabled
             enabled.allowHighRiskToolAutoExecution = true

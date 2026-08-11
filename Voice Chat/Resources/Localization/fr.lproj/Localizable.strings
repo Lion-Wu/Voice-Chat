@@ -92,7 +92,7 @@
 "Close camera" = "Fermer la caméra";
 "Close realtime voice overlay" = "Fermer la surcouche de voix en temps réel";
 "Close voice vision camera" = "Fermer la caméra du mode vocal";
-"Code Interpreter" = "Interpréteur de code";
+"JavaScript Runtime" = "Environnement d’exécution JavaScript";
 "Collapse" = "Réduire";
 "Completed reminders" = "Rappels terminés";
 "Connecting" = "Connexion";
@@ -467,7 +467,7 @@
 "This message will be deleted." = "Ce message sera supprimé.";
 "This model's metadata does not clearly report image-input capability. Turn this on only if you are sure the backend can accept image content for this model." = "Les métadonnées de ce modèle n’indiquent pas clairement s’il prend en charge l’entrée d’images. Activez cette option uniquement si vous êtes certain que le backend peut accepter du contenu image pour ce modèle.";
 "This tool is disabled for the current endpoint." = "Cet outil est désactivé pour le point de terminaison actuel.";
-"This will allow location, clipboard, URL, and Code Interpreter tools to run automatically when permitted by the authorization mode. This may increase the risk of privacy exposure." = "Cela permettra aux outils de localisation, de presse-papiers, d’URL et d’interpréteur de code de s’exécuter automatiquement lorsque le mode d’autorisation le permet. Cela peut accroître le risque de fuite de données privées.";
+"This will allow location, clipboard, URL, and JavaScript Runtime tools to run automatically when permitted by the authorization mode. This may increase the risk of privacy exposure." = "Cela permettra aux outils de localisation, de presse-papiers, d’URL et d’environnement d’exécution JavaScript de s’exécuter automatiquement lorsque le mode d’autorisation le permet. Cela peut accroître le risque de fuite de données privées.";
 "This will reset all developer options to their default values." = "Cette action réinitialisera toutes les options développeur à leurs valeurs par défaut.";
 "This will reset all options to defaults." = "Cela réinitialisera toutes les options aux valeurs par défaut.";
 "Time" = "Heure";
