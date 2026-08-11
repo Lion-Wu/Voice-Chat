@@ -22,7 +22,7 @@ struct SandboxedJavaScriptRuntimeTool: JavaScriptRuntimeToolServing {
             "truncated": .bool(result.truncated)
         ]
         if let value = result.value {
-            payload["result"] = value
+            payload["result"] = value.jsonValue
         }
         if let resultDisplay = result.resultDisplay {
             payload["result_display"] = .string(resultDisplay)

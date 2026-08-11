@@ -11,7 +11,7 @@ import Foundation
 #endif
 
 struct JavaScriptExecutionResult: Sendable {
-    let value: JSONValue?
+    let value: JavaScriptValue?
     let resultType: String
     let resultDisplay: String?
     let output: String
@@ -20,23 +20,6 @@ struct JavaScriptExecutionResult: Sendable {
 
 private struct JavaScriptConsoleSnapshot: Decodable, Sendable {
     let output: String
-    let truncated: Bool
-}
-
-private struct JavaScriptResultSnapshot: Decodable, Sendable {
-    let result: JSONValue?
-    let resultType: String?
-    let resultDisplay: String?
-    let exception: JavaScriptExceptionSnapshot?
-    let truncated: Bool
-}
-
-private struct JavaScriptExceptionSnapshot: Decodable, Sendable {
-    let message: String
-    let line: Int?
-    let column: Int?
-    let source: String?
-    let stack: String?
     let truncated: Bool
 }
 
@@ -85,6 +68,195 @@ enum JavaScriptRuntime {
         return json
     }
 
+    fileprivate static func executionResult(
+        rawResult: Any?,
+        console: JavaScriptConsoleSnapshot,
+        resultIsUnbridgeable: Bool = false
+    ) -> JavaScriptExecutionResult {
+        if resultIsUnbridgeable {
+            return JavaScriptExecutionResult(
+                value: nil,
+                resultType: "unavailable",
+                resultDisplay: nil,
+                output: console.output,
+                truncated: console.truncated
+            )
+        }
+        guard let rawResult else {
+            return JavaScriptExecutionResult(
+                value: nil,
+                resultType: "undefined",
+                resultDisplay: nil,
+                output: console.output,
+                truncated: console.truncated
+            )
+        }
+        if String(describing: type(of: rawResult)).localizedCaseInsensitiveContains("undefined") {
+            return JavaScriptExecutionResult(
+                value: nil,
+                resultType: "undefined",
+                resultDisplay: nil,
+                output: console.output,
+                truncated: console.truncated
+            )
+        }
+        if let number = rawResult as? NSNumber,
+           CFGetTypeID(number) != CFBooleanGetTypeID(),
+           !number.doubleValue.isFinite {
+            return JavaScriptExecutionResult(
+                value: nil,
+                resultType: "number",
+                resultDisplay: String(describing: number),
+                output: console.output,
+                truncated: console.truncated
+            )
+        }
+        var snapshot = JavaScriptResultSnapshot()
+        do {
+            let value = try snapshot.capture(rawResult) ?? .null
+            return JavaScriptExecutionResult(
+                value: value,
+                resultType: value.typeName,
+                resultDisplay: nil,
+                output: console.output,
+                truncated: snapshot.truncated || console.truncated
+            )
+        } catch {
+            return JavaScriptExecutionResult(
+                value: nil,
+                resultType: "unavailable",
+                resultDisplay: String(describing: rawResult),
+                output: console.output,
+                truncated: console.truncated
+            )
+        }
+    }
+}
+
+enum JavaScriptValue: Equatable, Sendable {
+    case number(Double)
+    case bool(Bool)
+    case string(String)
+    case array([JavaScriptValue])
+    case object([String: JavaScriptValue])
+    case null
+}
+
+extension JavaScriptValue {
+    var typeName: String {
+        switch self {
+        case .number: return "number"
+        case .bool: return "boolean"
+        case .string: return "string"
+        case .array: return "array"
+        case .object: return "object"
+        case .null: return "null"
+        }
+    }
+
+    var jsonValue: JSONValue {
+        switch self {
+        case let .number(value): return .number(value)
+        case let .bool(value): return .bool(value)
+        case let .string(value): return .string(value)
+        case let .array(values): return .array(values.map(\.jsonValue))
+        case let .object(values): return .object(values.mapValues(\.jsonValue))
+        case .null: return .null
+        }
+    }
+}
+
+private struct JavaScriptResultSnapshot {
+    private var remainingNodes = 4_000
+    private var remainingStringUnits = 64_000
+    private(set) var truncated = false
+
+    mutating func capture(_ value: Any, depth: Int = 0) throws -> JavaScriptValue? {
+        guard remainingNodes > 0 else {
+            truncated = true
+            return nil
+        }
+        remainingNodes -= 1
+
+        if value is NSNull {
+            return .null
+        }
+        if let value = value as? NSNumber {
+            if CFGetTypeID(value) == CFBooleanGetTypeID() {
+                return .bool(value.boolValue)
+            }
+            let number = value.doubleValue
+            guard number.isFinite else {
+                throw invalidScript("The JavaScript result contains a non-finite number.")
+            }
+            return .number(number)
+        }
+        if let value = value as? String {
+            return .string(captureString(value))
+        }
+        if let values = value as? [Any] {
+            guard depth < 32 else {
+                truncated = true
+                return .null
+            }
+            if values.count > 200 {
+                truncated = true
+            }
+            var output: [JavaScriptValue] = []
+            output.reserveCapacity(min(values.count, 200))
+            for value in values.prefix(200) {
+                guard let captured = try capture(value, depth: depth + 1) else { break }
+                output.append(captured)
+            }
+            return .array(output)
+        }
+        if let values = value as? [String: Any] {
+            guard depth < 32 else {
+                truncated = true
+                return .null
+            }
+            let keys = values.keys.sorted()
+            if keys.count > 200 {
+                truncated = true
+            }
+            var output: [String: JavaScriptValue] = [:]
+            output.reserveCapacity(min(keys.count, 200))
+            for key in keys.prefix(200) {
+                let keyLength = key.utf16.count
+                guard keyLength <= remainingStringUnits else {
+                    truncated = true
+                    break
+                }
+                remainingStringUnits -= keyLength
+                guard let rawValue = values[key],
+                      let captured = try capture(rawValue, depth: depth + 1) else { break }
+                output[key] = captured
+            }
+            return .object(output)
+        }
+        if let value = value as? Date {
+            return .string(captureString(ISO8601DateFormatter().string(from: value)))
+        }
+        throw invalidScript("The JavaScript result contains an unsupported value.")
+    }
+
+    private mutating func captureString(_ value: String) -> String {
+        let maximumUnits = min(4_000, remainingStringUnits)
+        var usedUnits = 0
+        var endIndex = value.unicodeScalars.startIndex
+        while endIndex < value.unicodeScalars.endIndex {
+            let scalar = value.unicodeScalars[endIndex]
+            let scalarUnits = scalar.value > 0xFFFF ? 2 : 1
+            guard usedUnits + scalarUnits <= maximumUnits else { break }
+            usedUnits += scalarUnits
+            endIndex = value.unicodeScalars.index(after: endIndex)
+        }
+        remainingStringUnits -= usedUnits
+        if endIndex < value.unicodeScalars.endIndex {
+            truncated = true
+        }
+        return String(value.unicodeScalars[..<endIndex])
+    }
 }
 
 #if canImport(WebKit)
@@ -94,7 +266,8 @@ private final class JavaScriptWebSession: NSObject, WKNavigationDelegate {
     private var webView: WKWebView?
     private var continuation: CheckedContinuation<JavaScriptExecutionResult, Error>?
     private var timeoutTask: Task<Void, Never>?
-    private var executionScript = ""
+    private var setupScript = ""
+    private var userCode = ""
     private var didStartEvaluation = false
 
     func execute(
@@ -102,7 +275,8 @@ private final class JavaScriptWebSession: NSObject, WKNavigationDelegate {
         inputJSON: String,
         timeoutSeconds: TimeInterval
     ) async throws -> JavaScriptExecutionResult {
-        executionScript = try Self.executionScript(code: code, inputJSON: inputJSON)
+        setupScript = try Self.setupScript(inputJSON: inputJSON)
+        userCode = code
 
         return try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in
@@ -139,61 +313,51 @@ private final class JavaScriptWebSession: NSObject, WKNavigationDelegate {
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         guard !didStartEvaluation else { return }
         didStartEvaluation = true
-        evaluateUserCode(in: webView)
-    }
 
-    private func evaluateUserCode(in webView: WKWebView) {
         webView.evaluateJavaScript(
-            executionScript,
+            setupScript,
             in: nil,
             in: contentWorld
         ) { [weak self] result in
             guard let self else { return }
             switch result {
-            case let .success(snapshotJSON as String):
-                completeEvaluation(snapshotJSON: snapshotJSON)
             case .success:
-                finish(.failure(ChatToolError.failed(
-                    "The bounded JavaScript result snapshot could not be decoded."
-                )))
+                evaluateUserCode(in: webView)
             case let .failure(error):
                 completeException(error)
             }
         }
     }
 
-    private func completeEvaluation(snapshotJSON: String) {
-        let snapshot: JavaScriptResultSnapshot
-        do {
-            guard let data = snapshotJSON.data(using: .utf8) else {
-                throw ChatToolError.failed("The bounded JavaScript result snapshot could not be decoded.")
+    private func evaluateUserCode(in webView: WKWebView) {
+        webView.evaluateJavaScript(
+            userCode,
+            in: nil,
+            in: contentWorld
+        ) { [weak self] result in
+            guard let self else { return }
+            switch result {
+            case let .success(value):
+                completeEvaluation(rawResult: value)
+            case let .failure(error):
+                if Self.isUnsupportedResultError(error) {
+                    completeEvaluation(rawResult: nil, resultIsUnbridgeable: true)
+                } else {
+                    completeException(error)
+                }
             }
-            snapshot = try JSONDecoder().decode(JavaScriptResultSnapshot.self, from: data)
-        } catch {
-            finish(.failure(error))
-            return
         }
+    }
 
+    private func completeEvaluation(rawResult: Any?, resultIsUnbridgeable: Bool = false) {
         readConsoleSnapshot { [weak self] snapshotResult in
             guard let self else { return }
             switch snapshotResult {
-            case let .success(console):
-                if let exception = snapshot.exception {
-                    finish(.failure(Self.scriptError(from: exception, console: console)))
-                    return
-                }
-                guard let resultType = snapshot.resultType else {
-                    finish(.failure(ChatToolError.failed(
-                        "The bounded JavaScript result snapshot could not be decoded."
-                    )))
-                    return
-                }
-                finish(.success(JavaScriptExecutionResult(
-                    value: snapshot.result,
-                    resultType: resultType,
-                    resultDisplay: snapshot.resultDisplay,
-                    output: console.output,
-                    truncated: snapshot.truncated || console.truncated
+            case let .success(snapshot):
+                finish(.success(JavaScriptRuntime.executionResult(
+                    rawResult: rawResult,
+                    console: snapshot,
+                    resultIsUnbridgeable: resultIsUnbridgeable
                 )))
             case let .failure(error):
                 finish(.failure(error))
@@ -275,6 +439,12 @@ private final class JavaScriptWebSession: NSObject, WKNavigationDelegate {
         continuation.resume(with: result)
     }
 
+    private static func isUnsupportedResultError(_ error: Error) -> Bool {
+        let nsError = error as NSError
+        return nsError.domain == WKError.errorDomain
+            && nsError.code == WKError.javaScriptResultTypeIsUnsupported.rawValue
+    }
+
     private static func scriptError(
         from error: Error,
         console: JavaScriptConsoleSnapshot?
@@ -307,33 +477,6 @@ private final class JavaScriptWebSession: NSObject, WKNavigationDelegate {
         return invalidScript(details.joined(separator: "\n"))
     }
 
-    private static func scriptError(
-        from exception: JavaScriptExceptionSnapshot,
-        console: JavaScriptConsoleSnapshot
-    ) -> ChatToolError {
-        var details = [exception.message]
-        if let line = exception.line, let column = exception.column {
-            details.append("Line \(line), column \(column)")
-        } else if let line = exception.line {
-            details.append("Line \(line)")
-        }
-        if let source = exception.source, !source.isEmpty, source != "about:blank" {
-            details.append("Source: \(source)")
-        }
-        if let stack = exception.stack,
-           !stack.isEmpty,
-           stack != exception.message {
-            details.append("Stack:\n\(stack)")
-        }
-        if exception.truncated {
-            details.append("Exception details were truncated.")
-        }
-        if !console.output.isEmpty {
-            details.append("Console output before the exception:\n\(console.output)")
-        }
-        return invalidScript(details.joined(separator: "\n"))
-    }
-
     private static let sandboxDocument = """
     <!doctype html>
     <html>
@@ -349,38 +492,16 @@ private final class JavaScriptWebSession: NSObject, WKNavigationDelegate {
     this.__voiceChatJavaScriptConsoleSnapshot__()
     """
 
-    private static func executionScript(code: String, inputJSON: String) throws -> String {
+    private static func setupScript(inputJSON: String) throws -> String {
         let encodedInputData = try JSONEncoder().encode(inputJSON)
-        let encodedCodeData = try JSONEncoder().encode(code)
-        guard let encodedInput = String(data: encodedInputData, encoding: .utf8),
-              let encodedCode = String(data: encodedCodeData, encoding: .utf8) else {
-            throw ChatToolError.failed("The JavaScript execution request could not be encoded.")
+        guard let encodedInput = String(data: encodedInputData, encoding: .utf8) else {
+            throw ChatToolError.failed("The JavaScript input could not be encoded.")
         }
         return #"""
     {
     const input = JSON.parse(\#(encodedInput));
-    const __voiceChatNativeEval = eval;
     const __voiceChatNativeJSONStringify = JSON.stringify.bind(JSON);
     const __voiceChatNativeString = String;
-    const __voiceChatNativeArrayIsArray = Array.isArray.bind(Array);
-    const __voiceChatNativeArrayPush = Function.call.bind(Array.prototype.push);
-    const __voiceChatNativeArraySort = Function.call.bind(Array.prototype.sort);
-    const __voiceChatNativeNumberIsFinite = Number.isFinite.bind(Number);
-    const __voiceChatNativeNumberIsInteger = Number.isInteger.bind(Number);
-    const __voiceChatNativeMinimum = Math.min.bind(Math);
-    const __voiceChatNativeObjectKeys = Object.keys.bind(Object);
-    const __voiceChatNativeObjectCreate = Object.create.bind(Object);
-    const __voiceChatNativeObjectDefineProperty = Object.defineProperty.bind(Object);
-    const __voiceChatNativeStringCharCodeAt = Function.call.bind(String.prototype.charCodeAt);
-    const __voiceChatNativeStringSlice = Function.call.bind(String.prototype.slice);
-    const __voiceChatNativeDate = Date;
-    const __voiceChatNativeDateToISOString = Function.call.bind(Date.prototype.toISOString);
-    const __voiceChatNativeWeakSet = WeakSet;
-    const __voiceChatNativeWeakSetAdd = Function.call.bind(WeakSet.prototype.add);
-    const __voiceChatNativeWeakSetDelete = Function.call.bind(WeakSet.prototype.delete);
-    const __voiceChatNativeWeakSetHas = Function.call.bind(WeakSet.prototype.has);
-    const __voiceChatNativeError = Error;
-    const __voiceChatNativeTypeError = TypeError;
     const __voiceChatConsoleLines = [];
     let __voiceChatConsoleUnits = 0;
     let __voiceChatConsoleTruncated = false;
@@ -389,8 +510,8 @@ private final class JavaScriptWebSession: NSObject, WKNavigationDelegate {
       if (typeof value === "undefined") return "undefined";
       if (typeof value === "function") return `[Function${value.name ? `: ${value.name}` : ""}]`;
       if (typeof value === "symbol" || typeof value === "bigint") return __voiceChatNativeString(value);
-      if (value instanceof __voiceChatNativeError) return `${value.name}: ${value.message}`;
-      const seen = new __voiceChatNativeWeakSet();
+      if (value instanceof Error) return `${value.name}: ${value.message}`;
+      const seen = new WeakSet();
       try {
         const encoded = __voiceChatNativeJSONStringify(value, (_, nested) => {
           if (typeof nested === "bigint" || typeof nested === "symbol") return __voiceChatNativeString(nested);
@@ -448,188 +569,6 @@ private final class JavaScriptWebSession: NSObject, WKNavigationDelegate {
       writable: false,
       configurable: false
     });
-    const __voiceChatCreateResultSnapshot = rawValue => {
-      let remainingNodes = 4000;
-      let remainingStringUnits = 64000;
-      let truncated = false;
-      const omitted = {};
-      const ancestors = new __voiceChatNativeWeakSet();
-      const captureString = value => {
-        const maximumUnits = __voiceChatNativeMinimum(4000, remainingStringUnits);
-        let end = __voiceChatNativeMinimum(value.length, maximumUnits);
-        if (end > 0 && end < value.length) {
-          const lastUnit = __voiceChatNativeStringCharCodeAt(value, end - 1);
-          const nextUnit = __voiceChatNativeStringCharCodeAt(value, end);
-          if (lastUnit >= 0xD800 && lastUnit <= 0xDBFF && nextUnit >= 0xDC00 && nextUnit <= 0xDFFF) {
-            end -= 1;
-          }
-        }
-        const visible = __voiceChatNativeStringSlice(value, 0, end);
-        remainingStringUnits -= visible.length;
-        if (visible.length < value.length) truncated = true;
-        return visible;
-      };
-      const capture = (value, depth = 0) => {
-        if (remainingNodes <= 0) {
-          truncated = true;
-          return omitted;
-        }
-        remainingNodes -= 1;
-        if (value === null) return null;
-        switch (typeof value) {
-        case "boolean":
-          return value;
-        case "number":
-          if (!__voiceChatNativeNumberIsFinite(value)) throw new __voiceChatNativeTypeError("Non-finite number");
-          return value;
-        case "string":
-          return captureString(value);
-        case "undefined":
-        case "function":
-        case "symbol":
-        case "bigint":
-          throw new __voiceChatNativeTypeError("Unsupported value");
-        }
-        if (value instanceof __voiceChatNativeDate) {
-          return captureString(__voiceChatNativeDateToISOString(value));
-        }
-        if (depth >= 32) {
-          truncated = true;
-          return null;
-        }
-        if (__voiceChatNativeWeakSetHas(ancestors, value)) {
-          throw new __voiceChatNativeTypeError("Cyclic value");
-        }
-        __voiceChatNativeWeakSetAdd(ancestors, value);
-        try {
-          if (__voiceChatNativeArrayIsArray(value)) {
-            if (value.length > 200) truncated = true;
-            const output = [];
-            const count = __voiceChatNativeMinimum(value.length, 200);
-            for (let index = 0; index < count; index += 1) {
-              const captured = capture(value[index], depth + 1);
-              if (captured === omitted) break;
-              __voiceChatNativeArrayPush(output, captured);
-            }
-            return output;
-          }
-          const keys = __voiceChatNativeObjectKeys(value);
-          __voiceChatNativeArraySort(keys);
-          if (keys.length > 200) truncated = true;
-          const output = __voiceChatNativeObjectCreate(null);
-          const count = __voiceChatNativeMinimum(keys.length, 200);
-          for (let index = 0; index < count; index += 1) {
-            const key = keys[index];
-            if (key.length > remainingStringUnits) {
-              truncated = true;
-              break;
-            }
-            remainingStringUnits -= key.length;
-            const captured = capture(value[key], depth + 1);
-            if (captured === omitted) break;
-            __voiceChatNativeObjectDefineProperty(output, key, {
-              value: captured,
-              enumerable: true,
-              writable: true,
-              configurable: true
-            });
-          }
-          return output;
-        } finally {
-          __voiceChatNativeWeakSetDelete(ancestors, value);
-        }
-      };
-      if (typeof rawValue === "undefined") {
-        return __voiceChatNativeJSONStringify({ resultType: "undefined", truncated: false });
-      }
-      if (typeof rawValue === "number" && !__voiceChatNativeNumberIsFinite(rawValue)) {
-        return __voiceChatNativeJSONStringify({
-          resultType: "number",
-          resultDisplay: __voiceChatNativeString(rawValue),
-          truncated: false
-        });
-      }
-      const resultType = rawValue === null
-        ? "null"
-        : __voiceChatNativeArrayIsArray(rawValue)
-          ? "array"
-          : rawValue instanceof __voiceChatNativeDate
-            ? "string"
-            : typeof rawValue;
-      try {
-        const result = capture(rawValue);
-        return __voiceChatNativeJSONStringify({ result, resultType, truncated });
-      } catch (_) {
-        let resultDisplay;
-        try {
-          resultDisplay = captureString(__voiceChatNativeString(rawValue));
-        } catch (_) {}
-        return __voiceChatNativeJSONStringify({
-          resultType: "unavailable",
-          ...(resultDisplay === undefined ? {} : { resultDisplay }),
-          truncated
-        });
-      }
-    };
-    const __voiceChatCreateExceptionSnapshot = error => {
-      let truncated = false;
-      const readProperty = name => {
-        try {
-          return error === null || typeof error === "undefined" ? undefined : error[name];
-        } catch (_) {
-          return undefined;
-        }
-      };
-      const captureString = (value, maximumUnits) => {
-        let string;
-        try {
-          string = typeof value === "string" ? value : __voiceChatNativeString(value);
-        } catch (_) {
-          return undefined;
-        }
-        let end = __voiceChatNativeMinimum(string.length, maximumUnits);
-        if (end > 0 && end < string.length) {
-          const lastUnit = __voiceChatNativeStringCharCodeAt(string, end - 1);
-          const nextUnit = __voiceChatNativeStringCharCodeAt(string, end);
-          if (lastUnit >= 0xD800 && lastUnit <= 0xDBFF && nextUnit >= 0xDC00 && nextUnit <= 0xDFFF) {
-            end -= 1;
-          }
-        }
-        const visible = __voiceChatNativeStringSlice(string, 0, end);
-        if (visible.length < string.length) truncated = true;
-        return visible;
-      };
-      const name = captureString(readProperty("name"), 256);
-      const rawMessage = readProperty("message");
-      const separator = name && typeof rawMessage !== "undefined" ? ": " : "";
-      const messageBudget = __voiceChatNativeMinimum(4000 - (name?.length ?? 0) - separator.length, 4000);
-      let message = captureString(rawMessage, messageBudget);
-      if (!name && typeof message === "undefined") {
-        message = captureString(error, 4000);
-      }
-      const formattedMessage = `${name ?? ""}${separator}${message ?? "JavaScript exception"}`;
-      const firstInteger = (first, second) => {
-        if (__voiceChatNativeNumberIsInteger(first)) return first;
-        return __voiceChatNativeNumberIsInteger(second) ? second : undefined;
-      };
-      const line = firstInteger(readProperty("line"), readProperty("lineNumber"));
-      const column = firstInteger(readProperty("column"), readProperty("columnNumber"));
-      const source = captureString(readProperty("sourceURL"), 1000);
-      const stack = typeof line === "undefined" || typeof column === "undefined"
-        ? captureString(readProperty("stack"), 4000)
-        : undefined;
-      return __voiceChatNativeJSONStringify({
-        exception: {
-          message: formattedMessage,
-          ...(typeof line === "undefined" ? {} : { line }),
-          ...(typeof column === "undefined" ? {} : { column }),
-          ...(typeof source === "undefined" ? {} : { source }),
-          ...(typeof stack === "undefined" ? {} : { stack }),
-          truncated
-        },
-        truncated
-      });
-    };
     const numbers = (values, name) => {
       if (!Array.isArray(values) || values.some(value => typeof value !== "number" || !Number.isFinite(value))) {
         throw new TypeError(`${name} requires an array of finite numbers.`);
@@ -741,15 +680,8 @@ private final class JavaScriptWebSession: NSObject, WKNavigationDelegate {
     for (const [name, value] of Object.entries(publicBindings)) {
       Object.defineProperty(this, name, { value, writable: false, configurable: false });
     }
-    let __voiceChatCompletionSnapshot;
-    try {
-      const __voiceChatRawResult = (0, __voiceChatNativeEval)(\#(encodedCode));
-      __voiceChatCompletionSnapshot = __voiceChatCreateResultSnapshot(__voiceChatRawResult);
-    } catch (error) {
-      __voiceChatCompletionSnapshot = __voiceChatCreateExceptionSnapshot(error);
     }
-    __voiceChatCompletionSnapshot;
-    }
+    true;
     """#
     }
 }
