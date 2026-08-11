@@ -92,7 +92,7 @@
 "Close camera" = "카메라 닫기";
 "Close realtime voice overlay" = "실시간 음성 오버레이 닫기";
 "Close voice vision camera" = "음성 모드 카메라 닫기";
-"Code Interpreter" = "코드 인터프리터";
+"JavaScript Runtime" = "JavaScript 런타임";
 "Collapse" = "접기";
 "Completed reminders" = "완료된 미리 알림";
 "Connecting" = "연결 중";
@@ -467,7 +467,7 @@
 "This message will be deleted." = "이 메시지는 삭제됩니다.";
 "This model's metadata does not clearly report image-input capability. Turn this on only if you are sure the backend can accept image content for this model." = "이 모델의 메타데이터에는 이미지 입력 지원 여부가 명확히 표시되지 않습니다. 백엔드가 이 모델의 이미지 콘텐츠를 처리할 수 있다고 확신할 때만 이 옵션을 활성화하세요.";
 "This tool is disabled for the current endpoint." = "현재 엔드포인트에서는 이 도구가 비활성화되어 있습니다.";
-"This will allow location, clipboard, URL, and Code Interpreter tools to run automatically when permitted by the authorization mode. This may increase the risk of privacy exposure." = "승인 방식에서 허용하는 경우 위치, 클립보드, URL 및 코드 인터프리터 도구가 자동으로 실행됩니다. 개인 정보 유출 위험이 높아질 수 있습니다.";
+"This will allow location, clipboard, URL, and JavaScript Runtime tools to run automatically when permitted by the authorization mode. This may increase the risk of privacy exposure." = "승인 방식에서 허용하는 경우 위치, 클립보드, URL 및 JavaScript 런타임 도구가 자동으로 실행됩니다. 개인 정보 유출 위험이 높아질 수 있습니다.";
 "This will reset all developer options to their default values." = "모든 개발자 옵션을 기본값으로 재설정합니다.";
 "This will reset all options to defaults." = "모든 옵션을 기본값으로 재설정합니다.";
 "Time" = "시간";

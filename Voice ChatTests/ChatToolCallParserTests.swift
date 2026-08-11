@@ -1692,7 +1692,7 @@ final class ChatToolCallParserTests: XCTestCase {
                 locationEnabled: false,
                 motionEnabled: false,
                 deviceContextEnabled: false,
-                codeInterpreterEnabled: true
+                javaScriptRuntimeEnabled: true
             ),
             thinkingCapability: nil,
             thinkingOption: nil
@@ -1728,7 +1728,7 @@ final class ChatToolCallParserTests: XCTestCase {
                 locationEnabled: false,
                 motionEnabled: false,
                 deviceContextEnabled: false,
-                codeInterpreterEnabled: true
+                javaScriptRuntimeEnabled: true
             ),
             thinkingCapability: nil,
             thinkingOption: nil

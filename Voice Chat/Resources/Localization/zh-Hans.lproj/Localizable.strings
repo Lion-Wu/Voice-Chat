@@ -92,7 +92,7 @@
 "Close camera" = "关闭相机";
 "Close realtime voice overlay" = "关闭实时语音浮层";
 "Close voice vision camera" = "关闭语音模式摄像头";
-"Code Interpreter" = "代码解释器";
+"JavaScript Runtime" = "JavaScript 运行时";
 "Collapse" = "收起";
 "Completed reminders" = "已完成提醒事项";
 "Connecting" = "正在连接";
@@ -467,7 +467,7 @@
 "This message will be deleted." = "这条消息将被删除。";
 "This model's metadata does not clearly report image-input capability. Turn this on only if you are sure the backend can accept image content for this model." = "此模型的元数据未明确标注是否支持图像输入。仅在你确认当前后端可接收该模型的图像内容时启用。";
 "This tool is disabled for the current endpoint." = "当前端点已停用此工具。";
-"This will allow location, clipboard, URL, and Code Interpreter tools to run automatically when permitted by the authorization mode. This may increase the risk of privacy exposure." = "这将允许位置、剪贴板、URL 操作和代码解释器工具在授权方式允许时自动运行。这可能增加隐私泄露风险。";
+"This will allow location, clipboard, URL, and JavaScript Runtime tools to run automatically when permitted by the authorization mode. This may increase the risk of privacy exposure." = "这将允许位置、剪贴板、URL 操作和 JavaScript 运行时工具在授权方式允许时自动运行。这可能增加隐私泄露风险。";
 "This will reset all developer options to their default values." = "这会将所有开发者选项重置为默认值。";
 "This will reset all options to defaults." = "这会将所有选项重置为默认值。";
 "Time" = "时间";

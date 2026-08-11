@@ -13,7 +13,7 @@ final class ToolUseSettingsCodecTests: XCTestCase {
         XCTAssertFalse(decoded.deviceContextEnabled)
         XCTAssertFalse(decoded.clipboardEnabled)
         XCTAssertFalse(decoded.urlActionsEnabled)
-        XCTAssertFalse(decoded.codeInterpreterEnabled)
+        XCTAssertFalse(decoded.javaScriptRuntimeEnabled)
         XCTAssertFalse(decoded.timeEnabled)
         XCTAssertEqual(decoded.authorizationMode, .readOnly)
         XCTAssertFalse(decoded.allowHighRiskToolAutoExecution)
@@ -35,6 +35,36 @@ final class ToolUseSettingsCodecTests: XCTestCase {
         )
 
         XCTAssertEqual(ToolUseSettingsCodec.decode(from: "not-json", fallback: fallback), fallback)
+    }
+
+    func testStoredFieldsDecodeIndependently() {
+        let raw = """
+        {
+          "isEnabled": true,
+          "locationEnabled": true,
+          "remindersEnabled": "invalid",
+          "clipboardEnabled": true,
+          "javaScriptRuntimeEnabled": true,
+          "authorizationMode": "invalid",
+          "openAIResponsesStatefulEndpointURLs": [1]
+        }
+        """
+
+        let decoded = ToolUseSettingsCodec.decode(from: raw)
+
+        XCTAssertTrue(decoded.isEnabled)
+        XCTAssertFalse(decoded.calendarEnabled)
+        XCTAssertFalse(decoded.remindersEnabled)
+        XCTAssertTrue(decoded.locationEnabled)
+        XCTAssertTrue(decoded.clipboardEnabled)
+        XCTAssertTrue(decoded.javaScriptRuntimeEnabled)
+        XCTAssertFalse(decoded.timeEnabled)
+        XCTAssertEqual(decoded.authorizationMode, .readOnly)
+        XCTAssertTrue(decoded.useProviderContinuationIDs)
+        XCTAssertEqual(
+            decoded.openAIResponsesStatefulEndpointURLs,
+            ToolUseSettings.defaultOpenAIResponsesStatefulEndpointURLs
+        )
     }
 
     func testStatefulChatPolicyUsesLMStudioGlobalAndOpenAIResponsesAllowList() throws {
@@ -251,7 +281,7 @@ final class ToolUseSettingsCodecTests: XCTestCase {
             .clipboardGetText,
             .clipboardSetText,
             .systemOpenURL,
-            .codeInterpreterRun
+            .javaScriptRun
         ]
         var cases = highRiskTools.map {
             AuthorizationDecisionCase(
@@ -273,7 +303,7 @@ final class ToolUseSettingsCodecTests: XCTestCase {
         }
         cases.append(AuthorizationDecisionCase(
             name: "Ask-every-time overrides automatic permission",
-            tool: .codeInterpreterRun,
+            tool: .javaScriptRun,
             settings: askEveryTime,
             endpoint: localEndpoint,
             expected: .ask
@@ -355,7 +385,7 @@ final class ToolUseSettingsCodecTests: XCTestCase {
             deviceContextEnabled: false,
             clipboardEnabled: true,
             urlActionsEnabled: true,
-            codeInterpreterEnabled: true,
+            javaScriptRuntimeEnabled: true,
             authorizationMode: mode,
             allowHighRiskToolAutoExecution: allowAutomatic
         )

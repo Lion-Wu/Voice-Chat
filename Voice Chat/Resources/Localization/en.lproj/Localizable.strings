@@ -92,7 +92,7 @@
 "Close camera" = "Close camera";
 "Close realtime voice overlay" = "Close realtime voice overlay";
 "Close voice vision camera" = "Close voice vision camera";
-"Code Interpreter" = "Code Interpreter";
+"JavaScript Runtime" = "JavaScript Runtime";
 "Collapse" = "Collapse";
 "Completed reminders" = "Completed reminders";
 "Connecting" = "Connecting";
@@ -467,7 +467,7 @@
 "This message will be deleted." = "This message will be deleted.";
 "This model's metadata does not clearly report image-input capability. Turn this on only if you are sure the backend can accept image content for this model." = "This model's metadata does not clearly report image-input capability. Turn this on only if you are sure the backend can accept image content for this model.";
 "This tool is disabled for the current endpoint." = "This tool is disabled for the current endpoint.";
-"This will allow location, clipboard, URL, and Code Interpreter tools to run automatically when permitted by the authorization mode. This may increase the risk of privacy exposure." = "This will allow location, clipboard, URL, and Code Interpreter tools to run automatically when permitted by the authorization mode. This may increase the risk of privacy exposure.";
+"This will allow location, clipboard, URL, and JavaScript Runtime tools to run automatically when permitted by the authorization mode. This may increase the risk of privacy exposure." = "This will allow location, clipboard, URL, and JavaScript Runtime tools to run automatically when permitted by the authorization mode. This may increase the risk of privacy exposure.";
 "This will reset all developer options to their default values." = "This will reset all developer options to their default values.";
 "This will reset all options to defaults." = "This will reset all options to defaults.";
 "Time" = "Time";

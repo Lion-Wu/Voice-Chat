@@ -435,7 +435,7 @@ enum ChatToolDefinitions {
                 parametersSchema: emptyObjectSchema
             )
 
-        case .codeInterpreterRun:
+        case .javaScriptRun:
             return ChatToolDefinition(
                 id: id,
                 description: toolDescription(
@@ -446,9 +446,10 @@ enum ChatToolDefinitions {
                     ],
                     arguments: [
                         "Standard JavaScript syntax, loops, user-defined functions, and Math are supported. Helpers: sum(values), product(values), mean(values), median(values), stdev(values) for population standard deviation, percentile(values, percent) with percent from 0 to 100, inclusive range(start, end, step?), and round(value, digits?).",
-                        "code is limited to 64,000 characters; input is limited to a 1,000,000-byte JSON object."
+                        "Use console.log/info/warn/error or print(...) for terminal-style output. A final expression is also reported when it can be represented directly.",
+                        "code is limited to 256,000 characters; input is limited to a 4,000,000-byte JSON object."
                     ],
-                    returns: "A bounded JSON-compatible result, its type, and whether output was truncated.",
+                    returns: "Terminal output plus a bounded final value when available, its type, and whether either was truncated.",
                     afterUse: "Use the result; retry with corrected code only if needed."
                 ),
                 parametersSchema: object([
@@ -456,7 +457,7 @@ enum ChatToolDefinitions {
                     "additionalProperties": .bool(false),
                     "required": .array([.string("code")]),
                     "properties": .object([
-                        "code": stringDescription("Synchronous JavaScript function body that returns a JSON-compatible value. Standard statements, loops, functions, arrays/objects, Math, and the documented calculation helpers are supported. Network, filesystem, device/native APIs, dynamic code generation, and asynchronous results are unavailable. Timeout: 60 seconds."),
+                        "code": stringDescription("Synchronous JavaScript source code. Standard statements, loops, functions, arrays/objects, Math, and the documented calculation helpers are supported. Network, filesystem, device/native APIs, dynamic code generation, and asynchronous completion are unavailable. Timeout: 60 seconds."),
                         "input": .object([
                             "type": .string("object"),
                             "description": .string("Optional JSON object available as input.field."),
@@ -500,7 +501,7 @@ enum ChatToolDefinitions {
             return NSLocalizedString("Opening Link", comment: "Tool activity title")
         case .systemGetTime:
             return NSLocalizedString("Reading Current Time", comment: "Tool activity title")
-        case .codeInterpreterRun:
+        case .javaScriptRun:
             return NSLocalizedString("Running Code", comment: "Tool activity title")
         case .none:
             return NSLocalizedString("Using Tool", comment: "Tool activity title")
@@ -592,7 +593,7 @@ enum ChatToolDefinitions {
                 return host
             }
             return rawURL
-        case .codeInterpreterRun:
+        case .javaScriptRun:
             guard let code = stringValue("code", in: arguments) else { return nil }
             return String(
                 format: NSLocalizedString("JavaScript, %d characters", comment: "Tool activity summary"),
