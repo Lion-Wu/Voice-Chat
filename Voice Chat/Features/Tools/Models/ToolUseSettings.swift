@@ -67,23 +67,41 @@ struct ToolUseSettings: Codable, Equatable, Sendable {
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
+        let defaults = Self.defaults
         self.init(
-            isEnabled: try container.decode(Bool.self, forKey: .isEnabled),
-            calendarEnabled: try container.decode(Bool.self, forKey: .calendarEnabled),
-            remindersEnabled: try container.decode(Bool.self, forKey: .remindersEnabled),
-            locationEnabled: try container.decode(Bool.self, forKey: .locationEnabled),
-            motionEnabled: try container.decode(Bool.self, forKey: .motionEnabled),
-            deviceContextEnabled: try container.decode(Bool.self, forKey: .deviceContextEnabled),
-            clipboardEnabled: try container.decode(Bool.self, forKey: .clipboardEnabled),
-            urlActionsEnabled: try container.decode(Bool.self, forKey: .urlActionsEnabled),
-            javaScriptRuntimeEnabled: try container.decodeIfPresent(Bool.self, forKey: .javaScriptRuntimeEnabled) ?? false,
-            timeEnabled: try container.decode(Bool.self, forKey: .timeEnabled),
-            authorizationMode: try container.decode(ToolAuthorizationMode.self, forKey: .authorizationMode),
-            allowHighRiskToolAutoExecution: try container.decode(Bool.self, forKey: .allowHighRiskToolAutoExecution),
-            useProviderContinuationIDs: try container.decode(Bool.self, forKey: .useProviderContinuationIDs),
-            openAIResponsesStatefulEndpointURLs: try container.decode(
+            isEnabled: container.decodeStored(Bool.self, forKey: .isEnabled, default: defaults.isEnabled),
+            calendarEnabled: container.decodeStored(Bool.self, forKey: .calendarEnabled, default: defaults.calendarEnabled),
+            remindersEnabled: container.decodeStored(Bool.self, forKey: .remindersEnabled, default: defaults.remindersEnabled),
+            locationEnabled: container.decodeStored(Bool.self, forKey: .locationEnabled, default: defaults.locationEnabled),
+            motionEnabled: container.decodeStored(Bool.self, forKey: .motionEnabled, default: defaults.motionEnabled),
+            deviceContextEnabled: container.decodeStored(Bool.self, forKey: .deviceContextEnabled, default: defaults.deviceContextEnabled),
+            clipboardEnabled: container.decodeStored(Bool.self, forKey: .clipboardEnabled, default: defaults.clipboardEnabled),
+            urlActionsEnabled: container.decodeStored(Bool.self, forKey: .urlActionsEnabled, default: defaults.urlActionsEnabled),
+            javaScriptRuntimeEnabled: container.decodeStored(
+                Bool.self,
+                forKey: .javaScriptRuntimeEnabled,
+                default: defaults.javaScriptRuntimeEnabled
+            ),
+            timeEnabled: container.decodeStored(Bool.self, forKey: .timeEnabled, default: defaults.timeEnabled),
+            authorizationMode: container.decodeStored(
+                ToolAuthorizationMode.self,
+                forKey: .authorizationMode,
+                default: defaults.authorizationMode
+            ),
+            allowHighRiskToolAutoExecution: container.decodeStored(
+                Bool.self,
+                forKey: .allowHighRiskToolAutoExecution,
+                default: defaults.allowHighRiskToolAutoExecution
+            ),
+            useProviderContinuationIDs: container.decodeStored(
+                Bool.self,
+                forKey: .useProviderContinuationIDs,
+                default: defaults.useProviderContinuationIDs
+            ),
+            openAIResponsesStatefulEndpointURLs: container.decodeStored(
                 [String].self,
-                forKey: .openAIResponsesStatefulEndpointURLs
+                forKey: .openAIResponsesStatefulEndpointURLs,
+                default: defaults.openAIResponsesStatefulEndpointURLs
             )
         )
     }
@@ -272,6 +290,16 @@ struct ToolUseSettings: Codable, Equatable, Sendable {
         let path = components.path.trimmingCharacters(in: CharacterSet(charactersIn: "/")).lowercased()
         components.path = path.isEmpty ? "" : "/" + path
         return components.url?.absoluteString ?? url.absoluteString.lowercased()
+    }
+}
+
+private extension KeyedDecodingContainer {
+    func decodeStored<Value: Decodable>(
+        _ type: Value.Type,
+        forKey key: Key,
+        default defaultValue: Value
+    ) -> Value {
+        (try? decodeIfPresent(type, forKey: key)) ?? defaultValue
     }
 }
 
