@@ -223,8 +223,6 @@
 "JavaScript, %d characters" = "JavaScript，%d 個字元";
 "JSON mode" = "JSON 模式";
 "Keywords: %@" = "關鍵字：%@";
-"Last 30 Days" = "最近 30 天";
-"Last 7 Days" = "最近 7 天";
 "Last Seen At" = "最後使用時間";
 "List" = "列表";
 "Listening" = "正在聆聽";
@@ -287,7 +285,6 @@
 "Nothing to send" = "沒有可傳送的內容";
 "Object" = "物件";
 "Off" = "關閉";
-"Older" = "更早";
 "On" = "開啟";
 "Only enabled sampling fields are added to requests." = "只有啟用的取樣欄位會加入請求。";
 "Only the endpoint URLs listed below may continue from an OpenAI Responses response ID." = "只有下列端點 URL 可以透過 OpenAI Responses 回應 ID 繼續對話。";
@@ -310,7 +307,6 @@
 "Owner" = "擁有者";
 "Parameters" = "參數";
 "Parent Message ID" = "父訊息 ID";
-"Past Year" = "過去一年";
 "Pause audio" = "暫停音訊";
 "Phase" = "階段";
 "Placement Offset" = "放置偏移量";

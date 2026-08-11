@@ -5,10 +5,12 @@
 //  Created by Lion Wu on 2024.11.04.
 //
 
+import Combine
 import SwiftData
 import SwiftUI
 
 struct SidebarView: View {
+    @Environment(\.scenePhase) private var scenePhase
     @EnvironmentObject var chatSessionsViewModel: ChatSessionsViewModel
 
     var onConversationTap: (ChatSession) -> Void
@@ -20,6 +22,7 @@ struct SidebarView: View {
     // Query that produced the currently visible sidebar results; it intentionally lags searchText during debounce.
     @State private var visibleSearchKeyword: String = ""
     @State private var sidebarGroups: [SidebarSessionGroup] = []
+    @State private var appliedCalendarConfiguration: SidebarCalendarConfiguration?
     @State private var isSidebarSearchLoading: Bool = false
     @State private var sidebarSearchRefreshTask: Task<Void, Never>? = nil
     @FocusState private var isRenameFieldFocused: Bool
@@ -154,14 +157,46 @@ struct SidebarView: View {
         .onChange(of: searchText) { _, _ in
             scheduleSidebarSearchRefresh(debounce: !searchKeyword.isEmpty)
         }
+        .onReceive(NotificationCenter.default.publisher(for: .NSSystemTimeZoneDidChange)) { _ in
+            refreshSidebarGroupsForSystemCalendarChange()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSLocale.currentLocaleDidChangeNotification)) { _ in
+            refreshSidebarGroupsForSystemCalendarChange()
+        }
+        .onChange(of: scenePhase) { _, newPhase in
+            guard newPhase == .active else { return }
+            refreshSidebarGroupsIfCalendarConfigurationChanged()
+        }
         .onDisappear {
             sidebarSearchRefreshTask?.cancel()
             sidebarSearchRefreshTask = nil
         }
     }
 
-    private func scheduleSidebarSearchRefresh(debounce: Bool) {
+    private func refreshSidebarGroupsForSystemCalendarChange() {
+        scheduleSidebarSearchRefresh(
+            debounce: false,
+            calendar: .autoupdatingCurrent
+        )
+    }
+
+    private func refreshSidebarGroupsIfCalendarConfigurationChanged() {
+        let calendar = Calendar.autoupdatingCurrent
+        guard SidebarCalendarConfiguration.needsRefresh(
+            applied: appliedCalendarConfiguration,
+            calendar: calendar
+        ) else {
+            return
+        }
+        scheduleSidebarSearchRefresh(debounce: false, calendar: calendar)
+    }
+
+    private func scheduleSidebarSearchRefresh(
+        debounce: Bool,
+        calendar: Calendar = .autoupdatingCurrent
+    ) {
         let requestedKeyword = searchKeyword
+        let requestedCalendarConfiguration = SidebarCalendarConfiguration(calendar: calendar)
         let shouldDebounce = debounce && !requestedKeyword.isEmpty
         sidebarSearchRefreshTask?.cancel()
         sidebarSearchRefreshTask = Task { @MainActor in
@@ -175,9 +210,11 @@ struct SidebarView: View {
                 isSidebarSearchLoading = false
                 publishSidebarGroups(
                     SidebarSessionGrouping.groupedSessions(
-                        chatSessionsViewModel.chatSessions
+                        chatSessionsViewModel.chatSessions,
+                        calendar: calendar
                     )
                 )
+                appliedCalendarConfiguration = requestedCalendarConfiguration
                 visibleSearchKeyword = requestedKeyword
                 return
             }
@@ -209,8 +246,12 @@ struct SidebarView: View {
             guard !Task.isCancelled else { return }
             isSidebarSearchLoading = false
             publishSidebarGroups(
-                SidebarSessionGrouping.groupedSessions(matchedSessions)
+                SidebarSessionGrouping.groupedSessions(
+                    matchedSessions,
+                    calendar: calendar
+                )
             )
+            appliedCalendarConfiguration = requestedCalendarConfiguration
             visibleSearchKeyword = requestedKeyword
         }
     }
@@ -401,7 +442,7 @@ struct SidebarView: View {
                 }
             } else {
                 ForEach(sidebarGroups) { group in
-                    Section(header: Text(group.section.title)) {
+                    Section(header: group.section.title) {
                         ForEach(group.sessions) { session in
                             macSessionRow(session)
                                 .tag(session.id)
@@ -468,7 +509,7 @@ struct SidebarView: View {
                 }
             } else {
                 ForEach(sidebarGroups) { group in
-                    Section(group.section.title) {
+                    Section {
                         ForEach(group.sessions) { session in
                             NavigationLink(value: ChatSessionNavigationRoute(
                                 sessionID: session.id,
@@ -486,6 +527,8 @@ struct SidebarView: View {
                         .onDelete { offsets in
                             handleSwipeDelete(at: offsets, within: group.sessions)
                         }
+                    } header: {
+                        group.section.title
                     }
                 }
                 sidebarSearchLoadingSection
@@ -579,7 +622,7 @@ struct SidebarView: View {
                 }
             } else {
                 ForEach(sidebarGroups) { group in
-                    Section(group.section.title) {
+                    Section {
                         ForEach(group.sessions) { session in
                             iosSessionRow(session)
                                 .contentShape(Rectangle())
@@ -597,6 +640,8 @@ struct SidebarView: View {
                         .onDelete { offsets in
                             handleSwipeDelete(at: offsets, within: group.sessions)
                         }
+                    } header: {
+                        group.section.title
                     }
                 }
                 sidebarSearchLoadingSection

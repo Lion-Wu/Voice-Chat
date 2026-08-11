@@ -223,8 +223,6 @@
 "JavaScript, %d characters" = "JavaScript، %d حرفًا";
 "JSON mode" = "وضع JSON";
 "Keywords: %@" = "الكلمات المفتاحية: %@";
-"Last 30 Days" = "آخر 30 يومًا";
-"Last 7 Days" = "آخر 7 أيام";
 "Last Seen At" = "آخر استخدام";
 "List" = "القائمة";
 "Listening" = "جارٍ الاستماع";
@@ -287,7 +285,6 @@
 "Nothing to send" = "لا يوجد ما يمكن إرساله";
 "Object" = "الكائن";
 "Off" = "إيقاف";
-"Older" = "أقدم";
 "On" = "تشغيل";
 "Only enabled sampling fields are added to requests." = "تتم إضافة حقول أخذ العينات المفعّلة فقط إلى الطلبات.";
 "Only the endpoint URLs listed below may continue from an OpenAI Responses response ID." = "يمكن فقط لعناوين URL لنقاط النهاية المدرجة أدناه متابعة المحادثة من معرّف استجابة OpenAI Responses.";
@@ -310,7 +307,6 @@
 "Owner" = "المالك";
 "Parameters" = "المعلمات";
 "Parent Message ID" = "معرّف الرسالة الأصل";
-"Past Year" = "العام الماضي";
 "Pause audio" = "إيقاف الصوت مؤقتًا";
 "Phase" = "المرحلة";
 "Placement Offset" = "إزاحة الموضع";
