@@ -39,7 +39,7 @@ extension ChatView {
                 didTriggerResponseStartHaptic: $didTriggerResponseStartHaptic,
                 textHapticsEnabled: textHapticsEnabled,
                 searchNavigationTarget: chatSessionsViewModel.searchNavigationTarget,
-                visibleMessageCount: visibleMessages.count,
+                visibleMessageCount: visibleMessageCount,
                 isInitialContentReady: initialRenderCoordinator.isReady,
                 triggerTextHaptic: triggerTextHaptic,
                 onMessageContentUpdate: { update in
@@ -145,7 +145,7 @@ extension ChatView {
             .modifier(ChatViewChromeModifier(
                 layoutMetrics: layoutMetrics,
                 availableMessageWidth: availableMessageWidth,
-                showScrollToBottomButton: scrollState.showScrollToBottomButton,
+                showScrollToBottomButton: showScrollToBottomButton,
                 notices: errorCenter.notices,
                 onDismissNotice: errorCenter.dismiss(_:),
                 composer: { floatingInputPanel },
@@ -187,6 +187,7 @@ extension ChatView {
     var floatingInputPanel: some View {
         ChatComposerPanelBinder(
             viewModel: viewModel,
+            composerTextState: viewModel.composerTextState,
             imageImportDriver: imageImportDriver,
             textFieldHeight: $textFieldHeight,
             activeAlert: $activeAlert,
@@ -194,7 +195,6 @@ extension ChatView {
             inputOverflow: inputOverflow,
             layoutMetrics: layoutMetrics,
             supportsImageInput: currentModelSupportsImageInput,
-            canSendDraft: canSendDraft,
             thinkingCapability: currentModelThinkingCapability,
             thinkingOption: currentThinkingOption,
             errorCenter: errorCenter,
@@ -223,8 +223,7 @@ extension ChatView {
 
     func chatMessageList(scrollTargetsEnabled: Bool) -> some View {
         ChatMessageList(
-            visibleMessages: visibleMessages,
-            fingerprintCache: visibleMessageController.fingerprintCache,
+            visibleMessageController: visibleMessageController,
             branchRenderEpoch: branchRenderEpoch,
             isLoading: viewModel.isLoading,
             isPriming: viewModel.isPriming,

@@ -9,8 +9,7 @@ import SwiftUI
 
 @MainActor
 struct ChatMessageList: View {
-    let visibleMessages: [ChatMessage]
-    let fingerprintCache: [UUID: ContentFingerprint]
+    @ObservedObject var visibleMessageController: ChatVisibleMessageController
     let branchRenderEpoch: Int
     let isLoading: Bool
     let isPriming: Bool
@@ -36,6 +35,14 @@ struct ChatMessageList: View {
     let onSwitchVersion: (ChatMessage) -> Void
     let onRetry: (ChatMessage) -> Void
     let onAuthorizeTool: (String, Bool) -> Void
+
+    private var visibleMessages: [ChatMessage] {
+        visibleMessageController.visibleMessages
+    }
+
+    private var fingerprintCache: [UUID: ContentFingerprint] {
+        visibleMessageController.fingerprintCache
+    }
 
     var body: some View {
         let content = core

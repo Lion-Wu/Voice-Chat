@@ -12,17 +12,23 @@ extension ChatView {
         visibleMessageController.visibleMessages
     }
 
-    var isHydratingSession: Bool {
-        visibleMessageController.isHydratingSession
-    }
-
     func refreshVisibleMessages(hydrating: Bool = false) {
         visibleMessageController.refreshVisibleMessages(
             orderedMessages: viewModel.orderedMessagesCached(),
             editingBaseMessageID: viewModel.editingBaseMessageID,
             sessionID: viewModel.chatSession.id,
             hydrating: hydrating,
-            onVisibleCountChange: onMessagesCountChange
+            onVisibleCountChange: { count in
+                if visibleMessageCount != count {
+                    visibleMessageCount = count
+                }
+                onMessagesCountChange(count)
+            },
+            onHydrationStateChange: { isHydrating in
+                if isHydratingSession != isHydrating {
+                    isHydratingSession = isHydrating
+                }
+            }
         )
     }
 
@@ -63,6 +69,7 @@ extension ChatView {
 
     func resetScrollMetricsForSessionTransition() {
         scrollState.resetForSessionTransition()
+        showScrollToBottomButton = false
     }
 
     func scrollToBottomAfterOverflowTransitionIfNeeded(wasPastComposerOverflowThreshold: Bool) {
@@ -230,15 +237,17 @@ extension ChatView {
         }
 
         let shouldShow = shouldShowScrollToBottomButtonForCurrentGeometry
-        if shouldShow != scrollState.showScrollToBottomButton {
+        if shouldShow != showScrollToBottomButton {
             withAnimation(.easeInOut(duration: 0.2)) {
+                showScrollToBottomButton = shouldShow
                 scrollState.showScrollToBottomButton = shouldShow
             }
         }
     }
 
     func hideScrollToBottomButton() {
-        if scrollState.showScrollToBottomButton {
+        if showScrollToBottomButton {
+            showScrollToBottomButton = false
             scrollState.showScrollToBottomButton = false
         }
     }

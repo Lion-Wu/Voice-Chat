@@ -25,6 +25,7 @@ struct SidebarView: View {
     @State private var appliedCalendarConfiguration: SidebarCalendarConfiguration?
     @State private var isSidebarSearchLoading: Bool = false
     @State private var sidebarSearchRefreshTask: Task<Void, Never>? = nil
+    @State private var sidebarSelectionID: UUID?
     @FocusState private var isRenameFieldFocused: Bool
 
     // Deletion confirmation
@@ -57,13 +58,6 @@ struct SidebarView: View {
 
     private var isSidebarSearchActive: Bool {
         !searchKeyword.isEmpty
-    }
-
-    private var macSelectedSessionID: Binding<UUID?> {
-        Binding(
-            get: { chatSessionsViewModel.selectedSessionID },
-            set: selectMacSession(with:)
-        )
     }
 
     private var appDisplayName: String {
@@ -391,6 +385,11 @@ struct SidebarView: View {
         chatSessionsViewModel.selectSession(session, matchingSidebarQuery: visibleSearchKeyword)
     }
 
+    private func synchronizeSidebarSelection(with sessionID: UUID?) {
+        guard sidebarSelectionID != sessionID else { return }
+        sidebarSelectionID = sessionID
+    }
+
     private func sidebarPreview(for session: ChatSession) -> SidebarSessionPreview {
         chatSessionsViewModel.sidebarPreview(for: session, matchingSearchQuery: visibleSearchKeyword)
     }
@@ -421,7 +420,7 @@ struct SidebarView: View {
 
     @ViewBuilder
     private var macSidebar: some View {
-        List(selection: macSelectedSessionID) {
+        List(selection: $sidebarSelectionID) {
             Section {
                 macDraftRow
                     .tag(chatSessionsViewModel.draftSession.id)
@@ -460,6 +459,12 @@ struct SidebarView: View {
                 }
                 sidebarSearchLoadingSection
             }
+        }
+        .onChange(of: sidebarSelectionID) { _, sessionID in
+            selectMacSession(with: sessionID)
+        }
+        .onChange(of: chatSessionsViewModel.selectedSessionID, initial: true) { _, sessionID in
+            synchronizeSidebarSelection(with: sessionID)
         }
         .listStyle(.sidebar)
         .searchable(text: $searchText, placement: .sidebar, prompt: Text("Search Chats"))
@@ -594,7 +599,7 @@ struct SidebarView: View {
     }
 
     private var visionSidebar: some View {
-        List(selection: $chatSessionsViewModel.selectedSessionID) {
+        List(selection: $sidebarSelectionID) {
             Section {
                 iosDraftRow
                     .tag(chatSessionsViewModel.draftSession.id)
@@ -646,6 +651,12 @@ struct SidebarView: View {
                 }
                 sidebarSearchLoadingSection
             }
+        }
+        .onChange(of: sidebarSelectionID) { _, sessionID in
+            selectMacSession(with: sessionID)
+        }
+        .onChange(of: chatSessionsViewModel.selectedSessionID, initial: true) { _, sessionID in
+            synchronizeSidebarSelection(with: sessionID)
         }
         .listStyle(.sidebar)
         .safeAreaInset(edge: .top, spacing: 10) {

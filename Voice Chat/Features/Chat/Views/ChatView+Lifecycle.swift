@@ -11,18 +11,9 @@ extension ChatView {
     func handleChatViewAppear() {
         initialRenderCoordinator.begin()
         prepareSessionPresentation()
-#if os(macOS)
-        returnKeySendMonitor.register(
-            isInputFocused: { isInputFocused },
-            sendIfPossible: sendCoordinator.sendIfPossible
-        )
-#endif
     }
 
     func handleChatViewDisappear() {
-#if os(macOS)
-        returnKeySendMonitor.unregister()
-#endif
         visibleMessageController.cancelHydration()
         scrollInteractionState.clearNavigation()
         cancelOverflowTransitionScroll()
@@ -62,7 +53,7 @@ extension ChatView {
         }
         if !scrollInteractionState.hasSearchInterruption(
             currentTarget: currentSearchNavigationTarget()
-        ), !scrollState.showScrollToBottomButton {
+        ), !showScrollToBottomButton {
             scrollToBottom(animated: initialRenderCoordinator.isReady)
         }
     }

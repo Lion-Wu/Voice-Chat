@@ -11,6 +11,7 @@ import SwiftUI
 struct ChatComposerPanel: View {
     @Binding var userMessage: String
     @Binding var textFieldHeight: CGFloat
+    let externalTextRevision: UInt64
     let inputFocused: FocusState<Bool>.Binding
     let inputOverflow: Bool
     let hasSupportingContent: Bool
@@ -103,11 +104,13 @@ struct ChatComposerPanel: View {
             AutoSizingTextEditor(
                 text: $userMessage,
                 height: $textFieldHeight,
+                externalTextRevision: externalTextRevision,
                 placeholder: NSLocalizedString("Type your message...", comment: "Chat composer placeholder"),
                 maxLines: platformMaxLines(),
                 allowsImagePasting: supportsImageInput,
                 maxPastedImages: remainingAttachmentSlots,
                 onOverflowChange: onOverflowChange,
+                onCommit: onSend,
                 onPasteImages: onPasteImages
             )
             .focused(inputFocused)

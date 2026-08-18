@@ -56,7 +56,11 @@ final class ChatSessionsViewModel: ObservableObject {
     @Published var selectedSessionID: UUID? = nil {
         didSet {
             guard oldValue != selectedSessionID else { return }
-            scheduleSearchNavigationTargetValidation()
+            guard let target = searchNavigationTarget,
+                  target.sessionID != selectedSessionID else {
+                return
+            }
+            searchNavigationTarget = nil
         }
     }
     @Published private(set) var isRealtimeVoiceLocked: Bool = false
@@ -73,7 +77,6 @@ final class ChatSessionsViewModel: ObservableObject {
     private var activityCancellables: [UUID: AnyCancellable] = [:]
     private var sessionsWithActiveTextRequests: Set<UUID> = []
     private var textActivityPublishTask: Task<Void, Never>?
-    private var searchNavigationTargetValidationTask: Task<Void, Never>?
     private var pendingOrderingUpdates: [UUID: PendingOrderingUpdate] = [:]
     private var orderingPublishTask: Task<Void, Never>?
     private var sidebarSummaryBackfillTask: Task<Void, Never>?
@@ -129,7 +132,12 @@ final class ChatSessionsViewModel: ObservableObject {
             }
             return nil
         }
-        set { selectedSessionID = newValue?.id }
+        set {
+            let newID = newValue?.id
+            if selectedSessionID != newID {
+                selectedSessionID = newID
+            }
+        }
     }
 
     var canStartNewSession: Bool {
@@ -166,21 +174,6 @@ final class ChatSessionsViewModel: ObservableObject {
     func selectSession(_ session: ChatSession, matchingSidebarQuery rawQuery: String? = nil) {
         selectedSession = session
         configureSearchNavigationTarget(for: session, rawQuery: rawQuery)
-    }
-
-    private func scheduleSearchNavigationTargetValidation() {
-        searchNavigationTargetValidationTask?.cancel()
-        searchNavigationTargetValidationTask = Task { @MainActor [weak self] in
-            // `selectedSessionID` can be driven by `List(selection:)` during a
-            // SwiftUI update pass. Defer any secondary publish until that pass ends.
-            await Task.yield()
-            guard let self, !Task.isCancelled else { return }
-            guard let target = self.searchNavigationTarget,
-                  target.sessionID != self.selectedSessionID else {
-                return
-            }
-            self.searchNavigationTarget = nil
-        }
     }
 
     func cancelAllActiveTextRequests(autostartQueuedDrafts: Bool = true) {
@@ -253,8 +246,6 @@ final class ChatSessionsViewModel: ObservableObject {
         orderingPublishTask = nil
         configurationUpdateTask?.cancel()
         configurationUpdateTask = nil
-        searchNavigationTargetValidationTask?.cancel()
-        searchNavigationTargetValidationTask = nil
         textActivityPublishTask?.cancel()
         textActivityPublishTask = nil
         viewModelCache.values.forEach {
@@ -528,7 +519,17 @@ final class ChatSessionsViewModel: ObservableObject {
                   rawQuery: query,
                   matchingNormalizedQuery: normalizedQuery
               ) else {
-            searchNavigationTarget = nil
+            if searchNavigationTarget != nil {
+                searchNavigationTarget = nil
+            }
+            return
+        }
+
+        if let currentTarget = searchNavigationTarget,
+           currentTarget.sessionID == session.id,
+           currentTarget.messageID == match.messageID,
+           currentTarget.query == query,
+           currentTarget.anchorY == match.anchorY {
             return
         }
 

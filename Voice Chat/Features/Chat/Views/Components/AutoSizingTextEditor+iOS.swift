@@ -13,11 +13,13 @@ import UIKit
 struct AutoSizingTextEditor: UIViewRepresentable {
     @Binding var text: String
     @Binding var height: CGFloat
+    var externalTextRevision: UInt64 = 0
     var placeholder: String = ""
     var maxLines: Int = 6
     var allowsImagePasting: Bool = true
     var maxPastedImages: Int = .max
     var onOverflowChange: (Bool) -> Void = { _ in }
+    var onCommit: () -> Void = {}
     var onPasteImages: ([(data: Data, mimeType: String?)]) -> Void = { _ in }
 
     private func scheduleStateUpdate(
@@ -53,6 +55,8 @@ struct AutoSizingTextEditor: UIViewRepresentable {
         tv.allowsImagePasting = allowsImagePasting
         tv.maxPastedImages = maxPastedImages
         tv.onPasteImages = onPasteImages
+        tv.text = text
+        context.coordinator.lastAppliedExternalTextRevision = externalTextRevision
         return tv
     }
 
@@ -67,10 +71,25 @@ struct AutoSizingTextEditor: UIViewRepresentable {
         // Avoid stomping on in-progress IME composition during unrelated SwiftUI updates.
         uiView.semanticContentAttribute = context.environment.layoutDirection == .rightToLeft ? .forceRightToLeft : .forceLeftToRight
         uiView.textAlignment = .natural
-        if uiView.markedTextRange == nil, uiView.text != text {
-            uiView.text = text
+        var appliedExternalText = false
+        if uiView.markedTextRange == nil,
+           context.coordinator.lastAppliedExternalTextRevision != externalTextRevision {
+            context.coordinator.lastAppliedExternalTextRevision = externalTextRevision
+            if uiView.text != text {
+                uiView.text = text
+                appliedExternalText = true
+            }
         }
-        recalcHeight(uiView)
+
+        let layoutWidthChanged = context.coordinator.lastLayoutWidth.map {
+            abs($0 - uiView.bounds.width) > 0.5
+        } ?? true
+        let layoutConfigurationChanged = layoutWidthChanged
+            || context.coordinator.lastMaxLines != maxLines
+        if appliedExternalText || layoutConfigurationChanged {
+            recalcHeight(uiView)
+            context.coordinator.recordLayout(width: uiView.bounds.width, maxLines: maxLines)
+        }
     }
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
@@ -99,7 +118,16 @@ struct AutoSizingTextEditor: UIViewRepresentable {
 
     final class Coordinator: NSObject, UITextViewDelegate {
         var parent: AutoSizingTextEditor
+        var lastAppliedExternalTextRevision: UInt64?
+        var lastLayoutWidth: CGFloat?
+        var lastMaxLines: Int?
+
         init(_ parent: AutoSizingTextEditor) { self.parent = parent }
+
+        func recordLayout(width: CGFloat, maxLines: Int) {
+            lastLayoutWidth = width
+            lastMaxLines = maxLines
+        }
 
         func textViewDidChange(_ textView: UITextView) {
             if let pasteAwareTextView = textView as? PasteAwareTextView {
@@ -110,6 +138,7 @@ struct AutoSizingTextEditor: UIViewRepresentable {
                 parent.text = newText
             }
             parent.recalcHeight(textView)
+            recordLayout(width: textView.bounds.width, maxLines: parent.maxLines)
             if textView.isScrollEnabled, textView.markedTextRange == nil {
                 let end = NSRange(location: (textView.text as NSString).length, length: 0)
                 textView.scrollRangeToVisible(end)
@@ -125,6 +154,7 @@ struct AutoSizingTextEditor: UIViewRepresentable {
 
         var placeholder: String = "" {
             didSet {
+                guard oldValue != placeholder else { return }
                 setNeedsDisplay()
                 updateAccessibilityMetadata()
             }

@@ -2,6 +2,31 @@ import XCTest
 @testable import Voice_Chat
 
 final class ChatViewStateSeamTests: XCTestCase {
+    @MainActor
+    func testComposerTextStateSeparatesNativeEditsFromExternalReplacements() {
+        let state = ChatComposerTextState()
+
+        state.updateFromEditor("ni hao")
+
+        XCTAssertEqual(state.text, "ni hao")
+        XCTAssertEqual(state.externalRevision, 0)
+
+        state.replaceText("loaded draft")
+
+        XCTAssertEqual(state.text, "loaded draft")
+        XCTAssertEqual(state.externalRevision, 1)
+
+        state.updateFromEditor("loaded draft edited")
+
+        XCTAssertEqual(state.text, "loaded draft edited")
+        XCTAssertEqual(state.externalRevision, 1)
+
+        state.replaceText("")
+
+        XCTAssertEqual(state.text, "")
+        XCTAssertEqual(state.externalRevision, 2)
+    }
+
     func testChatImageAttachmentImporterNormalizesAndSniffsMIMETypes() {
         XCTAssertEqual(
             ChatImageAttachmentImporter.canonicalImageMIMEType(" image/jpg; charset=utf-8 "),

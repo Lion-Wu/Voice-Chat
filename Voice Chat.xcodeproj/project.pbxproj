@@ -120,7 +120,6 @@
 		FD9000000000000000000156 /* ChatComposerLayoutMetrics.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD9000000000000000000055 /* ChatComposerLayoutMetrics.swift */; };
 		FD9000000000000000000158 /* ChatViewLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD9000000000000000000057 /* ChatViewLayout.swift */; };
 		FD900000000000000000015A /* ChatComposerPanelBinder.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD9000000000000000000059 /* ChatComposerPanelBinder.swift */; };
-		FD900000000000000000015C /* ChatReturnKeySendMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD900000000000000000005B /* ChatReturnKeySendMonitor.swift */; };
 		FD900000000000000000015E /* ChatQueuedDraftCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD900000000000000000005D /* ChatQueuedDraftCoordinator.swift */; };
 		FD9000000000000000000160 /* ChatAssistantStreamTelemetryCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD900000000000000000005F /* ChatAssistantStreamTelemetryCoordinator.swift */; };
 		FD9000000000000000000162 /* SettingsAdvancedAPIView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD9000000000000000000061 /* SettingsAdvancedAPIView.swift */; };
@@ -499,7 +498,6 @@
 		FD9000000000000000000055 /* ChatComposerLayoutMetrics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ChatComposerLayoutMetrics.swift; path = "Voice Chat/Features/Chat/Views/Components/ChatComposerLayoutMetrics.swift"; sourceTree = SOURCE_ROOT; };
 		FD9000000000000000000057 /* ChatViewLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ChatViewLayout.swift; path = "Voice Chat/Features/Chat/Views/Components/ChatViewLayout.swift"; sourceTree = SOURCE_ROOT; };
 		FD9000000000000000000059 /* ChatComposerPanelBinder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ChatComposerPanelBinder.swift; path = "Voice Chat/Features/Chat/Views/Components/ChatComposerPanelBinder.swift"; sourceTree = SOURCE_ROOT; };
-		FD900000000000000000005B /* ChatReturnKeySendMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ChatReturnKeySendMonitor.swift; path = "Voice Chat/Features/Chat/Views/Components/ChatReturnKeySendMonitor.swift"; sourceTree = SOURCE_ROOT; };
 		FD900000000000000000005D /* ChatQueuedDraftCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ChatQueuedDraftCoordinator.swift; path = "Voice Chat/Features/Chat/ViewModels/ChatQueuedDraftCoordinator.swift"; sourceTree = SOURCE_ROOT; };
 		FD900000000000000000005F /* ChatAssistantStreamTelemetryCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ChatAssistantStreamTelemetryCoordinator.swift; path = "Voice Chat/Features/Chat/ViewModels/ChatAssistantStreamTelemetryCoordinator.swift"; sourceTree = SOURCE_ROOT; };
 		FD9000000000000000000061 /* SettingsAdvancedAPIView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = SettingsAdvancedAPIView.swift; path = "Voice Chat/Features/Settings/Views/SettingsAdvancedAPIView.swift"; sourceTree = SOURCE_ROOT; };
@@ -1281,7 +1279,6 @@
 				FD9000000000000000000055 /* ChatComposerLayoutMetrics.swift */,
 				FD9000000000000000000057 /* ChatViewLayout.swift */,
 				FD9000000000000000000059 /* ChatComposerPanelBinder.swift */,
-				FD900000000000000000005B /* ChatReturnKeySendMonitor.swift */,
 				FD90000000000000000000AD /* ChatSendCoordinator.swift */,
 				A9C4B2103F8A4D2200C0DE01 /* MacCameraCaptureSheet.swift */,
 				FDA8D9332E7F0F260012B42F /* LoadingViews.swift */,
@@ -1978,7 +1975,6 @@
 				FD9000000000000000000156 /* ChatComposerLayoutMetrics.swift in Sources */,
 				FD9000000000000000000158 /* ChatViewLayout.swift in Sources */,
 				FD900000000000000000015A /* ChatComposerPanelBinder.swift in Sources */,
-				FD900000000000000000015C /* ChatReturnKeySendMonitor.swift in Sources */,
 				FD90000000000000000001AE /* ChatSendCoordinator.swift in Sources */,
 				FD9000000000000000000116 /* MessageComposerView.swift in Sources */,
 				FD900000000000000000011A /* TTSConfigurationResolver.swift in Sources */,
