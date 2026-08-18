@@ -11,6 +11,7 @@ import SwiftUI
 @MainActor
 struct ChatComposerPanelBinder: View {
     @ObservedObject var viewModel: ChatViewModel
+    @ObservedObject var composerTextState: ChatComposerTextState
     @ObservedObject var imageImportDriver: ChatImageAttachmentImportDriver
 
     @Binding var textFieldHeight: CGFloat
@@ -20,7 +21,6 @@ struct ChatComposerPanelBinder: View {
     let inputOverflow: Bool
     let layoutMetrics: ChatComposerLayoutMetrics
     let supportsImageInput: Bool
-    let canSendDraft: Bool
     let thinkingCapability: ModelThinkingCapability?
     let thinkingOption: ModelThinkingOption?
     let errorCenter: AppErrorCenter
@@ -34,10 +34,23 @@ struct ChatComposerPanelBinder: View {
     let onSend: () -> Bool
     let onStartRealtimeVoice: () -> Void
 
+    private var userMessageBinding: Binding<String> {
+        Binding(
+            get: { composerTextState.text },
+            set: composerTextState.updateFromEditor(_:)
+        )
+    }
+
+    private var canSendDraft: Bool {
+        !composerTextState.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            || !viewModel.pendingImageAttachments.isEmpty
+    }
+
     var body: some View {
         ChatComposerPanel(
-            userMessage: $viewModel.userMessage,
+            userMessage: userMessageBinding,
             textFieldHeight: $textFieldHeight,
+            externalTextRevision: composerTextState.externalRevision,
             inputFocused: inputFocused,
             inputOverflow: inputOverflow,
             hasSupportingContent: layoutMetrics.hasComposerSupportingContent,

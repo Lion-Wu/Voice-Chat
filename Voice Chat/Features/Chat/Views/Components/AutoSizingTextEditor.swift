@@ -44,6 +44,7 @@ struct AutoSizingTextEditor: NSViewRepresentable {
 
     @Binding var text: String
     @Binding var height: CGFloat
+    var externalTextRevision: UInt64 = 0
     var placeholder: String = ""
     var maxLines: Int = 10
     var allowsImagePasting: Bool = true
@@ -55,6 +56,10 @@ struct AutoSizingTextEditor: NSViewRepresentable {
     private func lineHeight(for textView: NSTextView) -> CGFloat {
         textView.layoutManager?.defaultLineHeight(for: textView.font ?? .systemFont(ofSize: AutoSizingTextEditorLayout.fontSize))
             ?? InputMetrics.baseLineHeight
+    }
+
+    private func layoutContentWidth(for textView: NSTextView) -> CGFloat {
+        max(textView.enclosingScrollView?.contentSize.width ?? textView.bounds.width, 1)
     }
 
     private func scheduleStateUpdate(
@@ -70,7 +75,7 @@ struct AutoSizingTextEditor: NSViewRepresentable {
     }
 
     private func updateMacLayout(for textView: CommitTextView, maxLines: Int) -> (height: CGFloat, shouldOverflow: Bool) {
-        let contentWidth = max(textView.enclosingScrollView?.contentSize.width ?? textView.bounds.width, 1)
+        let contentWidth = layoutContentWidth(for: textView)
         let lineFragmentPadding = textView.textContainer?.lineFragmentPadding ?? 0
         let horizontalInsets = textView.textContainerInset.width * 2 + lineFragmentPadding * 2
         let layoutWidth = max(contentWidth - horizontalInsets, 1)
@@ -144,6 +149,7 @@ struct AutoSizingTextEditor: NSViewRepresentable {
         textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
         textView.minSize = NSSize(width: 1, height: InputMetrics.defaultHeight)
         textView.autoresizingMask = [.width]
+        textView.string = text
 
         textView.delegate = context.coordinator
         textView.onCommit = onCommit
@@ -153,6 +159,7 @@ struct AutoSizingTextEditor: NSViewRepresentable {
 
         scrollView.documentView = textView
         context.coordinator.textView = textView
+        context.coordinator.lastAppliedExternalTextRevision = externalTextRevision
         return scrollView
     }
 
@@ -162,14 +169,32 @@ struct AutoSizingTextEditor: NSViewRepresentable {
         tv.allowsImagePasting = allowsImagePasting
         tv.maxPastedImages = maxPastedImages
         tv.onPasteImages = onPasteImages
+        tv.onCommit = onCommit
         tv.placeholder = placeholder
         let isComposing = tv.hasMarkedText()
-        if !isComposing, tv.string != text { tv.string = text }
-        tv.refreshPresentationState()
-        let measured = updateMacLayout(for: tv, maxLines: maxLines)
-        scheduleStateUpdate(measuredHeight: measured.height, overflow: measured.shouldOverflow)
+        var appliedExternalText = false
+        if !isComposing,
+           context.coordinator.lastAppliedExternalTextRevision != externalTextRevision {
+            context.coordinator.lastAppliedExternalTextRevision = externalTextRevision
+            if tv.string != text {
+                tv.string = text
+                appliedExternalText = true
+            }
+        }
 
-        if !isComposing {
+        let contentWidth = layoutContentWidth(for: tv)
+        let layoutWidthChanged = context.coordinator.lastLayoutContentWidth.map {
+            abs($0 - contentWidth) > 0.5
+        } ?? true
+        let layoutConfigurationChanged = layoutWidthChanged
+            || context.coordinator.lastMaxLines != maxLines
+        if appliedExternalText || layoutConfigurationChanged {
+            let measured = updateMacLayout(for: tv, maxLines: maxLines)
+            context.coordinator.recordLayout(contentWidth: contentWidth, maxLines: maxLines)
+            scheduleStateUpdate(measuredHeight: measured.height, overflow: measured.shouldOverflow)
+        }
+
+        if appliedExternalText {
             if let selected = tv.selectedRanges.first as? NSRange {
                 tv.scrollRangeToVisible(selected)
             } else {
@@ -184,8 +209,16 @@ struct AutoSizingTextEditor: NSViewRepresentable {
     final class Coordinator: NSObject, NSTextViewDelegate {
         var parent: AutoSizingTextEditor
         weak var textView: CommitTextView?
+        var lastAppliedExternalTextRevision: UInt64?
+        var lastLayoutContentWidth: CGFloat?
+        var lastMaxLines: Int?
 
         init(parent: AutoSizingTextEditor) { self.parent = parent }
+
+        func recordLayout(contentWidth: CGFloat, maxLines: Int) {
+            lastLayoutContentWidth = contentWidth
+            lastMaxLines = maxLines
+        }
 
         func textDidChange(_ notification: Notification) {
             guard let tv = notification.object as? NSTextView else { return }
@@ -195,6 +228,10 @@ struct AutoSizingTextEditor: NSViewRepresentable {
             }
             commitTextView.refreshPresentationState()
             let measured = parent.updateMacLayout(for: commitTextView, maxLines: parent.maxLines)
+            recordLayout(
+                contentWidth: parent.layoutContentWidth(for: commitTextView),
+                maxLines: parent.maxLines
+            )
             parent.scheduleStateUpdate(
                 measuredHeight: measured.height,
                 overflow: measured.shouldOverflow
@@ -204,6 +241,26 @@ struct AutoSizingTextEditor: NSViewRepresentable {
                 let end = NSRange(location: (tv.string as NSString).length, length: 0)
                 tv.scrollRangeToVisible(end)
             }
+        }
+
+        func textView(_ textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
+            guard commandSelector == #selector(NSTextView.insertNewline(_:)),
+                  let commitTextView = textView as? CommitTextView,
+                  !commitTextView.hasMarkedText(),
+                  let event = NSApp.currentEvent,
+                  event.type == .keyDown,
+                  [UInt16(36), UInt16(76)].contains(event.keyCode) else {
+                return false
+            }
+
+            let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+            let nonSubmittingModifiers: NSEvent.ModifierFlags = [.command, .control, .option, .shift]
+            guard modifiers.intersection(nonSubmittingModifiers).isEmpty else {
+                return false
+            }
+
+            commitTextView.onCommit()
+            return true
         }
     }
 
@@ -217,6 +274,7 @@ struct AutoSizingTextEditor: NSViewRepresentable {
 
         var placeholder: String = "" {
             didSet {
+                guard oldValue != placeholder else { return }
                 needsDisplay = true
                 updateAccessibilityMetadata()
             }
@@ -349,19 +407,6 @@ struct AutoSizingTextEditor: NSViewRepresentable {
                     return false
                 }
                 return !plainText.isEmpty
-            }
-        }
-
-        override func keyDown(with event: NSEvent) {
-            if event.keyCode == 36 {
-                if event.modifierFlags.contains(.shift) {
-                    super.keyDown(with: event)
-                } else {
-                    self.window?.makeFirstResponder(nil)
-                    onCommit()
-                }
-            } else {
-                super.keyDown(with: event)
             }
         }
 

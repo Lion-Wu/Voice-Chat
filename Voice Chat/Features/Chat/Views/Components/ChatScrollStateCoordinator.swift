@@ -220,3 +220,8 @@ struct ChatScrollState: Equatable, Sendable {
         return true
     }
 }
+
+@MainActor
+final class ChatScrollStateStorage {
+    var value = ChatScrollState()
+}

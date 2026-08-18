@@ -31,6 +31,7 @@ final class ChatVisibleMessageController: ObservableObject {
     private var state = ChatVisibleMessageHydrationState()
     private var pendingRefresh: PendingRefresh?
     private let fingerprintBuilder: FingerprintBuilder
+    private var onHydrationStateChange: @MainActor @Sendable (Bool) -> Void = { _ in }
 
     init(fingerprintBuilder: FingerprintBuilder? = nil) {
         self.fingerprintBuilder = fingerprintBuilder ?? { snapshots in
@@ -45,8 +46,10 @@ final class ChatVisibleMessageController: ObservableObject {
         editingBaseMessageID: UUID?,
         sessionID: UUID,
         hydrating: Bool = false,
-        onVisibleCountChange: @MainActor @Sendable @escaping (Int) -> Void
+        onVisibleCountChange: @MainActor @Sendable @escaping (Int) -> Void,
+        onHydrationStateChange: @MainActor @Sendable @escaping (Bool) -> Void = { _ in }
     ) {
+        self.onHydrationStateChange = onHydrationStateChange
         if !hydrating, state.deferRefreshIfHydrating() {
             pendingRefresh = PendingRefresh(
                 ownerToken: state.refreshGeneration,
@@ -90,6 +93,7 @@ final class ChatVisibleMessageController: ObservableObject {
     func cancelHydration() {
         pendingRefresh = nil
         state.cancelHydration()
+        onHydrationStateChange(false)
         publishStateSnapshot()
     }
 
@@ -107,6 +111,7 @@ final class ChatVisibleMessageController: ObservableObject {
 
         pendingRefresh = nil
         state.beginHydration(token: token)
+        onHydrationStateChange(true)
         publishStateSnapshot()
         MessageRenderCache.shared.clear()
 
@@ -148,6 +153,7 @@ final class ChatVisibleMessageController: ObservableObject {
             prewarmThinkParts(for: snapshots)
 
             guard state.finishHydration(token: token) else { return }
+            onHydrationStateChange(false)
             publishStateSnapshot()
 
             if state.consumePendingRefreshAfterHydration() {

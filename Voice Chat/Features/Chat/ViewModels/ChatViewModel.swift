@@ -9,6 +9,35 @@ import Foundation
 import Combine
 
 @MainActor
+final class ChatComposerTextState: ObservableObject {
+    private struct Snapshot: Equatable {
+        var text: String = ""
+        var externalRevision: UInt64 = 0
+    }
+
+    @Published private var snapshot = Snapshot()
+
+    var text: String { snapshot.text }
+    var externalRevision: UInt64 { snapshot.externalRevision }
+
+    func updateFromEditor(_ text: String) {
+        guard snapshot.text != text else { return }
+        snapshot = Snapshot(
+            text: text,
+            externalRevision: snapshot.externalRevision
+        )
+    }
+
+    func replaceText(_ text: String) {
+        guard snapshot.text != text else { return }
+        snapshot = Snapshot(
+            text: text,
+            externalRevision: snapshot.externalRevision &+ 1
+        )
+    }
+}
+
+@MainActor
 final class ChatViewModel: ObservableObject {
     struct MessageContentUpdate: Sendable {
         let messageID: UUID
@@ -39,7 +68,11 @@ final class ChatViewModel: ObservableObject {
     }
 
     // MARK: - Published State
-    @Published var userMessage: String = ""
+    let composerTextState = ChatComposerTextState()
+    var userMessage: String {
+        get { composerTextState.text }
+        set { composerTextState.replaceText(newValue) }
+    }
     @Published var pendingImageAttachments: [ChatImageAttachment] = []
     @Published var queuedDraftCoordinator = ChatQueuedDraftCoordinator()
     @Published var isLoading: Bool = false
@@ -276,16 +309,28 @@ final class ChatViewModel: ObservableObject {
 
     private func bindRequestActivityController() {
         textRequestRuntime.bindActivityState { [weak self] state in
-            self?.isLoading = state.isLoading
-            self?.isPriming = state.isPriming
+            guard let self else { return }
+            if isLoading != state.isLoading {
+                isLoading = state.isLoading
+            }
+            if isPriming != state.isPriming {
+                isPriming = state.isPriming
+            }
         }
     }
 
     private func bindStreamRetryStatusController() {
         textRequestRuntime.bindRetryState { [weak self] state in
-            self?.isRetrying = state.isRetrying
-            self?.retryAttempt = state.retryAttempt
-            self?.retryLastError = state.retryLastError
+            guard let self else { return }
+            if isRetrying != state.isRetrying {
+                isRetrying = state.isRetrying
+            }
+            if retryAttempt != state.retryAttempt {
+                retryAttempt = state.retryAttempt
+            }
+            if retryLastError != state.retryLastError {
+                retryLastError = state.retryLastError
+            }
         }
     }
 
@@ -1024,7 +1069,9 @@ final class ChatViewModel: ObservableObject {
 
     private func handleAssistantDelta(_ piece: String) {
         guard canAcceptAssistantDelta else { return }
-        isToolContinuationLoading = false
+        if isToolContinuationLoading {
+            isToolContinuationLoading = false
+        }
         clearProcessingToolActivitiesFromMessages()
         markRetryProgressIfNeeded()
 
@@ -1080,7 +1127,9 @@ final class ChatViewModel: ObservableObject {
 
     private func handleAssistantStreamSegment(_ segment: AssistantStreamSegment) {
         guard canAcceptAssistantDelta else { return }
-        isToolContinuationLoading = false
+        if isToolContinuationLoading {
+            isToolContinuationLoading = false
+        }
         clearProcessingToolActivitiesFromMessages()
         markRetryProgressIfNeeded()
 

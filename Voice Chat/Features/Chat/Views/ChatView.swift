@@ -25,21 +25,25 @@ struct ChatView: View {
     @State var inputOverflow: Bool = false
     @State var showFullScreenComposer: Bool = false
 
-    @State var scrollState = ChatScrollState()
+    // High-frequency message geometry is imperative coordination state. Only the
+    // derived visibility boolean below participates in SwiftUI observation.
+    @State var scrollStateStorage = ChatScrollStateStorage()
+    @State var showScrollToBottomButton: Bool = false
     @State var scrollProxy: ScrollViewProxy?
     @State var branchRenderEpoch: Int = 0
     @State var scrollInteractionState = ChatScrollInteractionState()
     @State var activeAlert: ChatAlert?
     @State var expectAssistantResponseHaptics: Bool = false
     @State var didTriggerResponseStartHaptic: Bool = false
-    @StateObject var visibleMessageController = ChatVisibleMessageController()
+    // The message list observes this controller directly. Keeping ownership here
+    // without observing it prevents streamed fingerprints from invalidating the
+    // composer and the rest of the chat chrome.
+    @State var visibleMessageController = ChatVisibleMessageController()
+    @State var visibleMessageCount: Int = 0
+    @State var isHydratingSession: Bool = false
     @StateObject var initialRenderCoordinator = ChatInitialRenderCoordinator()
 #if os(iOS) || os(macOS) || os(visionOS)
     @StateObject var imageImportDriver = ChatImageAttachmentImportDriver()
-#endif
-
-#if os(macOS)
-    @StateObject var returnKeySendMonitor = ChatReturnKeySendMonitor()
 #endif
 
     // View model that coordinates the realtime voice overlay.
@@ -53,6 +57,11 @@ struct ChatView: View {
     ) {
         self.viewModel = viewModel
         self.onMessagesCountChange = onMessagesCountChange
+    }
+
+    var scrollState: ChatScrollState {
+        get { scrollStateStorage.value }
+        nonmutating set { scrollStateStorage.value = newValue }
     }
 
 }
