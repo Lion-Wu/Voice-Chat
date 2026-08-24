@@ -8,279 +8,388 @@
 import Foundation
 import NaturalLanguage
 
+enum SpeechTextSegmentation {
+    static let wordsPerSecond = 2.8
+    static let cjkCharactersPerSecond = 4.5
+    static let approximateCharactersPerWord = 5.5
+
+    static let softPunctuation: Set<Character> = Set(",，、:：;；")
+
+    private struct DurationCounts {
+        var cjkCharacters = 0
+        var nonCJKWords = 0
+        var nonCJKAlphanumerics = 0
+    }
+
+    struct DurationIndex {
+        private let prefixCounts: [String.Index: DurationCounts]
+
+        init(text: String) {
+            let tokenizer = SpeechTextSegmentation.tokenizer(unit: .word, for: text)
+            var nonCJKWordEnds: [String.Index: Int] = [:]
+            tokenizer.enumerateTokens(in: text.startIndex..<text.endIndex) { range, _ in
+                let tokenContainsNonCJKAlphanumeric = text[range].contains { character in
+                    !SpeechTextSegmentation.isCJKCharacter(character) &&
+                        character.unicodeScalars.contains {
+                            CharacterSet.alphanumerics.contains($0)
+                        }
+                }
+                if tokenContainsNonCJKAlphanumeric {
+                    nonCJKWordEnds[range.upperBound, default: 0] += 1
+                }
+                return true
+            }
+
+            var counts = DurationCounts()
+            var countsByIndex: [String.Index: DurationCounts] = [text.startIndex: counts]
+            var index = text.startIndex
+            while index < text.endIndex {
+                let character = text[index]
+                let nextIndex = text.index(after: index)
+                if SpeechTextSegmentation.isCJKCharacter(character) {
+                    counts.cjkCharacters += 1
+                } else {
+                    counts.nonCJKAlphanumerics += character.unicodeScalars.reduce(into: 0) {
+                        count, scalar in
+                        if CharacterSet.alphanumerics.contains(scalar) {
+                            count += 1
+                        }
+                    }
+                }
+                counts.nonCJKWords += nonCJKWordEnds[nextIndex, default: 0]
+                countsByIndex[nextIndex] = counts
+                index = nextIndex
+            }
+            prefixCounts = countsByIndex
+        }
+
+        func estimatedSeconds(from start: String.Index, to end: String.Index) -> Double {
+            guard let startCounts = prefixCounts[start],
+                  let endCounts = prefixCounts[end] else {
+                return 0
+            }
+
+            let cjkCount = max(0, endCounts.cjkCharacters - startCounts.cjkCharacters)
+            let wordCount = max(0, endCounts.nonCJKWords - startCounts.nonCJKWords)
+            let alphanumericCount = max(
+                0,
+                endCounts.nonCJKAlphanumerics - startCounts.nonCJKAlphanumerics
+            )
+            let approximateWordCount = Int(
+                (Double(alphanumericCount) / approximateCharactersPerWord).rounded(.up)
+            )
+            let cjkSeconds = Double(cjkCount) / cjkCharactersPerSecond
+            let wordSeconds = Double(max(wordCount, approximateWordCount)) / wordsPerSecond
+            return cjkSeconds + wordSeconds
+        }
+
+        func containsCJK(from start: String.Index, to end: String.Index) -> Bool {
+            guard let startCounts = prefixCounts[start],
+                  let endCounts = prefixCounts[end] else {
+                return false
+            }
+            return endCounts.cjkCharacters > startCounts.cjkCharacters
+        }
+    }
+
+    static func estimatedSeconds(for text: String) -> Double {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return 0 }
+        let durationIndex = DurationIndex(text: trimmed)
+        return durationIndex.estimatedSeconds(from: trimmed.startIndex, to: trimmed.endIndex)
+    }
+
+    static func punctuationBoundaries(in text: String, includeTerminal: Bool = true) -> [String.Index] {
+        var boundaries = includeTerminal ? sentenceBoundaries(in: text) : []
+        var index = text.startIndex
+
+        while index < text.endIndex {
+            let character = text[index]
+            guard softPunctuation.contains(character) || character.isNewline else {
+                index = text.index(after: index)
+                continue
+            }
+
+            let boundary = text.index(after: index)
+            boundaries.append(boundary)
+            index = boundary
+        }
+        return sortedUniqueBoundaries(boundaries)
+    }
+
+    static func terminalBoundaries(in text: String) -> [String.Index] {
+        var boundaries = sentenceBoundaries(in: text)
+        var index = text.startIndex
+
+        while index < text.endIndex {
+            let character = text[index]
+            guard character.isNewline || character == ";" || character == "；" else {
+                index = text.index(after: index)
+                continue
+            }
+
+            let boundary = text.index(after: index)
+            boundaries.append(boundary)
+            index = boundary
+        }
+        return sortedUniqueBoundaries(boundaries)
+    }
+
+    static func sentenceBoundaries(in text: String) -> [String.Index] {
+        let sentenceTokenizer = tokenizer(unit: .sentence, for: text)
+        var boundaries: [String.Index] = []
+        var pendingBoundary: String.Index?
+
+        sentenceTokenizer.enumerateTokens(in: text.startIndex..<text.endIndex) { range, _ in
+            // NLTokenizer always returns the trailing buffered text as a sentence token,
+            // even when that sentence is still streaming. Seeing the next sentence token
+            // confirms the preceding boundary without second-guessing Apple's semantics.
+            if let pendingBoundary, pendingBoundary > text.startIndex {
+                boundaries.append(pendingBoundary)
+            }
+            pendingBoundary = boundaryBeforeTrailingWhitespace(range.upperBound, in: text)
+            return true
+        }
+
+        if let pendingBoundary,
+           pendingBoundary == text.endIndex,
+           hasExplicitSentenceTerminator(before: pendingBoundary, in: text) {
+            boundaries.append(pendingBoundary)
+        }
+        return boundaries
+    }
+
+    private static func boundaryBeforeTrailingWhitespace(
+        _ boundary: String.Index,
+        in text: String
+    ) -> String.Index {
+        var result = boundary
+        while result > text.startIndex {
+            let previous = text.index(before: result)
+            guard text[previous].isWhitespace else { break }
+            result = previous
+        }
+        return result
+    }
+
+    private static func hasExplicitSentenceTerminator(
+        before boundary: String.Index,
+        in text: String
+    ) -> Bool {
+        var cursor = boundary
+        while cursor > text.startIndex {
+            let previous = text.index(before: cursor)
+            let character = text[previous]
+            if character.unicodeScalars.allSatisfy({ scalar in
+                scalar.properties.isQuotationMark ||
+                    scalar.properties.generalCategory == .closePunctuation ||
+                    scalar.properties.generalCategory == .finalPunctuation
+            }) {
+                cursor = previous
+                continue
+            }
+            return character.unicodeScalars.contains {
+                $0.properties.isTerminalPunctuation
+            }
+        }
+        return false
+    }
+
+    static func wordBoundaries(in text: String, excludingEnd: Bool) -> [String.Index] {
+        let tokenizer = tokenizer(unit: .word, for: text)
+        var boundaries: [String.Index] = []
+
+        tokenizer.enumerateTokens(in: text.startIndex..<text.endIndex) { range, _ in
+            if !excludingEnd || range.upperBound < text.endIndex {
+                boundaries.append(range.upperBound)
+            }
+            return true
+        }
+        return boundaries
+    }
+
+    private static func tokenizer(unit: NLTokenUnit, for text: String) -> NLTokenizer {
+        let tokenizer = NLTokenizer(unit: unit)
+        tokenizer.string = text
+        if let language = NLLanguageRecognizer.dominantLanguage(for: text) {
+            tokenizer.setLanguage(language)
+        }
+        return tokenizer
+    }
+
+    private static func isCJKCharacter(_ character: Character) -> Bool {
+        character.unicodeScalars.contains { scalar in
+            if scalar.properties.isIdeographic { return true }
+            switch scalar.value {
+            case 0x3040...0x30FF, 0xAC00...0xD7AF:
+                return true
+            default:
+                return false
+            }
+        }
+    }
+
+    private static func sortedUniqueBoundaries(
+        _ boundaries: [String.Index]
+    ) -> [String.Index] {
+        var result: [String.Index] = []
+        for boundary in boundaries.sorted() where result.last != boundary {
+            result.append(boundary)
+        }
+        return result
+    }
+}
+
 actor TextSegmentationWorker {
     static let shared = TextSegmentationWorker()
 
-    private let langCache = NSCache<NSString, NSString>()
-    private let wordCountCache = NSCache<NSString, NSNumber>()
+    private let minimumSeconds = 8.0
+    private let preferredSeconds = 11.5
+    private let maximumSeconds = 15.0
 
     func splitTextIntoMeaningfulSegments(_ rawText: String) -> [String] {
-        let targetMinSec: Double = 5.0
-        let targetMaxSec: Double = 10.0
-        let enWordsPerSec: Double = 2.8
-        let zhCharsPerSec: Double = 4.5
-        let maxCJKLen = 75
-        let maxWordLen = 50
+        let text = rawText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return [] }
 
-        let normalized = normalizeLinesAddingPause(rawText)
-
-        let sentenceTokenizer = NLTokenizer(unit: .sentence)
-        sentenceTokenizer.string = normalized
-
-        var sentences: [String] = []
-        sentenceTokenizer.enumerateTokens(in: normalized.startIndex..<normalized.endIndex) { range, _ in
-            let s = String(normalized[range]).trimmingCharacters(in: .whitespacesAndNewlines)
-            if !s.isEmpty { sentences.append(s) }
-            return true
-        }
-        if sentences.isEmpty {
-            sentences = [normalized.trimmingCharacters(in: .whitespacesAndNewlines)]
-                .compactMap { $0.isEmpty ? nil : $0 }
-        }
-
-        var i = 0
+        let durationIndex = SpeechTextSegmentation.DurationIndex(text: text)
+        let sentenceBoundaries = SpeechTextSegmentation.sentenceBoundaries(in: text)
+        let punctuationBoundaries = SpeechTextSegmentation.punctuationBoundaries(
+            in: text,
+            includeTerminal: false
+        )
+        let wordBoundaries = SpeechTextSegmentation.wordBoundaries(
+            in: text,
+            excludingEnd: true
+        )
         var segments: [String] = []
+        var segmentStart = text.startIndex
 
-        while i < sentences.count {
-            let s1 = sentences[i]
-            let lang1 = dominantLanguageCached(s1)
-            let sec1 = estSeconds(s1, lang: lang1, enWPS: enWordsPerSec, zhCPS: zhCharsPerSec)
-            let c1 = countFor(s1, lang: lang1)
+        while durationIndex.estimatedSeconds(from: segmentStart, to: text.endIndex) > maximumSeconds {
+            guard let boundary = preferredBoundary(
+                after: segmentStart,
+                in: text,
+                durationIndex: durationIndex,
+                sentenceBoundaries: sentenceBoundaries,
+                punctuationBoundaries: punctuationBoundaries,
+                wordBoundaries: wordBoundaries
+            ) else {
+                break
+            }
+            let prefix = String(text[segmentStart..<boundary])
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !prefix.isEmpty else { break }
+            segments.append(prefix)
+            segmentStart = boundary
+        }
 
-            if sec1 > targetMaxSec || c1 > hardMax(for: lang1, maxWordLen: maxWordLen, maxCJKLen: maxCJKLen) {
-                let pieces = splitOverlongSentence(
-                    s1,
-                    lang: lang1,
-                    maxLen: hardMax(for: lang1, maxWordLen: maxWordLen, maxCJKLen: maxCJKLen),
-                    targetMinSec: targetMinSec,
-                    targetMaxSec: targetMaxSec,
-                    enWPS: enWordsPerSec,
-                    zhCPS: zhCharsPerSec
-                )
-                for p in pieces {
-                    let pl = dominantLanguageCached(p)
-                    segments.append(ensureTerminalPunctuation(p, lang: pl))
+        let tail = String(text[segmentStart...]).trimmingCharacters(in: .whitespacesAndNewlines)
+        if !tail.isEmpty {
+            segments.append(tail)
+        }
+        return segments
+    }
+
+    private func preferredBoundary(
+        after segmentStart: String.Index,
+        in text: String,
+        durationIndex: SpeechTextSegmentation.DurationIndex,
+        sentenceBoundaries: [String.Index],
+        punctuationBoundaries: [String.Index],
+        wordBoundaries: [String.Index]
+    ) -> String.Index? {
+        let sentence = bestBoundary(
+            sentenceBoundaries,
+            after: segmentStart,
+            durationIndex: durationIndex,
+            minimumDuration: minimumSeconds
+        )
+        if let sentence { return sentence }
+
+        let punctuation = bestBoundary(
+            punctuationBoundaries,
+            after: segmentStart,
+            durationIndex: durationIndex,
+            minimumDuration: minimumSeconds
+        )
+        if let punctuation { return punctuation }
+
+        let word = bestBoundary(
+            wordBoundaries,
+            after: segmentStart,
+            durationIndex: durationIndex,
+            minimumDuration: minimumSeconds
+        )
+        if let word { return word }
+
+        guard durationIndex.containsCJK(from: segmentStart, to: text.endIndex) else {
+            return nil
+        }
+        return bestCharacterBoundary(
+            after: segmentStart,
+            in: text,
+            durationIndex: durationIndex
+        )
+    }
+
+    private func bestBoundary(
+        _ boundaries: [String.Index],
+        after segmentStart: String.Index,
+        durationIndex: SpeechTextSegmentation.DurationIndex,
+        minimumDuration: Double
+    ) -> String.Index? {
+        var best: (index: String.Index, score: Double)?
+        var boundaryIndex = firstBoundaryIndex(after: segmentStart, in: boundaries)
+
+        while boundaryIndex < boundaries.count {
+            let boundary = boundaries[boundaryIndex]
+            let duration = durationIndex.estimatedSeconds(from: segmentStart, to: boundary)
+            if duration > maximumSeconds { break }
+            if duration >= minimumDuration {
+                let score = abs(duration - preferredSeconds)
+                if best == nil || score < best!.score {
+                    best = (boundary, score)
                 }
-                i += 1
-                continue
             }
-
-            if sec1 >= targetMinSec && sec1 <= targetMaxSec {
-                segments.append(ensureTerminalPunctuation(s1, lang: lang1))
-                i += 1
-                continue
-            }
-
-            if sec1 < targetMinSec, i + 1 < sentences.count {
-                let s2 = sentences[i + 1]
-                let merged = (s1 + " " + s2).replacingOccurrences(of: #"[\s]+"#, with: " ", options: .regularExpression)
-                let mLang = dominantLanguageCached(merged)
-                let mSec = estSeconds(merged, lang: mLang, enWPS: enWordsPerSec, zhCPS: zhCharsPerSec)
-                let mCount = countFor(merged, lang: mLang)
-                if mSec <= targetMaxSec &&
-                    mCount <= hardMax(for: mLang, maxWordLen: maxWordLen, maxCJKLen: maxCJKLen) {
-                    segments.append(ensureTerminalPunctuation(merged, lang: mLang))
-                    i += 2
-                    continue
-                } else {
-                    segments.append(ensureTerminalPunctuation(s1, lang: lang1))
-                    i += 1
-                    continue
-                }
-            }
-
-            segments.append(ensureTerminalPunctuation(s1, lang: lang1))
-            i += 1
+            boundaryIndex += 1
         }
-
-        let cleaned = segments
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }
-
-        return cleaned
+        return best?.index
     }
 
-    private func normalizeLinesAddingPause(_ text: String) -> String {
-        var base = text
-        base = base.replacingOccurrences(of: #"[ \t\u{00A0}]{2,}"#, with: " ", options: .regularExpression)
-        let lines = base.split(whereSeparator: \.isNewline).map { String($0) }
-
-        if lines.isEmpty { return text.trimmingCharacters(in: .whitespacesAndNewlines) }
-
-        var out = lines[0]
-        for idx in 1..<lines.count {
-            let trimmedOut = out.trimmingCharacters(in: .whitespacesAndNewlines)
-            let lastScalar = trimmedOut.unicodeScalars.last
-            let lastChar = lastScalar.map { Character($0) }
-
-            let terminals: Set<Character> = ["。","！","？",".","!","?","…","；",";","．"]
-            let commaLikes: Set<Character> = ["，",",","、",":","：","；",";"]
-
-            let needPause: Bool
-            if let lc = lastChar {
-                needPause = !(terminals.contains(lc) || commaLikes.contains(lc))
+    private func firstBoundaryIndex(
+        after index: String.Index,
+        in boundaries: [String.Index]
+    ) -> Int {
+        var lowerBound = 0
+        var upperBound = boundaries.count
+        while lowerBound < upperBound {
+            let midpoint = lowerBound + (upperBound - lowerBound) / 2
+            if boundaries[midpoint] <= index {
+                lowerBound = midpoint + 1
             } else {
-                needPause = true
-            }
-
-            if needPause {
-                let comma = isCJKChar(lastScalar) ? "，" : ","
-                out += comma
-            }
-            out += "\n" + lines[idx]
-        }
-        return out.trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
-    private func dominantLanguageCached(_ text: String) -> String {
-        let key = text as NSString
-        if let v = langCache.object(forKey: key) { return v as String }
-        let r = NLLanguageRecognizer()
-        r.processString(text)
-        let lang = (r.dominantLanguage?.rawValue) ?? "und"
-        langCache.setObject(lang as NSString, forKey: key)
-        return lang
-    }
-
-    private func isWordLanguage(_ lang: String) -> Bool {
-        return !["ja","ko","zh-Hans","zh-Hant","zh"].contains(lang)
-    }
-
-    private func wordCountCached(_ text: String) -> Int {
-        let key = text as NSString
-        if let v = wordCountCache.object(forKey: key) { return v.intValue }
-        let t = NLTokenizer(unit: .word)
-        t.string = text
-        var c = 0
-        t.enumerateTokens(in: text.startIndex..<text.endIndex) { _, _ in c += 1; return true }
-        wordCountCache.setObject(NSNumber(value: c), forKey: key)
-        return c
-    }
-
-    private func countFor(_ text: String, lang: String) -> Int {
-        isWordLanguage(lang) ? wordCountCached(text) : text.count
-    }
-
-    private func estSeconds(_ text: String, lang: String, enWPS: Double, zhCPS: Double) -> Double {
-        if isWordLanguage(lang) {
-            return Double(wordCountCached(text)) / enWPS
-        } else {
-            return Double(text.count) / zhCPS
-        }
-    }
-
-    private func hardMax(for lang: String, maxWordLen: Int, maxCJKLen: Int) -> Int {
-        isWordLanguage(lang) ? maxWordLen : maxCJKLen
-    }
-
-    private func ensureTerminalPunctuation(_ text: String, lang: String) -> String {
-        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let last = trimmed.unicodeScalars.last else { return trimmed }
-        let lastCh = Character(last)
-        let terminal: Set<Character> = ["。","！","？",".","!","?","…","；",";","．"]
-        if terminal.contains(lastCh) { return trimmed }
-        let commaLike: Set<Character> = ["，",",","、",":","：","；",";"]
-        if commaLike.contains(lastCh) {
-            return trimmed + (isWordLanguage(lang) ? "." : "。")
-        }
-        return trimmed + (isWordLanguage(lang) ? "." : "。")
-    }
-
-    private func isCJKChar(_ scalarOpt: UnicodeScalar?) -> Bool {
-        guard let s = scalarOpt else { return false }
-        switch s.value {
-        case 0x4E00...0x9FFF,
-             0x3400...0x4DBF,
-             0x20000...0x2A6DF,
-             0x2A700...0x2B73F,
-             0x2B740...0x2B81F,
-             0x2B820...0x2CEAF,
-             0xF900...0xFAFF:
-            return true
-        default:
-            return false
-        }
-    }
-
-    private func splitOverlongSentence(_ sentence: String,
-                                       lang: String,
-                                       maxLen: Int,
-                                       targetMinSec: Double,
-                                       targetMaxSec: Double,
-                                       enWPS: Double,
-                                       zhCPS: Double) -> [String] {
-        let midPunctPattern = #"[,，、;；:：]"#
-        var parts = sentence.split(usingRegex: midPunctPattern)
-        if parts.isEmpty { parts = [sentence] }
-
-        var reduced: [String] = []
-        var buffer = ""
-
-        func secs(_ s: String, _ l: String) -> Double {
-            isWordLanguage(l) ? Double(wordCountCached(s)) / enWPS : Double(s.count) / zhCPS
-        }
-
-        for p in parts {
-            let candidate = buffer.isEmpty ? p : (buffer + " " + p)
-            let l = dominantLanguageCached(candidate)
-            let c = countFor(candidate, lang: l)
-            if c <= maxLen && secs(candidate, l) <= max(targetMaxSec * 1.15, targetMaxSec) {
-                buffer = candidate
-            } else {
-                if !buffer.isEmpty { reduced.append(buffer) }
-                buffer = p
+                upperBound = midpoint
             }
         }
-        if !buffer.isEmpty { reduced.append(buffer) }
+        return lowerBound
+    }
 
-        var finalPieces: [String] = []
-        for piece in reduced {
-            let l = dominantLanguageCached(piece)
-            let needForce =
-                (!isWordLanguage(l) && piece.count > maxLen) ||
-                (isWordLanguage(l) && wordCountCached(piece) > maxLen) ||
-                secs(piece, l) > targetMaxSec
+    private func bestCharacterBoundary(
+        after segmentStart: String.Index,
+        in text: String,
+        durationIndex: SpeechTextSegmentation.DurationIndex
+    ) -> String.Index? {
+        var best: (index: String.Index, score: Double)?
+        var index = text.index(after: segmentStart)
 
-            if needForce {
-                finalPieces.append(contentsOf:
-                    forceSplitByWordBoundary(piece, lang: l, maxLen: maxLen)
-                )
-            } else {
-                finalPieces.append(piece)
+        while index < text.endIndex {
+            let duration = durationIndex.estimatedSeconds(from: segmentStart, to: index)
+            if duration > maximumSeconds { break }
+            let score = abs(duration - preferredSeconds)
+            if best == nil || score < best!.score {
+                best = (index, score)
             }
+            index = text.index(after: index)
         }
-        return finalPieces
+        return best?.index
     }
 
-    private func forceSplitByWordBoundary(_ text: String, lang: String, maxLen: Int) -> [String] {
-        var pieces: [String] = []
-        let tokenizer = NLTokenizer(unit: .word)
-        tokenizer.string = text
-
-        var current = ""
-        tokenizer.enumerateTokens(in: text.startIndex..<text.endIndex) { range, _ in
-            let token = String(text[range])
-            let candidate = current.isEmpty ? token : (current + (needsSpaceBetween(current, token) ? " " : "") + token)
-
-            let currentLen: Int = isWordLanguage(lang) ? wordCountCached(candidate) : candidate.count
-            if currentLen > maxLen {
-                if !current.isEmpty { pieces.append(current) }
-                current = token
-            } else {
-                current = candidate
-            }
-            return true
-        }
-        if !current.isEmpty { pieces.append(current) }
-        return pieces
-    }
-
-    private func needsSpaceBetween(_ a: String, _ b: String) -> Bool {
-        let aLast = a.unicodeScalars.last
-        let bFirst = b.unicodeScalars.first
-        let aCJK = isCJKChar(aLast)
-        let bCJK = isCJKChar(bFirst)
-        if aCJK || bCJK { return false }
-        return true
-    }
 }

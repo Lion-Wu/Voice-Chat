@@ -67,6 +67,7 @@ extension GlobalAudioManager {
 
         stopAudioTimer()
         stopStallWatchdog()
+        deactivateSystemPlaybackSession()
     }
 
     // MARK: - Prepare/Play
@@ -143,6 +144,7 @@ extension GlobalAudioManager {
             isSeeking = false
 
             if shouldPlay {
+                guard activateSystemPlaybackSession() else { return false }
                 isPlaybackRequested = true
                 if playbackFinished(at: segStart + p.currentTime) {
                     finishPlayback()

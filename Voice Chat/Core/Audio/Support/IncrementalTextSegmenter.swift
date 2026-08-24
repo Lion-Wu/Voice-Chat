@@ -6,66 +6,32 @@
 //
 
 import Foundation
-import NaturalLanguage
 
-/// Groups streaming text into speakable segments:
-/// - ignores anything wrapped in `<think>...</think>`;
-/// - in realtime voice mode, ramps segment length from short to normal so the first chunk arrives quickly;
-/// - prefers punctuation boundaries, and falls back to NLTokenizer word boundaries when text grows too long.
+/// Groups streamed assistant text into speakable realtime segments.
+/// Segment duration ramps up over the first few requests, while every split keeps
+/// the original punctuation and uses a confirmed word boundary as the last resort.
 struct IncrementalTextSegmenter {
-
-    private struct SegmentRampProfile {
-        let minSeconds: Double
+    private struct SegmentProfile {
+        let minimumSeconds: Double
         let preferredSeconds: Double
-        let maxSeconds: Double
+        let maximumSeconds: Double
     }
 
-    private struct SegmentThresholds {
-        let minUnits: Int
-        let preferredUnits: Int
-        let maxUnits: Int
-        let minSeconds: Double
-        let preferredSeconds: Double
-        let maxSeconds: Double
-    }
-
-    private enum UnitMode {
-        case cjkCharacters
-        case words
-    }
-
-    private var buffer: String = ""
-    private var inThink: Bool = false
+    private var buffer = ""
+    private var inThink = false
     private var lastCharacter: Character?
-    // Number of already emitted segments in this realtime stream.
-    private var emittedSegmentCount: Int = 0
+    private var emittedSegmentCount = 0
 
     private let openMarker = "<think>"
     private let closeMarker = "</think>"
 
-    // Heuristics: estimate speech time by word count (word languages) and character count (CJK).
-    private let enWordsPerSecond: Double = 2.8
-    private let cjkCharsPerSecond: Double = 4.5
-    // For unspaced / punctuation-heavy non-CJK text, approximate "word units" by characters.
-    private let approxCharsPerWordUnit: Double = 5.5
-    // Cap normal segment length around 15 seconds.
-    private let maxNormalSeconds: Double = 15.0
-
-    // Realtime ramp strategy: short first chunk, then gradually increase to normal length.
-    private let rampProfiles: [SegmentRampProfile] = [
-        .init(minSeconds: 1.2, preferredSeconds: 2.6, maxSeconds: 4.2),
-        .init(minSeconds: 2.5, preferredSeconds: 4.8, maxSeconds: 6.8),
-        .init(minSeconds: 4.0, preferredSeconds: 7.2, maxSeconds: 9.8),
-        .init(minSeconds: 5.6, preferredSeconds: 9.2, maxSeconds: 12.6),
-        .init(minSeconds: 7.0, preferredSeconds: 11.2, maxSeconds: 15.0)
+    private let profiles: [SegmentProfile] = [
+        .init(minimumSeconds: 1.0, preferredSeconds: 2.2, maximumSeconds: 3.8),
+        .init(minimumSeconds: 2.0, preferredSeconds: 3.8, maximumSeconds: 5.8),
+        .init(minimumSeconds: 3.5, preferredSeconds: 6.0, maximumSeconds: 8.5),
+        .init(minimumSeconds: 5.5, preferredSeconds: 8.5, maximumSeconds: 11.5),
+        .init(minimumSeconds: 8.0, preferredSeconds: 11.5, maximumSeconds: 15.0)
     ]
-
-    // Sentence-ending punctuation to watch for.
-    private let terminalSet: Set<Character> = Set("。！？!?…;；.")
-    // We can also split on these punctuation marks when a forced split is needed.
-    private let softPunctuationSet: Set<Character> = Set(",，、:：")
-    // Treat newline as a soft break as well.
-    private let newline: Character = "\n"
 
     mutating func reset() {
         buffer = ""
@@ -74,57 +40,57 @@ struct IncrementalTextSegmenter {
         emittedSegmentCount = 0
     }
 
-    /// Appends a streaming delta and returns any completed, speakable segments.
+    /// Appends a streaming delta and returns completed, speakable segments.
     mutating func append(_ delta: String) -> [String] {
         guard !delta.isEmpty else { return [] }
 
-        var produced: [String] = []
-        var i = delta.startIndex
-
-        while i < delta.endIndex {
-            // Handle entering and exiting `<think>` blocks.
-            if isStandaloneMarker(delta, at: i, marker: openMarker) {
+        var index = delta.startIndex
+        while index < delta.endIndex {
+            if isStandaloneMarker(delta, at: index, marker: openMarker) {
                 inThink = true
-                lastCharacter = delta[delta.index(i, offsetBy: openMarker.count - 1)]
-                i = delta.index(i, offsetBy: openMarker.count)
+                lastCharacter = delta[delta.index(index, offsetBy: openMarker.count - 1)]
+                index = delta.index(index, offsetBy: openMarker.count)
                 continue
             }
-            if isStandaloneMarker(delta, at: i, marker: closeMarker) {
+            if isStandaloneMarker(delta, at: index, marker: closeMarker) {
                 inThink = false
-                lastCharacter = delta[delta.index(i, offsetBy: closeMarker.count - 1)]
-                i = delta.index(i, offsetBy: closeMarker.count)
+                lastCharacter = delta[delta.index(index, offsetBy: closeMarker.count - 1)]
+                index = delta.index(index, offsetBy: closeMarker.count)
                 continue
             }
 
-            // Only buffer content outside of `<think>` blocks.
-            let ch = delta[i]
+            let character = delta[index]
             if !inThink {
-                buffer.append(ch)
-
-                if isTerminalBoundary(ch) {
-                    // Prefer splitting at punctuation/newline when the current stage minimum is reached.
-                    produced.append(contentsOf: drainBufferOnBoundary())
-                } else if shouldForceSplit(buffer) {
-                    // If text becomes too long, force a fluent split (prefer punctuation, then word boundary).
-                    produced.append(contentsOf: drainBufferForcefully())
-                }
+                buffer.append(character)
             }
-
-            lastCharacter = ch
-            i = delta.index(after: i)
+            lastCharacter = character
+            index = delta.index(after: index)
         }
 
-        return produced
+        return drainReadySegments(allowBoundaryAtBufferEnd: false)
     }
 
-    /// Flushes any remaining buffer when the stream ends.
+    /// Flushes any remaining text when the assistant stream ends.
     mutating func finalize() -> [String] {
-        var produced: [String] = []
+        var produced = drainReadySegments(allowBoundaryAtBufferEnd: true)
 
-        while shouldForceSplit(buffer) {
-            let next = splitOffNextSegment(force: true)
-            guard let seg = next else { break }
-            produced.append(seg)
+        while !buffer.isEmpty {
+            let durationIndex = SpeechTextSegmentation.DurationIndex(text: buffer)
+            guard durationIndex.estimatedSeconds(
+                from: buffer.startIndex,
+                to: buffer.endIndex
+            ) > currentProfile.maximumSeconds else {
+                break
+            }
+            guard let boundary = preferredForcedBoundary(
+                in: buffer,
+                profile: currentProfile,
+                durationIndex: durationIndex
+            ) else {
+                break
+            }
+            guard let segment = emitPrefix(endingAt: boundary) else { break }
+            produced.append(segment)
         }
 
         let tail = buffer.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -136,268 +102,161 @@ struct IncrementalTextSegmenter {
         return produced
     }
 
-    // MARK: - Helpers
+    // MARK: - Stream parsing
 
-    /// Checks whether a marker token appears alone on a line (aside from surrounding whitespace).
+    /// A think marker is control syntax only when it occupies its own line.
     private func isStandaloneMarker(_ delta: String, at index: String.Index, marker: String) -> Bool {
         guard delta[index...].hasPrefix(marker) else { return false }
 
-        let beforeChar: Character?
+        let beforeCharacter: Character?
         if index == delta.startIndex {
-            beforeChar = lastCharacter
+            beforeCharacter = lastCharacter
         } else {
-            beforeChar = delta[delta.index(before: index)]
+            beforeCharacter = delta[delta.index(before: index)]
         }
-        let beforeIsLineBoundary = beforeChar == nil || beforeChar?.isNewline == true
-        guard beforeIsLineBoundary else { return false }
+        guard beforeCharacter == nil || beforeCharacter?.isNewline == true else { return false }
 
         let afterIndex = delta.index(index, offsetBy: marker.count)
-        if afterIndex == delta.endIndex { return true }
-        return delta[afterIndex].isNewline
+        return afterIndex == delta.endIndex || delta[afterIndex].isNewline
     }
 
-    /// Decides whether the current buffer has exceeded the current segment's upper bound.
-    private func shouldForceSplit(_ text: String) -> Bool {
-        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return false }
-        let mode = unitMode(for: trimmed)
-        let thresholds = thresholdsForCurrentStage(mode: mode)
-        return unitCount(in: trimmed, mode: mode) >= thresholds.maxUnits ||
-               estimatedSeconds(for: trimmed, mode: mode) >= thresholds.maxSeconds
+    // MARK: - Segment selection
+
+    private var currentProfile: SegmentProfile {
+        profiles[min(emittedSegmentCount, profiles.count - 1)]
     }
 
-    private func isTerminalBoundary(_ ch: Character) -> Bool {
-        ch == newline || terminalSet.contains(ch)
-    }
-
-    private func isPunctuationBoundary(_ ch: Character) -> Bool {
-        isTerminalBoundary(ch) || softPunctuationSet.contains(ch)
-    }
-
-    private mutating func drainBufferOnBoundary() -> [String] {
-        guard let segment = splitOffNextSegment(force: false) else { return [] }
-        return [segment]
-    }
-
-    private mutating func drainBufferForcefully() -> [String] {
+    private mutating func drainReadySegments(allowBoundaryAtBufferEnd: Bool) -> [String] {
         var produced: [String] = []
-        while shouldForceSplit(buffer) {
-            guard let segment = splitOffNextSegment(force: true) else { break }
-            produced.append(segment)
+
+        while !buffer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            let profile = currentProfile
+            let durationIndex = SpeechTextSegmentation.DurationIndex(text: buffer)
+            let terminalBoundary = eligibleTerminalBoundary(
+                in: buffer,
+                profile: profile,
+                durationIndex: durationIndex,
+                allowBoundaryAtBufferEnd: allowBoundaryAtBufferEnd
+            )
+
+            if let terminalBoundary {
+                let duration = durationIndex.estimatedSeconds(
+                    from: buffer.startIndex,
+                    to: terminalBoundary
+                )
+                if duration <= profile.maximumSeconds * 1.15 {
+                    guard let segment = emitPrefix(endingAt: terminalBoundary) else { break }
+                    produced.append(segment)
+                    continue
+                }
+            }
+
+            let bufferedDuration = durationIndex.estimatedSeconds(
+                from: buffer.startIndex,
+                to: buffer.endIndex
+            )
+            guard bufferedDuration >= profile.maximumSeconds else { break }
+
+            if let forcedBoundary = preferredForcedBoundary(
+                in: buffer,
+                profile: profile,
+                durationIndex: durationIndex
+            ),
+               let segment = emitPrefix(endingAt: forcedBoundary) {
+                produced.append(segment)
+                continue
+            }
+
+            // No safe boundary is visible yet. Keep buffering rather than cutting a
+            // partially streamed word; the next delta normally supplies its boundary.
+            if let terminalBoundary,
+               let segment = emitPrefix(endingAt: terminalBoundary) {
+                produced.append(segment)
+                continue
+            }
+            break
         }
         return produced
     }
 
-    private mutating func splitOffNextSegment(force: Bool) -> String? {
-        let trimmedBuffer = buffer.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedBuffer.isEmpty else {
-            buffer = ""
-            return nil
+    private func eligibleTerminalBoundary(
+        in text: String,
+        profile: SegmentProfile,
+        durationIndex: SpeechTextSegmentation.DurationIndex,
+        allowBoundaryAtBufferEnd: Bool
+    ) -> String.Index? {
+        let boundaries = SpeechTextSegmentation.terminalBoundaries(in: text)
+        let twoSentenceMinimum = max(1.0, min(4.0, profile.minimumSeconds * 0.5))
+
+        for (offset, boundary) in boundaries.enumerated() {
+            let duration = durationIndex.estimatedSeconds(
+                from: text.startIndex,
+                to: boundary
+            )
+            guard allowBoundaryAtBufferEnd ||
+                    boundary < text.endIndex ||
+                    duration >= profile.maximumSeconds else {
+                continue
+            }
+            if duration >= profile.minimumSeconds ||
+               (offset >= 1 && duration >= twoSentenceMinimum) {
+                return boundary
+            }
         }
-
-        let mode = unitMode(for: trimmedBuffer)
-        let thresholds = thresholdsForCurrentStage(mode: mode)
-        let fullSeconds = estimatedSeconds(for: trimmedBuffer, mode: mode)
-
-        // Boundary-driven split: only emit when current stage minimum is reached.
-        if !force && fullSeconds < thresholds.minSeconds {
-            return nil
-        }
-
-        let splitIndex: String.Index
-        if !force {
-            splitIndex = buffer.endIndex
-        } else if let punct = bestPunctuationSplitIndex(in: buffer, mode: mode, thresholds: thresholds) {
-            splitIndex = punct
-        } else if let byWord = bestWordBoundarySplitIndex(in: buffer, mode: mode, thresholds: thresholds) {
-            splitIndex = byWord
-        } else {
-            splitIndex = fallbackSplitIndex(in: buffer, mode: mode, thresholds: thresholds)
-        }
-
-        let prefix = String(buffer[..<splitIndex]).trimmingCharacters(in: .whitespacesAndNewlines)
-        if prefix.isEmpty {
-            return nil
-        }
-
-        buffer = String(buffer[splitIndex...]).trimmingCharacters(in: .whitespacesAndNewlines)
-        emittedSegmentCount += 1
-        return prefix
+        return nil
     }
 
-    private func thresholdsForCurrentStage(mode: UnitMode) -> SegmentThresholds {
-        let profile = profileForCurrentStage()
-        let unitRate = (mode == .cjkCharacters) ? cjkCharsPerSecond : enWordsPerSecond
-        let minFloor = (mode == .cjkCharacters) ? 6 : 4
+    private func preferredForcedBoundary(
+        in text: String,
+        profile: SegmentProfile,
+        durationIndex: SpeechTextSegmentation.DurationIndex
+    ) -> String.Index? {
+        let minimumUsefulDuration = max(0.8, profile.minimumSeconds * 0.7)
+        let punctuation = bestBoundary(
+            SpeechTextSegmentation.punctuationBoundaries(in: text),
+            in: text,
+            profile: profile,
+            durationIndex: durationIndex,
+            minimumDuration: minimumUsefulDuration
+        )
+        if let punctuation { return punctuation }
 
-        let minUnits = max(minFloor, Int((profile.minSeconds * unitRate).rounded(.awayFromZero)))
-        let preferredUnits = max(minUnits + ((mode == .cjkCharacters) ? 4 : 3),
-                                 Int((profile.preferredSeconds * unitRate).rounded(.awayFromZero)))
-        let maxUnits = max(preferredUnits + ((mode == .cjkCharacters) ? 6 : 5),
-                           Int((profile.maxSeconds * unitRate).rounded(.awayFromZero)))
-
-        return SegmentThresholds(
-            minUnits: minUnits,
-            preferredUnits: preferredUnits,
-            maxUnits: maxUnits,
-            minSeconds: profile.minSeconds,
-            preferredSeconds: profile.preferredSeconds,
-            maxSeconds: min(profile.maxSeconds, maxNormalSeconds)
+        return bestBoundary(
+            SpeechTextSegmentation.wordBoundaries(in: text, excludingEnd: true),
+            in: text,
+            profile: profile,
+            durationIndex: durationIndex,
+            minimumDuration: minimumUsefulDuration
         )
     }
 
-    private func profileForCurrentStage() -> SegmentRampProfile {
-        if emittedSegmentCount < rampProfiles.count {
-            return rampProfiles[emittedSegmentCount]
-        }
-        return rampProfiles[rampProfiles.count - 1]
-    }
-
-    private func unitMode(for text: String) -> UnitMode {
-        text.unicodeScalars.contains(where: { $0.properties.isIdeographic }) ? .cjkCharacters : .words
-    }
-
-    private func unitCount(in text: String, mode: UnitMode) -> Int {
-        switch mode {
-        case .cjkCharacters:
-            return text.count
-        case .words:
-            return wordLikeUnitCount(text)
-        }
-    }
-
-    private func estimatedSeconds(for text: String, mode: UnitMode) -> Double {
-        switch mode {
-        case .cjkCharacters:
-            return Double(text.count) / cjkCharsPerSecond
-        case .words:
-            return Double(max(unitCount(in: text, mode: mode), 1)) / enWordsPerSecond
-        }
-    }
-
-    /// Uses whitespace words as primary units, plus a character-based fallback so
-    /// punctuation-heavy or unspaced content still advances realtime boundary flushes.
-    private func wordLikeUnitCount(_ text: String) -> Int {
-        let whitespaceWords = text.split(whereSeparator: { $0.isWhitespace || $0.isNewline }).count
-        let compactChars = text.unicodeScalars.reduce(into: 0) { count, scalar in
-            if !CharacterSet.whitespacesAndNewlines.contains(scalar) {
-                count += 1
-            }
-        }
-        let charUnits = Int((Double(compactChars) / approxCharsPerWordUnit).rounded(.up))
-        return max(whitespaceWords, charUnits)
-    }
-
-    private func bestPunctuationSplitIndex(
+    private func bestBoundary(
+        _ boundaries: [String.Index],
         in text: String,
-        mode: UnitMode,
-        thresholds: SegmentThresholds
+        profile: SegmentProfile,
+        durationIndex: SpeechTextSegmentation.DurationIndex,
+        minimumDuration: Double
     ) -> String.Index? {
-        var bestIndex: String.Index?
-        var bestScore = Double.greatestFiniteMagnitude
+        var best: (index: String.Index, score: Double)?
 
-        var idx = text.startIndex
-        while idx < text.endIndex {
-            let ch = text[idx]
-            let next = text.index(after: idx)
-            guard isPunctuationBoundary(ch) else {
-                idx = next
-                continue
+        for boundary in boundaries where boundary > text.startIndex && boundary < text.endIndex {
+            let duration = durationIndex.estimatedSeconds(from: text.startIndex, to: boundary)
+            if duration > profile.maximumSeconds { break }
+            guard duration >= minimumDuration else { continue }
+            let score = abs(duration - profile.preferredSeconds)
+            if best == nil || score < best!.score {
+                best = (boundary, score)
             }
-
-            let prefix = String(text[..<next]).trimmingCharacters(in: .whitespacesAndNewlines)
-            if prefix.isEmpty {
-                idx = next
-                continue
-            }
-
-            let units = unitCount(in: prefix, mode: mode)
-            let seconds = estimatedSeconds(for: prefix, mode: mode)
-            if units > thresholds.maxUnits || seconds > thresholds.maxSeconds * 1.06 {
-                idx = next
-                continue
-            }
-
-            // Prefer terminal punctuation and durations near the current stage target.
-            let shortPenalty = max(0, thresholds.minSeconds - seconds) * 2.0
-            let softPenalty = isTerminalBoundary(ch) ? 0.0 : 0.35
-            let score = abs(seconds - thresholds.preferredSeconds) + shortPenalty + softPenalty
-
-            if score < bestScore {
-                bestScore = score
-                bestIndex = next
-            }
-
-            idx = next
         }
-
-        return bestIndex
+        return best?.index
     }
 
-    private func bestWordBoundarySplitIndex(
-        in text: String,
-        mode: UnitMode,
-        thresholds: SegmentThresholds
-    ) -> String.Index? {
-        let tokenizer = NLTokenizer(unit: .word)
-        tokenizer.string = text
+    private mutating func emitPrefix(endingAt boundary: String.Index) -> String? {
+        let prefix = String(buffer[..<boundary]).trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !prefix.isEmpty else { return nil }
 
-        var bestIndex: String.Index?
-        var bestScore = Double.greatestFiniteMagnitude
-        var tokenCount = 0
-
-        tokenizer.enumerateTokens(in: text.startIndex..<text.endIndex) { range, _ in
-            tokenCount += 1
-            let boundary = range.upperBound
-            let prefix = String(text[..<boundary]).trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !prefix.isEmpty else { return true }
-
-            let units: Int
-            let seconds: Double
-            switch mode {
-            case .words:
-                units = tokenCount
-                seconds = Double(max(units, 1)) / enWordsPerSecond
-            case .cjkCharacters:
-                units = prefix.count
-                seconds = Double(max(units, 1)) / cjkCharsPerSecond
-            }
-
-            guard units <= thresholds.maxUnits && seconds <= thresholds.maxSeconds * 1.08 else {
-                return true
-            }
-
-            let shortPenalty = max(0, thresholds.minSeconds - seconds) * 2.2
-            let score = abs(seconds - thresholds.preferredSeconds) + shortPenalty + 0.45
-            if score < bestScore {
-                bestScore = score
-                bestIndex = boundary
-            }
-            return true
-        }
-
-        return bestIndex
-    }
-
-    private func fallbackSplitIndex(
-        in text: String,
-        mode: UnitMode,
-        thresholds: SegmentThresholds
-    ) -> String.Index {
-        let desiredUnits = max(1, min(thresholds.maxUnits, thresholds.preferredUnits))
-
-        switch mode {
-        case .cjkCharacters:
-            return indexByCharacterOffset(in: text, count: desiredUnits)
-        case .words:
-            // Rough fallback for extremely irregular text when tokenizer gives no tokens.
-            let approxChars = max(16, desiredUnits * 6)
-            return indexByCharacterOffset(in: text, count: min(approxChars, text.count))
-        }
-    }
-
-    private func indexByCharacterOffset(in text: String, count: Int) -> String.Index {
-        guard count > 0 else { return text.startIndex }
-        return text.index(text.startIndex, offsetBy: min(count, text.count), limitedBy: text.endIndex) ?? text.endIndex
+        buffer = String(buffer[boundary...])
+        emittedSegmentCount += 1
+        return prefix
     }
 }

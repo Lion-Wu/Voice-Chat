@@ -5,7 +5,9 @@
 //  Created by Codex on 2026/6/14.
 //
 
+import AVFoundation
 import Foundation
+import OSLog
 
 @MainActor
 extension GlobalAudioManager {
@@ -19,7 +21,7 @@ extension GlobalAudioManager {
         realtimeFinalized = false
         realtimeRequestQueue.removeAll()
 
-        resetPlayer()
+        resetPlayer(releasingAudioSession: false)
         currentTTSConfiguration = configuration
         isShowingAudioPlayer = true
         isLoading = true
@@ -41,9 +43,12 @@ extension GlobalAudioManager {
             isPlaybackRequested = false
             isAudioPlaying = false
             refreshPlaybackLoadState()
+            deactivateSystemPlaybackSession()
             surfaceTTSIssue(invalidTTSConfigurationMessage())
             return
         }
+
+        guard activateSystemPlaybackSession() else { return }
 
         let streamingEnabled = configuration.usesStreamingSegments
         let worker = segmentationWorker
@@ -74,7 +79,7 @@ extension GlobalAudioManager {
         realtimeFinalized = false
         realtimeRequestQueue.removeAll()
 
-        resetPlayer()
+        resetPlayer(releasingAudioSession: false)
         currentTTSConfiguration = configuration
         isShowingAudioPlayer = true
         isLoading = true
@@ -97,9 +102,12 @@ extension GlobalAudioManager {
             isPlaybackRequested = false
             isAudioPlaying = false
             refreshPlaybackLoadState()
+            deactivateSystemPlaybackSession()
             surfaceTTSIssue(invalidTTSConfigurationMessage())
             return
         }
+
+        guard activateSystemPlaybackSession() else { return }
     }
 
     /// Appends a segment to be converted to speech. Realtime mode enqueues the work, while
@@ -245,7 +253,7 @@ extension GlobalAudioManager {
         realtimeRequestQueue.removeAll()
     }
 
-    func resetPlayer() {
+    func resetPlayer(releasingAudioSession: Bool = true) {
         activeDataTasks.values.forEach { $0.cancel() }
         activeDataTasks.removeAll()
         activeAppleSpeechSessions.values.forEach { $0.cancel() }
@@ -292,6 +300,10 @@ extension GlobalAudioManager {
 
         lastObservedPlaybackTime = 0
         lastProgressTimestamp = Date()
+
+        if releasingAudioSession {
+            deactivateSystemPlaybackSession()
+        }
     }
 
     private func prepareSegmentsForPlayback(_ segments: [String]) {
@@ -311,8 +323,63 @@ extension GlobalAudioManager {
             isPlaybackRequested = false
             isAudioPlaying = false
             isPlaybackFullyLoaded = true
+            deactivateSystemPlaybackSession()
             return
         }
         sendNextSegment()
+    }
+
+    /// Activates the output session before synthesis begins so the first decoded
+    /// audio chunk can start immediately instead of paying the route startup cost.
+    func activateSystemPlaybackSession() -> Bool {
+        #if os(iOS) || os(visionOS)
+        let session = AVAudioSession.sharedInstance()
+        do {
+            try session.setCategory(.playback, mode: .default, options: [])
+            try session.setActive(true, options: [])
+            ownsSystemPlaybackSession = true
+            return true
+        } catch {
+            currentTTSConfiguration = nil
+            isRealtimeMode = false
+            isLoading = false
+            isPlaybackRequested = false
+            isAudioPlaying = false
+            refreshPlaybackLoadState()
+            deactivateSystemPlaybackSession()
+            let message = String(
+                format: NSLocalizedString(
+                    "Unable to set up audio session: %@",
+                    comment: "Shown when the playback audio session cannot be activated"
+                ),
+                error.localizedDescription
+            )
+            surfaceTTSNotice(message, autoDismiss: 12)
+            return false
+        }
+        #else
+        return true
+        #endif
+    }
+
+    func deactivateSystemPlaybackSession() {
+        #if os(iOS) || os(visionOS)
+        guard ownsSystemPlaybackSession else { return }
+
+        do {
+            try AVAudioSession.sharedInstance().setActive(
+                false,
+                options: .notifyOthersOnDeactivation
+            )
+            ownsSystemPlaybackSession = false
+        } catch {
+            Logger(
+                subsystem: Bundle.main.bundleIdentifier ?? "VoiceChat",
+                category: "AudioSession"
+            ).error(
+                "Failed to deactivate playback audio session: \(error.localizedDescription, privacy: .public)"
+            )
+        }
+        #endif
     }
 }
