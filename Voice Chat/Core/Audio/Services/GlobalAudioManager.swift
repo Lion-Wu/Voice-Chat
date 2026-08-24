@@ -214,6 +214,7 @@ final class GlobalAudioManager: NSObject, ObservableObject, AVAudioPlayerDelegat
     var playbackNoticeDismissTask: Task<Void, Never>?
     var mediaType: String = "wav"
     var currentTTSConfiguration: TTSSynthesisConfiguration?
+    var ownsSystemPlaybackSession = false
 
     // MARK: - Constants
     let endEpsilon: TimeInterval = 0.03
@@ -356,6 +357,7 @@ final class GlobalAudioManager: NSObject, ObservableObject, AVAudioPlayerDelegat
             isShowingAudioPlayer = false
             outputAudioLevels = .silent
             outputLevel = 0
+            deactivateSystemPlaybackSession()
             return
         }
 

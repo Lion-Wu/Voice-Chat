@@ -156,6 +156,7 @@ extension GlobalAudioManager {
             isSeeking = false
             seekTime = nil
             refreshPlaybackLoadState()
+            deactivateSystemPlaybackSession()
         } else if playbackFinished() {
             finishPlayback()
         }
@@ -174,6 +175,7 @@ extension GlobalAudioManager {
             isLoading = false
             stopAudioTimer()
             stopStallWatchdog()
+            deactivateSystemPlaybackSession()
         }
         refreshPlaybackLoadState()
     }
