@@ -21,13 +21,12 @@
 
 - Every code change must build successfully for all affected available targets with zero errors and zero warnings.
 - Fix warnings at their cause; do not suppress them. Report unrelated pre-existing warnings precisely instead of claiming that the build completed with zero warnings.
-- If no commit was requested, perform build validation only and do not run tests.
-- If test code changed, run only the directly affected test or focused test group. An explicit user request to test also overrides the build-only rule.
-- Tests are otherwise run only as a pre-commit gate.
-- When the user requests a commit, first build all affected available targets successfully with zero errors and zero warnings. Only when the change affects core functionality, add or update the smallest relevant regression test and run the affected tests before committing.
+- Add or update test code only when the user explicitly requires regression coverage and the change adds, completes, or repairs core product logic that is broadly exercised or critical to product correctness.
+- For qualifying changes, add the smallest relevant regression test and run only the directly affected test or focused test group.
 - Core functionality includes primary workflows, persistent or shared state, data integrity, provider or protocol behavior, authorization, security boundaries, and cross-component lifecycle behavior.
-- Do not add or run tests for minor copy, styling, layout polish, comments, documentation, naming, formatting, or mechanical non-core changes.
-- Broaden the test run only when a core change crosses multiple subsystems or the user explicitly requests it.
+- Use affected-target builds as the complete validation for changes that do not meet the regression-test threshold.
+- For qualifying changes that cross subsystem boundaries, run focused tests for each affected subsystem.
+- When the user requests a final code review, run the full available test suite as part of that review.
 - Required test runs must finish with zero failures, zero errors, and zero warnings.
 - Report only validation actually performed; a successful build does not prove runtime, UX, device, provider, migration, or performance behavior.
 
@@ -43,7 +42,7 @@
 ## Git and Handoff
 
 - Branch creation, staging, committing, pushing, PR creation, review replies, merging, and branch deletion each require explicit authorization.
-- Before a requested commit, inspect the complete tracked, staged, and untracked diff, then run the required build and any tests required above.
+- Before a requested commit, inspect the complete tracked, staged, and untracked diff, and run the affected builds and full test suite if they have not already been completed for the final diff.
 - Keep commits focused and use one concise sentence for each commit message to describe the changes in the final net diff.
 - Write pull request descriptions from the final net diff, with concrete details about the changes made and validation performed. Do not include intermediate work that was later removed or claims unsupported by the final diff and recorded validation.
 - Do not alter stashes, rewrite history, discard user work, or use destructive Git operations without explicit authorization.
