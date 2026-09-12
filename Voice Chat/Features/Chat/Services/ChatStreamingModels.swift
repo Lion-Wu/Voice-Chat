@@ -256,6 +256,7 @@ struct Delta: Decodable {
 enum ChatNetworkError: Error {
     case invalidURL
     case invalidRequestHistory
+    case unsupportedImageInput
     case serverError(statusCode: Int?, message: String)
     case timeout(String)
     case emptyResponse
@@ -278,6 +279,11 @@ extension ChatNetworkError: LocalizedError {
             return NSLocalizedString(
                 "Unable to build a request from the selected conversation branch.",
                 comment: "Shown when a chat branch does not end with the intended user message"
+            )
+        case .unsupportedImageInput:
+            return NSLocalizedString(
+                "The selected model does not support image input.",
+                comment: "Shown when retry settings cannot preserve the request's image inputs"
             )
         case .serverError(_, let message):
             return message

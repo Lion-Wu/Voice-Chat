@@ -50,7 +50,7 @@ struct ChatStreamRetryCoordinator: Sendable {
         if NetworkRetryability.isCancellation(error) { return false }
         if let err = error as? ChatNetworkError {
             switch err {
-            case .invalidURL, .invalidRequestHistory:
+            case .invalidURL, .invalidRequestHistory, .unsupportedImageInput:
                 return false
             case .timeout:
                 return true

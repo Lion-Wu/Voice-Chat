@@ -383,6 +383,9 @@
 "Result Data" = "Datos del resultado";
 "Result Payload" = "Datos del resultado";
 "Retry" = "Reintentar";
+"Server response is taking longer than expected." = "La respuesta del servidor está tardando más de lo esperado.";
+"Connected, but the server has not started responding. You can keep waiting or retry." = "La conexión está establecida, pero el servidor aún no ha empezado a responder. Puedes seguir esperando o reintentar.";
+"Connected, but no new response has arrived. You can keep waiting or retry." = "La conexión está establecida, pero no ha llegado ninguna respuesta nueva. Puedes seguir esperando o reintentar.";
 "Retrying (attempt %d)..." = "Reintentando (intento %d)...";
 "Running" = "En ejecución";
 "Running Code" = "Ejecutando código";
@@ -570,3 +573,11 @@
 "The selected Apple voice is not installed or is unavailable." = "La voz de Apple seleccionada no está instalada o no está disponible.";
 "The selected speech provider does not use an HTTP request." = "El proveedor de voz seleccionado no utiliza una solicitud HTTP.";
 "There is no text to speak." = "No hay texto para leer.";
+"Connected, but the text service has not started responding. You can keep waiting or retry." = "La conexión está establecida, pero el servicio de texto aún no ha empezado a responder. Puedes seguir esperando o reintentar.";
+"Connected, but the text service has not returned anything new. You can keep waiting or retry." = "La conexión está establecida, pero el servicio de texto lleva un tiempo sin devolver contenido nuevo. Puedes seguir esperando o reintentar.";
+"Text service" = "Servicio de texto";
+"Voice service" = "Servicio de voz";
+"Taking longer than expected" = "La respuesta está tardando";
+"Request failed" = "Error en la solicitud";
+"Voice generation request failed." = "La solicitud de generación de voz falló.";
+"Connected, but audio is not ready yet. You can keep waiting or retry." = "La conexión está establecida, pero el audio aún no está listo. Puedes seguir esperando o reintentar.";

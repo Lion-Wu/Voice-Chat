@@ -14,14 +14,13 @@ extension GlobalAudioManager {
     // MARK: - Entry (Full-text mode)
 
     func startProcessing(text: String) {
-        currentGenerationID = UUID()
-        let generationID = currentGenerationID
         let configuration = makeTTSConfiguration(isRealtime: false)
         isRealtimeMode = false
         realtimeFinalized = false
         realtimeRequestQueue.removeAll()
 
         resetPlayer(releasingAudioSession: false)
+        let generationID = currentGenerationID
         currentTTSConfiguration = configuration
         isShowingAudioPlayer = true
         isLoading = true
@@ -73,7 +72,6 @@ extension GlobalAudioManager {
 
     /// Starts a realtime voice stream. Segments are appended later via `appendRealtimeSegment`.
     func startRealtimeStream() {
-        currentGenerationID = UUID()
         let configuration = makeTTSConfiguration(isRealtime: true)
         isRealtimeMode = true
         realtimeFinalized = false
@@ -214,9 +212,7 @@ extension GlobalAudioManager {
             currentPlayingIndex = target
         }
 
-        if skippedAudioChunkIndexes.contains(target) {
-            _ = playAudioChunk(at: target, fromTime: newT, shouldPlay: shouldPlay)
-        } else if let chunkOpt = audioChunks[safe: target], let _ = chunkOpt {
+        if let chunkOpt = audioChunks[safe: target], let _ = chunkOpt {
             _ = playAudioChunk(at: target, fromTime: newT, shouldPlay: shouldPlay)
         } else {
             isBuffering = shouldPlay
@@ -230,7 +226,8 @@ extension GlobalAudioManager {
             if target < textSegments.count {
                 if isRealtimeMode {
                     enqueueRealtimeIndex(target)
-                } else if !inFlightIndexes.contains(target),
+                } else if ttsRequestIssue == nil,
+                          !inFlightIndexes.contains(target),
                           ttsRetryTasks[target] == nil {
                     sendTTSRequest(for: textSegments[target], index: target)
                 }
@@ -254,8 +251,11 @@ extension GlobalAudioManager {
     }
 
     func resetPlayer(releasingAudioSession: Bool = true) {
-        activeDataTasks.values.forEach { $0.cancel() }
-        activeDataTasks.removeAll()
+        // Invalidate every producer before clearing the slots it can write into.
+        currentGenerationID = UUID()
+        activeDataRequests.values.forEach { $0.cancel() }
+        activeDataRequests.removeAll()
+        ttsRequestIssue = nil
         activeAppleSpeechSessions.values.forEach { $0.cancel() }
         activeAppleSpeechSessions.removeAll()
         inFlightIndexes.removeAll()
@@ -263,7 +263,6 @@ extension GlobalAudioManager {
         ttsRetryTasks.values.forEach { $0.cancel() }
         ttsRetryTasks.removeAll()
         applyTTSAutoRetryPublishedState(ttsRetryState.reset())
-        skippedAudioChunkIndexes.removeAll()
         playbackNoticeDismissTask?.cancel()
         playbackNoticeDismissTask = nil
         playbackNoticeMessage = nil
@@ -281,7 +280,6 @@ extension GlobalAudioManager {
         audioChunks.removeAll()
         audioMotionTimelines.removeAll()
         chunkDurations.removeAll()
-        skippedAudioChunkIndexes.removeAll()
         totalDuration = 0
 
         currentChunkIndex = 0
@@ -294,7 +292,6 @@ extension GlobalAudioManager {
         seekTime = nil
         isPlaybackFullyLoaded = true
         errorMessage = nil
-        applyTTSAutoRetryPublishedState(ttsRetryState.reset())
         outputAudioLevels = .silent
         outputLevel = 0
 
@@ -312,7 +309,6 @@ extension GlobalAudioManager {
         audioChunks = Array(repeating: nil, count: count)
         audioMotionTimelines = Array(repeating: nil, count: count)
         chunkDurations = Array(repeating: 0, count: count)
-        skippedAudioChunkIndexes.removeAll()
         totalDuration = 0
         currentChunkIndex = 0
         currentPlayingIndex = 0

@@ -18,7 +18,7 @@ final class ChatStreamingRequestFactoryTests: XCTestCase {
         )
 
         XCTAssertEqual(request.httpMethod, "POST")
-        XCTAssertEqual(request.timeoutInterval, 3900)
+        XCTAssertEqual(request.timeoutInterval, .infinity)
         XCTAssertEqual(request.value(forHTTPHeaderField: "Content-Type"), "application/json")
         XCTAssertEqual(request.value(forHTTPHeaderField: "Accept"), "text/event-stream")
         XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer sk-test")

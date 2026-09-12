@@ -383,6 +383,9 @@
 "Result Data" = "결과 데이터";
 "Result Payload" = "결과 페이로드";
 "Retry" = "다시 시도";
+"Server response is taking longer than expected." = "서버 응답이 예상보다 오래 걸리고 있습니다.";
+"Connected, but the server has not started responding. You can keep waiting or retry." = "연결되었지만 서버가 아직 응답을 시작하지 않았습니다. 계속 기다리거나 다시 시도할 수 있습니다.";
+"Connected, but no new response has arrived. You can keep waiting or retry." = "연결되었지만 새 응답이 도착하지 않았습니다. 계속 기다리거나 다시 시도할 수 있습니다.";
 "Retrying (attempt %d)..." = "다시 시도 중(시도 %d)...";
 "Running" = "실행 중";
 "Running Code" = "코드 실행 중";
@@ -570,3 +573,11 @@
 "The selected Apple voice is not installed or is unavailable." = "선택한 Apple 음성이 설치되어 있지 않거나 사용할 수 없습니다.";
 "The selected speech provider does not use an HTTP request." = "선택한 음성 백엔드는 HTTP 요청을 사용하지 않습니다.";
 "There is no text to speak." = "읽어 줄 텍스트가 없습니다.";
+"Connected, but the text service has not started responding. You can keep waiting or retry." = "연결은 설정되었지만 텍스트 서비스가 아직 응답을 시작하지 않았습니다. 계속 기다리거나 다시 시도할 수 있습니다.";
+"Connected, but the text service has not returned anything new. You can keep waiting or retry." = "연결은 설정되었지만 텍스트 서비스가 오랫동안 새 내용을 반환하지 않았습니다. 계속 기다리거나 다시 시도할 수 있습니다.";
+"Text service" = "텍스트 서비스";
+"Voice service" = "음성 서비스";
+"Taking longer than expected" = "응답이 오래 걸리고 있음";
+"Request failed" = "요청 실패";
+"Voice generation request failed." = "음성 생성 요청에 실패했습니다.";
+"Connected, but audio is not ready yet. You can keep waiting or retry." = "연결되었지만 음성이 아직 준비되지 않았습니다. 계속 기다리거나 다시 시도할 수 있습니다.";

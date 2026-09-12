@@ -2,22 +2,21 @@ import XCTest
 @testable import Voice_Chat
 
 final class TTSRealtimeRequestQueueTests: XCTestCase {
-    func testQueuesValidUnloadedUnskippedIndexesInOrder() {
+    func testQueuesValidUnloadedIndexesInOrder() {
         var queue = TTSRealtimeRequestQueue()
 
-        XCTAssertTrue(queue.queue(index: 0, segmentCount: 3, loadedIndexes: [], skippedIndexes: []))
-        XCTAssertTrue(queue.queue(index: 2, segmentCount: 3, loadedIndexes: [], skippedIndexes: []))
+        XCTAssertTrue(queue.queue(index: 0, segmentCount: 3, loadedIndexes: []))
+        XCTAssertTrue(queue.queue(index: 2, segmentCount: 3, loadedIndexes: []))
 
         XCTAssertEqual(queue.pendingIndexes, [0, 2])
     }
 
-    func testRejectsInvalidLoadedAndSkippedIndexes() {
+    func testRejectsInvalidAndLoadedIndexes() {
         var queue = TTSRealtimeRequestQueue()
 
-        XCTAssertFalse(queue.queue(index: -1, segmentCount: 2, loadedIndexes: [], skippedIndexes: []))
-        XCTAssertFalse(queue.queue(index: 2, segmentCount: 2, loadedIndexes: [], skippedIndexes: []))
-        XCTAssertFalse(queue.queue(index: 0, segmentCount: 2, loadedIndexes: [0], skippedIndexes: []))
-        XCTAssertFalse(queue.queue(index: 1, segmentCount: 2, loadedIndexes: [], skippedIndexes: [1]))
+        XCTAssertFalse(queue.queue(index: -1, segmentCount: 2, loadedIndexes: []))
+        XCTAssertFalse(queue.queue(index: 2, segmentCount: 2, loadedIndexes: []))
+        XCTAssertFalse(queue.queue(index: 0, segmentCount: 2, loadedIndexes: [0]))
 
         XCTAssertTrue(queue.pendingIndexes.isEmpty)
     }
@@ -25,10 +24,10 @@ final class TTSRealtimeRequestQueueTests: XCTestCase {
     func testDuplicateCanMoveToFrontWhenPrioritized() {
         var queue = TTSRealtimeRequestQueue(pendingIndexes: [0, 1, 2])
 
-        XCTAssertFalse(queue.queue(index: 1, segmentCount: 3, loadedIndexes: [], skippedIndexes: []))
+        XCTAssertFalse(queue.queue(index: 1, segmentCount: 3, loadedIndexes: []))
         XCTAssertEqual(queue.pendingIndexes, [0, 1, 2])
 
-        XCTAssertTrue(queue.queue(index: 2, segmentCount: 3, loadedIndexes: [], skippedIndexes: [], atFront: true))
+        XCTAssertTrue(queue.queue(index: 2, segmentCount: 3, loadedIndexes: [], atFront: true))
         XCTAssertEqual(queue.pendingIndexes, [2, 0, 1])
     }
 

@@ -149,6 +149,33 @@ struct ChatRequestPayloadProjector: ChatRequestPayloadProjecting, Sendable {
         return message.content.extractThinkParts().body
     }
 
+    @MainActor
+    static func continuationItems(for message: ChatMessage) -> [JSONValue] {
+        var items = message.openAIResponsesConversationItems
+        let nativeItems = items.compactMap { $0.jsonObject as? [String: Any] }
+        guard nativeItems.contains(where: { $0["type"] as? String == "function_call_output" }) else {
+            return []
+        }
+
+        // Native history owns completed tool stages, including their reasoning and
+        // call IDs. Only text received after that committed prefix needs appending.
+        let committedText = nativeItems.compactMap { item -> String? in
+            guard item["role"] as? String == "assistant" else { return nil }
+            if let content = item["content"] as? String { return content }
+            return (item["content"] as? [[String: Any]])?
+                .compactMap { $0["text"] as? String }
+                .joined()
+        }.joined()
+        let pendingText = String(message.assistantText.dropFirst(committedText.count))
+        if !pendingText.isEmpty {
+            items.append(.object([
+                "role": .string("assistant"),
+                "content": .string(pendingText)
+            ]))
+        }
+        return items
+    }
+
     private static func assistantResponseItemID(for message: ChatRequestSourceMessage) -> String? {
         message.assistantSegments.lazy
             .filter { $0.kind == .text }

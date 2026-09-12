@@ -33,6 +33,8 @@ final class ChatRealtimeNarrationCoordinator {
 
     @discardableResult
     func startPreparedStreamIfNeeded() -> Bool {
+        // A new turn replaces the producer retained for retry, not its queued audio.
+        finishActiveStream(flushingBufferedText: false)
         isActive = enableNextAssistant
         enableNextAssistant = false
 
@@ -47,12 +49,6 @@ final class ChatRealtimeNarrationCoordinator {
         guard isActive else { return }
         let newSegments = segmenter.append(piece)
         appendNonEmptySegments(newSegments)
-    }
-
-    func restartActiveStreamForRetry() {
-        guard isActive else { return }
-        segmenter.reset()
-        audioManager.startRealtimeStream()
     }
 
     func finishActiveStream(flushingBufferedText: Bool) {

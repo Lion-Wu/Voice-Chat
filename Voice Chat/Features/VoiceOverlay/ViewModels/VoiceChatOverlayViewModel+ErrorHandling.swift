@@ -15,6 +15,8 @@ extension VoiceChatOverlayViewModel {
         }
         errorMessage = trimmed
         showErrorBanner = true
+        textServiceStatus = nil
+        voiceServiceStatus = nil
         state = .error(trimmed)
         autoResumeEnabled = false
         dismissVisionCapture()
@@ -26,7 +28,52 @@ extension VoiceChatOverlayViewModel {
 
         activeChatSession?.cancelRealtimeVoiceRequest()
         closeAudioIfVoiceWorkIsActive()
-        pushRealtimeVoiceError(trimmed)
+    }
+
+    func retryService(_ source: RealtimeVoiceServiceSource) {
+        let didStart: Bool
+        switch source {
+        case .text:
+            guard let status = textServiceStatus else { return }
+            switch status.kind {
+            case .longWait:
+                didStart = activeChatSession?.retryRealtimeVoiceLongWaitingText() == true
+            case .failed:
+                didStart = activeChatSession?.retryRealtimeVoiceFailedText() == true
+            case .retrying:
+                return
+            }
+            if didStart {
+                textServiceStatus = nil
+            }
+        case .voice:
+            guard let status = voiceServiceStatus else { return }
+            if case .retrying = status.kind { return }
+            didStart = audioManager.retryCurrentTTSRequestIssue()
+            if didStart {
+                voiceServiceStatus = nil
+            }
+        }
+
+        guard didStart else { return }
+        if audioManager.audioPlaybackSnapshot.hasPlayableAudioRemaining || audioManager.isAudioPlaying {
+            state = .speaking
+        } else {
+            state = .loading
+        }
+        reconcileVoiceWorkPresentation()
+    }
+
+    @discardableResult
+    func retryPendingServices() -> Bool {
+        let failedSources = serviceStatuses.compactMap { status -> RealtimeVoiceServiceSource? in
+            status.kind == .failed || status.kind == .longWait ? status.source : nil
+        }
+        guard !failedSources.isEmpty else { return false }
+        for source in failedSources {
+            retryService(source)
+        }
+        return true
     }
 
     func currentVoiceWorkSnapshot() -> VoiceWorkSnapshot {

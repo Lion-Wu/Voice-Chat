@@ -14,7 +14,7 @@ extension ChatService {
         didReceive response: URLResponse,
         completionHandler: @escaping (URLSession.ResponseDisposition) -> Void
     ) {
-        guard let currentTask = self.dataTask, dataTask === currentTask else {
+        guard let activeRequest = activeStreamRequest, dataTask === activeRequest.task else {
             completionHandler(.cancel)
             return
         }
@@ -35,14 +35,15 @@ extension ChatService {
         totalBytesSent: Int64,
         totalBytesExpectedToSend _: Int64
     ) {
-        guard let currentTask = self.dataTask, task === currentTask else { return }
+        guard let activeRequest = activeStreamRequest, task === activeRequest.task else { return }
         guard totalBytesSent > 0 else { return }
         markConnectionEstablishedIfNeeded()
     }
 
     func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
-        guard let currentTask = self.dataTask, dataTask === currentTask else { return }
+        guard let activeRequest = activeStreamRequest, dataTask === activeRequest.task else { return }
         guard !isCancelled else { return }
+        let activeEndpoint = activeRequest.endpoint
         markConnectionEstablishedIfNeeded()
 
         if let status = httpStatusCode, !(200...299).contains(status) {
@@ -60,10 +61,7 @@ extension ChatService {
 
         let parserResult = sseParser.append(data)
         guard case let .frames(frames) = parserResult else {
-            isCancelled = true
-            dataTask.cancel()
-            stopWatchdog()
-            deliverError(ChatNetworkError.serverError(
+            failCurrentStream(with: ChatNetworkError.serverError(
                 statusCode: nil,
                 message: NSLocalizedString("Stream payload exceeded safety limit", comment: "Shown when streamed SSE data exceeds the configured memory safety cap")
             ))
@@ -71,7 +69,8 @@ extension ChatService {
         }
 
         for frame in frames {
-            guard !isCancelled else { return }
+            guard !isCancelled,
+                  activeStreamRequest?.task === activeRequest.task else { return }
             if frame.isDone {
                 guard !isToolContinuationStarting else { return }
                 sseParser.clearPendingEventType()
@@ -97,7 +96,7 @@ extension ChatService {
             }
 
             guard let jsonData = frame.jsonData else { continue }
-            let activeStyle = activeEndpointCandidate?.style ?? .openAIResponses
+            let activeStyle = activeEndpoint.style
 
             switch activeStyle {
             case .openAIResponses, .openAIChatCompletions:
@@ -122,23 +121,10 @@ extension ChatService {
     }
 
     func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
-        guard let currentTask = self.dataTask, task === currentTask else { return }
-        if streamFinishedEmitted {
-            stopConnectionWatchdog()
-            stopWatchdog()
-            dataTask = nil
-            endBackgroundExecutionForCurrentRequest()
-            return
-        }
-        if isToolContinuationStarting {
-            dataTask = nil
-            return
-        }
-        stopConnectionWatchdog()
+        guard let activeRequest = activeStreamRequest, task === activeRequest.task else { return }
         stopWatchdog()
-        dataTask = nil
-
-        let activeStyle = activeEndpointCandidate?.style ?? .openAIChatCompletions
+        let activeEndpoint = activeRequest.endpoint
+        let activeStyle = activeEndpoint.style
         let completedCleanly = error == nil && httpStatusCode.map { (200...299).contains($0) } != false
         if activeStyle == .openAIChatCompletions, completedCleanly {
             flushOpenAIChatCompletionsPendingOutput()
@@ -163,6 +149,7 @@ extension ChatService {
 
         switch decision.outcome {
         case .ignore:
+            activeStreamRequest = nil
             endBackgroundExecutionForCurrentRequest()
             return
         case .continueWithPendingTools:
@@ -182,72 +169,41 @@ extension ChatService {
             emitRecoveredText(text, style: activeStyle)
             endBackgroundExecutionForCurrentRequest()
         case let .serverError(statusCode, message):
-            let retryableError = statusCode.map { HTTPStatusError(statusCode: $0, bodyPreview: message) }
             if retryLMStudioRequestWithoutPreviousResponseIDIfNeeded(statusCode: statusCode, message: message) {
                 return
             }
-            if let retryableError, NetworkRetryability.shouldRetry(retryableError) {
-                rememberLastRetryableActiveStreamRequest()
-            }
-            endBackgroundExecutionForCurrentRequest()
-            clearActiveEndpointCandidate()
-            deliverError(ChatNetworkError.serverError(statusCode: statusCode, message: message))
+            failCurrentStream(with: ChatNetworkError.serverError(statusCode: statusCode, message: message))
         case let .networkError(error):
-            if NetworkRetryability.shouldRetry(error) {
-                rememberLastRetryableActiveStreamRequest()
-            }
-            endBackgroundExecutionForCurrentRequest()
-            clearActiveEndpointCandidate()
-            deliverError(error)
+            failCurrentStream(with: error)
         case .emptyResponse:
-            endBackgroundExecutionForCurrentRequest()
-            clearActiveEndpointCandidate()
-            deliverError(ChatNetworkError.emptyResponse)
+            failCurrentStream(with: ChatNetworkError.emptyResponse)
         }
     }
 
     @MainActor
-    func retryLastFailedStreamRequest() -> Bool {
-        var retryRequest: ChatRetryableStreamRequest?
+    func cancelActiveStreamForManualRetry() -> Bool {
         stateQueue.sync {
-            retryRequest = lastRetryableStreamRequest
-            lastRetryableStreamRequest = nil
-        }
-        guard let retryRequest else { return false }
+            guard activeStreamRequest != nil else { return false }
 
-        stateQueue.async { [weak self] in
-            guard let self else { return }
-            self.dataTask?.cancel()
-            self.dataTask = nil
-            self.stopWatchdog()
-            self.resetStreamStateForActiveRequestRetry()
-            self.advanceRequestGeneration()
-            self.isCancelled = false
-            self.activeEndpointCandidate = retryRequest.endpoint
-            var retryContext = retryRequest.toolLoopContext
-            retryContext?.requestGeneration = self.requestGeneration
-            self.activeToolLoopContext = retryContext
-            self.startStreaming(endpoint: retryRequest.endpoint, requestBodyData: retryRequest.body)
+            isCancelled = true
+            advanceRequestGeneration()
+            beginStreamCallbackAttempt(invalidatingCurrentAttempt: true)
+            updateLongWaitNotice(nil)
+            activeStreamRequest?.task.cancel()
+            activeStreamRequest = nil
+            cancelActiveToolExecution()
+            stopWatchdog()
+            activeToolLoopContext = nil
+            Task { await toolAuthorizationCoordinator.cancelAll() }
+            endBackgroundExecutionForCurrentRequest()
+            return true
         }
-        return true
-    }
-
-    func rememberLastRetryableActiveStreamRequest() {
-        guard let endpoint = activeEndpointCandidate,
-              let body = activeStreamRequestBodyData else {
-            return
-        }
-        lastRetryableStreamRequest = ChatRetryableStreamRequest(
-            endpoint: endpoint,
-            body: body,
-            toolLoopContext: activeToolLoopContext
-        )
     }
 
     private func resetStreamStateForActiveRequestRetry() {
         beginStreamCallbackAttempt(invalidatingCurrentAttempt: true)
-        dataTask = nil
-        stopConnectionWatchdog()
+        activeStreamRequest?.task.cancel()
+        activeStreamRequest = nil
         stopWatchdog()
         isLegacyThinkStream = false
         sawAnyAssistantToken = false
@@ -267,9 +223,7 @@ extension ChatService {
         anthropicStreamState = .init()
         anthropicAssistantContentAccumulator.reset()
         sseParser.reset()
-        streamStartAt = nil
-        didEstablishConnection = false
-        lastDeltaAt = nil
+        updateLongWaitNotice(nil)
         httpStatusCode = nil
         errorResponseData.removeAll(keepingCapacity: true)
         successResponseData.removeAll(keepingCapacity: true)
@@ -309,7 +263,7 @@ extension ChatService {
         guard shouldGatePromptTools() else { return false }
         let calls = ChatPromptToolProtocol.parseToolCalls(
             from: text,
-            provider: activeEndpointCandidate?.provider
+            provider: activeStreamRequest?.endpoint.provider
         )
         guard !calls.isEmpty else { return false }
         resetPromptToolGate()
@@ -365,7 +319,6 @@ extension ChatService {
             let requestContext = pendingResponseMetadata.requestContext
             resetStreamStateForActiveRequestRetry()
             activeToolLoopContext = context
-            activeEndpointCandidate = context.endpoint
             isCancelled = false
             mergeResponseMetadata(ChatResponseMetadata(
                 requestContext: requestContext,

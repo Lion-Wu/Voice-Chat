@@ -231,6 +231,7 @@ extension ChatView {
             isRetrying: viewModel.isRetrying,
             retryAttempt: viewModel.retryAttempt,
             retryLastError: viewModel.retryLastError,
+            longWaitNotice: viewModel.longWaitNotice,
             messageToolActivities: viewModel.messageToolActivities,
             messageToolActivityPlacements: viewModel.messageToolActivityPlacements,
             branchControlsEnabled: !(viewModel.isLoading || viewModel.isPriming || viewModel.isToolContinuationLoading || viewModel.isEditing),
@@ -255,6 +256,10 @@ extension ChatView {
             onSwitchVersion: viewModel.switchToMessageVersion,
             onRetry: { message in
                 handleBranchRestartResult(viewModel.retry(afterErrorMessage: message))
+                triggerTextHaptic(.lightTap)
+            },
+            onLongWaitRetry: {
+                viewModel.retryLongWaitingStream()
                 triggerTextHaptic(.lightTap)
             },
             onAuthorizeTool: { requestID, allowed in

@@ -27,12 +27,10 @@ struct TTSRealtimeRequestQueue: Equatable, Sendable {
         index: Int,
         segmentCount: Int,
         loadedIndexes: Set<Int>,
-        skippedIndexes: Set<Int>,
         atFront: Bool = false
     ) -> Bool {
         guard index >= 0, index < segmentCount else { return false }
         guard !loadedIndexes.contains(index) else { return false }
-        guard !skippedIndexes.contains(index) else { return false }
 
         if let existing = pendingIndexes.firstIndex(of: index) {
             if atFront && existing != pendingIndexes.startIndex {

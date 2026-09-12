@@ -189,7 +189,11 @@ struct TTSPresetApplyService: Sendable {
                 ))
             },
             operation: {
-                let (data, resp) = try await URLSession.shared.data(from: url)
+                let request = URLRequest(
+                    url: url,
+                    timeoutInterval: NetworkRequestTimeouts.standardResponse
+                )
+                let (data, resp) = try await NetworkSessions.standard.data(for: request)
                 if let http = resp as? HTTPURLResponse,
                    !(200...299).contains(http.statusCode) {
                     let preview = String(data: data, encoding: .utf8)?

@@ -207,6 +207,7 @@ private final class StubRuntimeChatService: ChatStreamingService {
     var onError: (@MainActor (Error) -> Void)?
     var onResponseMetadata: (@MainActor (ChatResponseMetadata) -> Void)?
     var onToolActivity: (@MainActor (ChatToolActivity) -> Void)?
+    var onLongWaitNotice: (@MainActor (ChatStreamLongWaitNotice?) -> Void)?
     var onStreamFinished: (@MainActor () -> Void)?
 
     func fetchStreamedData(
@@ -215,9 +216,9 @@ private final class StubRuntimeChatService: ChatStreamingService {
         includeImagesInUserContent: Bool
     ) {}
 
-    func retryLastFailedStreamRequest() -> Bool { false }
-
     func cancelStreaming() {}
+
+    func cancelActiveStreamForManualRetry() -> Bool { false }
 
     func resolveToolAuthorization(requestID: String, allowed: Bool) {}
 }

@@ -80,6 +80,18 @@ struct AssistantAlignedRetryingBubble: View {
     }
 }
 
+struct AssistantAlignedLongWaitBubble: View {
+    let notice: ChatStreamLongWaitNotice
+    let onRetry: () -> Void
+    var maxBubbleWidth: CGFloat? = nil
+
+    var body: some View {
+        AssistantAlignedStatusRow(maxBubbleWidth: maxBubbleWidth) {
+            AssistantLongWaitBubbleContent(notice: notice, onRetry: onRetry)
+        }
+    }
+}
+
 struct AssistantLoadingBubbleContent: View {
     var body: some View {
         LoadingIndicatorView()
@@ -103,22 +115,38 @@ struct AssistantRetryingBubbleContent: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 8) {
-                LoadingIndicatorView()
-                Text(title)
-                    .font(.footnote.weight(.semibold))
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-            }
+        RequestStatusView(title: title, message: detail)
+            .padding(.vertical, 10)
+            .padding(.horizontal, 12)
+            .background(AssistantStatusBubbleBackground())
+    }
+}
 
-            if let detail {
-                Text(detail)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(2)
-            }
+struct AssistantLongWaitBubbleContent: View {
+    let notice: ChatStreamLongWaitNotice
+    let onRetry: () -> Void
+
+    private var detail: String {
+        switch notice {
+        case .awaitingFirstToken:
+            return NSLocalizedString(
+                "Connected, but the server has not started responding. You can keep waiting or retry.",
+                comment: "Shown when a connected chat request has not produced its first token for a while"
+            )
+        case .awaitingNextToken:
+            return NSLocalizedString(
+                "Connected, but no new response has arrived. You can keep waiting or retry.",
+                comment: "Shown when a connected chat stream has stopped producing tokens for a while"
+            )
         }
+    }
+
+    var body: some View {
+        RequestStatusView(
+            title: String(localized: "Taking longer than expected"),
+            message: detail,
+            onRetry: onRetry
+        )
         .padding(.vertical, 10)
         .padding(.horizontal, 12)
         .background(AssistantStatusBubbleBackground())
@@ -171,6 +199,7 @@ private struct AssistantStatusBubbleBackground: View {
         VStack(spacing: 18) {
             AssistantAlignedLoadingBubble()
             AssistantAlignedRetryingBubble(attempt: 2, lastError: "Connection timed out")
+            AssistantAlignedLongWaitBubble(notice: .awaitingNextToken, onRetry: {})
         }
         .padding()
     }

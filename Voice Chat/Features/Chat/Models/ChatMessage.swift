@@ -272,6 +272,14 @@ extension ChatMessage {
         return false
     }
 
+    var hasAssistantContinuationContent: Bool {
+        !assistantText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+            toolActivityPlacements.contains { $0.activity.phase.isPersistentToolTracePhase } ||
+            openAIResponsesConversationItems.contains {
+                ($0.jsonObject as? [String: Any])?["type"] as? String == "function_call_output"
+            }
+    }
+
     var renderFingerprintSource: String {
         let segments = assistantSegments
         guard !segments.isEmpty else { return content }

@@ -59,6 +59,11 @@ struct ChatServiceConfiguration: ChatServiceConfiguring, Equatable {
 
 // MARK: - Service Contracts
 
+enum ChatStreamLongWaitNotice: Equatable, Sendable {
+    case awaitingFirstToken
+    case awaitingNextToken
+}
+
 @MainActor
 protocol ChatStreamingService: AnyObject {
     var onDelta: (@MainActor (String) -> Void)? { get set }
@@ -67,11 +72,12 @@ protocol ChatStreamingService: AnyObject {
     var onError: (@MainActor (Error) -> Void)? { get set }
     var onResponseMetadata: (@MainActor (ChatResponseMetadata) -> Void)? { get set }
     var onToolActivity: (@MainActor (ChatToolActivity) -> Void)? { get set }
+    var onLongWaitNotice: (@MainActor (ChatStreamLongWaitNotice?) -> Void)? { get set }
     var onStreamFinished: (@MainActor () -> Void)? { get set }
 
     func fetchStreamedData(messages: [ChatMessage], developerPrompt: String?, includeImagesInUserContent: Bool)
-    func retryLastFailedStreamRequest() -> Bool
     func cancelStreaming()
+    func cancelActiveStreamForManualRetry() -> Bool
     func resolveToolAuthorization(requestID: String, allowed: Bool)
 }
 

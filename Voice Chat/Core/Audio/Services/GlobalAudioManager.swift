@@ -87,6 +87,7 @@ final class GlobalAudioManager: NSObject, ObservableObject, AVAudioPlayerDelegat
     }
     @Published var errorMessage: String?
     @Published var playbackNoticeMessage: String?
+    @Published var ttsRequestIssue: TTSRequestIssue?
     var isRetrying: Bool = false {
         didSet {
             guard isRetrying != oldValue else { return }
@@ -186,12 +187,11 @@ final class GlobalAudioManager: NSObject, ObservableObject, AVAudioPlayerDelegat
     var audioChunks: [Data?] = []
     var audioMotionTimelines: [VoiceAudioTimeline?] = []
     var chunkDurations: [TimeInterval] = []
-    var skippedAudioChunkIndexes: Set<Int> = []
 
     var currentChunkIndex: Int = 0
     var currentPlayingIndex: Int = 0
 
-    var activeDataTasks: [UUID: URLSessionDataTask] = [:]
+    var activeDataRequests: [Int: NetworkDataRequest] = [:]
     var activeAppleSpeechSessions: [UUID: AppleSpeechSynthesisSession] = [:]
     var inFlightIndexes: Set<Int> = []
     var ttsRetryTasks: [Int: Task<Void, Never>] = [:]
@@ -236,14 +236,18 @@ final class GlobalAudioManager: NSObject, ObservableObject, AVAudioPlayerDelegat
     }
 
     // Dedicated URLSession for TTS requests so we can tune timeouts and cancellation without polluting shared state.
+    let ttsNetworkQueue = DispatchQueue(label: "VoiceChat.TTS.network", qos: .userInitiated)
     lazy var ttsSession: URLSession = {
         let config = URLSessionConfiguration.ephemeral
-        config.timeoutIntervalForRequest = 60
-        config.timeoutIntervalForResource = 60
-        config.waitsForConnectivity = true
+        config.timeoutIntervalForRequest = .infinity
+        config.timeoutIntervalForResource = .infinity
+        config.waitsForConnectivity = false
         config.httpMaximumConnectionsPerHost = 2
         config.requestCachePolicy = .reloadIgnoringLocalCacheData
-        return URLSession(configuration: config)
+        let delegateQueue = OperationQueue()
+        delegateQueue.maxConcurrentOperationCount = 1
+        delegateQueue.underlyingQueue = ttsNetworkQueue
+        return URLSession(configuration: config, delegate: nil, delegateQueue: delegateQueue)
     }()
 
     init(
@@ -266,7 +270,6 @@ final class GlobalAudioManager: NSObject, ObservableObject, AVAudioPlayerDelegat
             textSegmentCount: textSegments.count,
             audioChunkIsLoaded: audioChunks.map { $0 != nil },
             chunkDurations: chunkDurations,
-            skippedAudioChunkIndexes: skippedAudioChunkIndexes,
             currentChunkIndex: currentChunkIndex,
             currentTime: currentTime,
             totalDuration: totalDuration,
@@ -282,11 +285,13 @@ final class GlobalAudioManager: NSObject, ObservableObject, AVAudioPlayerDelegat
 
     // MARK: - Realtime queue helpers (NEW)
     func queueRealtimeIndex(_ index: Int, atFront: Bool = false) {
+        guard !inFlightIndexes.contains(index) else { return }
+        guard ttsRetryTasks[index] == nil else { return }
+        guard ttsRequestIssue?.segmentIndex != index else { return }
         realtimeRequestQueue.queue(
             index: index,
             segmentCount: textSegments.count,
             loadedIndexes: loadedAudioChunkIndexes(),
-            skippedIndexes: skippedAudioChunkIndexes,
             atFront: atFront
         )
         refreshPlaybackLoadState()
@@ -297,12 +302,15 @@ final class GlobalAudioManager: NSObject, ObservableObject, AVAudioPlayerDelegat
     }
 
     func hasActiveRealtimeSynthesisWork() -> Bool {
-        !inFlightIndexes.isEmpty || !ttsRetryTasks.isEmpty
+        !inFlightIndexes.isEmpty ||
+            !ttsRetryTasks.isEmpty ||
+            ttsRequestIssue != nil
     }
 
     func hasPendingTTSSynthesisWork() -> Bool {
         !inFlightIndexes.isEmpty ||
             !ttsRetryTasks.isEmpty ||
+            ttsRequestIssue != nil ||
             (isRealtimeMode && !realtimeRequestQueue.isEmpty)
     }
 
@@ -331,6 +339,7 @@ final class GlobalAudioManager: NSObject, ObservableObject, AVAudioPlayerDelegat
 
     func processRealtimeQueueIfNeeded() {
         guard isRealtimeMode else { return }
+        guard ttsRequestIssue == nil else { return }
         guard inFlightIndexes.isEmpty else { return }
         guard ttsRetryTasks.isEmpty else { return }
         guard let next = realtimeRequestQueue.dequeueNextValidIndex(segmentCount: textSegments.count) else {
@@ -373,6 +382,8 @@ final class GlobalAudioManager: NSObject, ObservableObject, AVAudioPlayerDelegat
         let trimmed = message.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
         errorMessage = trimmed
+        // Realtime voice owns presentation of playback/configuration failures.
+        guard !isRealtimeMode else { return }
         let title: String
         if currentTTSConfiguration?.provider == .personalVoice {
             title = NSLocalizedString("Apple Personal Voice unavailable", comment: "Shown when Apple Personal Voice synthesis fails")

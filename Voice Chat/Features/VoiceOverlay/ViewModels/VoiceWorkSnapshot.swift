@@ -62,6 +62,10 @@ struct VoiceWorkSnapshot: Equatable, Sendable {
         isPlaybackRequested || isAudioLoading || isAudioPlaying || hasAudioRequests
     }
 
+    var hasNetworkWork: Bool {
+        hasAudioRequests || isChatLoading || isChatPriming || isWaitingForToolAuthorization
+    }
+
     var presentationPhase: VoiceWorkPresentationPhase {
         if isAudioPlaying {
             return .speaking

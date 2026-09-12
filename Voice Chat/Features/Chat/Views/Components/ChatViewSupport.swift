@@ -35,6 +35,7 @@ struct VoiceMessageEqKey: Equatable, Sendable {
     let inlineLoading: Bool
     let inlineRetryAttempt: Int?
     let inlineRetryLastError: String?
+    let inlineLongWaitNotice: ChatStreamLongWaitNotice?
     let toolActivityPlacements: [ChatToolActivityPlacement]
     let developerModeEnabled: Bool
     let searchHighlightID: UUID?

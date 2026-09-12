@@ -383,6 +383,9 @@
 "Result Data" = "結果データ";
 "Result Payload" = "結果ペイロード";
 "Retry" = "再試行";
+"Server response is taking longer than expected." = "サーバーの応答に時間がかかっています。";
+"Connected, but the server has not started responding. You can keep waiting or retry." = "接続は確立されていますが、サーバーはまだ応答を開始していません。待機を続けるか、再試行できます。";
+"Connected, but no new response has arrived. You can keep waiting or retry." = "接続は確立されていますが、新しい応答が届いていません。待機を続けるか、再試行できます。";
 "Retrying (attempt %d)..." = "再試行中（%d回目）...";
 "Running" = "実行中";
 "Running Code" = "コードを実行中";
@@ -570,3 +573,11 @@
 "The selected Apple voice is not installed or is unavailable." = "選択したApple音声がインストールされていないか、利用できません。";
 "The selected speech provider does not use an HTTP request." = "選択した音声バックエンドはHTTPリクエストを使用しません。";
 "There is no text to speak." = "読み上げるテキストがありません。";
+"Connected, but the text service has not started responding. You can keep waiting or retry." = "接続は確立されていますが、テキストサービスはまだ応答を開始していません。待機を続けるか、再試行できます。";
+"Connected, but the text service has not returned anything new. You can keep waiting or retry." = "接続は確立されていますが、テキストサービスから新しい内容が長時間返されていません。待機を続けるか、再試行できます。";
+"Text service" = "テキストサービス";
+"Voice service" = "音声サービス";
+"Taking longer than expected" = "応答に時間がかかっています";
+"Request failed" = "リクエストに失敗しました";
+"Voice generation request failed." = "音声生成リクエストに失敗しました。";
+"Connected, but audio is not ready yet. You can keep waiting or retry." = "接続済みですが、音声の生成はまだ完了していません。待機を続けるか、再試行できます。";

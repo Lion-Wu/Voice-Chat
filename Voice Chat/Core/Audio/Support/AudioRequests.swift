@@ -7,6 +7,13 @@
 
 import Foundation
 
+struct TTSRequestContext: Equatable, Sendable {
+    let segmentText: String
+    let index: Int
+    let generationID: UUID
+    let advanceSequenceOnSuccess: Bool
+}
+
 @MainActor
 extension GlobalAudioManager {
 
@@ -55,19 +62,6 @@ extension GlobalAudioManager {
         prioritizeIfDeferred: Bool = false
     ) {
         guard !inFlightIndexes.contains(index) else { return }
-        guard !skippedAudioChunkIndexes.contains(index) else {
-            if !isRealtimeMode,
-               advanceSequenceOnSuccess,
-               index == currentChunkIndex {
-                currentChunkIndex = index + 1
-                refreshPlaybackLoadState()
-                sendNextSegment()
-            } else {
-                refreshPlaybackLoadState()
-                if isRealtimeMode { processRealtimeQueueIfNeeded() }
-            }
-            return
-        }
         if index < audioChunks.count, audioChunks[index] != nil {
             clearTTSAutoRetry(for: index)
             if !isRealtimeMode,
@@ -91,10 +85,18 @@ extension GlobalAudioManager {
             return
         }
         cancelScheduledTTSAutoRetry(for: index)
-        guard let configuration = currentTTSConfiguration else {
-            self.surfaceTTSIssue(invalidTTSConfigurationMessage())
+        guard let configuration = makeTTSConfiguration(isRealtime: isRealtimeMode) else {
+            handleTTSFailure(
+                .fatal,
+                segmentText: segmentText,
+                index: index,
+                generationID: currentGenerationID,
+                advanceSequenceOnSuccess: advanceSequenceOnSuccess,
+                lastErrorMessage: invalidTTSConfigurationMessage()
+            )
             return
         }
+        currentTTSConfiguration = configuration
         inFlightIndexes.insert(index)
         refreshPlaybackLoadState()
 
@@ -117,20 +119,56 @@ extension GlobalAudioManager {
                 configuration: configuration
             )
         } catch {
-            self.surfaceTTSIssue(error.localizedDescription)
             inFlightIndexes.remove(index)
+            handleTTSFailure(
+                .fatal,
+                segmentText: segmentText,
+                index: index,
+                generationID: genAtRequest,
+                advanceSequenceOnSuccess: advanceSequenceOnSuccess,
+                lastErrorMessage: error.localizedDescription
+            )
             refreshPlaybackLoadState()
-            // In realtime mode continue with the queue to avoid stalling.
-            if isRealtimeMode { processRealtimeQueueIfNeeded() }
+            concludeRealtimeIfIdle()
             return
         }
 
         let requestID = UUID()
-        let task = ttsSession.dataTask(with: request) { [weak self] (data: Data?, resp: URLResponse?, error: Error?) in
+        let context = TTSRequestContext(
+            segmentText: segmentText,
+            index: index,
+            generationID: genAtRequest,
+            advanceSequenceOnSuccess: advanceSequenceOnSuccess
+        )
+        let transport = NetworkDataRequest(
+            id: requestID,
+            request: request,
+            session: ttsSession,
+            queue: ttsNetworkQueue,
+            onLongWait: { [weak self] in
+                DispatchQueue.main.async { [weak self] in
+                    guard let self,
+                          self.activeDataRequests[index]?.id == requestID else { return }
+                    self.ttsRequestIssue = TTSRequestIssue(
+                        kind: .longWait,
+                        requestContext: context,
+                        message: NSLocalizedString(
+                            "Connected, but audio is not ready yet. You can keep waiting or retry.",
+                            comment: "Non-fatal wait for a complete generated audio segment"
+                        )
+                    )
+                }
+            }
+        ) { [weak self] data, resp, error in
             guard let self = self else { return }
             DispatchQueue.main.async {
-                self.activeDataTasks.removeValue(forKey: requestID)
+                guard self.activeDataRequests[index]?.id == requestID else { return }
+                self.activeDataRequests.removeValue(forKey: index)
                 guard genAtRequest == self.currentGenerationID else { return }
+                if self.ttsRequestIssue?.kind == .longWait,
+                   self.ttsRequestIssue?.segmentIndex == index {
+                    self.ttsRequestIssue = nil
+                }
 
                 defer {
                     self.inFlightIndexes.remove(index)
@@ -169,19 +207,6 @@ extension GlobalAudioManager {
                     return
                 }
 
-                guard let data, !data.isEmpty else {
-                    let failure = TTSAudioChunkDecodeFailure.emptyData
-                    self.handleTTSFailure(
-                        failure.disposition,
-                        segmentText: segmentText,
-                        index: index,
-                        generationID: genAtRequest,
-                        advanceSequenceOnSuccess: advanceSequenceOnSuccess,
-                        lastErrorMessage: failure.message
-                    )
-                    return
-                }
-
                 self.acceptSynthesizedAudio(
                     data,
                     segmentText: segmentText,
@@ -191,8 +216,8 @@ extension GlobalAudioManager {
                 )
             }
         }
-        activeDataTasks[requestID] = task
-        task.resume()
+        activeDataRequests[index] = transport
+        transport.start()
     }
 
     private func startAppleSpeechSynthesis(
@@ -253,53 +278,33 @@ extension GlobalAudioManager {
         generationID: UUID,
         advanceSequenceOnSuccess: Bool
     ) {
-        if index >= audioChunks.count {
-            let delta = index - audioChunks.count + 1
-            for _ in 0..<delta {
-                audioChunks.append(nil)
-                audioMotionTimelines.append(nil)
-                chunkDurations.append(0)
+        do {
+            let chunk = try TTSAudioChunkDecoder.decode(data)
+            clearTTSAutoRetry(for: index)
+            if ttsRequestIssue?.segmentIndex == index {
+                ttsRequestIssue = nil
             }
+            audioChunks[index] = chunk.data
+            audioMotionTimelines[index] = nil
+            chunkDurations[index] = chunk.duration
+            scheduleAudioMotionTimeline(
+                for: chunk.data,
+                at: index,
+                generationID: generationID
+            )
+        } catch {
+            handleTTSFailure(
+                error.disposition,
+                segmentText: segmentText,
+                index: index,
+                generationID: generationID,
+                advanceSequenceOnSuccess: advanceSequenceOnSuccess,
+                lastErrorMessage: error.message
+            )
+            return
         }
-
-        if index < audioChunks.count {
-            do {
-                let chunk = try TTSAudioChunkDecoder.decode(data)
-                clearTTSAutoRetry(for: index)
-                skippedAudioChunkIndexes.remove(index)
-                audioChunks[index] = chunk.data
-                audioMotionTimelines[index] = nil
-                chunkDurations[index] = chunk.duration
-                scheduleAudioMotionTimeline(
-                    for: chunk.data,
-                    at: index,
-                    generationID: generationID
-                )
-            } catch let failure as TTSAudioChunkDecodeFailure {
-                handleTTSFailure(
-                    failure.disposition,
-                    segmentText: segmentText,
-                    index: index,
-                    generationID: generationID,
-                    advanceSequenceOnSuccess: advanceSequenceOnSuccess,
-                    lastErrorMessage: failure.message
-                )
-                return
-            } catch {
-                let failure = TTSAudioChunkDecodeFailure.unsupportedAudioData
-                handleTTSFailure(
-                    failure.disposition,
-                    segmentText: segmentText,
-                    index: index,
-                    generationID: generationID,
-                    advanceSequenceOnSuccess: advanceSequenceOnSuccess,
-                    lastErrorMessage: failure.message
-                )
-                return
-            }
-            recalcTotalDuration()
-            refreshPlaybackLoadState()
-        }
+        recalcTotalDuration()
+        refreshPlaybackLoadState()
 
         if playbackFinished() {
             finishPlayback()

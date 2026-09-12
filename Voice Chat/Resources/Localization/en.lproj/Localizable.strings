@@ -383,6 +383,9 @@
 "Result Data" = "Result Data";
 "Result Payload" = "Result Payload";
 "Retry" = "Retry";
+"Server response is taking longer than expected." = "Server response is taking longer than expected.";
+"Connected, but the server has not started responding. You can keep waiting or retry." = "Connected, but the server has not started responding. You can keep waiting or retry.";
+"Connected, but no new response has arrived. You can keep waiting or retry." = "Connected, but no new response has arrived. You can keep waiting or retry.";
 "Retrying (attempt %d)..." = "Retrying (attempt %d)...";
 "Running" = "Running";
 "Running Code" = "Running Code";
@@ -570,3 +573,11 @@
 "The selected Apple voice is not installed or is unavailable." = "The selected Apple voice is not installed or is unavailable.";
 "The selected speech provider does not use an HTTP request." = "The selected speech provider does not use an HTTP request.";
 "There is no text to speak." = "There is no text to speak.";
+"Connected, but the text service has not started responding. You can keep waiting or retry." = "Connected, but the text service has not started responding. You can keep waiting or retry.";
+"Connected, but the text service has not returned anything new. You can keep waiting or retry." = "Connected, but the text service has not returned anything new. You can keep waiting or retry.";
+"Text service" = "Text service";
+"Voice service" = "Voice service";
+"Taking longer than expected" = "Taking longer than expected";
+"Request failed" = "Request failed";
+"Voice generation request failed." = "Voice generation request failed.";
+"Connected, but audio is not ready yet. You can keep waiting or retry." = "Connected, but audio is not ready yet. You can keep waiting or retry.";

@@ -27,8 +27,8 @@ final class ChatService: NSObject, @unchecked Sendable {
     private let sessionQueue: OperationQueue
     private let delegateProxy: ChatServiceDelegateProxy
 
-    var session: URLSession?
-    var dataTask: URLSessionDataTask?
+    let session: URLSession
+    var activeStreamRequest: ChatActiveStreamRequest?
 
     /// Callbacks are explicitly constrained to run on the main actor.
     @MainActor var onDelta: (@MainActor (String) -> Void)?
@@ -37,6 +37,7 @@ final class ChatService: NSObject, @unchecked Sendable {
     @MainActor var onError: (@MainActor (Error) -> Void)?
     @MainActor var onResponseMetadata: (@MainActor (ChatResponseMetadata) -> Void)?
     @MainActor var onToolActivity: (@MainActor (ChatToolActivity) -> Void)?
+    @MainActor var onLongWaitNotice: (@MainActor (ChatStreamLongWaitNotice?) -> Void)?
     @MainActor var onStreamFinished: (@MainActor () -> Void)?
 
     // Reasoning / body state tracking
@@ -60,15 +61,9 @@ final class ChatService: NSObject, @unchecked Sendable {
     let thinkCloseLine = "\n</think>\n"
     let decoder = JSONDecoder()
 
-    // Watchdog configuration to cover long-running sessions (up to ~1 hour).
-    let connectTimeout: TimeInterval = 8             // Fail fast if we can't establish a connection.
-    let firstTokenTimeout: TimeInterval = 3600        // Wait up to one hour for the first token.
-    let silentGapTimeout: TimeInterval  = 3600        // Allow up to one hour of silence between tokens.
-    var streamStartAt: Date?
-    var didEstablishConnection: Bool = false
-    var lastDeltaAt: Date?
-    var watchdog: DispatchSourceTimer?
-    var connectionWatchdog: DispatchSourceTimer?
+    // Connection establishment is fatal; long response waits are advisory only.
+    var activeLongWaitNotice: ChatStreamLongWaitNotice?
+    var waitMonitor: NetworkRequestWaitMonitor?
 
     // Cancel flag to ignore any residual deltas after stopping.
     var isCancelled: Bool = false
@@ -82,11 +77,8 @@ final class ChatService: NSObject, @unchecked Sendable {
     var anthropicStreamState = AnthropicStreamEventState()
     var anthropicAssistantContentAccumulator = AnthropicAssistantContentAccumulator()
     var pendingLMStudioStreamErrorMessage: String?
-    var activeEndpointCandidate: ChatAPIEndpointCandidate?
     var pendingResponseMetadata = ChatResponseMetadata.empty
     var backgroundExecutionCoordinator: ChatServiceBackgroundExecutionCoordinator?
-    var activeStreamRequestBodyData: Data?
-    var lastRetryableStreamRequest: ChatRetryableStreamRequest?
     var toolCallAccumulator = ChatToolCallAccumulator()
     var openAIResponsesOutputItems: [[String: Any]] = []
     var openAIResponsesConversationItems: [JSONValue] = []
@@ -152,15 +144,19 @@ final class ChatService: NSObject, @unchecked Sendable {
         queue.qualityOfService = .userInitiated
         queue.underlyingQueue = self.stateQueue
         self.sessionQueue = queue
-        self.delegateProxy = ChatServiceDelegateProxy()
-        super.init()
-        self.delegateProxy.owner = self
+        let delegateProxy = ChatServiceDelegateProxy()
+        self.delegateProxy = delegateProxy
         let configuration = URLSessionConfiguration.default
         configuration.waitsForConnectivity = false
-        configuration.timeoutIntervalForRequest  = 3900   // Adds a few minutes of headroom beyond one hour.
-        configuration.timeoutIntervalForResource = 3900
+        // Connection establishment is bounded by the dedicated watchdog. Once
+        // connected, an active stream remains open until it finishes, fails, or
+        // the user cancels it; long response waits are advisory UI only.
+        configuration.timeoutIntervalForRequest = .infinity
+        configuration.timeoutIntervalForResource = .infinity
         configuration.httpMaximumConnectionsPerHost = 1
-        self.session = URLSession(configuration: configuration, delegate: delegateProxy, delegateQueue: sessionQueue)
+        self.session = URLSession(configuration: configuration, delegate: delegateProxy, delegateQueue: queue)
+        super.init()
+        delegateProxy.owner = self
         self.backgroundExecutionCoordinator = ChatServiceBackgroundExecutionCoordinator { [weak self] message in
             self?.handleBackgroundExecutionInterruption(message)
         }
@@ -168,8 +164,7 @@ final class ChatService: NSObject, @unchecked Sendable {
 
     deinit {
         activeToolExecutionTask?.cancel()
-        session?.invalidateAndCancel()
-        stopConnectionWatchdog()
+        session.invalidateAndCancel()
         stopWatchdog()
         let authorizationCoordinator = toolAuthorizationCoordinator
         Task { await authorizationCoordinator.cancelAll() }
@@ -180,7 +175,6 @@ final class ChatService: NSObject, @unchecked Sendable {
     @MainActor
     func fetchStreamedData(messages: [ChatMessage], developerPrompt: String?, includeImagesInUserContent: Bool) {
         let base = configurationProvider.apiBaseURL
-        let model = configurationProvider.modelIdentifier
         let endpointCandidates = endpointResolver.streamingCandidates(
             for: base,
             providerHint: configurationProvider.providerHint,
@@ -190,28 +184,52 @@ final class ChatService: NSObject, @unchecked Sendable {
             onError?(ChatNetworkError.invalidURL)
             return
         }
-        guard messages.last?.isUser == true else {
-            onError?(ChatNetworkError.invalidRequestHistory)
-            return
+
+        do {
+            try startStreamedRequest(
+                messages: messages,
+                developerPrompt: developerPrompt,
+                includeImagesInUserContent: includeImagesInUserContent,
+                endpoint: firstEndpoint
+            )
+        } catch {
+            onError?(error)
+        }
+    }
+
+    @MainActor
+    private func startStreamedRequest(
+        messages: [ChatMessage],
+        developerPrompt: String?,
+        includeImagesInUserContent: Bool,
+        endpoint: ChatAPIEndpointCandidate
+    ) throws {
+        guard let lastMessageIndex = messages.lastIndex(where: { !$0.content.hasPrefix("!error:") }) else {
+            throw ChatNetworkError.invalidRequestHistory
         }
 
-        let sourceMessages = messages.map {
-            ChatRequestSourceMessage(
-                content: $0.content,
-                isUser: $0.isUser,
-                imageAttachments: $0.imageAttachments,
-                providerResponseID: $0.providerResponseID,
-                requestContextFingerprint: $0.requestContextFingerprint,
-                requestContentSnapshot: $0.requestContentSnapshot,
-                assistantSegments: $0.assistantSegments,
-                openAIResponsesConversationItems: $0.openAIResponsesConversationItems,
-                toolActivityPlacements: $0.toolActivityPlacements,
-                createdAt: $0.createdAt
+        let continuesAssistantMessage = !messages[lastMessageIndex].isUser
+        let sourceMessages = messages.enumerated().map { index, message in
+            let isContinuationTarget = continuesAssistantMessage && index == lastMessageIndex
+            return ChatRequestSourceMessage(
+                content: message.content,
+                isUser: message.isUser,
+                imageAttachments: message.imageAttachments,
+                providerResponseID: isContinuationTarget ? nil : message.providerResponseID,
+                requestContextFingerprint: message.requestContextFingerprint,
+                requestContentSnapshot: isContinuationTarget ? nil : message.requestContentSnapshot,
+                assistantSegments: message.assistantSegments,
+                openAIResponsesConversationItems: isContinuationTarget
+                    ? ChatRequestPayloadProjector.continuationItems(for: message)
+                    : message.openAIResponsesConversationItems,
+                toolActivityPlacements: message.toolActivityPlacements,
+                createdAt: message.createdAt
             )
         }
+        let model = configurationProvider.modelIdentifier
         let requestContext = ChatRequestContextBuilder.make(
             model: model,
-            endpoint: firstEndpoint,
+            endpoint: endpoint,
             developerPrompt: developerPrompt,
             toolUseSettings: configurationProvider.toolUseSettings,
             apiAdvancedSettings: configurationProvider.apiAdvancedSettings,
@@ -219,46 +237,53 @@ final class ChatService: NSObject, @unchecked Sendable {
             sourceMessages: sourceMessages,
             includeImagesInUserContent: includeImagesInUserContent
         )
-        let previousResponseID = Self.previousResponseID(
+        let previousResponseID = continuesAssistantMessage ? nil : Self.previousResponseID(
             in: sourceMessages,
-            endpoint: firstEndpoint,
+            endpoint: endpoint,
             currentRequestFingerprint: requestContext.fingerprint,
-            useProviderContinuationIDs: configurationProvider.toolUseSettings.useProviderContinuationIDs(for: firstEndpoint)
+            useProviderContinuationIDs: configurationProvider.toolUseSettings.useProviderContinuationIDs(for: endpoint)
         )
         let initialPayload = projectedRequestPayload(
             sourceMessages: sourceMessages,
             developerPrompt: developerPrompt,
             includeImagesInUserContent: includeImagesInUserContent,
-            endpoint: firstEndpoint
+            endpoint: endpoint
         )
         let payload = initialPayload.messages
+        // A logical assistant message may span several transport attempts. Seed its
+        // native history with the same complete prefix sent for this continuation.
+        let continuationItems: [JSONValue]
+        if continuesAssistantMessage, endpoint.style == .openAIResponses {
+            continuationItems = requestPayloadProjector.transformedMessagesForRequest(
+                messages: [sourceMessages[lastMessageIndex]],
+                developerPrompt: nil,
+                includeImagesInUserContent: false,
+                requestStyle: endpoint.style
+            ).map { .normalized($0) }
+        } else {
+            continuationItems = []
+        }
         let toolContext = ChatToolLoopContext(
             currentPayload: initialPayload,
             developerPrompt: developerPrompt,
             includeImagesInUserContent: includeImagesInUserContent,
             model: model,
-            endpoint: firstEndpoint,
+            endpoint: endpoint,
             iteration: 0,
             previousResponseID: previousResponseID
         )
 
-        let requestBodyData: Data
-        do {
-            requestBodyData = try requestBodyBuilder.buildRequestBodyData(
-                model: model,
-                messagePayload: payload,
-                developerPrompt: developerPrompt,
-                endpoint: firstEndpoint,
-                apiAdvancedSettings: configurationProvider.apiAdvancedSettings,
-                toolUseSettings: configurationProvider.toolUseSettings,
-                previousResponseID: previousResponseID,
-                thinkingCapability: configurationProvider.thinkingCapability,
-                thinkingOption: configurationProvider.thinkingOption
-            )
-        } catch {
-            onError?(error)
-            return
-        }
+        let requestBodyData = try requestBodyBuilder.buildRequestBodyData(
+            model: model,
+            messagePayload: payload,
+            developerPrompt: developerPrompt,
+            endpoint: endpoint,
+            apiAdvancedSettings: configurationProvider.apiAdvancedSettings,
+            toolUseSettings: configurationProvider.toolUseSettings,
+            previousResponseID: previousResponseID,
+            thinkingCapability: configurationProvider.thinkingCapability,
+            thinkingOption: configurationProvider.thinkingOption
+        )
         onResponseMetadata?(ChatResponseMetadata(
             requestContext: requestContext.snapshot,
             requestUsedPreviousResponseID: previousResponseID != nil,
@@ -266,18 +291,18 @@ final class ChatService: NSObject, @unchecked Sendable {
         ))
         stateQueue.async { [weak self] in
             guard let self else { return }
-            self.dataTask?.cancel()
-            self.dataTask = nil
+            self.activeStreamRequest?.task.cancel()
+            self.activeStreamRequest = nil
             self.cancelActiveToolExecution()
             self.stopWatchdog()
             self.resetStreamState()
+            self.openAIResponsesConversationItems = continuationItems
             self.advanceRequestGeneration()
             var activeContext = toolContext
             activeContext.requestGeneration = self.requestGeneration
             self.activeToolLoopContext = activeContext
             self.isCancelled = false
-            self.activeEndpointCandidate = firstEndpoint
-            self.startStreaming(endpoint: firstEndpoint, requestBodyData: requestBodyData)
+            self.startStreaming(endpoint: endpoint, requestBodyData: requestBodyData)
         }
     }
 
@@ -321,7 +346,6 @@ final class ChatService: NSObject, @unchecked Sendable {
     }
 
     static let previousResponseIDMaxAge: TimeInterval = 30 * 24 * 60 * 60
-
     func projectedRequestPayload(
         sourceMessages: [ChatRequestSourceMessage],
         developerPrompt: String?,
@@ -343,13 +367,12 @@ final class ChatService: NSObject, @unchecked Sendable {
             guard let self else { return }
             self.isCancelled = true
             self.advanceRequestGeneration()
-            self.dataTask?.cancel()
-            self.dataTask = nil
+            self.activeStreamRequest?.task.cancel()
+            self.activeStreamRequest = nil
             self.stopWatchdog()
             Task { await self.toolAuthorizationCoordinator.cancelAll() }
             self.resetStreamState()
             self.activeToolLoopContext = nil
-            self.clearActiveEndpointCandidate()
         }
     }
 
@@ -382,10 +405,9 @@ struct ChatToolLoopPayload: @unchecked Sendable {
     let messages: [[String: Any]]
 }
 
-struct ChatRetryableStreamRequest: Sendable {
+struct ChatActiveStreamRequest {
+    let task: URLSessionDataTask
     let endpoint: ChatAPIEndpointCandidate
-    let body: Data
-    let toolLoopContext: ChatToolLoopContext?
 }
 
 struct ChatStreamCallbackToken: Hashable, Sendable {

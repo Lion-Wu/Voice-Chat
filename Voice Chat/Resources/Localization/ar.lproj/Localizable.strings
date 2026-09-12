@@ -383,6 +383,9 @@
 "Result Data" = "بيانات النتيجة";
 "Result Payload" = "بيانات النتيجة";
 "Retry" = "إعادة المحاولة";
+"Server response is taking longer than expected." = "تستغرق استجابة الخادم وقتًا أطول من المتوقع.";
+"Connected, but the server has not started responding. You can keep waiting or retry." = "تم إنشاء الاتصال، لكن الخادم لم يبدأ الاستجابة بعد. يمكنك مواصلة الانتظار أو إعادة المحاولة.";
+"Connected, but no new response has arrived. You can keep waiting or retry." = "تم إنشاء الاتصال، لكن لم تصل استجابة جديدة. يمكنك مواصلة الانتظار أو إعادة المحاولة.";
 "Retrying (attempt %d)..." = "جارٍ إعادة المحاولة (المحاولة %d)...";
 "Running" = "قيد التشغيل";
 "Running Code" = "جارٍ تشغيل الرمز";
@@ -570,3 +573,11 @@
 "The selected Apple voice is not installed or is unavailable." = "صوت Apple المحدد غير مثبّت أو غير متاح.";
 "The selected speech provider does not use an HTTP request." = "موفّر الصوت المحدد لا يستخدم طلب HTTP.";
 "There is no text to speak." = "لا يوجد نص لقراءته.";
+"Connected, but the text service has not started responding. You can keep waiting or retry." = "تم إنشاء الاتصال، لكن خدمة النص لم تبدأ بالاستجابة بعد. يمكنك الاستمرار في الانتظار أو إعادة المحاولة.";
+"Connected, but the text service has not returned anything new. You can keep waiting or retry." = "تم إنشاء الاتصال، لكن خدمة النص لم تُرجع محتوى جديدًا منذ مدة. يمكنك الاستمرار في الانتظار أو إعادة المحاولة.";
+"Text service" = "خدمة النص";
+"Voice service" = "خدمة الصوت";
+"Taking longer than expected" = "تستغرق الاستجابة وقتًا أطول";
+"Request failed" = "فشل الطلب";
+"Voice generation request failed." = "فشل طلب توليد الصوت.";
+"Connected, but audio is not ready yet. You can keep waiting or retry." = "تم الاتصال، لكن الصوت ليس جاهزًا بعد. يمكنك مواصلة الانتظار أو إعادة المحاولة.";

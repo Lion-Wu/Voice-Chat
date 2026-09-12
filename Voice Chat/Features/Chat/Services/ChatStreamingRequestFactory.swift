@@ -24,7 +24,7 @@ struct ChatStreamingRequestFactory: ChatStreamingRequestBuilding, Sendable {
         var request = URLRequest(url: endpoint.chatURL)
         request.httpMethod = "POST"
         request.cachePolicy = .reloadIgnoringLocalCacheData
-        request.timeoutInterval = 3900
+        request.timeoutInterval = .infinity
         request.addValue("application/json", forHTTPHeaderField: "Content-Type")
         request.addValue("text/event-stream", forHTTPHeaderField: "Accept")
         request.addValue("keep-alive", forHTTPHeaderField: "Connection")

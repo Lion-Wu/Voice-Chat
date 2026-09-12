@@ -57,7 +57,7 @@ extension ChatViewModel: RealtimeVoiceChatSession {
         .eraseToAnyPublisher()
     }
 
-    var realtimeVoiceRequestFailurePublisher: AnyPublisher<String, Never> {
+    var realtimeVoiceRequestFailurePublisher: AnyPublisher<ChatRequestFailure, Never> {
         requestDidFail.eraseToAnyPublisher()
     }
 
@@ -72,12 +72,37 @@ extension ChatViewModel: RealtimeVoiceChatSession {
             .eraseToAnyPublisher()
     }
 
-    var realtimeVoiceRetryProgressPublisher: AnyPublisher<Int, Never> {
-        $retryAttempt.eraseToAnyPublisher()
+    var realtimeVoiceRetryStatusPublisher: AnyPublisher<RealtimeVoiceTextRetryStatus, Never> {
+        Publishers.CombineLatest3(
+            $isRetrying.removeDuplicates(),
+            $retryAttempt.removeDuplicates(),
+            $retryLastError.removeDuplicates()
+        )
+        .map { isRetrying, attempt, lastError in
+            RealtimeVoiceTextRetryStatus(
+                isRetrying: isRetrying,
+                attempt: attempt,
+                lastError: lastError
+            )
+        }
+        .removeDuplicates()
+        .eraseToAnyPublisher()
+    }
+
+    var realtimeVoiceLongWaitNoticePublisher: AnyPublisher<ChatStreamLongWaitNotice?, Never> {
+        $longWaitNotice.removeDuplicates().eraseToAnyPublisher()
     }
 
     func cancelRealtimeVoiceRequest() {
         cancelCurrentRequest()
+    }
+
+    func retryRealtimeVoiceLongWaitingText() -> Bool {
+        retryLongWaitingStream()
+    }
+
+    func retryRealtimeVoiceFailedText() -> Bool {
+        retryInterruptedAssistantStreamAfterFailure()
     }
 
     func resolveRealtimeVoiceToolAuthorization(requestID: String, allowed: Bool) {
