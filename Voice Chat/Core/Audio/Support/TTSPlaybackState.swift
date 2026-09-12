@@ -11,7 +11,6 @@ struct TTSPlaybackState: Equatable, Sendable {
     let textSegmentCount: Int
     let audioChunkIsLoaded: [Bool]
     let chunkDurations: [TimeInterval]
-    let skippedAudioChunkIndexes: Set<Int>
     let currentChunkIndex: Int
     let currentTime: TimeInterval
     let totalDuration: TimeInterval
@@ -27,7 +26,6 @@ struct TTSPlaybackState: Equatable, Sendable {
         textSegmentCount: Int,
         audioChunkIsLoaded: [Bool],
         chunkDurations: [TimeInterval],
-        skippedAudioChunkIndexes: Set<Int>,
         currentChunkIndex: Int = 0,
         currentTime: TimeInterval = 0,
         totalDuration: TimeInterval = 0,
@@ -42,7 +40,6 @@ struct TTSPlaybackState: Equatable, Sendable {
         self.textSegmentCount = max(0, textSegmentCount)
         self.audioChunkIsLoaded = audioChunkIsLoaded
         self.chunkDurations = chunkDurations
-        self.skippedAudioChunkIndexes = skippedAudioChunkIndexes
         self.currentChunkIndex = currentChunkIndex
         self.currentTime = currentTime
         self.totalDuration = totalDuration
@@ -56,9 +53,7 @@ struct TTSPlaybackState: Equatable, Sendable {
     }
 
     var allChunksLoaded: Bool {
-        audioChunkIsLoaded.indices.allSatisfy { index in
-            audioChunkIsLoaded[index] || skippedAudioChunkIndexes.contains(index)
-        }
+        audioChunkIsLoaded.allSatisfy { $0 }
     }
 
     var playbackFinished: Bool {
@@ -96,9 +91,7 @@ struct TTSPlaybackState: Equatable, Sendable {
             return true
         }
 
-        let hasMissingAudio = audioChunkIsLoaded.indices.contains { index in
-            !audioChunkIsLoaded[index] && !skippedAudioChunkIndexes.contains(index)
-        }
+        let hasMissingAudio = !allChunksLoaded
         let hasOutstandingRequests = !inFlightIndexes.isEmpty || !retryingIndexes.isEmpty
 
         if isRealtimeMode {

@@ -56,7 +56,7 @@ enum TTSRequestBuilder {
 
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
-        request.timeoutInterval = 60
+        request.timeoutInterval = .infinity
         request.cachePolicy = .reloadIgnoringLocalCacheData
         request.addValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = body

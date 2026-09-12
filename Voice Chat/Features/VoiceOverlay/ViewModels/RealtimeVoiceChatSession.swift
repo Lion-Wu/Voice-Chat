@@ -21,6 +21,12 @@ struct RealtimeVoiceAssistantSnapshot {
     }
 }
 
+struct RealtimeVoiceTextRetryStatus: Equatable, Sendable {
+    let isRetrying: Bool
+    let attempt: Int
+    let lastError: String?
+}
+
 @MainActor
 protocol RealtimeVoiceChatSession: AnyObject {
     var supportsRealtimeVoiceImageInput: Bool { get }
@@ -30,8 +36,11 @@ protocol RealtimeVoiceChatSession: AnyObject {
     var realtimeVoiceLoadingStatePublisher: AnyPublisher<Bool, Never> { get }
     var realtimeVoiceRequestFailurePublisher: AnyPublisher<String, Never> { get }
     var realtimeVoiceContentProgressPublisher: AnyPublisher<RealtimeVoiceAssistantSnapshot, Never> { get }
-    var realtimeVoiceRetryProgressPublisher: AnyPublisher<Int, Never> { get }
+    var realtimeVoiceRetryStatusPublisher: AnyPublisher<RealtimeVoiceTextRetryStatus, Never> { get }
+    var realtimeVoiceLongWaitNoticePublisher: AnyPublisher<ChatStreamLongWaitNotice?, Never> { get }
 
     func cancelRealtimeVoiceRequest()
+    func retryRealtimeVoiceLongWaitingText() -> Bool
+    func retryRealtimeVoiceFailedText() -> Bool
     func resolveRealtimeVoiceToolAuthorization(requestID: String, allowed: Bool)
 }

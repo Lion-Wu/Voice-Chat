@@ -23,7 +23,7 @@ final class TTSRequestBuilderTests: XCTestCase {
 
         XCTAssertEqual(request.url, configuration.url)
         XCTAssertEqual(request.httpMethod, "POST")
-        XCTAssertEqual(request.timeoutInterval, 60)
+        XCTAssertEqual(request.timeoutInterval, .infinity)
         XCTAssertEqual(request.cachePolicy, .reloadIgnoringLocalCacheData)
         XCTAssertEqual(request.value(forHTTPHeaderField: "Content-Type"), "application/json")
 

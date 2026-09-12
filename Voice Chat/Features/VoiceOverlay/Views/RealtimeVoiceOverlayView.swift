@@ -38,6 +38,7 @@ struct RealtimeVoiceOverlayView: View {
     }
 
     private var overlayErrorText: String? {
+        guard viewModel.serviceStatuses.isEmpty else { return nil }
         if case let .error(message) = viewModel.state {
             let trimmed = message.trimmingCharacters(in: .whitespacesAndNewlines)
             return trimmed.isEmpty ? nil : trimmed
@@ -108,7 +109,9 @@ struct RealtimeVoiceOverlayView: View {
     }
 
     private var hasAssistantStatusContent: Bool {
-        shouldShowRealtimeAssistantPanel || overlayErrorText != nil
+        shouldShowRealtimeAssistantPanel ||
+            !viewModel.serviceStatuses.isEmpty ||
+            overlayErrorText != nil
     }
 
     var body: some View {
@@ -207,24 +210,20 @@ struct RealtimeVoiceOverlayView: View {
         GeometryReader { proxy in
             let availableWidth = max(0, proxy.size.width - 32)
             let availableHeight = max(0, proxy.size.height - 24)
-            let showsAssistantPanel = shouldShowRealtimeAssistantPanel && overlayErrorText == nil
-            let usesSideBySideLayout = showsAssistantPanel
+            let showsAssistantStatus = hasAssistantStatusContent
+            let usesSideBySideLayout = showsAssistantStatus
                 && availableWidth >= 700
                 && availableWidth > availableHeight * 1.22
             let sideColumnWidth = min(440, max(300, availableWidth * 0.38))
             let sideColumnHeight = min(360, availableHeight)
             let sideSpacing = min(36, max(24, availableWidth * 0.03))
-            let errorMessageTopOffset = VoiceMotionLayout.errorMessageTopOffset(
-                viewportHeight: proxy.size.height,
-                controlDiameter: RealtimeVoiceControlCircle.standardFrameSize
-            )
 
             Group {
                 if usesSideBySideLayout {
                     HStack(spacing: sideSpacing) {
                         voiceControl
 
-                        realtimeAssistantPanel(
+                        assistantStatusColumn(
                             maxWidth: sideColumnWidth,
                             maxHeight: sideColumnHeight
                         )
@@ -234,8 +233,8 @@ struct RealtimeVoiceOverlayView: View {
                     VStack(spacing: 18) {
                         voiceControl
 
-                        if showsAssistantPanel {
-                            realtimeAssistantPanel(
+                        if showsAssistantStatus {
+                            assistantStatusColumn(
                                 maxWidth: min(620, availableWidth),
                                 maxHeight: min(280, max(120, availableHeight * 0.38))
                             )
@@ -246,15 +245,6 @@ struct RealtimeVoiceOverlayView: View {
             .padding(.horizontal, 16)
             .padding(.vertical, 12)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
-            .overlay(alignment: .top) {
-                if let message = overlayErrorText {
-                    errorMessage(
-                        message,
-                        maxWidth: min(620, availableWidth)
-                    )
-                    .offset(y: errorMessageTopOffset)
-                }
-            }
         }
         .animation(stateAnimation, value: viewModel.state)
     }
@@ -369,16 +359,59 @@ struct RealtimeVoiceOverlayView: View {
     }
 
     private func assistantStatusColumn(maxWidth: CGFloat, maxHeight: CGFloat) -> some View {
-        VStack(spacing: 10) {
-            realtimeAssistantPanel(maxWidth: maxWidth, maxHeight: maxHeight)
-                .layoutPriority(0)
+        ScrollView {
+            VStack(spacing: 10) {
+                realtimeAssistantPanel(maxWidth: maxWidth, maxHeight: maxHeight)
 
-            if let message = overlayErrorText {
-                reconnectMessage(message)
-                    .layoutPriority(1)
+                ForEach(viewModel.serviceStatuses) { status in
+                    voiceServiceStatusCard(status)
+                }
+
+                if let message = overlayErrorText {
+                    reconnectMessage(message, retryAction: triggerReconnectAction)
+                }
             }
         }
+        .scrollBounceBehavior(.basedOnSize)
+        .scrollClipDisabled()
         .frame(maxWidth: maxWidth, maxHeight: maxHeight)
+    }
+
+    private func voiceServiceStatusCard(_ status: RealtimeVoiceServiceStatus) -> some View {
+        reconnectMessage(
+            status.message,
+            service: serviceTitle(status.source),
+            status: status.kind == .failed ? nil : serviceStateTitle(status.kind),
+            isFailure: status.kind == .failed,
+            retryLabel: String(localized: "Retry"),
+            retryAction: status.kind == .longWait || status.kind == .failed ? {
+                AppHaptics.trigger(.selection)
+                viewModel.retryService(status.source)
+            } : nil
+        )
+    }
+
+    private func serviceTitle(_ source: RealtimeVoiceServiceSource) -> String {
+        switch source {
+        case .text:
+            NSLocalizedString("Text service", comment: "Label for text generation status in realtime voice mode")
+        case .voice:
+            NSLocalizedString("Voice service", comment: "Label for speech generation status in realtime voice mode")
+        }
+    }
+
+    private func serviceStateTitle(_ kind: RealtimeVoiceServiceStatusKind) -> String {
+        switch kind {
+        case .longWait:
+            NSLocalizedString("Taking longer than expected", comment: "Non-fatal long response status")
+        case .retrying(let attempt):
+            String(
+                format: NSLocalizedString("Retrying (attempt %d)...", comment: "Shown while auto retry is waiting to reconnect"),
+                max(1, attempt)
+            )
+        case .failed:
+            NSLocalizedString("Request failed", comment: "Terminal service request status")
+        }
     }
 
     @ViewBuilder
@@ -397,38 +430,58 @@ struct RealtimeVoiceOverlayView: View {
         }
     }
 
-    private func reconnectMessage(_ message: String) -> some View {
-        Button {
-            triggerReconnectAction()
-        } label: {
-            VStack(spacing: 6) {
-                Text(message)
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(.primary)
-                    .multilineTextAlignment(.center)
-                    .lineLimit(4)
-                    .minimumScaleFactor(0.85)
+    @ViewBuilder
+    private func reconnectMessage(
+        _ message: String,
+        service: String? = nil,
+        status: String? = nil,
+        isFailure: Bool = true,
+        retryLabel: String = String(localized: "Tap to reconnect"),
+        retryAction: (() -> Void)?
+    ) -> some View {
+        let content = VStack(spacing: 6) {
+            if let service {
+                Text(service)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(.secondary)
+            }
 
-                Text(NSLocalizedString("Tap to reconnect", comment: "Shown under the realtime voice overlay when an error occurs"))
+            Text(message)
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(.primary)
+
+            if let status {
+                Text(status)
                     .font(.system(size: 13, weight: .medium))
                     .foregroundStyle(.secondary)
             }
-            .padding(.horizontal, 24)
-            .padding(.vertical, 10)
-            .appChromedContainer(cornerRadius: 14, tint: .red.opacity(0.06), interactive: true, shadowOpacity: 0.3)
-        }
-        .buttonStyle(.plain)
-        .contentShape(Rectangle())
-    }
 
-    private func errorMessage(
-        _ message: String,
-        maxWidth: CGFloat
-    ) -> some View {
-        reconnectMessage(message)
-            .frame(width: maxWidth)
-            .fixedSize(horizontal: false, vertical: true)
-            .transition(.opacity.combined(with: .move(edge: .bottom)))
+            if retryAction != nil {
+                Text(retryLabel)
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .multilineTextAlignment(.center)
+        .fixedSize(horizontal: false, vertical: true)
+        .padding(.horizontal, 24)
+        .padding(.vertical, 10)
+        .appChromedContainer(
+            cornerRadius: 14,
+            tint: isFailure ? .red.opacity(0.06) : .secondary.opacity(0.05),
+            interactive: retryAction != nil,
+            shadowOpacity: 0.3
+        )
+
+        if let retryAction {
+            Button(action: retryAction) {
+                content
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+        } else {
+            content
+        }
     }
 
     private var bottomControlContainer: some View {
@@ -442,9 +495,11 @@ struct RealtimeVoiceOverlayView: View {
 
     @ViewBuilder
     private var errorNoticeStack: some View {
-        if !errorCenter.notices.isEmpty {
+        // Network service failures are presented by this overlay's request cards.
+        let notices = errorCenter.notices.filter { $0.category == .realtimeVoice }
+        if !notices.isEmpty {
             ErrorNoticeStack(
-                notices: errorCenter.notices,
+                notices: notices,
                 onDismiss: { notice in
                     errorCenter.dismiss(notice)
                     viewModel.dismissErrorMessage()

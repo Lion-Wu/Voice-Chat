@@ -14,6 +14,7 @@ struct AudioPlaybackSnapshot: Equatable, Sendable {
     let isPlaybackRequested: Bool
     let hasAudioRequests: Bool
     let hasLoadedAudioChunk: Bool
+    let hasPlayableAudioRemaining: Bool
     let hasSeekableAudio: Bool
 
     var hasVoiceWork: Bool {
@@ -30,6 +31,13 @@ extension GlobalAudioManager {
             isPlaybackRequested: isPlaybackRequested,
             hasAudioRequests: hasPendingTTSSynthesisWork(),
             hasLoadedAudioChunk: audioChunks.contains { $0 != nil },
+            hasPlayableAudioRemaining: audioChunks.indices.contains { index in
+                guard index >= currentPlayingIndex,
+                      audioChunks[index] != nil else { return false }
+                if index > currentPlayingIndex { return true }
+                let segmentEnd = startTime(forSegment: index) + (chunkDurations[safe: index] ?? 0)
+                return isAudioPlaying || currentTime < max(0, segmentEnd - endEpsilon)
+            },
             hasSeekableAudio: totalDuration > 0.0005 || chunkDurations.contains { $0 > 0.0005 }
         )
     }

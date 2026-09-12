@@ -33,6 +33,7 @@ struct VoiceMessageView: View {
     let inlineLoading: Bool
     let inlineRetryAttempt: Int?
     let inlineRetryLastError: String?
+    let inlineLongWaitNotice: ChatStreamLongWaitNotice?
     let toolActivities: [ChatToolActivity]
     let toolActivityPlacements: [ChatToolActivityPlacement]
     let searchHighlightQuery: String?
@@ -41,6 +42,7 @@ struct VoiceMessageView: View {
     let onEditUserMessage: (ChatMessage) -> Void
     let onSwitchVersion: (ChatMessage) -> Void
     let onRetry: (ChatMessage) -> Void
+    let onLongWaitRetry: () -> Void
     let onAuthorizeTool: (String, Bool) -> Void
 
     private let thinkPreviewLines: Int = 6
@@ -58,6 +60,7 @@ struct VoiceMessageView: View {
         inlineLoading: Bool = false,
         inlineRetryAttempt: Int? = nil,
         inlineRetryLastError: String? = nil,
+        inlineLongWaitNotice: ChatStreamLongWaitNotice? = nil,
         toolActivities: [ChatToolActivity] = [],
         toolActivityPlacements: [ChatToolActivityPlacement] = [],
         searchHighlightQuery: String? = nil,
@@ -66,6 +69,7 @@ struct VoiceMessageView: View {
         onEditUserMessage: @escaping (ChatMessage) -> Void,
         onSwitchVersion: @escaping (ChatMessage) -> Void,
         onRetry: @escaping (ChatMessage) -> Void,
+        onLongWaitRetry: @escaping () -> Void = {},
         onAuthorizeTool: @escaping (String, Bool) -> Void = { _, _ in }
     ) {
         self.message = message
@@ -79,6 +83,7 @@ struct VoiceMessageView: View {
         self.inlineLoading = inlineLoading
         self.inlineRetryAttempt = inlineRetryAttempt
         self.inlineRetryLastError = inlineRetryLastError
+        self.inlineLongWaitNotice = inlineLongWaitNotice
         self.toolActivities = toolActivities
         self.toolActivityPlacements = toolActivityPlacements
         self.searchHighlightQuery = searchHighlightQuery
@@ -87,6 +92,7 @@ struct VoiceMessageView: View {
         self.onEditUserMessage = onEditUserMessage
         self.onSwitchVersion = onSwitchVersion
         self.onRetry = onRetry
+        self.onLongWaitRetry = onLongWaitRetry
         self.onAuthorizeTool = onAuthorizeTool
     }
 
@@ -273,6 +279,17 @@ struct VoiceMessageView: View {
             .frame(maxWidth: contentMaxWidthForAssistant(availableWidth: maxBubbleWidth), alignment: .leading)
             .frame(maxWidth: .infinity, alignment: .center)
             .transition(ChatScrollContentMotion.transition)
+        } else if let inlineLongWaitNotice {
+            HStack {
+                AssistantLongWaitBubbleContent(
+                    notice: inlineLongWaitNotice,
+                    onRetry: onLongWaitRetry
+                )
+                Spacer(minLength: 0)
+            }
+            .frame(maxWidth: contentMaxWidthForAssistant(availableWidth: maxBubbleWidth), alignment: .leading)
+            .frame(maxWidth: .infinity, alignment: .center)
+            .transition(ChatScrollContentMotion.transition)
         } else if inlineLoading {
             HStack {
                 AssistantLoadingBubbleContent()
@@ -287,6 +304,9 @@ struct VoiceMessageView: View {
     private var inlineStatusAnimationKey: String {
         if let inlineRetryAttempt {
             return "retry-\(inlineRetryAttempt)-\(inlineRetryLastError ?? "")"
+        }
+        if let inlineLongWaitNotice {
+            return "long-wait-\(String(describing: inlineLongWaitNotice))"
         }
         return inlineLoading ? "loading" : "none"
     }

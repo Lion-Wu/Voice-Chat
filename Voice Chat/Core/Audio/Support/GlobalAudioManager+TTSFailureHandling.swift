@@ -23,33 +23,31 @@ extension GlobalAudioManager {
         advanceSequenceOnSuccess: Bool,
         lastErrorMessage: String
     ) {
-        switch disposition {
-        case .fatal:
-            clearTTSAutoRetry(for: index)
-            surfaceTTSIssue(lastErrorMessage)
-            stopPlaybackAfterTerminalTTSFailure()
-        case .transient, .content:
-            if scheduleTTSAutoRetry(
+        if disposition != .fatal,
+           scheduleTTSAutoRetry(
                 segmentText: segmentText,
                 index: index,
                 generationID: generationID,
                 advanceSequenceOnSuccess: advanceSequenceOnSuccess,
                 lastErrorMessage: lastErrorMessage
-            ) {
-                return
-            }
-
-            clearTTSAutoRetry(for: index)
-            if disposition == .content {
-                markTTSChunkSkipped(
-                    index: index,
-                    advanceSequenceOnSuccess: advanceSequenceOnSuccess
-                )
-            } else {
-                surfaceTTSIssue(lastErrorMessage)
-                stopPlaybackAfterTerminalTTSFailure()
-            }
+           ) {
+            return
         }
+
+        clearTTSAutoRetry(for: index)
+        let requestContext = TTSRequestContext(
+            segmentText: segmentText,
+            index: index,
+            generationID: generationID,
+            advanceSequenceOnSuccess: advanceSequenceOnSuccess
+        )
+        ttsRequestIssue = TTSRequestIssue(
+            kind: .failed,
+            requestContext: requestContext,
+            message: lastErrorMessage
+        )
+        _ = parkPlaybackAtTerminalTTSFailureIfNeeded()
+        refreshPlaybackLoadState()
     }
 
     @discardableResult
@@ -82,8 +80,7 @@ extension GlobalAudioManager {
             await MainActor.run { [weak self] in
                 guard let self else { return }
                 guard self.currentGenerationID == generationID else { return }
-                if self.skippedAudioChunkIndexes.contains(index)
-                    || (index < self.audioChunks.count && self.audioChunks[index] != nil) {
+                if index < self.audioChunks.count, self.audioChunks[index] != nil {
                     self.clearTTSAutoRetry(for: index)
                     return
                 }
@@ -99,104 +96,51 @@ extension GlobalAudioManager {
         return true
     }
 
-    private func markTTSChunkSkipped(
-        index: Int,
-        advanceSequenceOnSuccess: Bool
-    ) {
-        guard index >= 0 else { return }
-
-        if index >= audioChunks.count {
-            let delta = index - audioChunks.count + 1
-            for _ in 0..<delta {
-                audioChunks.append(nil)
-                audioMotionTimelines.append(nil)
-                chunkDurations.append(0)
-            }
+    @discardableResult
+    func parkPlaybackAtTerminalTTSFailureIfNeeded() -> Bool {
+        guard ttsRequestIssue?.kind == .failed,
+              !audioPlaybackSnapshot.hasPlayableAudioRemaining else {
+            return false
         }
 
-        audioChunks[index] = nil
-        audioMotionTimelines[index] = nil
-        chunkDurations[index] = 0
-        skippedAudioChunkIndexes.insert(index)
-        recalcTotalDuration()
-        refreshPlaybackLoadState()
-
-        surfaceTTSNotice(skippedTTSChunkNotice(for: index))
-
-        if !isRealtimeMode,
-           advanceSequenceOnSuccess,
-           index == currentChunkIndex {
-            currentChunkIndex = index + 1
-            refreshPlaybackLoadState()
-            sendNextSegment()
-        }
-
-        if index == currentPlayingIndex {
-            _ = playAudioChunk(
-                at: index,
-                shouldPlay: isPlaybackRequested || isAudioPlaying || isBuffering || isLoading
-            )
-        }
-
-        concludeFullTextPlaybackIfResolved()
-    }
-
-    private func concludeFullTextPlaybackIfResolved() {
-        guard !isRealtimeMode else { return }
-        guard currentChunkIndex >= textSegments.count else { return }
-        guard allChunksLoaded() else { return }
-
-        if totalDuration <= endEpsilon {
-            stopAudioTimer()
-            stopStallWatchdog()
-            isLoading = false
-            isPlaybackRequested = false
-            isAudioPlaying = false
-            isBuffering = false
-            isSeeking = false
-            seekTime = nil
-            refreshPlaybackLoadState()
-            deactivateSystemPlaybackSession()
-        } else if playbackFinished() {
-            finishPlayback()
-        }
-    }
-
-    private func stopPlaybackAfterTerminalTTSFailure() {
+        isAudioPlaying = false
+        isBuffering = false
         if isRealtimeMode {
-            clearRealtimeRequestQueue()
-        }
-        isPlaybackRequested = false
-        if isBuffering {
-            isBuffering = false
-            stopStallWatchdog()
-        }
-        if !isAudioPlaying {
             isLoading = false
-            stopAudioTimer()
-            stopStallWatchdog()
-            deactivateSystemPlaybackSession()
         }
+        stopAudioTimer()
+        stopStallWatchdog()
         refreshPlaybackLoadState()
+        return true
     }
 
-    private func skippedTTSChunkNotice(for index: Int) -> String {
-        let rawText = textSegments[safe: index] ?? ""
-        let normalized = rawText
-            .split(whereSeparator: { $0.isWhitespace })
-            .joined(separator: " ")
-        let previewSource = normalized.isEmpty ? rawText.trimmingCharacters(in: .whitespacesAndNewlines) : normalized
-        let preview: String
-        if previewSource.count > 120 {
-            preview = "\(previewSource.prefix(120))..."
-        } else {
-            preview = previewSource
+    @discardableResult
+    func retryCurrentTTSRequestIssue() -> Bool {
+        guard let issue = ttsRequestIssue,
+              issue.requestContext.generationID == currentGenerationID else {
+            return false
+        }
+        let context = issue.requestContext
+        if issue.kind == .longWait {
+            guard let request = activeDataRequests.removeValue(forKey: context.index) else { return false }
+            request.cancel()
+            inFlightIndexes.remove(context.index)
+        }
+        guard !inFlightIndexes.contains(context.index),
+              ttsRetryTasks[context.index] == nil else {
+            return false
         }
 
-        return String(
-            format: NSLocalizedString("The following text failed to generate and was ignored: %@", comment: "Shown when a TTS chunk failed repeatedly and was ignored with the source text"),
-            preview.isEmpty ? "-" : preview
+        clearTTSAutoRetry(for: context.index)
+        ttsRequestIssue = nil
+        sendTTSRequest(
+            for: context.segmentText,
+            index: context.index,
+            advanceSequenceOnSuccess: context.advanceSequenceOnSuccess,
+            prioritizeIfDeferred: true
         )
+        refreshPlaybackLoadState()
+        return inFlightIndexes.contains(context.index) || ttsRetryTasks[context.index] != nil
     }
 
     func cancelScheduledTTSAutoRetry(for index: Int) {

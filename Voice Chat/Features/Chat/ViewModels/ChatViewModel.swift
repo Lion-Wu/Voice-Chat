@@ -80,6 +80,7 @@ final class ChatViewModel: ObservableObject {
     @Published private(set) var isRetrying: Bool = false
     @Published private(set) var retryAttempt: Int = 0
     @Published private(set) var retryLastError: String? = nil
+    @Published private(set) var longWaitNotice: ChatStreamLongWaitNotice?
     @Published private(set) var isToolContinuationLoading: Bool = false
     @Published private(set) var toolActivities: [ChatToolActivity] = []
     @Published private(set) var messageToolActivities: [UUID: [ChatToolActivity]] = [:]
@@ -249,6 +250,9 @@ final class ChatViewModel: ObservableObject {
             onToolActivity: { [weak self] activity in
                 self?.handleToolActivity(activity)
             },
+            onLongWaitNotice: { [weak self] notice in
+                self?.longWaitNotice = notice
+            },
             onStreamFinished: { [weak self] in
                 self?.handleChatStreamFinished()
             }
@@ -336,6 +340,7 @@ final class ChatViewModel: ObservableObject {
 
     private func handleChatServiceError(_ error: Error) {
         guard hasActiveTextRequest || isToolContinuationLoading else { return }
+        longWaitNotice = nil
         let now = Date()
         let errorText = error.localizedDescription.trimmingCharacters(in: .whitespacesAndNewlines)
         isToolContinuationLoading = false
@@ -347,8 +352,6 @@ final class ChatViewModel: ObservableObject {
         }
 
         if textRequestRuntime.shouldAutoRetry(after: error) {
-            rollbackStreamAttemptRetryCheckpointIfNeeded()
-            realtimeNarrationCoordinator.restartActiveStreamForRetry()
             scheduleAutoRetry(after: error, errorText: errorText)
             return
         }
@@ -394,13 +397,15 @@ final class ChatViewModel: ObservableObject {
         publishMessageStructureChange()
         persistSession(reason: .immediate)
 
-        realtimeNarrationCoordinator.finishActiveStream(flushingBufferedText: false)
+        // A failed text attempt does not complete the narration. Keep its segmenter,
+        // playback cursor, and play/pause intent until retry, completion, or cancellation.
 
         applyDeferredChatConfigurationIfNeeded()
         scheduleQueuedDraftAutostartIfNeeded()
     }
 
     private func handleChatStreamFinished() {
+        longWaitNotice = nil
         let finishedAt = Date()
         isToolContinuationLoading = false
         streamAttemptRetryCheckpoint = nil
@@ -420,6 +425,7 @@ final class ChatViewModel: ObservableObject {
     }
 
     private func handleToolActivity(_ activity: ChatToolActivity) {
+        longWaitNotice = nil
         if activity.phase == .generating {
             markRetryProgressIfNeeded()
         } else if activity.phase == .requested {
@@ -738,13 +744,20 @@ final class ChatViewModel: ObservableObject {
         markRequestActive(pendingParentMessageID: parent.id)
     }
 
-    private func createPendingAssistantBranchPlaceholder(parent: ChatMessage) {
-        guard currentAssistantMessageID == nil else { return }
+    @discardableResult
+    private func createPendingAssistantBranchPlaceholder(
+        parent: ChatMessage,
+        continuing assistant: ChatMessage? = nil
+    ) -> ChatMessage {
         let placeholder = ChatMessage(
-            content: "",
+            content: assistant?.content ?? "",
+            requestContentSnapshot: assistant?.requestContentSnapshot,
+            assistantSegments: assistant?.assistantSegments ?? [],
+            openAIResponsesConversationItems: assistant?.openAIResponsesConversationItems ?? [],
             isUser: false,
             isActive: true,
             createdAt: Date(),
+            toolActivityPlacements: assistant?.toolActivityPlacements ?? [],
             session: chatSession
         )
         placeholder.parentMessage = parent
@@ -752,13 +765,14 @@ final class ChatViewModel: ObservableObject {
         chatSession.messages.append(placeholder)
         currentAssistantMessageID = placeholder.id
         streamingAssistantMessageID = placeholder.id
-        streamingAssistantFingerprint = ContentFingerprint.make("")
+        streamingAssistantFingerprint = ContentFingerprint.make(placeholder.renderFingerprintSource)
         pendingAssistantParentMessageID = nil
         markSessionMessageActivity(for: placeholder)
         invalidateCachesAfterMessageMutation()
         branchRestartCoordinator.clearPendingRestore()
         publishMessageStructureChange()
         persistSession(reason: .immediate)
+        return placeholder
     }
 
     // MARK: - Telemetry
@@ -807,10 +821,9 @@ final class ChatViewModel: ObservableObject {
         sessionMutationController.activeBranchMessages(in: chatSession)
     }
 
-    private func requestMessages(through userMessage: ChatMessage) -> [ChatMessage]? {
-        guard userMessage.isUser,
-              let messages = sessionMutationController.messagesThrough(userMessage, in: chatSession),
-              messages.last?.id == userMessage.id else {
+    private func requestMessages(through message: ChatMessage) -> [ChatMessage]? {
+        guard let messages = sessionMutationController.messagesThrough(message, in: chatSession),
+              messages.last?.id == message.id else {
             return nil
         }
         return messages
@@ -985,6 +998,8 @@ final class ChatViewModel: ObservableObject {
         isVoiceMode: Bool,
         includeImagesInUserContent: Bool
     ) {
+        longWaitNotice = nil
+        prepareAssistantStreamDestination(for: currentMessages)
         let developerPrompt = runtimeConfigurationResolver.developerPrompt(isVoiceMode: isVoiceMode)
         recordStreamStart(
             using: currentMessages,
@@ -997,6 +1012,21 @@ final class ChatViewModel: ObservableObject {
             developerPrompt: developerPrompt,
             includeImagesInUserContent: includeImagesInUserContent
         )
+    }
+
+    /// A request ending in an assistant message continues that same message.
+    /// Requests ending in a user message keep the existing new-assistant path.
+    private func prepareAssistantStreamDestination(for messages: [ChatMessage]) {
+        guard let assistant = messages.last(where: { !$0.content.hasPrefix("!error:") }),
+              !assistant.isUser else {
+            return
+        }
+
+        currentAssistantMessageID = assistant.id
+        interruptedAssistantMessageID = nil
+        pendingAssistantParentMessageID = nil
+        streamingAssistantMessageID = assistant.id
+        streamingAssistantFingerprint = ContentFingerprint.make(assistant.renderFingerprintSource)
     }
 
     // MARK: - Intent
@@ -1033,6 +1063,7 @@ final class ChatViewModel: ObservableObject {
 
     func cancelCurrentRequest(autostartQueuedDraft: Bool = true) {
         guard sending || isLoading || isPriming || isToolContinuationLoading else { return }
+        longWaitNotice = nil
         let finishedAt = Date()
         isToolContinuationLoading = false
         streamAttemptRetryCheckpoint = nil
@@ -1069,6 +1100,7 @@ final class ChatViewModel: ObservableObject {
 
     private func handleAssistantDelta(_ piece: String) {
         guard canAcceptAssistantDelta else { return }
+        longWaitNotice = nil
         if isToolContinuationLoading {
             isToolContinuationLoading = false
         }
@@ -1127,6 +1159,7 @@ final class ChatViewModel: ObservableObject {
 
     private func handleAssistantStreamSegment(_ segment: AssistantStreamSegment) {
         guard canAcceptAssistantDelta else { return }
+        longWaitNotice = nil
         if isToolContinuationLoading {
             isToolContinuationLoading = false
         }
@@ -1253,9 +1286,14 @@ final class ChatViewModel: ObservableObject {
         syncChatConfigurationFromSettingsIfNeeded()
         ensureMessageTreeInitializedIfNeeded()
         guard !errorMessage.isUser,
+              errorMessage.content.hasPrefix("!error:"),
               let errorLineage = sessionMutationController.messagesThrough(errorMessage, in: chatSession),
               let precedingUser = errorLineage.dropLast().last(where: \.isUser),
-              let requestMessages = requestMessages(through: precedingUser) else {
+              let destination = errorMessage.parentMessage,
+              let requestMessages = requestMessages(through:
+                !destination.isUser && destination.hasAssistantContinuationContent
+                    ? destination : precedingUser
+              ) else {
             return .unavailable
         }
 
@@ -1329,9 +1367,18 @@ final class ChatViewModel: ObservableObject {
         persistSession(reason: .immediate)
 
         prepareBranchRestart(from: context.targetUserMessage)
-        createPendingAssistantBranchPlaceholder(parent: context.targetUserMessage)
+        // Preserve the failed branch while continuing its received content in the selected version.
+        let assistant = context.requestMessages.last.flatMap { $0.isUser ? nil : $0 }
+        let destination = createPendingAssistantBranchPlaceholder(
+            parent: context.targetUserMessage,
+            continuing: assistant
+        )
+        var requestMessages = context.requestMessages
+        if assistant != nil {
+            requestMessages[requestMessages.count - 1] = destination
+        }
         startStreaming(
-            messages: context.requestMessages,
+            messages: requestMessages,
             isVoiceMode: audioManager.isRealtimeMode,
             includeImagesInUserContent: supportsImageInputs
         )
@@ -1345,6 +1392,28 @@ final class ChatViewModel: ObservableObject {
     }
 
     // MARK: - Auto Retry (Text Streaming)
+
+    @discardableResult
+    func retryLongWaitingStream() -> Bool {
+        guard longWaitNotice != nil,
+              hasActiveTextRequest || isToolContinuationLoading else {
+            return false
+        }
+
+        longWaitNotice = nil
+        guard textRequestRuntime.cancelActiveStreamForManualRetry() else {
+            return false
+        }
+
+        resetRetryState()
+        isToolContinuationLoading = false
+        if restartCurrentTextRequestUsingLatestConfiguration() {
+            return true
+        }
+
+        completeChatServiceError(ChatNetworkError.invalidRequestHistory)
+        return false
+    }
 
     private func scheduleAutoRetry(after error: Error, errorText: String) {
         textRequestRuntime.cancelScheduledRetry()
@@ -1365,17 +1434,58 @@ final class ChatViewModel: ObservableObject {
         }
     }
 
+    @discardableResult
+    func retryInterruptedAssistantStreamAfterFailure() -> Bool {
+        guard let failure = activeBranchMessages().last,
+              failure.content.hasPrefix("!error:") else {
+            return false
+        }
+        return retry(afterErrorMessage: failure) == .started
+    }
+
     private func performScheduledAutoRetry(originalError: Error) {
         guard isLoading || isPriming || sending || isToolContinuationLoading else {
             resetRetryState()
             return
         }
-        if textRequestRuntime.retryLastFailedStreamRequest() {
+
+        if restartCurrentTextRequestUsingLatestConfiguration() {
             return
         }
 
         resetRetryState()
         completeChatServiceError(originalError)
+    }
+
+    private func restartCurrentTextRequestUsingLatestConfiguration() -> Bool {
+        let activeMessages = activeBranchMessages()
+        guard let lastIndex = activeMessages.lastIndex(where: { !$0.content.hasPrefix("!error:") }) else {
+            return false
+        }
+
+        let lastMessage = activeMessages[lastIndex]
+        var requestMessages = Array(activeMessages[...lastIndex])
+        if !lastMessage.isUser {
+            prepareAssistantStreamDestination(for: requestMessages)
+            if !lastMessage.hasAssistantContinuationContent {
+                guard let userIndex = requestMessages.dropLast().lastIndex(where: \.isUser) else {
+                    return false
+                }
+                rollbackStreamAttemptRetryCheckpointIfNeeded()
+                requestMessages = Array(requestMessages[...userIndex])
+            } else {
+                refreshTrackedAssistantRequestSnapshotIfNeeded()
+            }
+        }
+
+        textRequestRuntime.prepareConfigurationForRetry(runtimeConfigurationResolver.currentConfiguration())
+        startStreaming(
+            messages: requestMessages,
+            isVoiceMode: audioManager.isRealtimeMode,
+            includeImagesInUserContent: currentModelSupportsImageInput()
+        )
+        persistSession(reason: .immediate)
+        return true
     }
 
     private func markRetryProgressIfNeeded() {

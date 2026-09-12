@@ -23,8 +23,14 @@ final class AudioPlaybackSnapshotTests: XCTestCase {
         XCTAssertTrue(manager.audioPlaybackSnapshot.hasSeekableAudio)
 
         let url = try XCTUnwrap(URL(string: "https://example.com/audio.wav"))
-        let requestID = UUID()
-        manager.activeDataTasks[requestID] = URLSession.shared.dataTask(with: url)
+        manager.activeDataRequests[0] = NetworkDataRequest(
+            id: UUID(),
+            request: URLRequest(url: url),
+            session: URLSession.shared,
+            queue: DispatchQueue(label: "AudioPlaybackSnapshotTests.transport"),
+            onLongWait: {},
+            completion: { _, _, _ in }
+        )
 
         XCTAssertFalse(manager.audioPlaybackSnapshot.hasAudioRequests)
 
@@ -32,7 +38,7 @@ final class AudioPlaybackSnapshotTests: XCTestCase {
         XCTAssertTrue(manager.audioPlaybackSnapshot.hasAudioRequests)
 
         manager.inFlightIndexes.remove(0)
-        manager.activeDataTasks.removeValue(forKey: requestID)
+        manager.activeDataRequests.removeValue(forKey: 0)?.cancel()
         XCTAssertFalse(manager.audioPlaybackSnapshot.hasAudioRequests)
     }
 
@@ -43,6 +49,7 @@ final class AudioPlaybackSnapshotTests: XCTestCase {
         isPlaybackRequested: Bool = false,
         hasAudioRequests: Bool = false,
         hasLoadedAudioChunk: Bool = false,
+        hasPlayableAudioRemaining: Bool = false,
         hasSeekableAudio: Bool = false
     ) -> AudioPlaybackSnapshot {
         AudioPlaybackSnapshot(
@@ -52,6 +59,7 @@ final class AudioPlaybackSnapshotTests: XCTestCase {
             isPlaybackRequested: isPlaybackRequested,
             hasAudioRequests: hasAudioRequests,
             hasLoadedAudioChunk: hasLoadedAudioChunk,
+            hasPlayableAudioRemaining: hasPlayableAudioRemaining,
             hasSeekableAudio: hasSeekableAudio
         )
     }

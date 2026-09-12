@@ -16,17 +16,15 @@ extension ChatService {
             apiKey: configurationProvider.apiKey
         )
 
-        activeStreamRequestBodyData = requestBodyData
-        streamStartAt = Date()
+        let task = session.dataTask(with: request)
+        activeStreamRequest = ChatActiveStreamRequest(task: task, endpoint: endpoint)
+
         isToolContinuationStarting = false
-        didEstablishConnection = false
-        lastDeltaAt = nil
+        updateLongWaitNotice(nil)
         beginBackgroundExecutionForCurrentRequest()
         startWatchdog()
-        startConnectionWatchdog()
 
-        dataTask = session?.dataTask(with: request)
-        dataTask?.resume()
+        task.resume()
     }
 
     func resetStreamState() {
@@ -50,16 +48,12 @@ extension ChatService {
         anthropicStreamState = .init()
         anthropicAssistantContentAccumulator.reset()
         sseParser.reset()
-        streamStartAt = nil
-        didEstablishConnection = false
-        lastDeltaAt = nil
+        updateLongWaitNotice(nil)
         httpStatusCode = nil
         errorResponseData.removeAll(keepingCapacity: true)
         successResponseData.removeAll(keepingCapacity: true)
         pendingLMStudioStreamErrorMessage = nil
         pendingResponseMetadata = .empty
-        activeStreamRequestBodyData = nil
-        lastRetryableStreamRequest = nil
         toolCallAccumulator.reset()
         openAIResponsesOutputItems.removeAll(keepingCapacity: true)
         openAIResponsesConversationItems.removeAll(keepingCapacity: true)
@@ -70,7 +64,6 @@ extension ChatService {
         isToolContinuationStarting = false
         Task { await toolAuthorizationCoordinator.cancelAll() }
         resetPromptToolGate()
-        stopConnectionWatchdog()
         endBackgroundExecutionForCurrentRequest()
     }
 
@@ -121,6 +114,14 @@ extension ChatService {
         DispatchQueue.main.async { [weak self] in
             guard let self, self.isValidStreamCallbackToken(token) else { return }
             self.onOpenAIResponsesConversationItems?(items)
+        }
+    }
+
+    func deliverLongWaitNotice(_ notice: ChatStreamLongWaitNotice?) {
+        let token = currentStreamCallbackToken()
+        DispatchQueue.main.async { [weak self] in
+            guard let self, self.isValidStreamCallbackToken(token) else { return }
+            self.onLongWaitNotice?(notice)
         }
     }
 
@@ -176,10 +177,6 @@ extension ChatService {
         }
     }
 
-    func clearActiveEndpointCandidate() {
-        activeEndpointCandidate = nil
-    }
-
     func mergeResponseMetadata(_ update: ChatResponseMetadata) {
         pendingResponseMetadata.merge(update)
         let snapshot = pendingResponseMetadata
@@ -200,23 +197,22 @@ extension ChatService {
 
     func failCurrentStream(with error: Error) {
         isCancelled = true
+        updateLongWaitNotice(nil)
         advanceRequestGeneration()
-        activeStreamRequestBodyData = nil
-        dataTask?.cancel()
-        dataTask = nil
+        activeStreamRequest?.task.cancel()
+        activeStreamRequest = nil
         cancelActiveToolExecution()
-        stopConnectionWatchdog()
         stopWatchdog()
         activeToolLoopContext = nil
         Task { await toolAuthorizationCoordinator.cancelAll() }
-        clearActiveEndpointCandidate()
         endBackgroundExecutionForCurrentRequest()
         deliverError(error)
     }
 
     func emitDelta(_ piece: String, marksPrimaryOutput: Bool = true) {
         guard !isCancelled else { return }
-        lastDeltaAt = Date()
+        waitMonitor?.markResponseProgress()
+        updateLongWaitNotice(nil)
         deliverDelta(piece)
         sawAnyAssistantToken = true
         if marksPrimaryOutput {
@@ -226,7 +222,8 @@ extension ChatService {
 
     func emitSegment(_ segment: AssistantStreamSegment, marksPrimaryOutput: Bool) {
         guard !isCancelled else { return }
-        lastDeltaAt = Date()
+        waitMonitor?.markResponseProgress()
+        updateLongWaitNotice(nil)
         deliverSegment(segment)
         sawAnyAssistantToken = true
         if marksPrimaryOutput {
@@ -249,11 +246,13 @@ extension ChatService {
         guard !isCancelled else { return }
         guard !streamFinishedEmitted else { return }
         streamFinishedEmitted = true
+        updateLongWaitNotice(nil)
         activeToolLoopContext = nil
         advanceRequestGeneration()
-        activeStreamRequestBodyData = nil
-        lastRetryableStreamRequest = nil
-        clearActiveEndpointCandidate()
+        activeStreamRequest?.task.cancel()
+        activeStreamRequest = nil
+        stopWatchdog()
+        endBackgroundExecutionForCurrentRequest()
         deliverStreamFinished()
     }
 

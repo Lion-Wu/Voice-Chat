@@ -37,7 +37,7 @@ struct DefaultModelCatalogService: ModelCatalogFetching, Sendable {
 
     init(
         dataLoader: @escaping ModelCatalogDataLoader = { request in
-            try await URLSession.shared.data(for: request)
+            try await NetworkSessions.standard.data(for: request)
         }
     ) {
         self.dataLoader = dataLoader
@@ -56,7 +56,10 @@ struct DefaultModelCatalogService: ModelCatalogFetching, Sendable {
 
         while true {
             try Task.checkCancellation()
-            var request = URLRequest(url: pageURL, timeoutInterval: 30)
+            var request = URLRequest(
+                url: pageURL,
+                timeoutInterval: NetworkRequestTimeouts.standardResponse
+            )
             request.httpMethod = "GET"
             applyModelRequestHeaders(to: &request, candidate: candidate, rawAPIKey: apiKey)
             let immutableRequest = request

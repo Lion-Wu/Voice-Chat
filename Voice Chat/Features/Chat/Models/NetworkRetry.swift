@@ -8,6 +8,12 @@
 import Foundation
 // MARK: - Network Retry
 
+enum NetworkRequestTimeouts {
+    static let connection: TimeInterval = 10
+    static let standardResponse: TimeInterval = 10
+    static let longResponseNotice: TimeInterval = 30
+}
+
 struct NetworkRetryPolicy: Sendable {
     /// Total number of attempts including the initial try. `nil` means retry forever until cancelled.
     let maxAttempts: Int?

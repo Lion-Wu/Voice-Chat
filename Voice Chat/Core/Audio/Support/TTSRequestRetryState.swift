@@ -13,6 +13,21 @@ struct TTSAutoRetryPublishedState: Equatable, Sendable {
     let retryLastError: String?
 }
 
+struct TTSRequestIssue: Equatable, Sendable {
+    enum Kind: Equatable, Sendable {
+        case longWait
+        case failed
+    }
+
+    let kind: Kind
+    let requestContext: TTSRequestContext
+    let message: String
+
+    var segmentIndex: Int {
+        requestContext.index
+    }
+}
+
 struct TTSRequestRetryState: Equatable, Sendable {
     private var retryCounts: [Int: Int] = [:]
     private var retryingIndexes: Set<Int> = []

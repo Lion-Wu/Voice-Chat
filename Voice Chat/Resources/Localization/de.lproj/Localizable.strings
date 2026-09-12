@@ -383,6 +383,9 @@
 "Result Data" = "Ergebnisdaten";
 "Result Payload" = "Ergebnisdaten";
 "Retry" = "Erneut versuchen";
+"Server response is taking longer than expected." = "Die Serverantwort dauert länger als erwartet.";
+"Connected, but the server has not started responding. You can keep waiting or retry." = "Die Verbindung steht, aber der Server hat noch nicht geantwortet. Sie können weiter warten oder es erneut versuchen.";
+"Connected, but no new response has arrived. You can keep waiting or retry." = "Die Verbindung steht, aber es ist keine neue Antwort eingegangen. Sie können weiter warten oder es erneut versuchen.";
 "Retrying (attempt %d)..." = "Erneuter Versuch (Versuch %d)...";
 "Running" = "Wird ausgeführt";
 "Running Code" = "Code wird ausgeführt";
@@ -570,3 +573,11 @@
 "The selected Apple voice is not installed or is unavailable." = "Die ausgewählte Apple-Stimme ist nicht installiert oder nicht verfügbar.";
 "The selected speech provider does not use an HTTP request." = "Das ausgewählte Sprach-Backend verwendet keine HTTP-Anfrage.";
 "There is no text to speak." = "Es gibt keinen Text zum Vorlesen.";
+"Connected, but the text service has not started responding. You can keep waiting or retry." = "Die Verbindung steht, aber der Textdienst hat noch nicht geantwortet. Sie können weiter warten oder es erneut versuchen.";
+"Connected, but the text service has not returned anything new. You can keep waiting or retry." = "Die Verbindung steht, aber der Textdienst hat längere Zeit keine neuen Inhalte geliefert. Sie können weiter warten oder es erneut versuchen.";
+"Text service" = "Textdienst";
+"Voice service" = "Sprachdienst";
+"Taking longer than expected" = "Antwort dauert ungewöhnlich lange";
+"Request failed" = "Anfrage fehlgeschlagen";
+"Voice generation request failed." = "Die Anfrage zur Spracherzeugung ist fehlgeschlagen.";
+"Connected, but audio is not ready yet. You can keep waiting or retry." = "Die Verbindung steht, aber das Audio ist noch nicht fertig. Sie können warten oder es erneut versuchen.";

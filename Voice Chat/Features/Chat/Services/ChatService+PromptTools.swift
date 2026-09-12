@@ -10,7 +10,7 @@ import Foundation
 extension ChatService {
     func shouldGatePromptTools() -> Bool {
         guard configurationProvider.toolUseSettings.isEnabled else { return false }
-        guard let endpoint = activeEndpointCandidate,
+        guard let endpoint = activeStreamRequest?.endpoint,
               endpoint.toolCallingTransport == .promptProtocol else {
             return false
         }
@@ -71,7 +71,7 @@ extension ChatService {
 
         let calls = ChatPromptToolProtocol.parseToolCalls(
             from: promptToolPrimaryText,
-            provider: activeEndpointCandidate?.provider
+            provider: activeStreamRequest?.endpoint.provider
         )
         if !calls.isEmpty {
             runPromptToolCallsIfAllowed(calls)
@@ -88,7 +88,7 @@ extension ChatService {
     func runBufferedPromptToolCallIfPresent() -> Bool {
         let calls = ChatPromptToolProtocol.parseToolCalls(
             from: promptToolPrimaryText,
-            provider: activeEndpointCandidate?.provider
+            provider: activeStreamRequest?.endpoint.provider
         )
         guard !calls.isEmpty else { return false }
         runPromptToolCallsIfAllowed(calls)
@@ -149,7 +149,7 @@ extension ChatService {
         promptToolPreviewActivityID = activityID
         let call = ChatPromptToolProtocol.parseToolCalls(
             from: promptToolPrimaryText,
-            provider: activeEndpointCandidate?.provider
+            provider: activeStreamRequest?.endpoint.provider
         ).first
         let toolName = call?.name ?? "tool_call"
         let title = call.map { ChatToolDefinitions.activityTitle(for: $0.name) }

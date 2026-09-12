@@ -37,7 +37,7 @@ enum TTSAudioChunkDecodeFailure: Error, Equatable {
 }
 
 enum TTSAudioChunkDecoder {
-    static func decode(_ data: Data) throws -> TTSAudioChunk {
+    static func decode(_ data: Data) throws(TTSAudioChunkDecodeFailure) -> TTSAudioChunk {
         guard !data.isEmpty else {
             throw TTSAudioChunkDecodeFailure.emptyData
         }

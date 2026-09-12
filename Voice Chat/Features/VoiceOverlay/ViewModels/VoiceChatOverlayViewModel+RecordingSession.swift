@@ -131,6 +131,8 @@ extension VoiceChatOverlayViewModel {
         resetVisionCaptureSamples()
         showErrorBanner = false
         errorMessage = nil
+        textServiceStatus = nil
+        voiceServiceStatus = nil
         realtimeAssistantSnapshot = nil
         state = .loading
         startLoadingWatchdog()
@@ -160,7 +162,10 @@ extension VoiceChatOverlayViewModel {
     func startLoadingWatchdog() {
         loadingWatchdog.start(
             isActive: { [weak self] in
-                self?.isPresented == true && self?.state == .loading
+                guard let self else { return false }
+                return self.isPresented &&
+                    self.state == .loading &&
+                    !self.currentVoiceWorkSnapshot().hasNetworkWork
             },
             voiceWorkSnapshot: { [weak self] in
                 self?.currentVoiceWorkSnapshot() ?? VoiceWorkSnapshot.idle
@@ -230,12 +235,26 @@ extension VoiceChatOverlayViewModel {
         reconcileVoiceWorkPresentation()
     }
 
-    private func reconcileVoiceWorkPresentation() {
+    func reconcileVoiceWorkPresentation() {
         guard isPresented else { return }
-        if case .error = state { return }
+        if case .error = state, serviceStatuses.isEmpty { return }
         guard !speechInputManager.isRecording else { return }
 
         let snapshot = currentVoiceWorkSnapshot()
+        if hasTerminalServiceFailure,
+           audioManager.audioPlaybackSnapshot.hasPlayableAudioRemaining {
+            stopLoadingWatchdog()
+            state = .speaking
+            return
+        }
+        if hasTerminalServiceFailure,
+           !snapshot.isAudioPlaying,
+           !audioManager.audioPlaybackSnapshot.hasPlayableAudioRemaining,
+           let failedStatus = serviceStatuses.first(where: { $0.kind == .failed }) {
+            stopLoadingWatchdog()
+            state = .error(failedStatus.message)
+            return
+        }
         switch snapshot.presentationPhase {
         case .speaking:
             stopLoadingWatchdog()
@@ -253,9 +272,11 @@ extension VoiceChatOverlayViewModel {
 
     func resumeListeningIfIdle() {
         guard autoResumeEnabled, isPresented else { return }
+        guard serviceStatuses.isEmpty else { return }
         // Avoid restarting the microphone while we're in the middle of sending/loading a response.
         guard !loadingWatchdog.isRunning else { return }
-        guard !currentVoiceWorkSnapshot().blocksAutoResume else { return }
+        let snapshot = currentVoiceWorkSnapshot()
+        guard !snapshot.hasNetworkWork, !snapshot.blocksAutoResume else { return }
         guard !speechInputManager.isRecording else { return }
         startListening()
     }

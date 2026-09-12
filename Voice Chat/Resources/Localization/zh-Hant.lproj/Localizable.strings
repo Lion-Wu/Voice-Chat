@@ -383,6 +383,9 @@
 "Result Data" = "結果資料";
 "Result Payload" = "結果資料";
 "Retry" = "重試";
+"Server response is taking longer than expected." = "伺服器回應時間較長。";
+"Connected, but the server has not started responding. You can keep waiting or retry." = "連線已建立，但伺服器尚未開始回應。您可以繼續等待或重試。";
+"Connected, but no new response has arrived. You can keep waiting or retry." = "連線已建立，但暫時沒有新的回應。您可以繼續等待或重試。";
 "Retrying (attempt %d)..." = "正在重試（第 %d 次）...";
 "Running" = "執行中";
 "Running Code" = "正在執行程式碼";
@@ -570,3 +573,11 @@
 "The selected Apple voice is not installed or is unavailable." = "所選 Apple 語音尚未安裝或無法使用。";
 "The selected speech provider does not use an HTTP request." = "所選語音後端不使用 HTTP 請求。";
 "There is no text to speak." = "沒有可朗讀的文字。";
+"Connected, but the text service has not started responding. You can keep waiting or retry." = "連線已建立，但文字服務尚未開始回應。您可以繼續等待或重試。";
+"Connected, but the text service has not returned anything new. You can keep waiting or retry." = "連線已建立，但文字服務長時間沒有傳回新內容。您可以繼續等待或重試。";
+"Text service" = "文字服務";
+"Voice service" = "語音服務";
+"Taking longer than expected" = "長時間未回應";
+"Request failed" = "請求失敗";
+"Voice generation request failed." = "語音生成請求失敗。";
+"Connected, but audio is not ready yet. You can keep waiting or retry." = "連線已建立，音訊尚未生成完成。可繼續等待或重試。";

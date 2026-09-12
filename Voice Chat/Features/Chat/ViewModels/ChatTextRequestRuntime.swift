@@ -81,6 +81,7 @@ final class ChatTextRequestRuntime {
         onError: @escaping (Error) -> Void,
         onResponseMetadata: @escaping (ChatResponseMetadata) -> Void,
         onToolActivity: @escaping (ChatToolActivity) -> Void,
+        onLongWaitNotice: @escaping (ChatStreamLongWaitNotice?) -> Void,
         onStreamFinished: @escaping () -> Void
     ) {
         streamingSession.bindHandlers(
@@ -93,6 +94,7 @@ final class ChatTextRequestRuntime {
                 onResponseMetadata(metadata)
             },
             onToolActivity: onToolActivity,
+            onLongWaitNotice: onLongWaitNotice,
             onStreamFinished: onStreamFinished
         )
     }
@@ -134,8 +136,12 @@ final class ChatTextRequestRuntime {
         )
     }
 
-    func retryLastFailedStreamRequest() -> Bool {
-        streamingSession.retryLastFailedStreamRequest()
+    func prepareConfigurationForRetry(_ configuration: ChatServiceConfiguration) {
+        streamingSession.prepareConfigurationForRetry(configuration)
+    }
+
+    func cancelActiveStreamForManualRetry() -> Bool {
+        streamingSession.cancelActiveStreamForManualRetry()
     }
 
     func cancelStreaming() {

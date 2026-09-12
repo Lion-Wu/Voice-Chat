@@ -252,40 +252,24 @@ final class ChatStreamingSessionCoordinatorTests: XCTestCase {
         XCTAssertEqual(events, ["metadata:resp_failed", "error"])
     }
 
-    func testChatServiceRetryAssignsNewGenerationToRestoredToolContext() async throws {
-        let service = ChatService(configurationProvider: chatConfig(model: "model"))
-        let endpoint = ChatAPIEndpointCandidate(
-            provider: .openAI,
-            style: .openAIChatCompletions,
-            chatURL: try XCTUnwrap(URL(string: "https://example.invalid/v1/chat/completions")),
-            modelsURL: try XCTUnwrap(URL(string: "https://example.invalid/v1/models"))
+    func testChatServiceReplacementRequestCreatesNewToolContextGeneration() async {
+        let service = ChatService(
+            configurationProvider: chatConfig(model: "model"),
+            requestFactory: NonNetworkStreamingRequestFactory()
         )
-        var context = ChatToolLoopContext(
-            currentPayload: ChatToolLoopPayload(messages: []),
-            developerPrompt: nil,
-            includeImagesInUserContent: false,
-            model: "model",
-            endpoint: endpoint,
-            iteration: 1,
-            previousResponseID: nil
-        )
-        context.requestGeneration = 7
-        let retryContext = context
-
         await withCheckedContinuation { continuation in
             service.stateQueue.async {
                 service.requestGeneration = 7
                 service.isCancelled = true
-                service.lastRetryableStreamRequest = ChatRetryableStreamRequest(
-                    endpoint: endpoint,
-                    body: Data("{}".utf8),
-                    toolLoopContext: retryContext
-                )
                 continuation.resume()
             }
         }
 
-        XCTAssertTrue(service.retryLastFailedStreamRequest())
+        service.fetchStreamedData(
+            messages: [ChatMessage(content: "Retry with current settings", isUser: true)],
+            developerPrompt: nil,
+            includeImagesInUserContent: false
+        )
         let state = await withCheckedContinuation { continuation in
             service.stateQueue.async {
                 continuation.resume(returning: (
@@ -300,6 +284,144 @@ final class ChatStreamingSessionCoordinatorTests: XCTestCase {
         XCTAssertEqual(state.1, 8)
         XCTAssertFalse(state.2)
         service.cancelStreaming()
+    }
+
+    func testResponsesContinuationPersistsFullPrefixAlongsideNewOutput() async throws {
+        let service = ChatService(
+            configurationProvider: ChatServiceConfiguration(
+                apiBaseURL: "https://example.invalid/v1/responses",
+                modelIdentifier: "model",
+                apiKey: "",
+                providerHint: .openAI,
+                requestStyleHint: .openAIResponses
+            ),
+            requestFactory: NonNetworkStreamingRequestFactory()
+        )
+        let user = ChatMessage(content: "Question", isUser: true)
+        let assistant = ChatMessage(content: "Before interruption. ", isUser: false)
+
+        for suffix in ["First continuation. ", "Second continuation."] {
+            let prefix = assistant.content
+            let delivered = expectation(description: "combined continuation history")
+            service.onOpenAIResponsesConversationItems = { items in
+                assistant.openAIResponsesConversationItems = items
+                delivered.fulfill()
+            }
+            service.fetchStreamedData(
+                messages: [user, assistant],
+                developerPrompt: nil,
+                includeImagesInUserContent: false
+            )
+            await withCheckedContinuation { continuation in
+                service.stateQueue.async {
+                    service.openAIResponsesOutputItems = [[
+                        "type": "message",
+                        "id": "msg_\(UUID().uuidString)",
+                        "role": "assistant",
+                        "status": "completed",
+                        "content": [["type": "output_text", "text": suffix]]
+                    ]]
+                    service.recordCurrentOpenAIResponsesOutputItemsIfNeeded()
+                    continuation.resume()
+                }
+            }
+            await fulfillment(of: [delivered], timeout: 1)
+            assistant.content += suffix
+
+            let items = assistant.openAIResponsesConversationItems.compactMap {
+                $0.jsonObject as? [String: Any]
+            }
+            XCTAssertEqual(items.count, 2)
+            XCTAssertEqual(items.first?["content"] as? String, prefix)
+            XCTAssertEqual((items.last?["content"] as? [[String: Any]])?.first?["text"] as? String, suffix)
+
+            let history = ChatRequestPayloadProjector().transformedMessagesForRequest(
+                messages: [ChatRequestSourceMessage(
+                    content: assistant.content,
+                    isUser: false,
+                    openAIResponsesConversationItems: assistant.openAIResponsesConversationItems
+                ), ChatRequestSourceMessage(content: "Next question", isUser: true)],
+                developerPrompt: nil,
+                includeImagesInUserContent: false,
+                requestStyle: .openAIResponses
+            )
+            XCTAssertEqual(history.count, 3)
+            XCTAssertEqual(history.first?["content"] as? String, prefix)
+            XCTAssertEqual(history.last?["content"] as? String, "Next question")
+        }
+        service.cancelStreaming()
+    }
+
+    func testRetryRebuildsServiceWithLatestConfigurationAndMessages() {
+        let oldService = StubChatStreamingService()
+        let replacement = StubChatStreamingService()
+        let latest = chatConfig(model: "replacement")
+        var createdConfiguration: ChatServiceConfiguration?
+        let coordinator = ChatStreamingSessionCoordinator(
+            configuration: chatConfig(model: "original"),
+            service: oldService,
+            serviceFactory: { configuration in
+                createdConfiguration = configuration as? ChatServiceConfiguration
+                return replacement
+            }
+        )
+        let assistant = ChatMessage(content: "Received prefix", isUser: false)
+        coordinator.prepareConfigurationForRetry(latest)
+        coordinator.fetchStreamedData(
+            messages: [assistant],
+            developerPrompt: nil,
+            includeImagesInUserContent: false
+        )
+        XCTAssertEqual(createdConfiguration, latest)
+        XCTAssertEqual(replacement.requestedMessages.map(\.content), ["Received prefix"])
+        XCTAssertTrue(oldService.requestedMessages.isEmpty)
+    }
+
+    func testFailedTextAttemptKeepsDrainedPlaybackCursorAndPlayPauseIntent() {
+        for shouldPlay in [true, false] {
+            let audio = GlobalAudioManager()
+            let service = StubChatStreamingService()
+            let viewModel = ChatViewModel(
+                chatSession: ChatSession(title: "Retry playback"),
+                settingsManager: .shared,
+                reachability: ServerReachabilityMonitor(),
+                audioManager: audio,
+                chatService: service,
+                chatServiceFactory: { _ in service }
+            )
+            XCTAssertTrue(viewModel.sendRealtimeVoiceMessage("Question"))
+            service.onDelta?("Partial")
+
+            // The last buffered chunk has ended, but text generation is unfinished.
+            audio.textSegments = ["Already spoken"]
+            audio.audioChunks = [Data([1])]
+            audio.chunkDurations = [1]
+            audio.currentPlayingIndex = 1
+            audio.currentTime = 1
+            audio.totalDuration = 1
+            audio.isAudioPlaying = false
+            audio.isPlaybackRequested = shouldPlay
+            audio.isBuffering = shouldPlay
+            audio.isLoading = shouldPlay
+
+            service.onError?(HTTPStatusError(statusCode: 401, bodyPreview: nil))
+            audio.concludeRealtimeIfIdle()
+            audio.refreshPlaybackLoadState()
+            XCTAssertFalse(audio.realtimeFinalized)
+            XCTAssertFalse(audio.isPlaybackFullyLoaded)
+            XCTAssertEqual(audio.currentPlayingIndex, 1)
+            XCTAssertEqual(audio.isPlaybackRequested, shouldPlay)
+            XCTAssertEqual(audio.isBuffering, shouldPlay)
+
+            XCTAssertTrue(viewModel.retryInterruptedAssistantStreamAfterFailure())
+            XCTAssertEqual(audio.currentPlayingIndex, 1)
+            XCTAssertEqual(audio.isPlaybackRequested, shouldPlay)
+            XCTAssertEqual(audio.isBuffering, shouldPlay)
+            XCTAssertFalse(audio.isPlaybackFullyLoaded)
+
+            viewModel.cancelCurrentRequest(autostartQueuedDraft: false)
+            audio.closeAudioPlayer()
+        }
     }
 
     func testChatServiceDoesNotFinishWhileToolContinuationIsStarting() async {
@@ -342,9 +464,7 @@ final class ChatStreamingSessionCoordinatorTests: XCTestCase {
             service.stateQueue.async {
                 service.beginNewStreamCallbackEpoch()
                 service.isCancelled = false
-                service.activeEndpointCandidate = endpoint
-                service.activeStreamRequestBodyData = Data("{}".utf8)
-                service.dataTask = task
+                service.activeStreamRequest = ChatActiveStreamRequest(task: task, endpoint: endpoint)
                 service.emitDelta("ok")
                 service.finishStreamOrRunPendingTools()
                 service.urlSession(
@@ -359,7 +479,7 @@ final class ChatStreamingSessionCoordinatorTests: XCTestCase {
         await fulfillment(of: [finished, unexpectedError], timeout: 0.2)
         let finalState = await withCheckedContinuation { continuation in
             service.stateQueue.async {
-                continuation.resume(returning: (service.streamFinishedEmitted, service.dataTask == nil))
+                continuation.resume(returning: (service.streamFinishedEmitted, service.activeStreamRequest == nil))
             }
         }
         XCTAssertTrue(finalState.0)
@@ -414,7 +534,10 @@ final class ChatStreamingSessionCoordinatorTests: XCTestCase {
                 service.beginNewStreamCallbackEpoch()
                 service.requestGeneration = 1
                 service.isCancelled = false
-                service.activeEndpointCandidate = endpoint
+                service.activeStreamRequest = ChatActiveStreamRequest(
+                    task: service.session.dataTask(with: endpoint.chatURL),
+                    endpoint: endpoint
+                )
                 service.activeToolLoopContext = context
                 service.pendingToolCalls = [call]
                 service.runPendingToolCallsAndContinue()
@@ -469,9 +592,11 @@ final class ChatStreamingSessionCoordinatorTests: XCTestCase {
                 service.beginNewStreamCallbackEpoch()
                 service.requestGeneration = 1
                 service.isCancelled = false
-                service.activeEndpointCandidate = endpoint
+                service.activeStreamRequest = ChatActiveStreamRequest(
+                    task: service.session.dataTask(with: endpoint.chatURL),
+                    endpoint: endpoint
+                )
                 service.activeToolLoopContext = context
-                service.activeStreamRequestBodyData = Data("stale-model-request".utf8)
                 service.pendingToolCalls = [call]
                 service.runPendingToolCallsAndContinue()
                 continuation.resume()
@@ -487,12 +612,12 @@ final class ChatStreamingSessionCoordinatorTests: XCTestCase {
 
         let interruptionState = await withCheckedContinuation { continuation in
             service.stateQueue.async {
-                let requestBodyWasCleared = service.activeStreamRequestBodyData == nil
+                let transportWasCleared = service.activeStreamRequest == nil
                 let interrupted = service.cancelCurrentStreamForBackgroundInterruption()
                 continuation.resume(returning: (
-                    requestBodyWasCleared,
+                    transportWasCleared,
                     interrupted,
-                    service.lastRetryableStreamRequest == nil
+                    service.activeToolExecutionTask == nil
                 ))
             }
         }
@@ -516,6 +641,16 @@ final class ChatStreamingSessionCoordinatorTests: XCTestCase {
             modelIdentifier: model,
             apiKey: "key"
         )
+    }
+}
+
+private struct NonNetworkStreamingRequestFactory: ChatStreamingRequestBuilding {
+    func makeStreamingRequest(
+        endpoint: ChatAPIEndpointCandidate,
+        requestBodyData: Data,
+        apiKey: String
+    ) -> URLRequest {
+        URLRequest(url: URL(fileURLWithPath: "/dev/null"))
     }
 }
 
@@ -599,6 +734,7 @@ private final class StubChatStreamingService: ChatStreamingService {
     var onError: (@MainActor (Error) -> Void)?
     var onResponseMetadata: (@MainActor (ChatResponseMetadata) -> Void)?
     var onToolActivity: (@MainActor (ChatToolActivity) -> Void)?
+    var onLongWaitNotice: (@MainActor (ChatStreamLongWaitNotice?) -> Void)?
     var onStreamFinished: (@MainActor () -> Void)?
 
     private(set) var didCancel = false
@@ -612,12 +748,13 @@ private final class StubChatStreamingService: ChatStreamingService {
         requestedMessages = messages
     }
 
-    func retryLastFailedStreamRequest() -> Bool {
-        false
-    }
-
     func cancelStreaming() {
         didCancel = true
+    }
+
+    func cancelActiveStreamForManualRetry() -> Bool {
+        cancelStreaming()
+        return true
     }
 
     func resolveToolAuthorization(requestID: String, allowed: Bool) {}

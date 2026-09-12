@@ -3,6 +3,13 @@ import XCTest
 
 @MainActor
 final class SettingsModelCatalogControllerTests: XCTestCase {
+    func testStandardNetworkSessionBoundsEntireTransferNotJustIdleTime() {
+        let configuration = NetworkSessions.standard.configuration
+        XCTAssertEqual(configuration.timeoutIntervalForRequest, 10)
+        XCTAssertEqual(configuration.timeoutIntervalForResource, 10)
+        XCTAssertFalse(configuration.waitsForConnectivity)
+    }
+
     func testAnthropicCatalogFetchesEveryPageWithoutChangingHeaders() async throws {
         let loader = ModelCatalogPageLoader()
         let service = DefaultModelCatalogService { request in

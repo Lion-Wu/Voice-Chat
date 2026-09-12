@@ -17,6 +17,7 @@ struct ChatMessageList: View {
     let isRetrying: Bool
     let retryAttempt: Int
     let retryLastError: String?
+    let longWaitNotice: ChatStreamLongWaitNotice?
     let messageToolActivities: [UUID: [ChatToolActivity]]
     let messageToolActivityPlacements: [UUID: [ChatToolActivityPlacement]]
     let branchControlsEnabled: Bool
@@ -34,6 +35,7 @@ struct ChatMessageList: View {
     let onEditUserMessage: (ChatMessage) -> Void
     let onSwitchVersion: (ChatMessage) -> Void
     let onRetry: (ChatMessage) -> Void
+    let onLongWaitRetry: () -> Void
     let onAuthorizeTool: (String, Bool) -> Void
 
     private var visibleMessages: [ChatMessage] {
@@ -85,6 +87,13 @@ struct ChatMessageList: View {
                     maxBubbleWidth: availableMessageWidth
                 )
                 .transition(ChatScrollContentMotion.transition)
+            } else if statusHostID == nil, let longWaitNotice {
+                AssistantAlignedLongWaitBubble(
+                    notice: longWaitNotice,
+                    onRetry: onLongWaitRetry,
+                    maxBubbleWidth: availableMessageWidth
+                )
+                .transition(ChatScrollContentMotion.transition)
             } else if statusHostID == nil, isPriming || isToolContinuationLoading {
                 AssistantAlignedLoadingBubble(maxBubbleWidth: availableMessageWidth)
                     .transition(ChatScrollContentMotion.transition)
@@ -120,6 +129,9 @@ struct ChatMessageList: View {
         if isRetrying {
             return "retry-\(retryAttempt)-\(retryLastError ?? "")"
         }
+        if let longWaitNotice {
+            return "long-wait-\(String(describing: longWaitNotice))"
+        }
         return isPriming || isToolContinuationLoading ? "loading" : "none"
     }
 
@@ -149,9 +161,10 @@ struct ChatMessageList: View {
             layoutWidth: availableMessageWidth.rounded(),
             contentFP: fingerprint,
             inlineErrorFP: inlineErrorFingerprint,
-            inlineLoading: isInlineStatusHost && !isRetrying,
+            inlineLoading: isInlineStatusHost && !isRetrying && longWaitNotice == nil,
             inlineRetryAttempt: isInlineStatusHost && isRetrying ? retryAttempt : nil,
             inlineRetryLastError: isInlineStatusHost && isRetrying ? retryLastError : nil,
+            inlineLongWaitNotice: isInlineStatusHost && !isRetrying ? longWaitNotice : nil,
             toolActivityPlacements: messageActivityPlacements,
             developerModeEnabled: developerModeEnabled,
             searchHighlightID: searchHighlightID
@@ -167,9 +180,10 @@ struct ChatMessageList: View {
                 maxBubbleWidth: availableMessageWidth,
                 contentFingerprint: fingerprint,
                 inlineErrorMessage: inlineErrorMessage,
-                inlineLoading: isInlineStatusHost && !isRetrying,
+                inlineLoading: isInlineStatusHost && !isRetrying && longWaitNotice == nil,
                 inlineRetryAttempt: isInlineStatusHost && isRetrying ? retryAttempt : nil,
                 inlineRetryLastError: isInlineStatusHost && isRetrying ? retryLastError : nil,
+                inlineLongWaitNotice: isInlineStatusHost && !isRetrying ? longWaitNotice : nil,
                 toolActivities: messageActivities,
                 toolActivityPlacements: messageActivityPlacements,
                 searchHighlightQuery: highlightQuery,
@@ -178,6 +192,7 @@ struct ChatMessageList: View {
                 onEditUserMessage: onEditUserMessage,
                 onSwitchVersion: onSwitchVersion,
                 onRetry: onRetry,
+                onLongWaitRetry: onLongWaitRetry,
                 onAuthorizeTool: onAuthorizeTool
             )
         }
@@ -186,7 +201,7 @@ struct ChatMessageList: View {
     private func inlineStatusHostMessageID(in messages: [ChatMessage]) -> UUID? {
         ChatInlineStatusHostResolver.resolve(
             in: messages,
-            hasTransientStatus: isRetrying || isPriming || isToolContinuationLoading
+            hasTransientStatus: isRetrying || longWaitNotice != nil || isPriming || isToolContinuationLoading
         )
     }
 

@@ -182,7 +182,11 @@ final class ServerReachabilityMonitor: ObservableObject {
         return (resolvedHost, resolvedPort)
     }
 
-    private func tcpProbe(host: String, port: UInt16, timeout: TimeInterval = 5) async throws {
+    private func tcpProbe(
+        host: String,
+        port: UInt16,
+        timeout: TimeInterval = NetworkRequestTimeouts.connection
+    ) async throws {
         let gate = TCPProbeResumeGate()
         try await withTaskCancellationHandler(operation: {
             try Task.checkCancellation()

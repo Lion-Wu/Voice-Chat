@@ -33,6 +33,7 @@ final class ChatStreamingSessionCoordinator {
     private var onError: ((Error) -> Void)?
     private var onResponseMetadata: ((ChatResponseMetadata) -> Void)?
     private var onToolActivity: ((ChatToolActivity) -> Void)?
+    private var onLongWaitNotice: ((ChatStreamLongWaitNotice?) -> Void)?
     private var onStreamFinished: (() -> Void)?
 
     init(
@@ -52,6 +53,7 @@ final class ChatStreamingSessionCoordinator {
         onError: @escaping (Error) -> Void,
         onResponseMetadata: @escaping (ChatResponseMetadata) -> Void,
         onToolActivity: @escaping (ChatToolActivity) -> Void,
+        onLongWaitNotice: @escaping (ChatStreamLongWaitNotice?) -> Void = { _ in },
         onStreamFinished: @escaping () -> Void
     ) {
         self.onDelta = onDelta
@@ -60,6 +62,7 @@ final class ChatStreamingSessionCoordinator {
         self.onError = onError
         self.onResponseMetadata = onResponseMetadata
         self.onToolActivity = onToolActivity
+        self.onLongWaitNotice = onLongWaitNotice
         self.onStreamFinished = onStreamFinished
         if let service {
             bind(service)
@@ -109,8 +112,14 @@ final class ChatStreamingSessionCoordinator {
         )
     }
 
-    func retryLastFailedStreamRequest() -> Bool {
-        service?.retryLastFailedStreamRequest() ?? false
+    /// Applies the latest settings after the previous transport has ended and before
+    /// a replacement request is constructed.
+    func prepareConfigurationForRetry(_ newConfiguration: ChatServiceConfiguration) {
+        _ = updateConfiguration(newConfiguration, isActiveTextRequest: false)
+    }
+
+    func cancelActiveStreamForManualRetry() -> Bool {
+        service?.cancelActiveStreamForManualRetry() == true
     }
 
     func cancelStreaming() {
@@ -168,6 +177,10 @@ final class ChatStreamingSessionCoordinator {
         service.onToolActivity = { [weak self] activity in
             guard self?.serviceGeneration == generation else { return }
             self?.onToolActivity?(activity)
+        }
+        service.onLongWaitNotice = { [weak self] notice in
+            guard self?.serviceGeneration == generation else { return }
+            self?.onLongWaitNotice?(notice)
         }
         service.onStreamFinished = { [weak self] in
             guard self?.serviceGeneration == generation else { return }

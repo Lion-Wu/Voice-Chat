@@ -73,6 +73,9 @@ struct RealtimeVoiceControlCircle: View {
     }
 
     private var accessibilityHint: String {
+        if viewModel.serviceStatuses.contains(where: { $0.kind == .failed || $0.kind == .longWait }) {
+            return String(localized: "Retry")
+        }
         if overlayErrorText != nil {
             return String(localized: "Double-tap to reconnect.")
         }

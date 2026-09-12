@@ -18,6 +18,10 @@ extension GlobalAudioManager {
 
             self.currentPlayingIndex += 1
 
+            if self.parkPlaybackAtTerminalTTSFailureIfNeeded() {
+                return
+            }
+
             if self.currentPlayingIndex >= self.audioChunks.count {
                 self.recalcTotalDuration()
                 self.currentTime = self.totalDuration
@@ -35,11 +39,7 @@ extension GlobalAudioManager {
                 return
             }
 
-            if self.skippedAudioChunkIndexes.contains(self.currentPlayingIndex) {
-                _ = self.playAudioChunk(at: self.currentPlayingIndex,
-                                        fromTime: self.startTime(forSegment: self.currentPlayingIndex),
-                                        shouldPlay: self.isPlaybackRequested)
-            } else if let next = self.nextAudioPlayer {
+            if let next = self.nextAudioPlayer {
                 self.audioPlayer = next
                 self.nextAudioPlayer = nil
                 self.audioPlayer?.delegate = self

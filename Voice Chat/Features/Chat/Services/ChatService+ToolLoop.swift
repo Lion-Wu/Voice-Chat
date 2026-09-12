@@ -14,7 +14,7 @@ extension ChatService {
               let dictionary = object as? [String: Any] else {
             return
         }
-        if activeEndpointCandidate?.style == .openAIChatCompletions,
+        if activeStreamRequest?.endpoint.style == .openAIChatCompletions,
            let chunk = try? decoder.decode(ChatCompletionChunk.self, from: jsonData) {
             let details = chunk.choices?
                 .flatMap { $0.delta?.reasoning_details ?? [] } ?? []
@@ -31,16 +31,16 @@ extension ChatService {
         let calls = toolCallAccumulator.absorbOpenAICompatiblePayload(
             dictionary,
             fallbackType: fallbackType,
-            provider: activeEndpointCandidate?.provider
+            provider: activeStreamRequest?.endpoint.provider
         )
         emitGeneratingToolActivities(
-            toolCallAccumulator.inProgressCalls(provider: activeEndpointCandidate?.provider)
+            toolCallAccumulator.inProgressCalls(provider: activeStreamRequest?.endpoint.provider)
         )
         appendPendingToolCalls(calls)
     }
 
     func collectOpenAIResponsesOutputItems(from jsonData: Data, fallbackType: String?) {
-        guard let endpoint = activeEndpointCandidate,
+        guard let endpoint = activeStreamRequest?.endpoint,
               endpoint.style == .openAIResponses,
               let object = try? JSONSerialization.jsonObject(with: jsonData),
               let dictionary = object as? [String: Any] else {
@@ -72,10 +72,10 @@ extension ChatService {
         guard configurationProvider.toolUseSettings.isEnabled else { return }
         let calls = toolCallAccumulator.absorbAnthropicEvent(
             event,
-            provider: activeEndpointCandidate?.provider
+            provider: activeStreamRequest?.endpoint.provider
         )
         emitGeneratingToolActivities(
-            toolCallAccumulator.inProgressCalls(provider: activeEndpointCandidate?.provider)
+            toolCallAccumulator.inProgressCalls(provider: activeStreamRequest?.endpoint.provider)
         )
         appendPendingToolCalls(calls)
     }
@@ -101,11 +101,8 @@ extension ChatService {
             return
         }
         stopWatchdog()
-        stopConnectionWatchdog()
-        dataTask?.cancel()
-        dataTask = nil
-        activeStreamRequestBodyData = nil
-        lastRetryableStreamRequest = nil
+        activeStreamRequest?.task.cancel()
+        activeStreamRequest = nil
         isToolContinuationStarting = true
 
         cancelActiveToolExecution()
@@ -313,7 +310,11 @@ extension ChatService {
                     )
                     : nil
                 self.activeToolLoopContext = nextContext
-                self.recordOpenAIResponsesToolExchangeIfNeeded(calls: calls, results: results)
+                self.recordOpenAIResponsesToolExchangeIfNeeded(
+                    calls: calls,
+                    results: results,
+                    endpoint: context.endpoint
+                )
                 let nextPayload = ChatToolResultMessageEncoder.followUpPayload(
                     for: context.endpoint,
                     originalPayload: context.currentPayload.messages,
@@ -341,7 +342,6 @@ extension ChatService {
                     self.resetStreamStateForToolContinuation()
                     self.emitToolContinuationProcessingActivity(for: calls)
                     self.activeToolLoopContext = nextContext
-                    self.activeEndpointCandidate = context.endpoint
                     self.mergeResponseMetadata(ChatResponseMetadata(
                         requestUsedPreviousResponseID: nextContext.previousResponseID != nil,
                         requestPreviousResponseID: nextContext.previousResponseID
@@ -419,9 +419,7 @@ extension ChatService {
         anthropicStreamState = .init()
         anthropicAssistantContentAccumulator.reset()
         sseParser.reset()
-        streamStartAt = nil
-        didEstablishConnection = false
-        lastDeltaAt = nil
+        updateLongWaitNotice(nil)
         httpStatusCode = nil
         errorResponseData.removeAll(keepingCapacity: true)
         successResponseData.removeAll(keepingCapacity: true)
@@ -433,7 +431,6 @@ extension ChatService {
         pendingToolCalls.removeAll(keepingCapacity: true)
         toolCallAccumulator.reset()
         resetPromptToolGate(preservingOpenThinking: promptToolKeepsThinkOpen)
-        stopConnectionWatchdog()
         endBackgroundExecutionForCurrentRequest()
     }
 
@@ -494,7 +491,7 @@ extension ChatService {
     }
 
     func recordCurrentOpenAIResponsesOutputItemsIfNeeded() {
-        guard activeEndpointCandidate?.style == .openAIResponses else { return }
+        guard activeStreamRequest?.endpoint.style == .openAIResponses else { return }
         let previousCount = openAIResponsesConversationItems.count
         for item in openAIResponsesOutputItems {
             appendOpenAIResponsesConversationItem(item)
@@ -505,9 +502,10 @@ extension ChatService {
 
     private func recordOpenAIResponsesToolExchangeIfNeeded(
         calls: [ChatToolCallEnvelope],
-        results: [ChatToolResultEnvelope]
+        results: [ChatToolResultEnvelope],
+        endpoint: ChatAPIEndpointCandidate
     ) {
-        guard activeEndpointCandidate?.style == .openAIResponses else { return }
+        guard endpoint.style == .openAIResponses else { return }
         for call in calls {
             appendOpenAIResponsesConversationItem([
                 "type": "function_call",

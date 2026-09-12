@@ -9,6 +9,27 @@ import Foundation
 import Combine
 import SwiftUI
 
+enum RealtimeVoiceServiceSource: String, Identifiable, Sendable {
+    case text
+    case voice
+
+    var id: String { rawValue }
+}
+
+enum RealtimeVoiceServiceStatusKind: Equatable, Sendable {
+    case longWait
+    case retrying(attempt: Int)
+    case failed
+}
+
+struct RealtimeVoiceServiceStatus: Equatable, Identifiable, Sendable {
+    let source: RealtimeVoiceServiceSource
+    let kind: RealtimeVoiceServiceStatusKind
+    let message: String
+
+    var id: RealtimeVoiceServiceSource { source }
+}
+
 @MainActor
 final class VoiceChatOverlayViewModel: ObservableObject {
 
@@ -31,6 +52,8 @@ final class VoiceChatOverlayViewModel: ObservableObject {
     @Published var visionCaptureSampleCount: Int = 0
     @Published var visionCaptureResetID = UUID()
     @Published var realtimeAssistantSnapshot: RealtimeVoiceAssistantSnapshot?
+    @Published var textServiceStatus: RealtimeVoiceServiceStatus?
+    @Published var voiceServiceStatus: RealtimeVoiceServiceStatus?
     var isSendSuppressed: Bool = false
 
     var availableLanguages: [SpeechInputManager.DictationLanguage] {
@@ -68,6 +91,14 @@ final class VoiceChatOverlayViewModel: ObservableObject {
         audioManager.outputMotionAudioSource
     }
 
+    var serviceStatuses: [RealtimeVoiceServiceStatus] {
+        [textServiceStatus, voiceServiceStatus].compactMap { $0 }
+    }
+
+    var hasTerminalServiceFailure: Bool {
+        serviceStatuses.contains { $0.kind == .failed }
+    }
+
     init(
         speechInputManager: SpeechInputManager,
         audioManager: GlobalAudioManager,
@@ -97,6 +128,8 @@ final class VoiceChatOverlayViewModel: ObservableObject {
         showErrorBanner = false
         errorMessage = nil
         realtimeAssistantSnapshot = nil
+        textServiceStatus = nil
+        voiceServiceStatus = nil
         withAnimation(overlayAnimation) {
             isPresented = true
         }
@@ -119,6 +152,8 @@ final class VoiceChatOverlayViewModel: ObservableObject {
         errorMessage = nil
         isSendSuppressed = false
         realtimeAssistantSnapshot = nil
+        textServiceStatus = nil
+        voiceServiceStatus = nil
         dismissVisionCapture()
         resetVisionCaptureSpeechActivity()
         inputMotionAudioSource.reset()
@@ -137,6 +172,7 @@ final class VoiceChatOverlayViewModel: ObservableObject {
 
     func handleCircleTap() {
         guard isPresented else { return }
+        if retryPendingServices() { return }
 
         switch state {
         case .connecting:

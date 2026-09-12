@@ -2,23 +2,21 @@ import XCTest
 @testable import Voice_Chat
 
 final class TTSPlaybackStateTests: XCTestCase {
-    func testAllChunksLoadedTreatsSkippedChunksAsComplete() {
+    func testAllChunksLoadedRequiresEveryChunk() {
         let state = TTSPlaybackState(
             textSegmentCount: 3,
             audioChunkIsLoaded: [true, false, true],
-            chunkDurations: [1, 1, 1],
-            skippedAudioChunkIndexes: [1]
+            chunkDurations: [1, 1, 1]
         )
 
-        XCTAssertTrue(state.allChunksLoaded)
+        XCTAssertFalse(state.allChunksLoaded)
     }
 
     func testPlaybackFinishedHandlesZeroDurationCompletedBatch() {
         let state = TTSPlaybackState(
             textSegmentCount: 2,
-            audioChunkIsLoaded: [false, false],
+            audioChunkIsLoaded: [true, true],
             chunkDurations: [0, 0],
-            skippedAudioChunkIndexes: [0, 1],
             currentChunkIndex: 2,
             totalDuration: 0
         )
@@ -30,8 +28,7 @@ final class TTSPlaybackStateTests: XCTestCase {
         let state = TTSPlaybackState(
             textSegmentCount: 4,
             audioChunkIsLoaded: [true, true, true, true],
-            chunkDurations: [1.5, -1, 0, 2],
-            skippedAudioChunkIndexes: []
+            chunkDurations: [1.5, -1, 0, 2]
         )
 
         XCTAssertEqual(state.startTime(forSegment: 3), 1.5, accuracy: 0.0001)
@@ -45,7 +42,6 @@ final class TTSPlaybackStateTests: XCTestCase {
             textSegmentCount: 1,
             audioChunkIsLoaded: [true],
             chunkDurations: [1],
-            skippedAudioChunkIndexes: [],
             currentChunkIndex: 1,
             isRealtimeMode: true,
             realtimeFinalized: false
@@ -56,7 +52,6 @@ final class TTSPlaybackStateTests: XCTestCase {
             textSegmentCount: 1,
             audioChunkIsLoaded: [true],
             chunkDurations: [1],
-            skippedAudioChunkIndexes: [],
             currentChunkIndex: 1,
             isRealtimeMode: true,
             realtimeFinalized: true
@@ -67,7 +62,6 @@ final class TTSPlaybackStateTests: XCTestCase {
             textSegmentCount: 0,
             audioChunkIsLoaded: [],
             chunkDurations: [],
-            skippedAudioChunkIndexes: [],
             inFlightIndexes: [0]
         )
         XCTAssertFalse(queuedRequest.isPlaybackFullyLoaded)
@@ -78,7 +72,6 @@ final class TTSPlaybackStateTests: XCTestCase {
             textSegmentCount: 1,
             audioChunkIsLoaded: [true],
             chunkDurations: [1],
-            skippedAudioChunkIndexes: [],
             currentTime: 1,
             totalDuration: 1,
             isRealtimeMode: true,
@@ -88,7 +81,6 @@ final class TTSPlaybackStateTests: XCTestCase {
             textSegmentCount: 1,
             audioChunkIsLoaded: [true],
             chunkDurations: [1],
-            skippedAudioChunkIndexes: [],
             currentTime: 1,
             totalDuration: 1,
             isRealtimeMode: true,

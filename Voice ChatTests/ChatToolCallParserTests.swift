@@ -67,11 +67,15 @@ final class ChatToolCallParserTests: XCTestCase {
             apiKey: "key",
             toolUseSettings: toolSettings
         ))
-        service.activeEndpointCandidate = ChatAPIEndpointCandidate(
+        let endpoint = ChatAPIEndpointCandidate(
             provider: .openAI,
             style: .openAIChatCompletions,
             chatURL: try XCTUnwrap(URL(string: "https://api.openai.com/v1/chat/completions")),
             modelsURL: try XCTUnwrap(URL(string: "https://api.openai.com/v1/models"))
+        )
+        service.activeStreamRequest = ChatActiveStreamRequest(
+            task: service.session.dataTask(with: endpoint.chatURL),
+            endpoint: endpoint
         )
 
         let activityExpectation = expectation(description: "tool activity is visible while arguments stream")
@@ -1320,7 +1324,10 @@ final class ChatToolCallParserTests: XCTestCase {
             requestStyleHint: .openAIResponses,
             toolUseSettings: .defaults
         ))
-        service.activeEndpointCandidate = endpoint
+        service.activeStreamRequest = ChatActiveStreamRequest(
+            task: service.session.dataTask(with: endpoint.chatURL),
+            endpoint: endpoint
+        )
 
         for payload in [
             #"{"type":"response.output_item.done","output_index":2,"item":{"type":"function_call","id":"fc_1","call_id":"call_1","name":"system_get_time","arguments":"{}"}}"#,
@@ -1763,7 +1770,10 @@ final class ChatToolCallParserTests: XCTestCase {
                 deviceContextEnabled: true
             )
         ))
-        service.activeEndpointCandidate = endpoint
+        service.activeStreamRequest = ChatActiveStreamRequest(
+            task: service.session.dataTask(with: endpoint.chatURL),
+            endpoint: endpoint
+        )
         return service
     }
 

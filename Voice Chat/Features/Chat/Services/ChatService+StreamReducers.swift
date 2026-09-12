@@ -9,7 +9,7 @@ import Foundation
 
 extension ChatService {
     func handleOpenAICompatibleStreamPayload(_ jsonData: Data, fallbackType: String?) -> Bool {
-        if activeEndpointCandidate?.style == .openAIResponses {
+        if activeStreamRequest?.endpoint.style == .openAIResponses {
             if let object = try? JSONSerialization.jsonObject(with: jsonData),
                let dictionary = object as? [String: Any],
                let sequenceNumber = streamPayloadExtractor.sseSequenceNumber(from: dictionary),
@@ -67,7 +67,7 @@ extension ChatService {
     }
 
     func flushOpenAIChatCompletionsPendingOutput() {
-        guard activeEndpointCandidate?.style == .openAIChatCompletions else { return }
+        guard activeStreamRequest?.endpoint.style == .openAIChatCompletions else { return }
         var state = currentOpenAICompatibleStreamEventState()
         let actions = openAICompatibleStreamReducer.flushPendingOutput(state: &state)
         applyOpenAICompatibleStreamEventState(state)
@@ -94,7 +94,6 @@ extension ChatService {
             case let .fail(message):
                 failCurrentStreamWithServerError(message)
             case let .retryableFailure(message, statusCode):
-                rememberLastRetryableActiveStreamRequest()
                 failCurrentStreamWithServerError(message, statusCode: statusCode)
             }
         }
@@ -125,7 +124,6 @@ extension ChatService {
             case let .fail(message):
                 failCurrentStreamWithServerError(message, statusCode: nil, includeHTTPStatus: false)
             case let .retryableFailure(message, statusCode):
-                rememberLastRetryableActiveStreamRequest()
                 failCurrentStreamWithServerError(message, statusCode: statusCode, includeHTTPStatus: false)
             }
         }
@@ -174,7 +172,6 @@ extension ChatService {
                 failCurrentStreamWithServerError(message)
                 stopWatchdog()
             case let .retryableFailure(message, statusCode):
-                rememberLastRetryableActiveStreamRequest()
                 failCurrentStreamWithServerError(message, statusCode: statusCode)
                 stopWatchdog()
             }

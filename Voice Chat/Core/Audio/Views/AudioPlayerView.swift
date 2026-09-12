@@ -24,6 +24,7 @@ struct AudioPlayerView: View {
     private let cardCornerRadius: CGFloat = 22
 
     private var statusCaptionText: String? {
+        if audioManager.ttsRequestIssue != nil { return nil }
         if displayedIsRetrying {
             return String(
                 format: NSLocalizedString("Retrying (attempt %d)...", comment: "Shown while auto retry is waiting to reconnect"),
@@ -34,6 +35,7 @@ struct AudioPlayerView: View {
     }
 
     private var transportDetailText: String? {
+        guard audioManager.ttsRequestIssue == nil else { return nil }
         guard displayedIsRetrying else { return nil }
         guard let last = displayedRetryLastError, !last.isEmpty else { return nil }
         return last
@@ -110,6 +112,11 @@ struct AudioPlayerView: View {
                     .transition(.opacity)
             }
 
+            if let issue = audioManager.ttsRequestIssue {
+                ttsRequestIssueView(issue)
+                    .transition(.opacity)
+            }
+
             if let noticeMessage = audioManager.playbackNoticeMessage {
                 Text(noticeMessage)
                     .font(.system(size: 12, weight: .medium, design: .rounded))
@@ -148,6 +155,7 @@ struct AudioPlayerView: View {
         .animation(.easeInOut(duration: 0.16), value: displayedIsPlaybackFullyLoaded)
         .animation(.easeInOut(duration: 0.16), value: displayedIsBuffering)
         .animation(.easeInOut(duration: 0.16), value: displayedIsRetrying)
+        .animation(.easeInOut(duration: 0.16), value: audioManager.ttsRequestIssue)
         .animation(.easeInOut(duration: 0.16), value: audioManager.playbackNoticeMessage)
         .onAppear {
             displayedCurrentTime = audioManager.currentTime
@@ -179,6 +187,22 @@ struct AudioPlayerView: View {
         .onReceive(audioManager.retryLastErrorPublisher) { newValue in
             displayedRetryLastError = newValue
         }
+    }
+
+    private func ttsRequestIssueView(_ issue: TTSRequestIssue) -> some View {
+        let isFailure = issue.kind == .failed
+        return RequestStatusView(
+            title: isFailure ? String(localized: "Request failed") : String(localized: "Taking longer than expected"),
+            message: issue.message,
+            isFailure: isFailure,
+            onRetry: { _ = audioManager.retryCurrentTTSRequestIssue() }
+        )
+        .padding(.horizontal, 9)
+        .padding(.vertical, 8)
+        .background(
+            RoundedRectangle(cornerRadius: 13, style: .continuous)
+                .fill(isFailure ? Color.red.opacity(0.10) : Color.secondary.opacity(0.10))
+        )
     }
 
     private var headerRow: some View {
