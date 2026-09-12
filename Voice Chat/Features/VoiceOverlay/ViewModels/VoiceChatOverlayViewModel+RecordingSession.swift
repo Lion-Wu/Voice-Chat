@@ -231,7 +231,11 @@ extension VoiceChatOverlayViewModel {
         reconcileVoiceWorkPresentation()
     }
 
-    func handleChatLoadingStateChange(_: Bool) {
+    func handleChatLoadingStateChange(_ isLoading: Bool) {
+        if isLoading, textServiceStatus?.kind == .failed {
+            textServiceStatus = nil
+            state = .loading
+        }
         reconcileVoiceWorkPresentation()
     }
 

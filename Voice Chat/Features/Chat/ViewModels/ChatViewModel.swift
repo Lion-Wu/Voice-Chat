@@ -1407,12 +1407,13 @@ final class ChatViewModel: ObservableObject {
 
         resetRetryState()
         isToolContinuationLoading = false
-        if restartCurrentTextRequestUsingLatestConfiguration() {
+        do {
+            try restartCurrentTextRequestUsingLatestConfiguration()
             return true
+        } catch {
+            completeChatServiceError(error)
+            return false
         }
-
-        completeChatServiceError(ChatNetworkError.invalidRequestHistory)
-        return false
     }
 
     private func scheduleAutoRetry(after error: Error, errorText: String) {
@@ -1430,7 +1431,7 @@ final class ChatViewModel: ObservableObject {
         let delay = plan.delay
 
         textRequestRuntime.scheduleRetry(after: delay) { [weak self] in
-            self?.performScheduledAutoRetry(originalError: error)
+            self?.performScheduledAutoRetry()
         }
     }
 
@@ -1443,33 +1444,40 @@ final class ChatViewModel: ObservableObject {
         return retry(afterErrorMessage: failure) == .started
     }
 
-    private func performScheduledAutoRetry(originalError: Error) {
+    private func performScheduledAutoRetry() {
         guard isLoading || isPriming || sending || isToolContinuationLoading else {
             resetRetryState()
             return
         }
 
-        if restartCurrentTextRequestUsingLatestConfiguration() {
-            return
+        do {
+            try restartCurrentTextRequestUsingLatestConfiguration()
+        } catch {
+            completeChatServiceError(error)
         }
-
-        resetRetryState()
-        completeChatServiceError(originalError)
     }
 
-    private func restartCurrentTextRequestUsingLatestConfiguration() -> Bool {
+    private func restartCurrentTextRequestUsingLatestConfiguration() throws {
         let activeMessages = activeBranchMessages()
         guard let lastIndex = activeMessages.lastIndex(where: { !$0.content.hasPrefix("!error:") }) else {
-            return false
+            throw ChatNetworkError.invalidRequestHistory
         }
 
         let lastMessage = activeMessages[lastIndex]
         var requestMessages = Array(activeMessages[...lastIndex])
+        let supportsImageInputs = currentModelSupportsImageInput()
+        // A retry may use new settings, but cannot silently remove inputs that
+        // were included in the failed attempt. Explicit text-only sends stay valid.
+        if textRequestRuntime.activeIncludeImagesInUserContent,
+           !supportsImageInputs,
+           requestMessages.contains(where: { $0.isUser && $0.hasImageAttachments }) {
+            throw ChatNetworkError.unsupportedImageInput
+        }
         if !lastMessage.isUser {
             prepareAssistantStreamDestination(for: requestMessages)
             if !lastMessage.hasAssistantContinuationContent {
                 guard let userIndex = requestMessages.dropLast().lastIndex(where: \.isUser) else {
-                    return false
+                    throw ChatNetworkError.invalidRequestHistory
                 }
                 rollbackStreamAttemptRetryCheckpointIfNeeded()
                 requestMessages = Array(requestMessages[...userIndex])
@@ -1482,10 +1490,9 @@ final class ChatViewModel: ObservableObject {
         startStreaming(
             messages: requestMessages,
             isVoiceMode: audioManager.isRealtimeMode,
-            includeImagesInUserContent: currentModelSupportsImageInput()
+            includeImagesInUserContent: supportsImageInputs
         )
         persistSession(reason: .immediate)
-        return true
     }
 
     private func markRetryProgressIfNeeded() {
