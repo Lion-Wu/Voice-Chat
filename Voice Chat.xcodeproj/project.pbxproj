@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		A19000000000000000000001 /* AppIcon.icon in Resources */ = {isa = PBXBuildFile; fileRef = A19000000000000000000002 /* AppIcon.icon */; platformFilters = (ios, macos, ); };
 		CA0905000000000000000001 /* NetworkRequestWaitMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA0905000000000000000002 /* NetworkRequestWaitMonitor.swift */; };
 		CA0905000000000000000003 /* NetworkDataRequest.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA0905000000000000000004 /* NetworkDataRequest.swift */; };
 		CA0905000000000000000005 /* RequestStatusView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA0905000000000000000006 /* RequestStatusView.swift */; };
@@ -394,6 +395,7 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		A19000000000000000000002 /* AppIcon.icon */ = {isa = PBXFileReference; lastKnownFileType = folder.iconcomposer.icon; path = AppIcon.icon; sourceTree = "<group>"; };
 		CA0905000000000000000002 /* NetworkRequestWaitMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = NetworkRequestWaitMonitor.swift; path = "Voice Chat/Core/Networking/NetworkRequestWaitMonitor.swift"; sourceTree = SOURCE_ROOT; };
 		CA0905000000000000000004 /* NetworkDataRequest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = NetworkDataRequest.swift; path = "Voice Chat/Core/Networking/NetworkDataRequest.swift"; sourceTree = SOURCE_ROOT; };
 		CA0905000000000000000006 /* RequestStatusView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = RequestStatusView.swift; path = "Voice Chat/Shared/UI/Feedback/RequestStatusView.swift"; sourceTree = SOURCE_ROOT; };
@@ -1525,6 +1527,7 @@
 				FD0B94DD2CD8E63500DBFA1D /* Voice Chat.entitlements */,
 				FDB5FD402F0000010000001C /* Localization */,
 				B329D65E2B39497A000A17C9 /* Assets.xcassets */,
+				A19000000000000000000002 /* AppIcon.icon */,
 				B329D6602B39497A000A17C9 /* Preview Content */,
 			);
 			name = Resources;
@@ -1694,6 +1697,7 @@
 			files = (
 				B329D6622B39497A000A17C9 /* Preview Assets.xcassets in Resources */,
 				B329D65F2B39497A000A17C9 /* Assets.xcassets in Resources */,
+				A19000000000000000000001 /* AppIcon.icon in Resources */,
 				FDB5FD112F0000010000001A /* Localizable.strings in Resources */,
 				FDB5FD212F0000010000001B /* InfoPlist.strings in Resources */,
 			);
@@ -2267,6 +2271,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				"ASSETCATALOG_COMPILER_APPICON_NAME[sdk=xr*]" = AppIconVisionOS;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = NO;
 				"CODE_SIGN_ENTITLEMENTS[sdk=macosx*]" = "Voice Chat/Voice Chat.entitlements";
@@ -2330,6 +2335,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				"ASSETCATALOG_COMPILER_APPICON_NAME[sdk=xr*]" = AppIconVisionOS;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = NO;
 				"CODE_SIGN_ENTITLEMENTS[sdk=macosx*]" = "Voice Chat/Voice Chat.entitlements";
