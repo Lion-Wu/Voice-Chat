@@ -8,6 +8,11 @@
 import Foundation
 import Combine
 
+enum ChatRequestFailure: Sendable {
+    case validation(String)
+    case stream(String)
+}
+
 @MainActor
 final class ChatComposerTextState: ObservableObject {
     private struct Snapshot: Equatable {
@@ -139,8 +144,8 @@ final class ChatViewModel: ObservableObject {
     let messageStructureDidChange = PassthroughSubject<Void, Never>()
     /// Emits only when the active branch selection/topology changes.
     let branchDidChange = PassthroughSubject<Void, Never>()
-    /// Emits a user-facing error string when the current request fails (used by the realtime voice overlay).
-    let requestDidFail = PassthroughSubject<String, Never>()
+    /// Distinguishes rejected drafts from failed streams so voice mode selects the correct recovery flow.
+    let requestDidFail = PassthroughSubject<ChatRequestFailure, Never>()
 
     // MARK: - Init
     init(
@@ -376,7 +381,7 @@ final class ChatViewModel: ObservableObject {
         let completion = textRequestRuntime.completeAfterError(error, in: chatSession, now: now)
 
         if !completion.errorText.isEmpty {
-            requestDidFail.send(completion.errorText)
+            requestDidFail.send(.stream(completion.errorText))
         }
         clearProcessingToolActivitiesFromMessages()
         clearTerminalToolActivitiesAfterDelay()
@@ -761,6 +766,10 @@ final class ChatViewModel: ObservableObject {
             session: chatSession
         )
         placeholder.parentMessage = parent
+        if !placeholder.toolActivityPlacements.isEmpty {
+            messageToolActivityPlacements[placeholder.id] = placeholder.toolActivityPlacements
+            messageToolActivities[placeholder.id] = placeholder.toolActivityPlacements.map(\.activity)
+        }
         parent.activeChildMessageID = placeholder.id
         chatSession.messages.append(placeholder)
         currentAssistantMessageID = placeholder.id
@@ -1044,7 +1053,7 @@ final class ChatViewModel: ObservableObject {
         )
         guard case let .accepted(draft) = draftPlan else {
             if case let .rejected(userFacingError?) = draftPlan {
-                requestDidFail.send(userFacingError)
+                requestDidFail.send(.validation(userFacingError))
             }
             return false
         }

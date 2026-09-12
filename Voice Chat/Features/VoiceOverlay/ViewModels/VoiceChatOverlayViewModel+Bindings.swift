@@ -106,17 +106,22 @@ extension VoiceChatOverlayViewModel {
 
         chatSession.realtimeVoiceRequestFailurePublisher
             .receive(on: RunLoop.main)
-            .sink { [weak self] message in
+            .sink { [weak self] failure in
                 guard let self else { return }
                 guard self.isPresented else { return }
-                let trimmed = message.trimmingCharacters(in: .whitespacesAndNewlines)
-                guard !trimmed.isEmpty else { return }
-                self.textServiceStatus = RealtimeVoiceServiceStatus(
-                    source: .text,
-                    kind: .failed,
-                    message: trimmed
-                )
-                self.reconcileVoiceWorkPresentation()
+                switch failure {
+                case let .validation(message):
+                    self.handleError(message)
+                case let .stream(message):
+                    let trimmed = message.trimmingCharacters(in: .whitespacesAndNewlines)
+                    guard !trimmed.isEmpty else { return }
+                    self.textServiceStatus = RealtimeVoiceServiceStatus(
+                        source: .text,
+                        kind: .failed,
+                        message: trimmed
+                    )
+                    self.reconcileVoiceWorkPresentation()
+                }
             }
             .store(in: &sessionCancellables)
 

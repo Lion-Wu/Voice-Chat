@@ -34,7 +34,7 @@ protocol RealtimeVoiceChatSession: AnyObject {
     var isRealtimeVoiceChatPriming: Bool { get }
     var realtimeVoiceAssistantSnapshot: RealtimeVoiceAssistantSnapshot? { get }
     var realtimeVoiceLoadingStatePublisher: AnyPublisher<Bool, Never> { get }
-    var realtimeVoiceRequestFailurePublisher: AnyPublisher<String, Never> { get }
+    var realtimeVoiceRequestFailurePublisher: AnyPublisher<ChatRequestFailure, Never> { get }
     var realtimeVoiceContentProgressPublisher: AnyPublisher<RealtimeVoiceAssistantSnapshot, Never> { get }
     var realtimeVoiceRetryStatusPublisher: AnyPublisher<RealtimeVoiceTextRetryStatus, Never> { get }
     var realtimeVoiceLongWaitNoticePublisher: AnyPublisher<ChatStreamLongWaitNotice?, Never> { get }

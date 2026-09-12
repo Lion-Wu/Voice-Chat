@@ -57,7 +57,7 @@ extension ChatViewModel: RealtimeVoiceChatSession {
         .eraseToAnyPublisher()
     }
 
-    var realtimeVoiceRequestFailurePublisher: AnyPublisher<String, Never> {
+    var realtimeVoiceRequestFailurePublisher: AnyPublisher<ChatRequestFailure, Never> {
         requestDidFail.eraseToAnyPublisher()
     }
 
