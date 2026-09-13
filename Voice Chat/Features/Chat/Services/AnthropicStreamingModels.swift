@@ -70,7 +70,7 @@ struct AnthropicAssistantContentAccumulator {
         var name: String?
         var text: String
         var thinking: String
-        var signature: String
+        var signature: String?
         var redactedData: String?
         var input: JSONValue?
         var inputJSON = ""
@@ -82,7 +82,7 @@ struct AnthropicAssistantContentAccumulator {
                     "type": "thinking",
                     "thinking": thinking
                 ]
-                if !signature.isEmpty {
+                if let signature {
                     block["signature"] = signature
                 }
                 return block
@@ -137,7 +137,7 @@ struct AnthropicAssistantContentAccumulator {
                 name: block.name,
                 text: block.text ?? "",
                 thinking: block.thinking ?? "",
-                signature: block.signature ?? "",
+                signature: block.signature,
                 redactedData: block.data,
                 input: block.input
             )
@@ -149,7 +149,9 @@ struct AnthropicAssistantContentAccumulator {
             case "thinking_delta":
                 block.thinking += event.delta?.thinking ?? event.delta?.text ?? ""
             case "signature_delta":
-                block.signature += event.delta?.signature ?? ""
+                if let signature = event.delta?.signature {
+                    block.signature = (block.signature ?? "") + signature
+                }
             case "input_json_delta":
                 block.inputJSON += event.delta?.partial_json ?? ""
             default:
