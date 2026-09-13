@@ -15,7 +15,7 @@ import SwiftUI
             isUser: false,
             isActive: false,
             createdAt: Date(),
-            deltaCount: 1,
+            tokenCount: 1,
             characterCount: 0,
             session: session
         )

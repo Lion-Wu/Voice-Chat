@@ -31,8 +31,8 @@ extension SettingsManager {
             try reloadAndRepairPresetStoresAfterAttach()
         } catch {
             isCoalescingPersistenceWrites = false
-            // Startup repair is one transaction. Discard inserts/deletes and
-            // backfills staged before a later read failed, so the settings
+            // Startup initialization is one transaction. Discard changes
+            // staged before a later read failed, so the settings
             // context cannot retain a partially initialized in-memory store.
             persistence.discardBinding()
             onPersistentStoreReadFailure?(error)

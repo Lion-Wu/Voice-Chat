@@ -48,9 +48,6 @@ protocol ChatSessionRepository: ChatSessionPersisting {
     func detach()
     func fetchSessions() throws -> [ChatSession]
     func hydrateTransientMessageState(in session: ChatSession)
-    @discardableResult
-    func backfillSidebarSummaryIfNeeded(for session: ChatSession) throws -> Bool
-    func saveSidebarSummaryBackfills() throws
     func createSession(title: String) -> ChatSession?
     func delete(_ session: ChatSession)
     func setImmediatePersistenceEnabled(_ enabled: Bool)
@@ -107,37 +104,6 @@ final class SwiftDataChatSessionRepository: ChatSessionRepository {
 
     func hydrateTransientMessageState(in session: ChatSession) {
         session.hydrateTransientMessageState()
-    }
-
-    @discardableResult
-    func backfillSidebarSummaryIfNeeded(for session: ChatSession) throws -> Bool {
-        guard session.sidebarPreviewText == nil else { return false }
-        guard let context else {
-            throw ChatSessionRepositoryReadError.contextUnavailable
-        }
-
-        let sessionID = session.id
-        var descriptor = FetchDescriptor<ChatMessage>(
-            predicate: #Predicate<ChatMessage> { message in
-                message.session?.id == sessionID
-            },
-            sortBy: [SortDescriptor(\.createdAt, order: .reverse)]
-        )
-        // The sidebar needs exactly the latest message, not a page of history.
-        descriptor.fetchLimit = 1
-        let latestMessage = try context.fetch(descriptor).first
-        session.applySidebarSummaryBackfill(from: latestMessage)
-        return true
-    }
-
-    func saveSidebarSummaryBackfills() throws {
-        guard context != nil else {
-            throw ChatSessionRepositoryReadError.contextUnavailable
-        }
-        _ = try saveContextOrThrow(
-            label: "sidebar summary backfills",
-            notifyObserver: true
-        )
     }
 
     func createSession(title: String) -> ChatSession? {

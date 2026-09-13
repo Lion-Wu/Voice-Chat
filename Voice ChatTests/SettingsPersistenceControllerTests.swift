@@ -4,7 +4,7 @@ import XCTest
 
 final class SettingsPersistenceControllerTests: XCTestCase {
     @MainActor
-    func testAttachLoadsBackfillsAndKeepsSingleBinding() throws {
+    func testAttachLoadsAndKeepsSingleBinding() throws {
         let presetID = UUID()
         let container = try ModelContainer(
             for: AppSettings.self,
@@ -16,8 +16,7 @@ final class SettingsPersistenceControllerTests: XCTestCase {
             selectedModel: "model-a",
             selectedChatServerPresetID: presetID,
             developerModeEnabled: true,
-            hapticFeedbackEnabled: nil,
-            apiAdvancedSettingsJSON: nil
+            hapticFeedbackEnabled: true
         )
         context.insert(settings)
         try context.save()
@@ -82,42 +81,5 @@ final class SettingsPersistenceControllerTests: XCTestCase {
         XCTAssertTrue(controller.context === secondContext)
         XCTAssertEqual(reloaded?.loadedState.chatSettings.apiURL, "https://new.example.com")
         XCTAssertTrue(controller.entity === reloaded?.entity)
-    }
-
-    @MainActor
-    func testRollbackDiscardsDeferredStartupBackfills() throws {
-        let container = try ModelContainer(
-            for: AppSettings.self,
-            configurations: ModelConfiguration(isStoredInMemoryOnly: true)
-        )
-        let context = ModelContext(container)
-        let settings = AppSettings(
-            hapticFeedbackEnabled: nil,
-            apiAdvancedSettingsJSON: nil
-        )
-        context.insert(settings)
-        try context.save()
-
-        let controller = SettingsPersistenceController()
-        _ = try controller.attach(
-            context: context,
-            chatAPIKeyForPreset: { _ in "" },
-            defaultHapticFeedbackEnabled: true,
-            defaultAPIAdvancedSettings: .defaults,
-            deferSave: true
-        )
-
-        XCTAssertTrue(context.hasChanges)
-        controller.discardBinding()
-        XCTAssertFalse(context.hasChanges)
-        XCTAssertNil(controller.context)
-        XCTAssertNil(controller.entity)
-
-        let verificationContext = ModelContext(container)
-        let restored = try XCTUnwrap(
-            verificationContext.fetch(FetchDescriptor<AppSettings>()).first
-        )
-        XCTAssertNil(restored.hapticFeedbackEnabled)
-        XCTAssertNil(restored.apiAdvancedSettingsJSON)
     }
 }

@@ -29,21 +29,18 @@ final class SettingsPersistenceController {
         self.context = context
         self.entity = nil
 
-        let loadedEntity = try AppSettingsStore.loadOrCreate(in: context)
+        let loadedEntity = try AppSettingsStore.loadOrCreate(
+            in: context,
+            defaultHapticFeedbackEnabled: defaultHapticFeedbackEnabled,
+            defaultAPIAdvancedSettings: defaultAPIAdvancedSettings
+        )
         entity = loadedEntity
 
         let loadedState = AppSettingsStore.loadedState(
             from: loadedEntity,
             chatAPIKey: chatAPIKeyForPreset(loadedEntity.selectedChatServerPresetID),
-            defaultHapticFeedbackEnabled: defaultHapticFeedbackEnabled,
             defaultAPIAdvancedSettings: defaultAPIAdvancedSettings
         )
-        AppSettingsStore.backfillMissingValues(
-            in: loadedEntity,
-            loadedState: loadedState,
-            save: { _ in }
-        )
-
         if !deferSave {
             saveContext(label: "initialize app settings")
         }

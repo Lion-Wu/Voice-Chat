@@ -37,7 +37,7 @@ struct ChatUserTurnAppender {
             isUser: true,
             isActive: true,
             createdAt: now,
-            deltaCount: estimatedTokenCount(plan.text.count),
+            tokenCount: estimatedTokenCount(plan.text.count),
             tokenCountSource: ChatStreamMetricValueSource.local.rawValue,
             characterCount: plan.text.count,
             session: session

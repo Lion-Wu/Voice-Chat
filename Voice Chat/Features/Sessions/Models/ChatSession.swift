@@ -19,9 +19,8 @@ final class ChatSession {
     var updatedAt: Date
     var lastMessageAt: Date?
     var lastMessageID: UUID?
-    /// Persisted sidebar-only projection. `nil` identifies legacy rows that
-    /// still need a one-message backfill; an empty string is a valid summary.
-    var sidebarPreviewText: String?
+    /// Persisted sidebar-only projection; an empty string is a valid summary.
+    var sidebarPreviewText: String
     var activeRootMessageID: UUID?
 
     // MARK: - Relation
@@ -122,12 +121,6 @@ extension ChatSession {
     func refreshSidebarPreviewIfLatest(_ message: ChatMessage) {
         guard lastMessageID == message.id else { return }
         sidebarPreviewText = Self.sidebarPreviewText(for: message)
-    }
-
-    func applySidebarSummaryBackfill(from latestMessage: ChatMessage?) {
-        lastMessageAt = latestMessage?.createdAt
-        lastMessageID = latestMessage?.id
-        sidebarPreviewText = Self.sidebarPreviewText(for: latestMessage)
     }
 
     static func sidebarPreviewText(for message: ChatMessage?) -> String {

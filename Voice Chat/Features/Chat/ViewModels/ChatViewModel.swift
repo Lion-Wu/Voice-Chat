@@ -902,7 +902,7 @@ final class ChatViewModel: ObservableObject {
                 outputTokenCount: message.outputTokenCount,
                 reasoningOutputTokenCount: message.reasoningOutputTokenCount,
                 tokensPerSecond: message.tokensPerSecond,
-                deltaCount: message.tokenCount,
+                tokenCount: message.tokenCount,
                 tokenCountSource: message.tokenCountSource,
                 timeToFirstTokenSource: message.timeToFirstTokenSource,
                 tokensPerSecondSource: message.tokensPerSecondSource,

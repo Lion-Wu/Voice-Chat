@@ -431,10 +431,6 @@ struct MessageDetailsView: View {
         if message.tokenCount > 0 {
             return message.tokenCount
         }
-        if let legacyProviderTokenCount = message.outputTokenCount,
-           legacyProviderTokenCount > 0 {
-            return legacyProviderTokenCount
-        }
         return nil
     }
 
@@ -836,7 +832,7 @@ private enum MessageDetailsChrome {
             timeToFirstToken: 1.0,
             streamDuration: 2.0,
             generationDuration: 1.0,
-            deltaCount: 42,
+            tokenCount: 42,
             characterCount: 128,
             promptMessageCount: 6,
             promptCharacterCount: 512,

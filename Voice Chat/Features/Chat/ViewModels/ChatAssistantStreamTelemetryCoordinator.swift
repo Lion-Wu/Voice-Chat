@@ -369,7 +369,7 @@ struct ChatAssistantStreamTelemetryCoordinator {
             generationDuration: generationDuration,
             reasoningOutputTokenCount: pendingServerMetadata.reasoningOutputTokenCount,
             tokensPerSecond: pendingServerMetadata.tokensPerSecond,
-            deltaCount: resolvedTokenCount,
+            tokenCount: resolvedTokenCount,
             tokenCountSource: resolvedTokenCountSource,
             timeToFirstTokenSource: resolvedTimeToFirstTokenSource,
             tokensPerSecondSource: pendingServerMetadata.tokensPerSecond != nil ? ChatStreamMetricValueSource.provider.rawValue : nil,

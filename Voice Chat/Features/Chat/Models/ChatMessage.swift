@@ -65,7 +65,7 @@ final class ChatMessage {
     var outputTokenCount: Int?
     var reasoningOutputTokenCount: Int?
     var tokensPerSecond: Double?
-    var deltaCount: Int = 0
+    var tokenCount: Int = 0
     var tokenCountSource: String?
     var timeToFirstTokenSource: String?
     var tokensPerSecondSource: String?
@@ -111,7 +111,7 @@ final class ChatMessage {
         outputTokenCount: Int? = nil,
         reasoningOutputTokenCount: Int? = nil,
         tokensPerSecond: Double? = nil,
-        deltaCount: Int = 0,
+        tokenCount: Int = 0,
         tokenCountSource: String? = nil,
         timeToFirstTokenSource: String? = nil,
         tokensPerSecondSource: String? = nil,
@@ -159,7 +159,7 @@ final class ChatMessage {
         self.outputTokenCount = outputTokenCount
         self.reasoningOutputTokenCount = reasoningOutputTokenCount
         self.tokensPerSecond = tokensPerSecond
-        self.deltaCount = deltaCount
+        self.tokenCount = tokenCount
         self.tokenCountSource = tokenCountSource
         self.timeToFirstTokenSource = timeToFirstTokenSource
         self.tokensPerSecondSource = tokensPerSecondSource
@@ -177,12 +177,6 @@ final class ChatMessage {
 }
 
 extension ChatMessage {
-    // Stored as `deltaCount` for backward store compatibility; semantically this is token count.
-    var tokenCount: Int {
-        get { deltaCount }
-        set { deltaCount = newValue }
-    }
-
     var imageAttachments: [ChatImageAttachment] {
         get { ChatImageAttachment.decodeList(from: imageAttachmentsData) }
         set { imageAttachmentsData = ChatImageAttachment.encodeList(newValue) }

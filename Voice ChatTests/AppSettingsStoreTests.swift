@@ -3,7 +3,7 @@ import XCTest
 
 final class AppSettingsStoreTests: XCTestCase {
     @MainActor
-    func testLoadedStateMapsPersistedEntityAndBackfillsFallbacks() {
+    func testLoadedStateMapsPersistedEntity() {
         let normalID = UUID()
         let voiceID = UUID()
         let settings = AppSettings(
@@ -18,12 +18,11 @@ final class AppSettingsStoreTests: XCTestCase {
             selectedVoiceServerPresetID: UUID(),
             enableStreaming: false,
             developerModeEnabled: true,
-            hapticFeedbackEnabled: nil,
+            hapticFeedbackEnabled: true,
             selectedPresetID: UUID(),
             selectedNormalSystemPromptPresetID: normalID,
             selectedVoiceSystemPromptPresetID: voiceID,
             modelImageInputOverrideJSON: "{\"vision\":true}",
-            apiAdvancedSettingsJSON: nil,
             ttsProviderRawValue: TTSProvider.appleSpeech.rawValue,
             appleSpeechVoiceIdentifier: "com.apple.voice.test",
             personalVoiceIdentifier: "com.apple.personalvoice.test"
@@ -32,7 +31,6 @@ final class AppSettingsStoreTests: XCTestCase {
         let state = AppSettingsStore.loadedState(
             from: settings,
             chatAPIKey: "key",
-            defaultHapticFeedbackEnabled: true,
             defaultAPIAdvancedSettings: .defaults
         )
 
@@ -47,38 +45,5 @@ final class AppSettingsStoreTests: XCTestCase {
         XCTAssertEqual(state.selectedNormalSystemPromptPresetID, normalID)
         XCTAssertEqual(state.selectedVoiceSystemPromptPresetID, voiceID)
         XCTAssertEqual(state.modelImageInputOverrides, ["vision": true])
-
-        var labels: [String] = []
-        AppSettingsStore.backfillMissingValues(in: settings, loadedState: state) { label in
-            labels.append(label)
-        }
-
-        XCTAssertEqual(settings.hapticFeedbackEnabled, true)
-        XCTAssertNotNil(settings.apiAdvancedSettingsJSON)
-        XCTAssertNotNil(settings.toolUseSettingsJSON)
-        XCTAssertEqual(labels, [
-            "backfill haptic feedback setting",
-            "backfill API advanced settings",
-            "backfill tool-use settings"
-        ])
-    }
-
-    @MainActor
-    func testLoadedStateBackfillsLegacyTTSProviderAsGPTSoVITS() {
-        let settings = AppSettings(ttsProviderRawValue: nil)
-        let state = AppSettingsStore.loadedState(
-            from: settings,
-            chatAPIKey: "",
-            defaultHapticFeedbackEnabled: true,
-            defaultAPIAdvancedSettings: .defaults
-        )
-
-        XCTAssertEqual(state.voiceSettings.provider, .gptSoVITS)
-
-        var labels: [String] = []
-        AppSettingsStore.backfillMissingValues(in: settings, loadedState: state) { labels.append($0) }
-
-        XCTAssertEqual(settings.ttsProviderRawValue, TTSProvider.gptSoVITS.rawValue)
-        XCTAssertTrue(labels.contains("backfill TTS provider setting"))
     }
 }

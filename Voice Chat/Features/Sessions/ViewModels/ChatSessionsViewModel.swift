@@ -79,7 +79,6 @@ final class ChatSessionsViewModel: ObservableObject {
     private var textActivityPublishTask: Task<Void, Never>?
     private var pendingOrderingUpdates: [UUID: PendingOrderingUpdate] = [:]
     private var orderingPublishTask: Task<Void, Never>?
-    private var sidebarSummaryBackfillTask: Task<Void, Never>?
     private var deletedSessionIDs: Set<UUID> = []
     private var sidebarPresentation = ChatSidebarPresentationController()
     var onPersistentStoreReadFailure: ((Error) -> Void)?
@@ -240,8 +239,6 @@ final class ChatSessionsViewModel: ObservableObject {
         // interruption record back into the store that is about to be erased.
         repository.detach()
         isPersistentStoreAttached = false
-        sidebarSummaryBackfillTask?.cancel()
-        sidebarSummaryBackfillTask = nil
         orderingPublishTask?.cancel()
         orderingPublishTask = nil
         configurationUpdateTask?.cancel()
@@ -355,7 +352,6 @@ final class ChatSessionsViewModel: ObservableObject {
             pruneStaleViewModels(keeping: fetched)
             ensureChatConfigurationCurrent()
             ensureValidSelection()
-            scheduleSidebarSummaryBackfillIfNeeded(in: fetched)
             return true
         } catch {
             onPersistentStoreReadFailure?(error)
@@ -372,64 +368,6 @@ final class ChatSessionsViewModel: ObservableObject {
         }
 
         sidebarPresentation.prune(keeping: validIDs)
-    }
-
-    private func scheduleSidebarSummaryBackfillIfNeeded(in sessions: [ChatSession]) {
-        sidebarSummaryBackfillTask?.cancel()
-        let sessionsNeedingBackfill = sessions.filter { $0.sidebarPreviewText == nil }
-        guard !sessionsNeedingBackfill.isEmpty else {
-            sidebarSummaryBackfillTask = nil
-            return
-        }
-
-        sidebarSummaryBackfillTask = Task { @MainActor [weak self] in
-            guard let self else { return }
-            defer {
-                // A cancelled predecessor must not clear the handle of the
-                // newer backfill task that replaced it.
-                if !Task.isCancelled {
-                    self.sidebarSummaryBackfillTask = nil
-                }
-            }
-            var didBackfillAnySummary = false
-            var readFailure: Error?
-            for session in sessionsNeedingBackfill {
-                if Task.isCancelled { break }
-                guard !self.deletedSessionIDs.contains(session.id) else { continue }
-
-                do {
-                    if try self.repository.backfillSidebarSummaryIfNeeded(for: session) {
-                        didBackfillAnySummary = true
-                        self.invalidateSidebarPresentationCache(for: session.id)
-                        self.updateInMemoryOrdering(with: session)
-                    }
-                } catch {
-                    readFailure = error
-                    break
-                }
-
-                // Give the already-published sidebar a chance to display each
-                // completed legacy summary before fetching the next one.
-                await Task.yield()
-            }
-
-            guard !Task.isCancelled else { return }
-            if didBackfillAnySummary {
-                do {
-                    try self.repository.saveSidebarSummaryBackfills()
-                } catch {
-                    guard !Task.isCancelled else { return }
-                    self.persistenceWriteFailure = ChatSessionPersistenceWriteFailure(
-                        message: error.localizedDescription
-                    )
-                    return
-                }
-            }
-            guard !Task.isCancelled else { return }
-            if let readFailure {
-                self.onPersistentStoreReadFailure?(readFailure)
-            }
-        }
     }
 
     private func updateInMemoryOrdering(with session: ChatSession) {

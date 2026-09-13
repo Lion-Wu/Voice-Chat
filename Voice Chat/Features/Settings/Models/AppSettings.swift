@@ -24,11 +24,11 @@ final class AppSettings {
     var selectedVoiceServerPresetID: UUID?
 
     var enableStreaming: Bool
-    var ttsProviderRawValue: String?
+    var ttsProviderRawValue: String
     var appleSpeechVoiceIdentifier: String?
     var personalVoiceIdentifier: String?
-    var developerModeEnabled: Bool?
-    var hapticFeedbackEnabled: Bool?
+    var developerModeEnabled: Bool
+    var hapticFeedbackEnabled: Bool
 
     // Currently selected preset identifier (optional when nothing is selected).
     var selectedPresetID: UUID?
@@ -52,14 +52,14 @@ final class AppSettings {
         selectedVoiceServerPresetID: UUID? = nil,
         enableStreaming: Bool = true,
         developerModeEnabled: Bool = false,
-        hapticFeedbackEnabled: Bool? = true,
+        hapticFeedbackEnabled: Bool = SettingsDefaults.hapticFeedbackEnabled,
         selectedPresetID: UUID? = nil,
         selectedNormalSystemPromptPresetID: UUID? = nil,
         selectedVoiceSystemPromptPresetID: UUID? = nil,
         modelImageInputOverrideJSON: String? = nil,
-        apiAdvancedSettingsJSON: String? = nil,
-        toolUseSettingsJSON: String? = nil,
-        ttsProviderRawValue: String? = nil,
+        apiAdvancedSettingsJSON: String? = APIAdvancedSettingsCodec.encode(SettingsDefaults.apiAdvancedSettings),
+        toolUseSettingsJSON: String? = ToolUseSettingsCodec.encode(.defaults),
+        ttsProviderRawValue: String = TTSProvider.gptSoVITS.rawValue,
         appleSpeechVoiceIdentifier: String? = nil,
         personalVoiceIdentifier: String? = nil
     ) {

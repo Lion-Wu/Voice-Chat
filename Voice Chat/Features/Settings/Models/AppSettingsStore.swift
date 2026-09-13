@@ -27,11 +27,18 @@ struct AppSettingsLoadedState: Equatable {
 
 @MainActor
 enum AppSettingsStore {
-    static func loadOrCreate(in context: ModelContext) throws -> AppSettings {
+    static func loadOrCreate(
+        in context: ModelContext,
+        defaultHapticFeedbackEnabled: Bool,
+        defaultAPIAdvancedSettings: APIAdvancedSettings
+    ) throws -> AppSettings {
         let descriptor = FetchDescriptor<AppSettings>(predicate: nil, sortBy: [])
         let fetched = try context.fetch(descriptor)
         if fetched.isEmpty {
-            let fresh = AppSettings()
+            let fresh = AppSettings(
+                hapticFeedbackEnabled: defaultHapticFeedbackEnabled,
+                apiAdvancedSettingsJSON: APIAdvancedSettingsCodec.encode(defaultAPIAdvancedSettings)
+            )
             context.insert(fresh)
             return fresh
         }
@@ -48,7 +55,6 @@ enum AppSettingsStore {
     static func loadedState(
         from settings: AppSettings,
         chatAPIKey: String,
-        defaultHapticFeedbackEnabled: Bool,
         defaultAPIAdvancedSettings: APIAdvancedSettings
     ) -> AppSettingsLoadedState {
         AppSettingsLoadedState(
@@ -68,12 +74,12 @@ enum AppSettingsStore {
             ),
             voiceSettings: VoiceSettings(
                 enableStreaming: settings.enableStreaming,
-                provider: TTSProvider(rawValue: settings.ttsProviderRawValue ?? "") ?? .gptSoVITS,
+                provider: TTSProvider(rawValue: settings.ttsProviderRawValue) ?? .gptSoVITS,
                 appleSpeechVoiceIdentifier: settings.appleSpeechVoiceIdentifier,
                 personalVoiceIdentifier: settings.personalVoiceIdentifier
             ),
-            developerModeEnabled: settings.developerModeEnabled ?? false,
-            hapticFeedbackEnabled: settings.hapticFeedbackEnabled ?? defaultHapticFeedbackEnabled,
+            developerModeEnabled: settings.developerModeEnabled,
+            hapticFeedbackEnabled: settings.hapticFeedbackEnabled,
             apiAdvancedSettings: APIAdvancedSettingsCodec.decode(
                 from: settings.apiAdvancedSettingsJSON,
                 fallback: defaultAPIAdvancedSettings
@@ -88,28 +94,5 @@ enum AppSettingsStore {
                 from: settings.modelImageInputOverrideJSON
             )
         )
-    }
-
-    static func backfillMissingValues(
-        in settings: AppSettings,
-        loadedState: AppSettingsLoadedState,
-        save: (String) -> Void
-    ) {
-        if settings.hapticFeedbackEnabled == nil {
-            settings.hapticFeedbackEnabled = loadedState.hapticFeedbackEnabled
-            save("backfill haptic feedback setting")
-        }
-        if settings.apiAdvancedSettingsJSON == nil {
-            settings.apiAdvancedSettingsJSON = APIAdvancedSettingsCodec.encode(loadedState.apiAdvancedSettings)
-            save("backfill API advanced settings")
-        }
-        if settings.toolUseSettingsJSON == nil {
-            settings.toolUseSettingsJSON = ToolUseSettingsCodec.encode(loadedState.toolUseSettings)
-            save("backfill tool-use settings")
-        }
-        if settings.ttsProviderRawValue == nil {
-            settings.ttsProviderRawValue = loadedState.voiceSettings.provider.rawValue
-            save("backfill TTS provider setting")
-        }
     }
 }
