@@ -581,3 +581,15 @@
 "Request failed" = "فشل الطلب";
 "Voice generation request failed." = "فشل طلب توليد الصوت.";
 "Connected, but audio is not ready yet. You can keep waiting or retry." = "تم الاتصال، لكن الصوت ليس جاهزًا بعد. يمكنك مواصلة الانتظار أو إعادة المحاولة.";
+"Open Source Software" = "البرمجيات مفتوحة المصدر";
+"About %@" = "حول %@";
+"%@ License" = "ترخيص %@";
+"%@ is open source software, released under the MIT License." = "%@ برنامج مفتوح المصدر منشور بموجب ترخيص MIT.";
+"View Source on GitHub" = "عرض الشفرة المصدرية على GitHub";
+"Project Website" = "موقع المشروع";
+"Unable to load license information." = "تعذر تحميل معلومات الترخيص.";
+"OK" = "موافق";
+"Generating" = "جارٍ الإنشاء";
+"Wait for the model to finish generating a response." = "انتظر حتى ينتهي النموذج من إنشاء الرد.";
+"The chat data store is not available." = "مخزن بيانات المحادثات غير متاح.";
+"Build" = "رقم البناء";

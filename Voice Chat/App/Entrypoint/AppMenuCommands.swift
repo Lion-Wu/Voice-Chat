@@ -8,8 +8,9 @@
 #if os(macOS)
 import SwiftUI
 
-/// Custom app-level menu that replaces the default `.newItem` command with "New Chat".
+/// App-level commands for the About window and starting a new chat.
 struct AppMenuCommands: Commands {
+    @Environment(\.openWindow) private var openWindow
     @ObservedObject var chatSessionsViewModel: ChatSessionsViewModel
 
     init(_ vm: ChatSessionsViewModel) {
@@ -17,6 +18,11 @@ struct AppMenuCommands: Commands {
     }
 
     var body: some Commands {
+        CommandGroup(replacing: .appInfo) {
+            Button("About \(ApplicationInformation.name)") {
+                openWindow(id: AboutView.windowID)
+            }
+        }
         CommandGroup(replacing: .newItem) {
             Button("New Chat") {
                 guard chatSessionsViewModel.canStartNewSession else { return }

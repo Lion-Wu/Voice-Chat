@@ -57,6 +57,13 @@ struct Voice_ChatApp: App {
         }
 
         #if os(macOS)
+        Window("About \(ApplicationInformation.name)", id: AboutView.windowID) {
+            AboutView()
+        }
+        .defaultSize(width: 760, height: 820)
+        .windowResizability(.contentMinSize)
+        .defaultPosition(.center)
+
         Settings {
             StartupDataGateView(
                 coordinator: startupCoordinator,

@@ -581,3 +581,15 @@
 "Request failed" = "Request failed";
 "Voice generation request failed." = "Voice generation request failed.";
 "Connected, but audio is not ready yet. You can keep waiting or retry." = "Connected, but audio is not ready yet. You can keep waiting or retry.";
+"Open Source Software" = "Open Source Software";
+"About %@" = "About %@";
+"%@ License" = "%@ License";
+"%@ is open source software, released under the MIT License." = "%@ is open source software, released under the MIT License.";
+"View Source on GitHub" = "View Source on GitHub";
+"Project Website" = "Project Website";
+"Unable to load license information." = "Unable to load license information.";
+"OK" = "OK";
+"Generating" = "Generating";
+"Wait for the model to finish generating a response." = "Wait for the model to finish generating a response.";
+"The chat data store is not available." = "The chat data store is not available.";
+"Build" = "Build";

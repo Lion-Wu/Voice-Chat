@@ -7,6 +7,10 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		AA60B1000000000000000005 /* LICENSE in Resources */ = {isa = PBXBuildFile; fileRef = AA60B1000000000000000006 /* LICENSE */; };
+		AA60B1000000000000000007 /* Package.resolved in Resources */ = {isa = PBXBuildFile; fileRef = AA60B1000000000000000008 /* Package.resolved */; };
+		AA60B1000000000000000001 /* AboutView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA60B1000000000000000002 /* AboutView.swift */; };
+		AA60B1000000000000000003 /* OpenSourceNotices.json in Resources */ = {isa = PBXBuildFile; fileRef = AA60B1000000000000000004 /* OpenSourceNotices.json */; };
 		A19000000000000000000001 /* AppIcon.icon in Resources */ = {isa = PBXBuildFile; fileRef = A19000000000000000000002 /* AppIcon.icon */; platformFilters = (ios, macos, ); };
 		CA0905000000000000000001 /* NetworkRequestWaitMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA0905000000000000000002 /* NetworkRequestWaitMonitor.swift */; };
 		CA0905000000000000000003 /* NetworkDataRequest.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA0905000000000000000004 /* NetworkDataRequest.swift */; };
@@ -395,6 +399,10 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		AA60B1000000000000000006 /* LICENSE */ = {isa = PBXFileReference; lastKnownFileType = text; path = LICENSE; sourceTree = SOURCE_ROOT; };
+		AA60B1000000000000000008 /* Package.resolved */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "Voice Chat.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved"; sourceTree = SOURCE_ROOT; };
+		AA60B1000000000000000002 /* AboutView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AboutView.swift; sourceTree = "<group>"; };
+		AA60B1000000000000000004 /* OpenSourceNotices.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = Resources/OpenSourceNotices.json; sourceTree = "<group>"; };
 		A19000000000000000000002 /* AppIcon.icon */ = {isa = PBXFileReference; lastKnownFileType = folder.iconcomposer.icon; path = AppIcon.icon; sourceTree = "<group>"; };
 		CA0905000000000000000002 /* NetworkRequestWaitMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = NetworkRequestWaitMonitor.swift; path = "Voice Chat/Core/Networking/NetworkRequestWaitMonitor.swift"; sourceTree = SOURCE_ROOT; };
 		CA0905000000000000000004 /* NetworkDataRequest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = NetworkDataRequest.swift; path = "Voice Chat/Core/Networking/NetworkDataRequest.swift"; sourceTree = SOURCE_ROOT; };
@@ -922,6 +930,7 @@
 			children = (
 				B329D65A2B394979000A17C9 /* Voice_ChatApp.swift */,
 				FD9000000000000000000003 /* AppMenuCommands.swift */,
+				AA60B1000000000000000002 /* AboutView.swift */,
 			);
 			path = Entrypoint;
 			sourceTree = "<group>";
@@ -1526,6 +1535,9 @@
 			children = (
 				FD0B94DD2CD8E63500DBFA1D /* Voice Chat.entitlements */,
 				FDB5FD402F0000010000001C /* Localization */,
+				AA60B1000000000000000004 /* OpenSourceNotices.json */,
+				AA60B1000000000000000006 /* LICENSE */,
+				AA60B1000000000000000008 /* Package.resolved */,
 				B329D65E2B39497A000A17C9 /* Assets.xcassets */,
 				A19000000000000000000002 /* AppIcon.icon */,
 				B329D6602B39497A000A17C9 /* Preview Content */,
@@ -1700,6 +1712,9 @@
 				A19000000000000000000001 /* AppIcon.icon in Resources */,
 				FDB5FD112F0000010000001A /* Localizable.strings in Resources */,
 				FDB5FD212F0000010000001B /* InfoPlist.strings in Resources */,
+				AA60B1000000000000000003 /* OpenSourceNotices.json in Resources */,
+				AA60B1000000000000000005 /* LICENSE in Resources */,
+				AA60B1000000000000000007 /* Package.resolved in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -1840,6 +1855,7 @@
 				FD0C3AC72C9F54A9009095A1 /* Models.swift in Sources */,
 				FD9000000000000000000102 /* AppLocalization.swift in Sources */,
 				FD9000000000000000000104 /* AppMenuCommands.swift in Sources */,
+				AA60B1000000000000000001 /* AboutView.swift in Sources */,
 				FD9000000000000000000106 /* VisionRootView.swift in Sources */,
 				FD9000000000000000000108 /* SettingsInputFields.swift in Sources */,
 				FD900000000000000000010A /* SettingsViewSupport.swift in Sources */,

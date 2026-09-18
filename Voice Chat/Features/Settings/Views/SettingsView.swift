@@ -115,6 +115,7 @@ struct SettingsView: View {
                     presetSection()
                     voiceOutputSection()
                     developerSection()
+                    applicationInfoSection
                 }
                 .navigationBarTitle("Settings", displayMode: .inline)
                 .toolbar {
@@ -214,6 +215,18 @@ struct SettingsView: View {
     }
 
     // MARK: - Sections
+
+    #if !os(macOS)
+    private var applicationInfoSection: some View {
+        Section {
+            NavigationLink {
+                AboutView()
+            } label: {
+                Text("About \(ApplicationInformation.name)")
+            }
+        }
+    }
+    #endif
 
 #if os(macOS)
     @ViewBuilder

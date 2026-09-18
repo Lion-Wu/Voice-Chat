@@ -1,26 +1,28 @@
-KaTeX Font Software - attribution and license notice
-====================================================
+KaTeX Font Software
 
-This package bundles the KaTeX mathematical fonts for rendering. They are
-unmodified TrueType binaries from the KaTeX project:
-  https://github.com/KaTeX/KaTeX
+Voice Chat includes unmodified KaTeX font binaries for mathematical rendering. The font binaries are licensed under the SIL Open Font License 1.1, separately from the application and RaTeX software.
 
-These font files are NOT licensed under the MIT License in
-../RaTeX-LICENSE. They are licensed under the SIL Open Font License,
-Version 1.1.
+Copyright (c) 2009-2010, Design Science, Inc. (<www.mathjax.org>)
+Copyright (c) 2014-2018 Khan Academy (<www.khanacademy.org>),
 
-Files in this package:
-  Sources/VoiceChatRaTeX/Resources/fonts/KaTeX_*.ttf
+Reserved Font Names:
+KaTeX_AMS
+KaTeX_Caligraphic
+KaTeX_Fraktur
+KaTeX_Main
+KaTeX_Math
+KaTeX_SansSerif
+KaTeX_Script
+KaTeX_Size1
+KaTeX_Size2
+KaTeX_Size3
+KaTeX_Size4
+KaTeX_Typewriter
 
-Copyright and license notice from font metadata:
+This Font Software is licensed under the SIL Open Font License, Version 1.1.
+This license available with a FAQ at:
+http://scripts.sil.org/OFL
 
-  Copyright (c) 2009-2010, Design Science, Inc. (<www.mathjax.org>)
-  Copyright (c) 2014-2018 Khan Academy (<www.khanacademy.org>),
-  with Reserved Font Name KaTeX_Main.
-
-  This Font Software is licensed under the SIL Open Font License, Version 1.1.
-  This license is available with a FAQ at:
-  http://scripts.sil.org/OFL
-
-Complete text of the SIL Open Font License, Version 1.1: see
-SIL-OFL-1.1.txt in this directory.
+Upstream project: https://github.com/KaTeX/KaTeX
+The font binaries are in Sources/VoiceChatRaTeX/Resources/fonts/.
+The complete license is in SIL-OFL-1.1.txt alongside this notice.

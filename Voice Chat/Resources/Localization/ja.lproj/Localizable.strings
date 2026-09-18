@@ -581,3 +581,15 @@
 "Request failed" = "リクエストに失敗しました";
 "Voice generation request failed." = "音声生成リクエストに失敗しました。";
 "Connected, but audio is not ready yet. You can keep waiting or retry." = "接続済みですが、音声の生成はまだ完了していません。待機を続けるか、再試行できます。";
+"Open Source Software" = "オープンソースソフトウェア";
+"About %@" = "%@ について";
+"%@ License" = "%@ のライセンス";
+"%@ is open source software, released under the MIT License." = "%@ は MIT ライセンスで公開されているオープンソースソフトウェアです。";
+"View Source on GitHub" = "GitHub でソースコードを見る";
+"Project Website" = "プロジェクトのウェブサイト";
+"Unable to load license information." = "ライセンス情報を読み込めません。";
+"OK" = "OK";
+"Generating" = "生成中";
+"Wait for the model to finish generating a response." = "モデルが応答を生成し終わるまでお待ちください。";
+"The chat data store is not available." = "チャットのデータストアを利用できません。";
+"Build" = "ビルド番号";

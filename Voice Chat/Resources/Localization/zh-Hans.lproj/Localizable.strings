@@ -581,3 +581,15 @@
 "Request failed" = "请求失败";
 "Voice generation request failed." = "语音生成请求失败。";
 "Connected, but audio is not ready yet. You can keep waiting or retry." = "连接已建立，音频尚未生成完成。可继续等待或重试。";
+"Open Source Software" = "开源软件声明";
+"About %@" = "关于 %@";
+"%@ License" = "%@ 开源协议";
+"%@ is open source software, released under the MIT License." = "%@ 是一款以 MIT 协议发布的开源软件。";
+"View Source on GitHub" = "在 GitHub 查看源代码";
+"Project Website" = "项目网站";
+"Unable to load license information." = "无法加载许可证信息。";
+"OK" = "好";
+"Generating" = "正在生成";
+"Wait for the model to finish generating a response." = "请等待模型完成回复。";
+"The chat data store is not available." = "聊天数据存储不可用。";
+"Build" = "构建号";

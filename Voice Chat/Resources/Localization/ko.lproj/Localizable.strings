@@ -581,3 +581,15 @@
 "Request failed" = "요청 실패";
 "Voice generation request failed." = "음성 생성 요청에 실패했습니다.";
 "Connected, but audio is not ready yet. You can keep waiting or retry." = "연결되었지만 음성이 아직 준비되지 않았습니다. 계속 기다리거나 다시 시도할 수 있습니다.";
+"Open Source Software" = "오픈 소스 소프트웨어";
+"About %@" = "%@에 관하여";
+"%@ License" = "%@ 라이선스";
+"%@ is open source software, released under the MIT License." = "%@은 MIT 라이선스로 배포되는 오픈 소스 소프트웨어입니다.";
+"View Source on GitHub" = "GitHub에서 소스 코드 보기";
+"Project Website" = "프로젝트 웹사이트";
+"Unable to load license information." = "라이선스 정보를 불러올 수 없습니다.";
+"OK" = "확인";
+"Generating" = "생성 중";
+"Wait for the model to finish generating a response." = "모델이 응답 생성을 완료할 때까지 기다려 주세요.";
+"The chat data store is not available." = "채팅 데이터 저장소를 사용할 수 없습니다.";
+"Build" = "빌드 번호";

@@ -581,3 +581,15 @@
 "Request failed" = "Échec de la requête";
 "Voice generation request failed." = "La requête de génération vocale a échoué.";
 "Connected, but audio is not ready yet. You can keep waiting or retry." = "La connexion est établie, mais l’audio n’est pas encore prêt. Vous pouvez patienter ou réessayer.";
+"Open Source Software" = "Logiciels libres";
+"About %@" = "À propos de %@";
+"%@ License" = "Licence de %@";
+"%@ is open source software, released under the MIT License." = "%@ est un logiciel libre publié sous licence MIT.";
+"View Source on GitHub" = "Voir le code source sur GitHub";
+"Project Website" = "Site du projet";
+"Unable to load license information." = "Impossible de charger les informations de licence.";
+"OK" = "OK";
+"Generating" = "Génération en cours";
+"Wait for the model to finish generating a response." = "Veuillez attendre que le modèle ait terminé de générer sa réponse.";
+"The chat data store is not available." = "Le stockage des données de discussion est indisponible.";
+"Build" = "Numéro de build";

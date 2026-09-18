@@ -40,6 +40,12 @@ In the app’s Settings:
 - [swift-markdown](https://github.com/swiftlang/swift-markdown)
 - [swift-cmark](https://github.com/swiftlang/swift-cmark)
 - [KaTeX fonts](https://github.com/KaTeX/KaTeX)
+- [Highlight.js](https://highlightjs.org)
+- [SwiftUI-Shimmer](https://github.com/markiv/SwiftUI-Shimmer)
+- [Equatable](https://github.com/ordo-one/equatable)
+- [SwiftSyntax](https://github.com/swiftlang/swift-syntax)
+
+See [DEPENDENCIES.md](DEPENDENCIES.md) for versions, uses, and licenses.
 
 ## License
-MIT — see `LICENSE`.
+MIT — see [LICENSE](LICENSE).
