@@ -61,7 +61,6 @@ final class NetworkDataRequest: NSObject, URLSessionDataDelegate, @unchecked Sen
             completion = nil
             data = Data()
             task.cancel()
-            task.delegate = nil
         }
     }
 
@@ -99,7 +98,6 @@ final class NetworkDataRequest: NSObject, URLSessionDataDelegate, @unchecked Sen
         waitMonitor.stop()
         let callback = completion
         completion = nil
-        task.delegate = nil
         callback?(data, task.response, error)
         data = Data()
     }
