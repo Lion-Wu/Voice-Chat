@@ -165,9 +165,9 @@ final class ServerReachabilityMonitor: ObservableObject {
         let pathHost = comps.path.split(separator: "/").first.map(String.init)
         guard let resolvedHost = comps.host ?? pathHost, !resolvedHost.isEmpty else { return nil }
 
-        let resolvedPort: UInt16 = {
+        let resolvedPort: UInt16? = {
             if let p = comps.port {
-                return UInt16(p)
+                return UInt16(exactly: p)
             }
             if let scheme = comps.scheme?.lowercased() {
                 switch scheme {
@@ -178,6 +178,7 @@ final class ServerReachabilityMonitor: ObservableObject {
             }
             return defaultPort
         }()
+        guard let resolvedPort else { return nil }
 
         return (resolvedHost, resolvedPort)
     }
