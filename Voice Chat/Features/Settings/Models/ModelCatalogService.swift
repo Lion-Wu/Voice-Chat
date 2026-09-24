@@ -56,12 +56,8 @@ struct DefaultModelCatalogService: ModelCatalogFetching, Sendable {
 
         while true {
             try Task.checkCancellation()
-            var request = URLRequest(
-                url: pageURL,
-                timeoutInterval: NetworkRequestTimeouts.standardResponse
-            )
-            request.httpMethod = "GET"
-            applyModelRequestHeaders(to: &request, candidate: candidate, rawAPIKey: apiKey)
+            var request = Self.modelRequest(for: candidate, apiKey: apiKey)
+            request.url = pageURL
             let immutableRequest = request
 
             let data = try await NetworkRetry.run(
@@ -115,7 +111,14 @@ struct DefaultModelCatalogService: ModelCatalogFetching, Sendable {
         return url
     }
 
-    private func normalizedAPIKeyForXAPIKeyHeader(_ raw: String) -> String {
+    static func modelRequest(for candidate: ChatAPIEndpointCandidate, apiKey: String) -> URLRequest {
+        var request = URLRequest(url: candidate.modelsURL, timeoutInterval: NetworkRequestTimeouts.standardResponse)
+        request.httpMethod = "GET"
+        applyModelRequestHeaders(to: &request, candidate: candidate, rawAPIKey: apiKey)
+        return request
+    }
+
+    private static func normalizedAPIKeyForXAPIKeyHeader(_ raw: String) -> String {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return "" }
         if trimmed.lowercased().hasPrefix("bearer ") {
@@ -124,7 +127,7 @@ struct DefaultModelCatalogService: ModelCatalogFetching, Sendable {
         return trimmed
     }
 
-    private func applyModelRequestHeaders(
+    private static func applyModelRequestHeaders(
         to request: inout URLRequest,
         candidate: ChatAPIEndpointCandidate,
         rawAPIKey: String
@@ -158,12 +161,12 @@ struct DefaultModelCatalogService: ModelCatalogFetching, Sendable {
         }
     }
 
-    private func usesBearerAuthForAnthropicMessages(_ url: URL) -> Bool {
+    private static func usesBearerAuthForAnthropicMessages(_ url: URL) -> Bool {
         let host = (url.host ?? "").lowercased()
         return ChatEndpointBaseURL.hostMatchesOfficialDomain(host, domain: "openrouter.ai")
     }
 
-    private func usesAzureOpenAIAPIKeyAuth(_ url: URL, rawAPIKey: String) -> Bool {
+    private static func usesAzureOpenAIAPIKeyAuth(_ url: URL, rawAPIKey: String) -> Bool {
         let host = (url.host ?? "").lowercased()
         return ChatEndpointBaseURL.hostMatchesOfficialDomain(host, domain: "openai.azure.com") &&
             !rawAPIKey.lowercased().hasPrefix("bearer ")
@@ -215,6 +218,14 @@ enum ModelCatalogFetchError: Error {
 struct ModelCatalogFetchCoordinator {
     private let modelCatalogService: ModelCatalogFetching
 
+    static let retryPolicy = NetworkRetryPolicy(
+        maxAttempts: 4,
+        baseDelay: 0.5,
+        maxDelay: 4,
+        backoffFactor: 1.6,
+        jitterRatio: 0.2
+    )
+
     init(modelCatalogService: ModelCatalogFetching = DefaultModelCatalogService()) {
         self.modelCatalogService = modelCatalogService
     }
@@ -222,7 +233,8 @@ struct ModelCatalogFetchCoordinator {
     func modelDetectionCandidates(
         for apiURL: String,
         formatPreference: ChatAPIFormatPreference,
-        detectedProvider: ChatProvider?
+        detectedProvider: ChatProvider?,
+        detectedStyle: ChatRequestStyle? = nil
     ) -> [ChatAPIEndpointCandidate] {
         if formatPreference != .automatic {
             if let forced = ChatAPIEndpointResolver.endpointCandidate(for: apiURL, formatPreference: formatPreference) {
@@ -231,10 +243,15 @@ struct ModelCatalogFetchCoordinator {
             return []
         }
 
-        return ChatAPIEndpointResolver.autoDetectionCandidates(
+        var candidates = ChatAPIEndpointResolver.autoDetectionCandidates(
             for: apiURL,
             preferredProvider: detectedProvider
         )
+        if let detectedProvider, let detectedStyle,
+           let saved = ChatAPIEndpointResolver.endpointCandidate(for: apiURL, provider: detectedProvider, preferredStyle: detectedStyle) {
+            candidates.insert(saved, at: 0)
+        }
+        return candidates
     }
 
     func fetchFirstAvailableCatalog(
@@ -242,6 +259,7 @@ struct ModelCatalogFetchCoordinator {
         apiKey: String,
         initialRetryPolicy: NetworkRetryPolicy,
         probeRetryPolicy: NetworkRetryPolicy,
+        onCandidateStart: (@Sendable () async -> Void)? = nil,
         onRetry: (@Sendable (
             _ candidate: ChatAPIEndpointCandidate,
             _ nextAttempt: Int,
@@ -251,7 +269,17 @@ struct ModelCatalogFetchCoordinator {
     ) async throws -> ModelCatalogFetchResult {
         var lastError: Error?
 
-        for (index, candidate) in endpointCandidates.enumerated() {
+        var requests: [URLRequest] = []
+        let candidates = endpointCandidates.filter { candidate in
+            let request = DefaultModelCatalogService.modelRequest(for: candidate, apiKey: apiKey)
+            guard !requests.contains(request) else { return false }
+            requests.append(request)
+            return true
+        }
+
+        for (index, candidate) in candidates.prefix(2).enumerated() {
+            try Task.checkCancellation()
+            if index > 0 { await onCandidateStart?() }
             do {
                 let retryPolicy = index == 0 ? initialRetryPolicy : probeRetryPolicy
                 let models = try await modelCatalogService.fetchModels(
@@ -268,7 +296,8 @@ struct ModelCatalogFetchCoordinator {
                     throw error
                 }
                 lastError = error
-                continue
+                guard let status = error as? HTTPStatusError,
+                      [400, 404, 405, 415, 422].contains(status.statusCode) else { break }
             }
         }
 

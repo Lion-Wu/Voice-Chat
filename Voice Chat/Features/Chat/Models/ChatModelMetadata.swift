@@ -30,17 +30,23 @@ struct ModelListResponse: Decodable {
         firstID = try container.decodeIfPresent(String.self, forKey: .firstID)
         lastID = try container.decodeIfPresent(String.self, forKey: .lastID)
 
-        if let standardData = try? container.decode([ModelInfo].self, forKey: .data) {
-            data = standardData
+        if container.contains(.data) {
+            data = try container.decode([ModelInfo].self, forKey: .data)
             return
         }
 
-        if let lmStudioModels = try? container.decode([LMStudioRESTModelRecord].self, forKey: .models) {
-            data = lmStudioModels.compactMap { $0.asModelInfo() }
+        if container.contains(.models) {
+            let records = try container.decode([LMStudioRESTModelRecord].self, forKey: .models)
+            data = try records.map { record in
+                guard let model = record.asModelInfo() else {
+                    throw DecodingError.dataCorruptedError(forKey: .models, in: container, debugDescription: "Missing model identifier.")
+                }
+                return model
+            }
             return
         }
 
-        data = []
+        throw DecodingError.keyNotFound(CodingKeys.data, .init(codingPath: decoder.codingPath, debugDescription: "Missing model list."))
     }
 }
 

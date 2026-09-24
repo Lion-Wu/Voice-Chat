@@ -69,7 +69,7 @@ enum ChatEndpointProviderOrder {
             append(.openAI)
         }
         if context.host.contains("lmstudio") ||
-            (context.isLocal && (context.port == 1234 || context.path.contains("/api/v1") || context.path.contains("/api/v0"))) {
+            (context.isLocal && context.port == 1234) {
             append(.lmStudio)
         }
 

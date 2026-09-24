@@ -18,13 +18,20 @@ enum ChatEndpointBaseURL {
         while sanitized.hasSuffix("/") {
             sanitized.removeLast()
         }
-        return URLComponents(string: sanitized)
+        guard var components = URLComponents(string: sanitized),
+              let scheme = components.scheme?.lowercased(),
+              scheme == "http" || scheme == "https",
+              let host = components.host, !host.isEmpty,
+              components.port.map({ (1...65535).contains($0) }) ?? true else { return nil }
+        components.scheme = scheme
+        components.host = host.lowercased()
+        return components
     }
 
     static func normalizedAPIBaseKey(_ base: String) -> String? {
         guard var comps = normalizedComponents(from: base) else { return nil }
         comps.path = canonicalPath(comps.path)
-        return comps.url?.absoluteString.lowercased()
+        return comps.url?.absoluteString
     }
 
     static func canonicalPath(_ path: String) -> String {

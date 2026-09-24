@@ -44,10 +44,6 @@ enum ChatEndpointOfficialProviderDetector {
         }
     }
 
-    static func isChatCompletionsOnlyOpenAICompatibleHost(_ host: String) -> Bool {
-        openAICompatibleCapability(for: host.lowercased()) == .chatCompletions
-    }
-
     static func isKnownOpenAICompatibleHost(_ host: String) -> Bool {
         openAICompatibleCapability(for: host.lowercased()) != nil
     }

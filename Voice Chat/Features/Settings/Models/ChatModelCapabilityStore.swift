@@ -15,6 +15,29 @@ struct ChatModelCapabilityStore: Equatable {
     private(set) var detectedProviderHints: [String: ChatProvider]
     private(set) var detectedRequestStyleHints: [String: ChatRequestStyle]
 
+    private static let detectedFormatsDefaultsKey = "chatDetectedAPIFormats"
+
+    static func restoringPreferences(from defaults: UserDefaults = .standard) -> Self {
+        var store = Self(thinkingPreferences: decodeThinkingPreferences(from: defaults))
+        let records = defaults.dictionary(forKey: detectedFormatsDefaultsKey) as? [String: [String: String]] ?? [:]
+        for (base, record) in records {
+            guard let providerRaw = record["provider"], let provider = ChatProvider(rawValue: providerRaw),
+                  let styleRaw = record["style"], let style = ChatRequestStyle(rawValue: styleRaw) else { continue }
+            store.detectedProviderHints[base] = provider
+            store.detectedRequestStyleHints[base] = style
+        }
+        return store
+    }
+
+    func saveDetectedFormats(to defaults: UserDefaults = .standard) {
+        var records: [String: [String: String]] = [:]
+        for (base, style) in detectedRequestStyleHints {
+            guard let provider = detectedProviderHints[base] else { continue }
+            records[base] = ["provider": provider.rawValue, "style": style.rawValue]
+        }
+        defaults.set(records, forKey: Self.detectedFormatsDefaultsKey)
+    }
+
     init(
         imageInputSupport: [String: Bool] = [:],
         imageInputOverrides: [String: Bool] = [:],
@@ -120,11 +143,6 @@ struct ChatModelCapabilityStore: Equatable {
     mutating func noteDetectedRequestStyle(_ style: ChatRequestStyle, for apiBaseURL: String) {
         guard let key = ChatAPIEndpointResolver.normalizedAPIBaseKey(apiBaseURL) else { return }
         detectedRequestStyleHints[key] = style
-    }
-
-    mutating func clearDetectedRequestStyle(for apiBaseURL: String) {
-        guard let key = ChatAPIEndpointResolver.normalizedAPIBaseKey(apiBaseURL) else { return }
-        detectedRequestStyleHints.removeValue(forKey: key)
     }
 
     func detectedProvider(for apiBaseURL: String) -> ChatProvider? {

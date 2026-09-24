@@ -125,7 +125,15 @@ enum ChatAPIEndpointResolver {
         let host = (comps.host ?? "").lowercased()
         let port = comps.port
 
-        let order = providerOrder(path: path, host: host, port: port, preferred: preferredProvider)
+        var order = providerOrder(path: path, host: host, port: port, preferred: preferredProvider)
+        switch ChatEndpointCandidateFactory.explicitStyleHint(from: comps) {
+        case .anthropicMessages:
+            order.insert(.anthropic, at: 0)
+        case .lmStudioRESTV1:
+            order.insert(.lmStudio, at: 0)
+        default:
+            break
+        }
 
         var candidates: [ChatAPIEndpointCandidate] = []
         candidates.reserveCapacity(order.count + 2)

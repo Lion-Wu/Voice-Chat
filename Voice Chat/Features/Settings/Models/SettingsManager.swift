@@ -74,9 +74,7 @@ final class SettingsManager: ObservableObject {
         )
         self.modelSettings = ModelSettings(modelId: "", language: SettingsDefaults.modelLanguage, autoSplit: SettingsDefaults.autoSplit)
         self.chatSettings = ChatSettings(apiURL: SettingsDefaults.apiURL, selectedModel: "", apiKey: "")
-        self.chatModelCapabilityStore = ChatModelCapabilityStore(
-            thinkingPreferences: ChatModelCapabilityStore.decodeThinkingPreferences()
-        )
+        self.chatModelCapabilityStore = ChatModelCapabilityStore.restoringPreferences()
         self.voiceSettings = VoiceSettings(
             enableStreaming: SettingsDefaults.enableStreaming,
             provider: .gptSoVITS,

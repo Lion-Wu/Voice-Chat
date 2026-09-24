@@ -96,7 +96,9 @@ final class AppChatRuntimeCoordinator {
             .removeDuplicates()
             .dropFirst()
             .sink { [settingsManager] _ in
+                let requestID = settingsManager.chatModelCatalogRefreshCoordinator.activeRequestID
                 Task { [settingsManager] in
+                    guard settingsManager.chatModelCatalogRefreshCoordinator.activeRequestID == requestID else { return }
                     await settingsManager.refreshChatProviderHintsAndModels()
                 }
             }

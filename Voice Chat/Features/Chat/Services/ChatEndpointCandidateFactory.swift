@@ -28,15 +28,22 @@ enum ChatEndpointCandidateFactory {
     }
 
     static func explicitStyleHint(from base: URLComponents) -> ChatRequestStyle? {
-        let path = ChatEndpointBaseURL.canonicalPath(base.path).lowercased()
+        let path = ChatEndpointBaseURL.canonicalPath(base.path)
         if path.hasSuffix("/chat/completions") {
             return .openAIChatCompletions
         }
         if path.hasSuffix("/responses") {
             return .openAIResponses
         }
-        if path.hasSuffix("/api/v1/chat") {
+        if path.hasSuffix("/messages") {
+            return .anthropicMessages
+        }
+        if ChatEndpointOfficialProviderDetector.preferredRequestStyle(for: base) == nil,
+           path.hasSuffix("/api/v1/chat") || path.hasSuffix("/api/v1/models") || path.hasSuffix("/api/v1") {
             return .lmStudioRESTV1
+        }
+        if path.hasSuffix("/v1beta/openai") {
+            return .openAIChatCompletions
         }
         return nil
     }
@@ -73,7 +80,8 @@ enum ChatEndpointCandidateFactory {
                 to: &list
             )
         }
-        if let urls = ChatEndpointProviderURLFactory.openAICompatibleURLs(from: base) {
+        let openAIBase = ChatEndpointProviderURLFactory.lmStudioOpenAICompatibleBase(from: base)
+        if let urls = ChatEndpointProviderURLFactory.openAICompatibleURLs(from: openAIBase) {
             appendUnique(
                 ChatAPIEndpointCandidate(
                     provider: .lmStudio,
@@ -84,7 +92,7 @@ enum ChatEndpointCandidateFactory {
                 to: &list
             )
         }
-        if let urls = ChatEndpointProviderURLFactory.chatCompletionsCompatibleURLs(from: base) {
+        if let urls = ChatEndpointProviderURLFactory.chatCompletionsCompatibleURLs(from: openAIBase) {
             appendUnique(
                 ChatAPIEndpointCandidate(
                     provider: .lmStudio,

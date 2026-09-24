@@ -186,7 +186,6 @@ final class SettingsViewModel: ObservableObject {
         didSet {
             guard !suppression.isActive(.saveChatServerPresetFormat) else { return }
             commitChatServerEdits()
-            fetchAvailableModels()
         }
     }
 
@@ -373,21 +372,30 @@ final class SettingsViewModel: ObservableObject {
     // MARK: - Networking (List Models)
 
     func fetchAvailableModels() {
+        settingsManager.didPrefetchChatModelsOnLaunch = true
+        settingsManager.chatModelCatalogRefreshCoordinator.cancel()
         let trimmedAPIURL = apiURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        let requestedKey = chatAPIKey
+        let requestedFormat = selectedChatAPIFormatPreference
         modelCatalogController.fetch(
             request: SettingsModelCatalogRequest(
                 apiURL: trimmedAPIURL,
-                apiKey: chatAPIKey,
-                formatPreference: settingsManager.chatModelCapabilities.chatAPIFormatPreference(for: settingsManager.selectedChatServerPresetID),
+                apiKey: requestedKey,
+                formatPreference: requestedFormat,
                 detectedProvider: settingsManager.chatModelCapabilities.detectedProvider(for: trimmedAPIURL),
-                selectedModel: selectedModel
+                selectedModel: selectedModel,
+                detectedStyle: settingsManager.chatModelCapabilities.detectedRequestStyle(for: trimmedAPIURL)
             ),
             currentState: currentModelCatalogState(),
             applyState: { [weak self] state in
                 self?.applyModelCatalogState(state)
             },
             applyDetection: { [weak self] detection in
-                self?.applyDetectedModels(detection)
+                guard let self,
+                      ChatAPIEndpointResolver.normalizedAPIBaseKey(self.apiURL) == ChatAPIEndpointResolver.normalizedAPIBaseKey(trimmedAPIURL),
+                      self.chatAPIKey == requestedKey,
+                      self.selectedChatAPIFormatPreference == requestedFormat else { return }
+                self.applyDetectedModels(detection)
             }
         )
     }
@@ -564,6 +572,14 @@ final class SettingsViewModel: ObservableObject {
         guard !suppression.isActive(.autoSaves),
               !suppression.isActive(.saveChatServerPreset),
               !suppression.isActive(.saveChatServerPresetFormat) else { return true }
+        let previousSettings = settingsManager.chatSettings
+        let previousBase = ChatAPIEndpointResolver.normalizedAPIBaseKey(previousSettings.apiURL)
+            ?? previousSettings.apiURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        let nextBase = ChatAPIEndpointResolver.normalizedAPIBaseKey(apiURL)
+            ?? apiURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        let requiresModelRefresh = previousBase != nextBase
+            || previousSettings.apiKey != chatAPIKey.trimmingCharacters(in: .whitespacesAndNewlines)
+            || settingsManager.chatModelCapabilities.selectedChatAPIFormatPreference() != selectedChatAPIFormatPreference
         let didCommit = settingsManager.commitSelectedChatServerSettings(
             name: chatServerPresetName,
             apiURL: apiURL,
@@ -578,6 +594,12 @@ final class SettingsViewModel: ObservableObject {
         let presets = presetBindingController.chatServerBinding().presets
         if chatServerPresetList != presets {
             chatServerPresetList = presets
+        }
+        if requiresModelRefresh {
+            availableModels = []
+            lastFetchedModelMetadata = []
+            lastModelFetchEndpoint = nil
+            fetchAvailableModels()
         }
         return true
     }

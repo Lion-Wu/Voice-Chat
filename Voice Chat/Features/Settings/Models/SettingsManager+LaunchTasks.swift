@@ -21,17 +21,22 @@ extension SettingsManager {
     }
 
     func refreshChatProviderHintsAndModels() async {
+        let requestedSettings = chatSettings
+        let requestedFormat = chatModelCapabilities.selectedChatAPIFormatPreference()
         let rawBase = chatSettings.apiURL.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !rawBase.isEmpty else { return }
 
         guard let result = await chatModelCatalogRefreshCoordinator.refresh(
-            chatSettings: chatSettings,
-            formatPreference: chatModelCapabilities.selectedChatAPIFormatPreference(),
-            detectedProvider: chatModelCapabilities.detectedProvider(for: rawBase)
+            chatSettings: requestedSettings,
+            formatPreference: requestedFormat,
+            detectedProvider: chatModelCapabilities.detectedProvider(for: rawBase),
+            detectedStyle: chatModelCapabilities.detectedRequestStyle(for: rawBase)
         ) else { return }
 
         let currentRawBase = chatSettings.apiURL.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard ChatAPIEndpointResolver.normalizedAPIBaseKey(currentRawBase) == ChatAPIEndpointResolver.normalizedAPIBaseKey(result.rawBase) else {
+        guard ChatAPIEndpointResolver.normalizedAPIBaseKey(currentRawBase) == ChatAPIEndpointResolver.normalizedAPIBaseKey(result.rawBase),
+              chatSettings.apiKey == requestedSettings.apiKey,
+              chatModelCapabilities.selectedChatAPIFormatPreference() == requestedFormat else {
             return
         }
 

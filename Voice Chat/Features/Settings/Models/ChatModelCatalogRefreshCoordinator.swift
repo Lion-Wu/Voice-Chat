@@ -12,49 +12,57 @@ struct ChatModelCatalogRefreshResult {
 @MainActor
 final class ChatModelCatalogRefreshCoordinator {
     private let modelCatalogFetchCoordinator: ModelCatalogFetchCoordinator
-    private var activeRequestID = UUID()
-
-    private static let retryPolicy = NetworkRetryPolicy(
-        maxAttempts: 1,
-        baseDelay: 0,
-        maxDelay: 0,
-        backoffFactor: 1,
-        jitterRatio: 0
-    )
+    private(set) var activeRequestID = UUID()
+    private var task: Task<ModelCatalogFetchResult?, Never>?
 
     init(modelCatalogFetchCoordinator: ModelCatalogFetchCoordinator = ModelCatalogFetchCoordinator()) {
         self.modelCatalogFetchCoordinator = modelCatalogFetchCoordinator
     }
 
+    func cancel() {
+        activeRequestID = UUID()
+        task?.cancel()
+        task = nil
+    }
+
     func refresh(
         chatSettings: ChatSettings,
         formatPreference: ChatAPIFormatPreference,
-        detectedProvider: ChatProvider?
+        detectedProvider: ChatProvider?,
+        detectedStyle: ChatRequestStyle? = nil
     ) async -> ChatModelCatalogRefreshResult? {
+        cancel()
         let rawBase = chatSettings.apiURL.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !rawBase.isEmpty else { return nil }
 
-        let requestID = UUID()
-        activeRequestID = requestID
+        let requestID = activeRequestID
 
         let endpointCandidates = modelCatalogFetchCoordinator.modelDetectionCandidates(
             for: rawBase,
             formatPreference: formatPreference,
-            detectedProvider: detectedProvider
+            detectedProvider: detectedProvider,
+            detectedStyle: detectedStyle
         )
         guard !endpointCandidates.isEmpty else { return nil }
 
-        guard let result = try? await modelCatalogFetchCoordinator.fetchFirstAvailableCatalog(
-            from: endpointCandidates,
-            apiKey: chatSettings.apiKey,
-            initialRetryPolicy: Self.retryPolicy,
-            probeRetryPolicy: Self.retryPolicy,
-            onRetry: nil
-        ) else {
-            return nil
+        let fetchTask = Task { [modelCatalogFetchCoordinator] in
+            try? await modelCatalogFetchCoordinator.fetchFirstAvailableCatalog(
+                from: endpointCandidates,
+                apiKey: chatSettings.apiKey,
+                initialRetryPolicy: ModelCatalogFetchCoordinator.retryPolicy,
+                probeRetryPolicy: ModelCatalogFetchCoordinator.retryPolicy,
+                onRetry: nil
+            )
         }
-
+        task = fetchTask
+        let result = await withTaskCancellationHandler {
+            await fetchTask.value
+        } onCancel: {
+            fetchTask.cancel()
+        }
         guard activeRequestID == requestID else { return nil }
+        task = nil
+        guard !Task.isCancelled, let result else { return nil }
         return ChatModelCatalogRefreshResult(
             rawBase: rawBase,
             endpoint: result.endpoint,

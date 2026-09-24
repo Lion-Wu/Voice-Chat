@@ -133,6 +133,7 @@ struct SettingsModelCatalogRequest {
     var formatPreference: ChatAPIFormatPreference
     var detectedProvider: ChatProvider?
     var selectedModel: String
+    var detectedStyle: ChatRequestStyle? = nil
 }
 
 struct SettingsModelCatalogDetection {
@@ -179,7 +180,8 @@ final class SettingsModelCatalogController {
         let endpointCandidates = modelCatalogFetchCoordinator.modelDetectionCandidates(
             for: apiURL,
             formatPreference: request.formatPreference,
-            detectedProvider: request.detectedProvider
+            detectedProvider: request.detectedProvider,
+            detectedStyle: request.detectedStyle
         )
         guard !endpointCandidates.isEmpty else {
             applyState(SettingsModelCatalogState.validationFailure(
@@ -192,29 +194,20 @@ final class SettingsModelCatalogController {
             return
         }
 
-        let initialRetryPolicy = NetworkRetryPolicy(
-            maxAttempts: 2,
-            baseDelay: 0.5,
-            maxDelay: 4.0,
-            backoffFactor: 1.6,
-            jitterRatio: 0.2
-        )
-        let probeRetryPolicy = NetworkRetryPolicy(
-            maxAttempts: 1,
-            baseDelay: 0.25,
-            maxDelay: 1.0,
-            backoffFactor: 1.2,
-            jitterRatio: 0.1
-        )
-
-        task = Task { [weak self, requestID, endpointCandidates, apiURL, request, loadingState, initialRetryPolicy, probeRetryPolicy] in
+        task = Task { [weak self, requestID, endpointCandidates, apiURL, request, loadingState] in
             guard let self else { return }
             do {
                 let result = try await self.modelCatalogFetchCoordinator.fetchFirstAvailableCatalog(
                     from: endpointCandidates,
                     apiKey: request.apiKey,
-                    initialRetryPolicy: initialRetryPolicy,
-                    probeRetryPolicy: probeRetryPolicy,
+                    initialRetryPolicy: ModelCatalogFetchCoordinator.retryPolicy,
+                    probeRetryPolicy: ModelCatalogFetchCoordinator.retryPolicy,
+                    onCandidateStart: { [weak self, requestID, loadingState] in
+                        await MainActor.run {
+                            guard let self, self.activeRequestID == requestID else { return }
+                            applyState(loadingState)
+                        }
+                    },
                     onRetry: { [weak self, requestID, loadingState] candidate, nextAttempt, _, error in
                         await MainActor.run {
                             guard let self, self.activeRequestID == requestID else { return }

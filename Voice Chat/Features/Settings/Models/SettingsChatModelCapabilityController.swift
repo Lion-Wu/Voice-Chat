@@ -63,6 +63,7 @@ final class SettingsChatModelCapabilityController {
         updateStore {
             $0.noteDetectedEndpoint(endpoint, for: apiBaseURL)
         }
+        getStore().saveDetectedFormats()
     }
 
     func detectedProvider(for apiBaseURL: String) -> ChatProvider? {
