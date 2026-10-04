@@ -81,9 +81,7 @@ extension SettingsManager {
         selectedNormalSystemPromptPresetID = loadedState.selectedNormalSystemPromptPresetID
         selectedVoiceSystemPromptPresetID = loadedState.selectedVoiceSystemPromptPresetID
 
-        var capabilityStore = chatModelCapabilityStore
-        capabilityStore.replaceImageInputOverrides(loadedState.modelImageInputOverrides)
-        chatModelCapabilityStore = capabilityStore
+        chatModelCapabilityStore = loadedState.modelCapabilities
     }
 
     func saveContext(label: String) {
@@ -91,12 +89,15 @@ extension SettingsManager {
         persistence.saveContext(label: label)
     }
 
-    func saveChatModelImageInputOverrides() {
-        guard let e = entity, context != nil else { return }
-        e.modelImageInputOverrideJSON = ChatModelCapabilityStore.encodeImageInputOverrides(
-            chatModelCapabilityStore.imageInputOverrides
-        )
-        saveContext(label: "save chat model image input overrides")
+    func saveChatModelPreferences() {
+        guard let entity, context != nil else { return }
+        do {
+            try chatModelCapabilityStore.savePreferences(to: entity)
+            guard !isCoalescingPersistenceWrites else { return }
+            try persistence.saveContextOrThrow(label: "save chat model preferences")
+        } catch {
+            reportSettingsWriteFailure(error)
+        }
     }
 
     func updateModelSettings(modelId: String, language: String, autoSplit: String) {

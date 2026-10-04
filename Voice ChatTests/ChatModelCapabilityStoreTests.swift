@@ -1,6 +1,8 @@
+import SwiftData
 import XCTest
 @testable import Voice_Chat
 
+@MainActor
 final class ChatModelCapabilityStoreTests: XCTestCase {
     func testProviderReportedImageSupportOverridesManualAndIsScopedByEndpoint() {
         var store = ChatModelCapabilityStore(
@@ -90,10 +92,6 @@ final class ChatModelCapabilityStoreTests: XCTestCase {
         XCTAssertEqual(store.detectedRequestStyle(for: "https://api.anthropic.com"), .anthropicMessages)
         XCTAssertNil(store.detectedProvider(for: "https://ignored.example"))
 
-        let suiteName = "ChatModelCapabilityStoreTests.\(UUID().uuidString)"
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
-        defer { defaults.removePersistentDomain(forName: suiteName) }
-
         let capability = ModelThinkingCapability(options: [.low, .high], defaultOption: .low)
         store.setSelectedThinkingOption(
             .high,
@@ -101,11 +99,16 @@ final class ChatModelCapabilityStoreTests: XCTestCase {
             apiBaseURL: "https://api.example.com/v1",
             capability: capability
         )
-        store.saveThinkingPreferences(to: defaults, key: "thinking.preferences")
-
-        XCTAssertEqual(
-            ChatModelCapabilityStore.decodeThinkingPreferences(from: defaults, key: "thinking.preferences"),
-            store.thinkingPreferences
-        )
+        let container = try ModelContainer(for: AppSettings.self, configurations: ModelConfiguration(isStoredInMemoryOnly: true))
+        let context = ModelContext(container)
+        let settings = AppSettings()
+        context.insert(settings)
+        try store.savePreferences(to: settings)
+        try context.save()
+        let reloaded = try XCTUnwrap(ModelContext(container).fetch(FetchDescriptor<AppSettings>()).first)
+        let restored = ChatModelCapabilityStore.restoringPreferences(from: reloaded)
+        XCTAssertEqual(restored.detectedProviderHints, store.detectedProviderHints)
+        XCTAssertEqual(restored.detectedRequestStyleHints, store.detectedRequestStyleHints)
+        XCTAssertEqual(restored.thinkingPreferences, store.thinkingPreferences)
     }
 }

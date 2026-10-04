@@ -44,6 +44,6 @@ final class AppSettingsStoreTests: XCTestCase {
         XCTAssertTrue(state.hapticFeedbackEnabled)
         XCTAssertEqual(state.selectedNormalSystemPromptPresetID, normalID)
         XCTAssertEqual(state.selectedVoiceSystemPromptPresetID, voiceID)
-        XCTAssertEqual(state.modelImageInputOverrides, ["vision": true])
+        XCTAssertEqual(state.modelCapabilities.imageInputOverrides, ["vision": true])
     }
 }

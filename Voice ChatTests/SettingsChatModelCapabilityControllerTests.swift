@@ -10,7 +10,7 @@ final class SettingsChatModelCapabilityControllerTests: XCTestCase {
             getStore: { store },
             setStore: { store = $0 },
             context: { Self.context() },
-            saveImageInputOverrides: { saveCount += 1 }
+            savePreferences: { saveCount += 1 }
         )
 
         controller.setImageInputManualOverride(true, for: "local-model")
@@ -39,7 +39,7 @@ final class SettingsChatModelCapabilityControllerTests: XCTestCase {
                     presets: [preset]
                 )
             },
-            saveImageInputOverrides: {}
+            savePreferences: {}
         )
 
         XCTAssertEqual(controller.selectedChatAPIFormatPreference(), ChatAPIFormatPreference.anthropic)
@@ -52,13 +52,32 @@ final class SettingsChatModelCapabilityControllerTests: XCTestCase {
             getStore: { store },
             setStore: { store = $0 },
             context: { Self.context(apiURL: "https://models.example.com/v1") },
-            saveImageInputOverrides: {}
+            savePreferences: {}
         )
 
         controller.noteDetectedProvider(.openAI, for: "https://models.example.com/v1")
 
         XCTAssertEqual(controller.detectedProvider(for: "https://models.example.com/v1"), .openAI)
         XCTAssertNil(controller.detectedProvider(for: "https://other.example.com/v1"))
+    }
+
+    func testEndpointAndThinkingChangesRequestSettingsPersistence() throws {
+        var store = ChatModelCapabilityStore()
+        var saveCount = 0
+        let controller = SettingsChatModelCapabilityController(
+            getStore: { store }, setStore: { store = $0 }, context: { Self.context() },
+            savePreferences: { saveCount += 1 }
+        )
+        controller.noteDetectedEndpoint(ChatAPIEndpointCandidate(
+            provider: .openAI, style: .openAIChatCompletions,
+            chatURL: try XCTUnwrap(URL(string: "http://localhost:1234/v1/chat/completions")),
+            modelsURL: try XCTUnwrap(URL(string: "http://localhost:1234/v1/models"))
+        ), for: "http://localhost:1234/v1")
+        XCTAssertEqual(saveCount, 1)
+        controller.updateThinkingCapabilities(["local-model": ModelThinkingCapability(options: [.low, .high], defaultOption: .low)], for: "http://localhost:1234/v1")
+        controller.setSelectedThinkingOption(.high)
+        XCTAssertEqual(saveCount, 2)
+        XCTAssertEqual(controller.selectedThinkingOption(), .high)
     }
 
     private static func context(

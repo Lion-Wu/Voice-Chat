@@ -593,3 +593,39 @@
 "Wait for the model to finish generating a response." = "モデルが応答を生成し終わるまでお待ちください。";
 "The chat data store is not available." = "チャットのデータストアを利用できません。";
 "Build" = "ビルド番号";
+
+// Data recovery
+"Recover Data" = "データを復元";
+"Data Recovery" = "データの復元";
+"Scanning Recoverable Data..." = "復元可能なデータを検索中…";
+"Restore Recoverable Data" = "復元可能なデータを復元";
+"Recoverable" = "復元可能";
+"Unrecoverable" = "復元不可";
+"Recovered Items" = "復元可能な項目";
+"Recovery Could Not Be Completed" = "復元を完了できませんでした";
+"Your original data has not been changed." = "元のデータは変更されていません。";
+"No recoverable records were found. Your original data has not been changed." = "復元可能なレコードが見つかりませんでした。元のデータは変更されていません。";
+"Messages" = "メッセージ";
+"Chat Server Presets" = "チャットサーバープリセット";
+"Voice Server Presets" = "音声サーバープリセット";
+"Voice Presets" = "音声プリセット";
+"System Prompt Presets" = "システムプロンプトプリセット";
+"Request Metadata" = "リクエストのメタデータ";
+"Unrecoverable Items" = "復元できない項目";
+
+// Data reset confirmation
+"Reset Data?" = "データをリセットしますか？";
+"This will delete your current local chats, messages, settings, and presets. This action cannot be undone." = "現在ローカルに保存されているチャット、メッセージ、設定、プリセットが削除されます。この操作は取り消せません。";
+
+
+
+// Recovery cleanup
+"Original Data Could Not Be Deleted" = "元のデータを削除できませんでした";
+"The recovered data is in use, but some original data files could not be deleted." = "復元されたデータを使用していますが、一部の元のデータファイルを削除できませんでした。";
+
+// Raw data export and recovery confirmation
+"Export Data" = "データを書き出す";
+"Restore Data?" = "データを復元しますか？";
+"Only recoverable data will be kept. All other local data will be deleted. This cannot be undone. Export your data first if you want to keep a copy." = "復元可能なデータのみが保持され、それ以外のローカルデータは削除されます。この操作は取り消せません。コピーを残す場合は、先にデータを書き出してください。";
+"Data Export" = "データの書き出し";
+"Some content could not be recovered." = "一部の内容を復元できませんでした。";

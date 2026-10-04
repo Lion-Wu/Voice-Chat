@@ -593,3 +593,39 @@
 "Wait for the model to finish generating a response." = "Wait for the model to finish generating a response.";
 "The chat data store is not available." = "The chat data store is not available.";
 "Build" = "Build";
+
+// Data recovery
+"Recover Data" = "Recover Data";
+"Data Recovery" = "Data Recovery";
+"Scanning Recoverable Data..." = "Scanning Recoverable Data...";
+"Restore Recoverable Data" = "Restore Recoverable Data";
+"Recoverable" = "Recoverable";
+"Unrecoverable" = "Unrecoverable";
+"Recovered Items" = "Recovered Items";
+"Recovery Could Not Be Completed" = "Recovery Could Not Be Completed";
+"Your original data has not been changed." = "Your original data has not been changed.";
+"No recoverable records were found. Your original data has not been changed." = "No recoverable records were found. Your original data has not been changed.";
+"Messages" = "Messages";
+"Chat Server Presets" = "Chat Server Presets";
+"Voice Server Presets" = "Voice Server Presets";
+"Voice Presets" = "Voice Presets";
+"System Prompt Presets" = "System Prompt Presets";
+"Request Metadata" = "Request Metadata";
+"Unrecoverable Items" = "Unrecoverable Items";
+
+// Data reset confirmation
+"Reset Data?" = "Reset Data?";
+"This will delete your current local chats, messages, settings, and presets. This action cannot be undone." = "This will delete your current local chats, messages, settings, and presets. This action cannot be undone.";
+
+
+
+// Recovery cleanup
+"Original Data Could Not Be Deleted" = "Original Data Could Not Be Deleted";
+"The recovered data is in use, but some original data files could not be deleted." = "The recovered data is in use, but some original data files could not be deleted.";
+
+// Raw data export and recovery confirmation
+"Export Data" = "Export Data";
+"Restore Data?" = "Restore Data?";
+"Only recoverable data will be kept. All other local data will be deleted. This cannot be undone. Export your data first if you want to keep a copy." = "Only recoverable data will be kept. All other local data will be deleted. This cannot be undone. Export your data first if you want to keep a copy.";
+"Data Export" = "Data Export";
+"Some content could not be recovered." = "Some content could not be recovered.";

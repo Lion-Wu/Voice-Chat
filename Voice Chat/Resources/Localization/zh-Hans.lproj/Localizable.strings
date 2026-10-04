@@ -593,3 +593,39 @@
 "Wait for the model to finish generating a response." = "请等待模型完成回复。";
 "The chat data store is not available." = "聊天数据存储不可用。";
 "Build" = "构建号";
+
+// Data recovery
+"Recover Data" = "恢复数据";
+"Data Recovery" = "数据恢复";
+"Scanning Recoverable Data..." = "正在扫描可恢复的数据…";
+"Restore Recoverable Data" = "恢复可用数据";
+"Recoverable" = "可恢复";
+"Unrecoverable" = "无法恢复";
+"Recovered Items" = "可恢复的项目";
+"Recovery Could Not Be Completed" = "无法完成恢复";
+"Your original data has not been changed." = "原始数据未被更改。";
+"No recoverable records were found. Your original data has not been changed." = "未找到可恢复的记录。原始数据未被更改。";
+"Messages" = "消息";
+"Chat Server Presets" = "聊天服务器预设";
+"Voice Server Presets" = "语音服务器预设";
+"Voice Presets" = "语音预设";
+"System Prompt Presets" = "系统提示词预设";
+"Request Metadata" = "请求元数据";
+"Unrecoverable Items" = "无法恢复的项目";
+
+// Data reset confirmation
+"Reset Data?" = "重置数据？";
+"This will delete your current local chats, messages, settings, and presets. This action cannot be undone." = "这将删除当前本地的聊天、消息、设置和预设。此操作无法撤销。";
+
+
+
+// Recovery cleanup
+"Original Data Could Not Be Deleted" = "无法删除原始数据";
+"The recovered data is in use, but some original data files could not be deleted." = "已使用恢复后的数据，但部分原始数据文件未能删除。";
+
+// Raw data export and recovery confirmation
+"Export Data" = "导出数据";
+"Restore Data?" = "恢复数据？";
+"Only recoverable data will be kept. All other local data will be deleted. This cannot be undone. Export your data first if you want to keep a copy." = "仅保留可恢复的数据，其余本地数据将被删除。此操作不可撤销。如需保留副本，请先导出数据。";
+"Data Export" = "数据导出";
+"Some content could not be recovered." = "部分内容无法恢复。";

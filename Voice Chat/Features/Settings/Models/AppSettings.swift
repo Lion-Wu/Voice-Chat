@@ -8,6 +8,8 @@
 import Foundation
 import SwiftData
 
+/// Persisted application preferences. New settings belong here and are included
+/// automatically in the database export. Credentials remain in Keychain.
 @Model
 final class AppSettings {
     var id: UUID
@@ -36,6 +38,8 @@ final class AppSettings {
     // Separate selections for normal/voice chat modes.
     var selectedNormalSystemPromptPresetID: UUID?
     var selectedVoiceSystemPromptPresetID: UUID?
+    var modelThinkingPreferencesJSON: String?
+    var detectedAPIFormatsJSON: String?
     var modelImageInputOverrideJSON: String?
     var apiAdvancedSettingsJSON: String?
     var toolUseSettingsJSON: String?
@@ -56,6 +60,8 @@ final class AppSettings {
         selectedPresetID: UUID? = nil,
         selectedNormalSystemPromptPresetID: UUID? = nil,
         selectedVoiceSystemPromptPresetID: UUID? = nil,
+        modelThinkingPreferencesJSON: String? = nil,
+        detectedAPIFormatsJSON: String? = nil,
         modelImageInputOverrideJSON: String? = nil,
         apiAdvancedSettingsJSON: String? = APIAdvancedSettingsCodec.encode(SettingsDefaults.apiAdvancedSettings),
         toolUseSettingsJSON: String? = ToolUseSettingsCodec.encode(.defaults),
@@ -82,6 +88,8 @@ final class AppSettings {
         self.selectedPresetID = selectedPresetID
         self.selectedNormalSystemPromptPresetID = selectedNormalSystemPromptPresetID
         self.selectedVoiceSystemPromptPresetID = selectedVoiceSystemPromptPresetID
+        self.modelThinkingPreferencesJSON = modelThinkingPreferencesJSON
+        self.detectedAPIFormatsJSON = detectedAPIFormatsJSON
         self.modelImageInputOverrideJSON = modelImageInputOverrideJSON
         self.apiAdvancedSettingsJSON = apiAdvancedSettingsJSON
         self.toolUseSettingsJSON = toolUseSettingsJSON

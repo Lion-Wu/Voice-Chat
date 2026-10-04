@@ -386,6 +386,12 @@
 		FDFE0B252F12400000000001 /* ChatView+DerivedState.swift in Sources */ = {isa = PBXBuildFile; fileRef = FDFE0B242F12400000000001 /* ChatView+DerivedState.swift */; };
 		FDFE0B272F12400000000001 /* ChatView+SendCoordination.swift in Sources */ = {isa = PBXBuildFile; fileRef = FDFE0B262F12400000000001 /* ChatView+SendCoordination.swift */; };
 		FDFFEEE12F20000000000001 /* ChatSessionRepository.swift in Sources */ = {isa = PBXBuildFile; fileRef = FDFFEEE02F20000000000001 /* ChatSessionRepository.swift */; };
+		AE0924000000000000000001 /* RecoveryStoreReader.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE0924000000000000000002 /* RecoveryStoreReader.swift */; };
+		AE0924000000000000000101 /* StartupDataRecovery.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE0924000000000000000102 /* StartupDataRecovery.swift */; };
+		AE0924000000000000000201 /* DataRecoveryPreviewView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE0924000000000000000202 /* DataRecoveryPreviewView.swift */; };
+		AE0929000000000000000101 /* StartupDataRecoveryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE0929000000000000000102 /* StartupDataRecoveryTests.swift */; };
+		AE0930000000000000000101 /* RawDataExport.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE0930000000000000000102 /* RawDataExport.swift */; };
+		AE0930000000000000000103 /* DataExportSharePresenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE0930000000000000000104 /* DataExportSharePresenter.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -796,6 +802,12 @@
 		FDFE0B242F12400000000001 /* ChatView+DerivedState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = "ChatView+DerivedState.swift"; path = "Voice Chat/Features/Chat/Views/ChatView+DerivedState.swift"; sourceTree = SOURCE_ROOT; };
 		FDFE0B262F12400000000001 /* ChatView+SendCoordination.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = "ChatView+SendCoordination.swift"; path = "Voice Chat/Features/Chat/Views/ChatView+SendCoordination.swift"; sourceTree = SOURCE_ROOT; };
 		FDFFEEE02F20000000000001 /* ChatSessionRepository.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ChatSessionRepository.swift; path = "Voice Chat/Features/Sessions/Services/ChatSessionRepository.swift"; sourceTree = SOURCE_ROOT; };
+		AE0924000000000000000002 /* RecoveryStoreReader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = RecoveryStoreReader.swift; path = "Voice Chat/App/Startup/RecoveryStoreReader.swift"; sourceTree = SOURCE_ROOT; };
+		AE0924000000000000000102 /* StartupDataRecovery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = StartupDataRecovery.swift; path = "Voice Chat/App/Startup/StartupDataRecovery.swift"; sourceTree = SOURCE_ROOT; };
+		AE0924000000000000000202 /* DataRecoveryPreviewView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = DataRecoveryPreviewView.swift; path = "Voice Chat/App/Startup/DataRecoveryPreviewView.swift"; sourceTree = SOURCE_ROOT; };
+		AE0929000000000000000102 /* StartupDataRecoveryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = StartupDataRecoveryTests.swift; path = "Voice ChatTests/StartupDataRecoveryTests.swift"; sourceTree = SOURCE_ROOT; };
+		AE0930000000000000000102 /* RawDataExport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = RawDataExport.swift; path = "Voice Chat/App/Startup/RawDataExport.swift"; sourceTree = SOURCE_ROOT; };
+		AE0930000000000000000104 /* DataExportSharePresenter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = DataExportSharePresenter.swift; path = "Voice Chat/App/Startup/DataExportSharePresenter.swift"; sourceTree = SOURCE_ROOT; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -858,6 +870,7 @@
 		FD700000000000000000000B /* Voice ChatTests */ = {
 			isa = PBXGroup;
 			children = (
+				AE0929000000000000000102 /* StartupDataRecoveryTests.swift */,
 				FD7000000000000000000006 /* ChatEndpointResolverTests.swift */,
 				FD7000000000000000000040 /* ChatRequestBodyBuilderTests.swift */,
 				FD7000000000000000000042 /* ChatRequestPayloadProjectorTests.swift */,
@@ -951,6 +964,11 @@
 		FD9100000000000000000003 /* Startup */ = {
 			isa = PBXGroup;
 			children = (
+				AE0930000000000000000102 /* RawDataExport.swift */,
+				AE0930000000000000000104 /* DataExportSharePresenter.swift */,
+				AE0924000000000000000202 /* DataRecoveryPreviewView.swift */,
+				AE0924000000000000000102 /* StartupDataRecovery.swift */,
+				AE0924000000000000000002 /* RecoveryStoreReader.swift */,
 				FD2DD7D42F26000100000001 /* StartupDataGate.swift */,
 			);
 			path = Startup;
@@ -1732,6 +1750,11 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				AE0930000000000000000101 /* RawDataExport.swift in Sources */,
+				AE0930000000000000000103 /* DataExportSharePresenter.swift in Sources */,
+				AE0924000000000000000201 /* DataRecoveryPreviewView.swift in Sources */,
+				AE0924000000000000000101 /* StartupDataRecovery.swift in Sources */,
+				AE0924000000000000000001 /* RecoveryStoreReader.swift in Sources */,
 				A9C4B2103F8A4D2200C0DE02 /* MacCameraCaptureSheet.swift in Sources */,
 				FD0A0A102F123E0000000001 /* AppEnvironment.swift in Sources */,
 				FDFE0A112F123D0000000001 /* AppChatRuntimeCoordinator.swift in Sources */,
@@ -2046,6 +2069,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				AE0929000000000000000101 /* StartupDataRecoveryTests.swift in Sources */,
 				FD7000000000000000000007 /* ChatEndpointResolverTests.swift in Sources */,
 				FD7000000000000000000041 /* ChatRequestBodyBuilderTests.swift in Sources */,
 				FD7000000000000000000043 /* ChatRequestPayloadProjectorTests.swift in Sources */,

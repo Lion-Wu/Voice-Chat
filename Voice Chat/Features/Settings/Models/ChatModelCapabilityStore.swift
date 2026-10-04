@@ -15,11 +15,13 @@ struct ChatModelCapabilityStore: Equatable {
     private(set) var detectedProviderHints: [String: ChatProvider]
     private(set) var detectedRequestStyleHints: [String: ChatRequestStyle]
 
-    private static let detectedFormatsDefaultsKey = "chatDetectedAPIFormats"
-
-    static func restoringPreferences(from defaults: UserDefaults = .standard) -> Self {
-        var store = Self(thinkingPreferences: decodeThinkingPreferences(from: defaults))
-        let records = defaults.dictionary(forKey: detectedFormatsDefaultsKey) as? [String: [String: String]] ?? [:]
+    static func restoringPreferences(from settings: AppSettings) -> Self {
+        let rawThinking: [String: String] = decodeDictionary(settings.modelThinkingPreferencesJSON)
+        var store = Self(
+            imageInputOverrides: decodeImageInputOverrides(from: settings.modelImageInputOverrideJSON),
+            thinkingPreferences: rawThinking.compactMapValues(ModelThinkingOption.normalized)
+        )
+        let records: [String: [String: String]] = decodeDictionary(settings.detectedAPIFormatsJSON)
         for (base, record) in records {
             guard let providerRaw = record["provider"], let provider = ChatProvider(rawValue: providerRaw),
                   let styleRaw = record["style"], let style = ChatRequestStyle(rawValue: styleRaw) else { continue }
@@ -29,13 +31,20 @@ struct ChatModelCapabilityStore: Equatable {
         return store
     }
 
-    func saveDetectedFormats(to defaults: UserDefaults = .standard) {
+    func savePreferences(to settings: AppSettings) throws {
         var records: [String: [String: String]] = [:]
         for (base, style) in detectedRequestStyleHints {
             guard let provider = detectedProviderHints[base] else { continue }
             records[base] = ["provider": provider.rawValue, "style": style.rawValue]
         }
-        defaults.set(records, forKey: Self.detectedFormatsDefaultsKey)
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = .sortedKeys
+        let formats = try encoder.encode(records)
+        let thinking = try encoder.encode(thinkingPreferences.mapValues(\.rawValue))
+        let overrides = imageInputOverrides.isEmpty ? nil : String(decoding: try encoder.encode(imageInputOverrides), as: UTF8.self)
+        settings.detectedAPIFormatsJSON = String(decoding: formats, as: UTF8.self)
+        settings.modelThinkingPreferencesJSON = String(decoding: thinking, as: UTF8.self)
+        settings.modelImageInputOverrideJSON = overrides
     }
 
     init(
@@ -61,48 +70,13 @@ struct ChatModelCapabilityStore: Equatable {
         return "\(endpointKey)|\(trimmedModel)"
     }
 
-    static func decodeThinkingPreferences(
-        from defaults: UserDefaults = .standard,
-        key: String = Self.thinkingPreferencesDefaultsKey
-    ) -> [String: ModelThinkingOption] {
-        guard let raw = defaults.dictionary(forKey: key) as? [String: String] else {
-            return [:]
-        }
-
-        var output: [String: ModelThinkingOption] = [:]
-        output.reserveCapacity(raw.count)
-        for (key, value) in raw {
-            if let option = ModelThinkingOption.normalized(value) {
-                output[key] = option
-            }
-        }
-        return output
-    }
-
-    func saveThinkingPreferences(
-        to defaults: UserDefaults = .standard,
-        key: String = Self.thinkingPreferencesDefaultsKey
-    ) {
-        let encoded = thinkingPreferences.mapValues(\.rawValue)
-        defaults.set(encoded, forKey: key)
+    private static func decodeDictionary<Value: Decodable>(_ json: String?) -> [String: Value] {
+        guard let json, let data = json.data(using: .utf8) else { return [:] }
+        return (try? JSONDecoder().decode([String: Value].self, from: data)) ?? [:]
     }
 
     static func decodeImageInputOverrides(from json: String?) -> [String: Bool] {
-        guard let json, !json.isEmpty, let data = json.data(using: .utf8) else { return [:] }
-        guard let decoded = try? JSONDecoder().decode([String: Bool].self, from: data) else {
-            return [:]
-        }
-        return decoded
-    }
-
-    static func encodeImageInputOverrides(_ overrides: [String: Bool]) -> String? {
-        guard !overrides.isEmpty else { return nil }
-        guard let data = try? JSONEncoder().encode(overrides) else { return nil }
-        return String(data: data, encoding: .utf8)
-    }
-
-    mutating func replaceImageInputOverrides(_ overrides: [String: Bool]) {
-        imageInputOverrides = overrides
+        decodeDictionary(json)
     }
 
     mutating func updateImageInputSupport(_ supportByModel: [String: Bool], for apiBaseURL: String) {
@@ -252,6 +226,4 @@ struct ChatModelCapabilityStore: Equatable {
         guard let endpointKey = ChatAPIEndpointResolver.normalizedAPIBaseKey(apiBaseURL) else { return nil }
         return "\(endpointKey)|"
     }
-
-    private static let thinkingPreferencesDefaultsKey = "VoiceChat.chatModelThinkingPreferences.v1"
 }

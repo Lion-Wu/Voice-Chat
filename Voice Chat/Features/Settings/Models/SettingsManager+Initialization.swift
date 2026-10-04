@@ -25,8 +25,8 @@ extension SettingsManager {
                     selectedChatServerPresetID: selectedChatServerPresetID
                 )
             },
-            saveImageInputOverrides: { [unowned self] in
-                saveChatModelImageInputOverrides()
+            savePreferences: { [unowned self] in
+                saveChatModelPreferences()
             }
         )
     }

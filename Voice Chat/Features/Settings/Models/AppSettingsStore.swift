@@ -22,7 +22,7 @@ struct AppSettingsLoadedState: Equatable {
     let selectedPresetID: UUID?
     let selectedNormalSystemPromptPresetID: UUID?
     let selectedVoiceSystemPromptPresetID: UUID?
-    let modelImageInputOverrides: [String: Bool]
+    let modelCapabilities: ChatModelCapabilityStore
 }
 
 @MainActor
@@ -90,9 +90,52 @@ enum AppSettingsStore {
             selectedPresetID: settings.selectedPresetID,
             selectedNormalSystemPromptPresetID: settings.selectedNormalSystemPromptPresetID,
             selectedVoiceSystemPromptPresetID: settings.selectedVoiceSystemPromptPresetID,
-            modelImageInputOverrides: ChatModelCapabilityStore.decodeImageInputOverrides(
-                from: settings.modelImageInputOverrideJSON
-            )
+            modelCapabilities: ChatModelCapabilityStore.restoringPreferences(from: settings)
         )
+    }
+
+    // Damaged settings use explicit field and payload validation; normal exports
+    // preserve the entire database without maintaining a second field list.
+    nonisolated static func recover(_ row: RecoveryRow) throws -> AppSettings {
+        let model = AppSettings()
+        let defaultAdvancedSettings = APIAdvancedSettingsCodec.decode(from: model.apiAdvancedSettingsJSON, fallback: SettingsDefaults.apiAdvancedSettings)
+        let defaultToolSettings = ToolUseSettingsCodec.decode(from: model.toolUseSettingsJSON)
+        let defaultImageOverrides = ChatModelCapabilityStore.decodeImageInputOverrides(from: model.modelImageInputOverrideJSON)
+        model.id = try row.value("id")
+        model.serverAddress = row.recover("serverAddress", defaultValue: model.serverAddress)
+        model.textLang = row.recover("textLang", defaultValue: model.textLang)
+        model.modelId = row.recover("modelId", defaultValue: model.modelId)
+        model.language = row.recover("language", defaultValue: model.language)
+        model.autoSplit = row.recover("autoSplit", defaultValue: model.autoSplit)
+        model.apiURL = row.recover("apiURL", defaultValue: model.apiURL)
+        model.selectedModel = row.recover("selectedModel", defaultValue: model.selectedModel)
+        model.selectedChatServerPresetID = row.recover("selectedChatServerPresetID", defaultValue: model.selectedChatServerPresetID)
+        model.selectedVoiceServerPresetID = row.recover("selectedVoiceServerPresetID", defaultValue: model.selectedVoiceServerPresetID)
+        model.enableStreaming = row.recover("enableStreaming", defaultValue: model.enableStreaming)
+        model.ttsProviderRawValue = row.recover("ttsProviderRawValue", defaultValue: model.ttsProviderRawValue)
+        model.appleSpeechVoiceIdentifier = row.recover("appleSpeechVoiceIdentifier", defaultValue: model.appleSpeechVoiceIdentifier)
+        model.personalVoiceIdentifier = row.recover("personalVoiceIdentifier", defaultValue: model.personalVoiceIdentifier)
+        model.developerModeEnabled = row.recover("developerModeEnabled", defaultValue: model.developerModeEnabled)
+        model.hapticFeedbackEnabled = row.recover("hapticFeedbackEnabled", defaultValue: model.hapticFeedbackEnabled)
+        model.selectedPresetID = row.recover("selectedPresetID", defaultValue: model.selectedPresetID)
+        model.selectedNormalSystemPromptPresetID = row.recover("selectedNormalSystemPromptPresetID", defaultValue: model.selectedNormalSystemPromptPresetID)
+        model.selectedVoiceSystemPromptPresetID = row.recover("selectedVoiceSystemPromptPresetID", defaultValue: model.selectedVoiceSystemPromptPresetID)
+        model.modelThinkingPreferencesJSON = row.recover("modelThinkingPreferencesJSON", defaultValue: model.modelThinkingPreferencesJSON)
+        model.detectedAPIFormatsJSON = row.recover("detectedAPIFormatsJSON", defaultValue: model.detectedAPIFormatsJSON)
+        model.modelImageInputOverrideJSON = row.recover("modelImageInputOverrideJSON", defaultValue: model.modelImageInputOverrideJSON)
+        model.apiAdvancedSettingsJSON = row.recover("apiAdvancedSettingsJSON", defaultValue: model.apiAdvancedSettingsJSON)
+        model.toolUseSettingsJSON = row.recover("toolUseSettingsJSON", defaultValue: model.toolUseSettingsJSON)
+        model.apiAdvancedSettingsJSON = try row.validJSON(
+            model.apiAdvancedSettingsJSON, defaultValue: defaultAdvancedSettings
+        )
+        model.toolUseSettingsJSON = try row.validJSON(model.toolUseSettingsJSON, defaultValue: defaultToolSettings)
+        model.modelImageInputOverrideJSON = try row.validJSON(model.modelImageInputOverrideJSON, defaultValue: defaultImageOverrides)
+        if let value = model.modelThinkingPreferencesJSON {
+            model.modelThinkingPreferencesJSON = try row.validJSON(value, defaultValue: [String: String]())
+        }
+        if let value = model.detectedAPIFormatsJSON {
+            model.detectedAPIFormatsJSON = try row.validJSON(value, defaultValue: [String: [String: String]]())
+        }
+        return model
     }
 }

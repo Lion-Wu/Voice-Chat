@@ -18,18 +18,18 @@ final class SettingsChatModelCapabilityController {
     private let getStore: () -> ChatModelCapabilityStore
     private let setStore: (ChatModelCapabilityStore) -> Void
     private let context: () -> SettingsChatModelCapabilityContext
-    private let saveImageInputOverrides: () -> Void
+    private let savePreferences: () -> Void
 
     init(
         getStore: @escaping () -> ChatModelCapabilityStore,
         setStore: @escaping (ChatModelCapabilityStore) -> Void,
         context: @escaping () -> SettingsChatModelCapabilityContext,
-        saveImageInputOverrides: @escaping () -> Void
+        savePreferences: @escaping () -> Void
     ) {
         self.getStore = getStore
         self.setStore = setStore
         self.context = context
-        self.saveImageInputOverrides = saveImageInputOverrides
+        self.savePreferences = savePreferences
     }
 
     func updateImageInputSupport(_ supportByModel: [String: Bool], for apiBaseURL: String) {
@@ -63,7 +63,7 @@ final class SettingsChatModelCapabilityController {
         updateStore {
             $0.noteDetectedEndpoint(endpoint, for: apiBaseURL)
         }
-        getStore().saveDetectedFormats()
+        savePreferences()
     }
 
     func detectedProvider(for apiBaseURL: String) -> ChatProvider? {
@@ -98,7 +98,7 @@ final class SettingsChatModelCapabilityController {
         updateStore {
             $0.setImageInputManualOverride(enabled, for: modelIdentifier)
         }
-        saveImageInputOverrides()
+        savePreferences()
     }
 
     func isImageInputSupportUnknown(for modelIdentifier: String) -> Bool {
@@ -121,14 +121,14 @@ final class SettingsChatModelCapabilityController {
         var nextFacade = facade
         guard nextFacade.setSelectedThinkingOption(option, for: modelIdentifier) else { return }
         setStore(nextFacade.store)
-        nextFacade.store.saveThinkingPreferences()
+        savePreferences()
     }
 
     func toggleSelectedThinking(for modelIdentifier: String? = nil) {
         var nextFacade = facade
         guard nextFacade.toggleSelectedThinking(for: modelIdentifier) else { return }
         setStore(nextFacade.store)
-        nextFacade.store.saveThinkingPreferences()
+        savePreferences()
     }
 
     private var facade: ChatModelCapabilityFacade {

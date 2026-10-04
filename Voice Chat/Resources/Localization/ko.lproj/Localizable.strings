@@ -593,3 +593,39 @@
 "Wait for the model to finish generating a response." = "모델이 응답 생성을 완료할 때까지 기다려 주세요.";
 "The chat data store is not available." = "채팅 데이터 저장소를 사용할 수 없습니다.";
 "Build" = "빌드 번호";
+
+// Data recovery
+"Recover Data" = "데이터 복구";
+"Data Recovery" = "데이터 복구";
+"Scanning Recoverable Data..." = "복구 가능한 데이터 검색 중…";
+"Restore Recoverable Data" = "복구 가능한 데이터 복원";
+"Recoverable" = "복구 가능";
+"Unrecoverable" = "복구 불가";
+"Recovered Items" = "복구 가능한 항목";
+"Recovery Could Not Be Completed" = "복구를 완료할 수 없습니다";
+"Your original data has not been changed." = "원본 데이터는 변경되지 않았습니다.";
+"No recoverable records were found. Your original data has not been changed." = "복구 가능한 기록을 찾지 못했습니다. 원본 데이터는 변경되지 않았습니다.";
+"Messages" = "메시지";
+"Chat Server Presets" = "채팅 서버 프리셋";
+"Voice Server Presets" = "음성 서버 프리셋";
+"Voice Presets" = "음성 프리셋";
+"System Prompt Presets" = "시스템 프롬프트 프리셋";
+"Request Metadata" = "요청 메타데이터";
+"Unrecoverable Items" = "복구 불가능한 항목";
+
+// Data reset confirmation
+"Reset Data?" = "데이터를 초기화할까요?";
+"This will delete your current local chats, messages, settings, and presets. This action cannot be undone." = "현재 로컬에 저장된 채팅, 메시지, 설정 및 프리셋이 삭제됩니다. 이 작업은 되돌릴 수 없습니다.";
+
+
+
+// Recovery cleanup
+"Original Data Could Not Be Deleted" = "원본 데이터를 삭제할 수 없습니다";
+"The recovered data is in use, but some original data files could not be deleted." = "복구된 데이터를 사용 중이지만 일부 원본 데이터 파일을 삭제하지 못했습니다.";
+
+// Raw data export and recovery confirmation
+"Export Data" = "데이터 내보내기";
+"Restore Data?" = "데이터를 복구할까요?";
+"Only recoverable data will be kept. All other local data will be deleted. This cannot be undone. Export your data first if you want to keep a copy." = "복구 가능한 데이터만 유지되고 나머지 로컬 데이터는 삭제됩니다. 이 작업은 되돌릴 수 없습니다. 사본을 보관하려면 먼저 데이터를 내보내세요.";
+"Data Export" = "데이터 내보내기";
+"Some content could not be recovered." = "일부 내용을 복구할 수 없습니다.";

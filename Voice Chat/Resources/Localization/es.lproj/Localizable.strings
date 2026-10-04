@@ -593,3 +593,39 @@
 "Wait for the model to finish generating a response." = "Espera a que el modelo termine de generar una respuesta.";
 "The chat data store is not available." = "El almacén de datos de los chats no está disponible.";
 "Build" = "Número de compilación";
+
+// Data recovery
+"Recover Data" = "Recuperar datos";
+"Data Recovery" = "Recuperación de datos";
+"Scanning Recoverable Data..." = "Buscando datos recuperables…";
+"Restore Recoverable Data" = "Restaurar datos recuperables";
+"Recoverable" = "Recuperables";
+"Unrecoverable" = "Irrecuperables";
+"Recovered Items" = "Elementos recuperables";
+"Recovery Could Not Be Completed" = "No se pudo completar la recuperación";
+"Your original data has not been changed." = "Los datos originales no se han modificado.";
+"No recoverable records were found. Your original data has not been changed." = "No se encontraron registros recuperables. Los datos originales no se han modificado.";
+"Messages" = "Mensajes";
+"Chat Server Presets" = "Preajustes del servidor de chat";
+"Voice Server Presets" = "Preajustes del servidor de voz";
+"Voice Presets" = "Preajustes de voz";
+"System Prompt Presets" = "Preajustes de instrucciones del sistema";
+"Request Metadata" = "Metadatos de solicitudes";
+"Unrecoverable Items" = "Elementos irrecuperables";
+
+// Data reset confirmation
+"Reset Data?" = "¿Restablecer los datos?";
+"This will delete your current local chats, messages, settings, and presets. This action cannot be undone." = "Se eliminarán tus chats, mensajes, ajustes y preajustes locales actuales. Esta acción no se puede deshacer.";
+
+
+
+// Recovery cleanup
+"Original Data Could Not Be Deleted" = "No se pudieron eliminar los datos originales";
+"The recovered data is in use, but some original data files could not be deleted." = "Se están usando los datos recuperados, pero no se pudieron eliminar algunos archivos de datos originales.";
+
+// Raw data export and recovery confirmation
+"Export Data" = "Exportar datos";
+"Restore Data?" = "¿Restaurar los datos?";
+"Only recoverable data will be kept. All other local data will be deleted. This cannot be undone. Export your data first if you want to keep a copy." = "Solo se conservarán los datos recuperables. Los demás datos locales se eliminarán. Esta acción no se puede deshacer. Si quieres conservar una copia, exporta primero tus datos.";
+"Data Export" = "Exportación de datos";
+"Some content could not be recovered." = "Parte del contenido no se ha podido recuperar.";

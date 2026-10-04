@@ -593,3 +593,39 @@
 "Wait for the model to finish generating a response." = "Warte, bis das Modell die Antwort fertig generiert hat.";
 "The chat data store is not available." = "Der Chat-Datenspeicher ist nicht verfügbar.";
 "Build" = "Build-Nummer";
+
+// Data recovery
+"Recover Data" = "Daten wiederherstellen";
+"Data Recovery" = "Datenwiederherstellung";
+"Scanning Recoverable Data..." = "Wiederherstellbare Daten werden gesucht …";
+"Restore Recoverable Data" = "Verfügbare Daten wiederherstellen";
+"Recoverable" = "Wiederherstellbar";
+"Unrecoverable" = "Nicht wiederherstellbar";
+"Recovered Items" = "Wiederherstellbare Einträge";
+"Recovery Could Not Be Completed" = "Wiederherstellung fehlgeschlagen";
+"Your original data has not been changed." = "Die ursprünglichen Daten wurden nicht verändert.";
+"No recoverable records were found. Your original data has not been changed." = "Keine wiederherstellbaren Datensätze gefunden. Die ursprünglichen Daten wurden nicht verändert.";
+"Messages" = "Nachrichten";
+"Chat Server Presets" = "Chatserver-Voreinstellungen";
+"Voice Server Presets" = "Sprachserver-Voreinstellungen";
+"Voice Presets" = "Sprachvoreinstellungen";
+"System Prompt Presets" = "Systemprompt-Voreinstellungen";
+"Request Metadata" = "Anfragemetadaten";
+"Unrecoverable Items" = "Nicht wiederherstellbare Einträge";
+
+// Data reset confirmation
+"Reset Data?" = "Daten zurücksetzen?";
+"This will delete your current local chats, messages, settings, and presets. This action cannot be undone." = "Dadurch werden deine aktuellen lokalen Chats, Nachrichten, Einstellungen und Voreinstellungen gelöscht. Diese Aktion kann nicht rückgängig gemacht werden.";
+
+
+
+// Recovery cleanup
+"Original Data Could Not Be Deleted" = "Ursprüngliche Daten konnten nicht gelöscht werden";
+"The recovered data is in use, but some original data files could not be deleted." = "Die wiederhergestellten Daten werden verwendet, aber einige ursprüngliche Datendateien konnten nicht gelöscht werden.";
+
+// Raw data export and recovery confirmation
+"Export Data" = "Daten exportieren";
+"Restore Data?" = "Daten wiederherstellen?";
+"Only recoverable data will be kept. All other local data will be deleted. This cannot be undone. Export your data first if you want to keep a copy." = "Nur wiederherstellbare Daten bleiben erhalten. Alle anderen lokalen Daten werden gelöscht. Dies kann nicht rückgängig gemacht werden. Exportiere zuerst deine Daten, wenn du eine Kopie behalten möchtest.";
+"Data Export" = "Datenexport";
+"Some content could not be recovered." = "Einige Inhalte konnten nicht wiederhergestellt werden.";

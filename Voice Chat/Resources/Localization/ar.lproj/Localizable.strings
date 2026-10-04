@@ -593,3 +593,39 @@
 "Wait for the model to finish generating a response." = "انتظر حتى ينتهي النموذج من إنشاء الرد.";
 "The chat data store is not available." = "مخزن بيانات المحادثات غير متاح.";
 "Build" = "رقم البناء";
+
+// Data recovery
+"Recover Data" = "استرداد البيانات";
+"Data Recovery" = "استرداد البيانات";
+"Scanning Recoverable Data..." = "جارٍ البحث عن البيانات القابلة للاسترداد…";
+"Restore Recoverable Data" = "استعادة البيانات القابلة للاسترداد";
+"Recoverable" = "قابل للاسترداد";
+"Unrecoverable" = "غير قابل للاسترداد";
+"Recovered Items" = "العناصر القابلة للاسترداد";
+"Recovery Could Not Be Completed" = "تعذر إكمال الاسترداد";
+"Your original data has not been changed." = "لم تتغير بياناتك الأصلية.";
+"No recoverable records were found. Your original data has not been changed." = "لم يتم العثور على سجلات قابلة للاسترداد. لم تتغير بياناتك الأصلية.";
+"Messages" = "الرسائل";
+"Chat Server Presets" = "إعدادات خادم الدردشة المسبقة";
+"Voice Server Presets" = "إعدادات خادم الصوت المسبقة";
+"Voice Presets" = "الإعدادات الصوتية المسبقة";
+"System Prompt Presets" = "إعدادات تعليمات النظام المسبقة";
+"Request Metadata" = "البيانات الوصفية للطلبات";
+"Unrecoverable Items" = "العناصر غير القابلة للاسترداد";
+
+// Data reset confirmation
+"Reset Data?" = "إعادة تعيين البيانات؟";
+"This will delete your current local chats, messages, settings, and presets. This action cannot be undone." = "سيؤدي هذا إلى حذف المحادثات والرسائل والإعدادات والإعدادات المسبقة المحلية الحالية. لا يمكن التراجع عن هذا الإجراء.";
+
+
+
+// Recovery cleanup
+"Original Data Could Not Be Deleted" = "تعذر حذف البيانات الأصلية";
+"The recovered data is in use, but some original data files could not be deleted." = "يتم استخدام البيانات المستردة، ولكن تعذر حذف بعض ملفات البيانات الأصلية.";
+
+// Raw data export and recovery confirmation
+"Export Data" = "تصدير البيانات";
+"Restore Data?" = "استعادة البيانات؟";
+"Only recoverable data will be kept. All other local data will be deleted. This cannot be undone. Export your data first if you want to keep a copy." = "سيتم الاحتفاظ بالبيانات القابلة للاستعادة فقط، وحذف جميع البيانات المحلية الأخرى. لا يمكن التراجع عن هذا الإجراء. صدّر بياناتك أولاً إذا أردت الاحتفاظ بنسخة.";
+"Data Export" = "تصدير البيانات";
+"Some content could not be recovered." = "تعذّر استعادة بعض المحتوى.";

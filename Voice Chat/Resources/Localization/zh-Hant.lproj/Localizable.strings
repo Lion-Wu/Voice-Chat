@@ -593,3 +593,39 @@
 "Wait for the model to finish generating a response." = "請等待模型完成回覆。";
 "The chat data store is not available." = "聊天資料儲存空間無法使用。";
 "Build" = "組建編號";
+
+// Data recovery
+"Recover Data" = "復原資料";
+"Data Recovery" = "資料復原";
+"Scanning Recoverable Data..." = "正在掃描可復原的資料…";
+"Restore Recoverable Data" = "復原可用資料";
+"Recoverable" = "可復原";
+"Unrecoverable" = "無法復原";
+"Recovered Items" = "可復原的項目";
+"Recovery Could Not Be Completed" = "無法完成復原";
+"Your original data has not been changed." = "原始資料未被更改。";
+"No recoverable records were found. Your original data has not been changed." = "找不到可復原的記錄。原始資料未被更改。";
+"Messages" = "訊息";
+"Chat Server Presets" = "聊天伺服器預設";
+"Voice Server Presets" = "語音伺服器預設";
+"Voice Presets" = "語音預設";
+"System Prompt Presets" = "系統提示詞預設";
+"Request Metadata" = "請求中繼資料";
+"Unrecoverable Items" = "無法復原的項目";
+
+// Data reset confirmation
+"Reset Data?" = "重置資料？";
+"This will delete your current local chats, messages, settings, and presets. This action cannot be undone." = "這將刪除目前本機的聊天、訊息、設定和預設。此操作無法復原。";
+
+
+
+// Recovery cleanup
+"Original Data Could Not Be Deleted" = "無法刪除原始資料";
+"The recovered data is in use, but some original data files could not be deleted." = "已使用復原後的資料，但部分原始資料檔案未能刪除。";
+
+// Raw data export and recovery confirmation
+"Export Data" = "匯出資料";
+"Restore Data?" = "復原資料？";
+"Only recoverable data will be kept. All other local data will be deleted. This cannot be undone. Export your data first if you want to keep a copy." = "僅保留可復原的資料，其餘本機資料將被刪除。此操作無法復原。如需保留副本，請先匯出資料。";
+"Data Export" = "資料匯出";
+"Some content could not be recovered." = "部分內容無法復原。";
